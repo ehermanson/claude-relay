@@ -47,7 +47,7 @@ export class AuthManager {
         }
       }
 
-      this.config.logger.info(`Loaded ${this.sessions.size} session(s) from ${filePath}`);
+      this.config.logger.debug(`Loaded ${this.sessions.size} session(s) from ${filePath}`);
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         // File doesn't exist yet — that's fine, first run

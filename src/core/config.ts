@@ -7,7 +7,7 @@
 
 import { join } from "path";
 import { homedir } from "os";
-import type { Logger } from "./logger.js";
+import { defaultLogger, type Logger } from "./logger.js";
 
 /**
  * Core configuration — the subset needed by ClaudeProcess and InstanceManager.
@@ -46,7 +46,7 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
     dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? false,
     processTimeout: options.processTimeout ?? 5 * 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
-    logger: options.logger ?? console,
+    logger: options.logger ?? defaultLogger,
     dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
     manifestFile: options.manifestFile,
   };

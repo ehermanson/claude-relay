@@ -62,9 +62,9 @@ const relay = createRelay({
 relay
   .start()
   .then(() => {
-    console.log(`\n  Claude Relay running at http://localhost:${port}`);
-
-    if (enableTunnel) {
+    if (process.env.DEV) {
+      console.log(`Claude Relay UI at http://localhost:5173\n`);
+    } else if (enableTunnel) {
       startTunnel(port);
     } else {
       console.log(`  Expose with: TUNNEL=true RELAY_PASSWORD=... npm start\n`);

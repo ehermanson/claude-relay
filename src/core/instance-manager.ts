@@ -401,7 +401,7 @@ function getGitInfo(dir: string): { branch: string; isWorktree: boolean } | null
 
   let info: { branch: string; isWorktree: boolean } | null = null;
   try {
-    const opts = { cwd: dir, timeout: 2000, encoding: "utf8" as const };
+    const opts = { cwd: dir, timeout: 2000, encoding: "utf8" as const, stdio: "pipe" as const };
     const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts).trim();
     // Detect worktrees: in a worktree, --git-dir points to main-repo/.git/worktrees/<name>
     // while --git-common-dir points to main-repo/.git. In the main repo they are equal.
@@ -1394,7 +1394,7 @@ export class InstanceManager extends EventEmitter {
   startDiscovery(): void {
     this.discoverExisting();
     this.discoveryInterval = setInterval(() => this.discoverExisting(), DISCOVERY_INTERVAL);
-    this.baseConfig.logger.info("[InstanceManager] Session discovery started");
+    this.baseConfig.logger.debug("[InstanceManager] Session discovery started");
   }
 
   stopDiscovery(): void {
@@ -1553,6 +1553,9 @@ export class InstanceManager extends EventEmitter {
   }
 
   private removeStaleExternals(activeJsonlPaths: Set<string>): void {
+    let staleCount = 0;
+    let endedCount = 0;
+
     for (const [instanceId, instance] of this.instances) {
       if (!instance.externalState) continue;
 
@@ -1581,9 +1584,7 @@ export class InstanceManager extends EventEmitter {
       this.staleCounts.set(instanceId, count);
 
       if (count < STALE_THRESHOLD) {
-        this.baseConfig.logger.debug(
-          `[InstanceManager] External session "${instance.info.name}" not found in ps (${count}/${STALE_THRESHOLD})`,
-        );
+        staleCount++;
         continue;
       }
 
@@ -1604,9 +1605,16 @@ export class InstanceManager extends EventEmitter {
       if (instance.sessionId) {
         this.db.updateLastActivity(instance.sessionId, instance.info.lastActivityAt);
       }
-      this.baseConfig.logger.info(
-        `[InstanceManager] External session ended: "${instance.info.name}"`,
+      endedCount++;
+    }
+
+    if (staleCount > 0) {
+      this.baseConfig.logger.debug(
+        `[InstanceManager] ${staleCount} external session(s) not found in ps`,
       );
+    }
+    if (endedCount > 0) {
+      this.baseConfig.logger.info(`[InstanceManager] ${endedCount} external session(s) ended`);
     }
   }
 
@@ -1636,7 +1644,7 @@ export class InstanceManager extends EventEmitter {
     this.setStatus(instance, "idle");
     this.dbSave(instance);
 
-    this.baseConfig.logger.info(
+    this.baseConfig.logger.debug(
       `[InstanceManager] Upgraded restored session "${instance.info.name}" to active`,
     );
   }

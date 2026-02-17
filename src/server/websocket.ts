@@ -140,7 +140,7 @@ export function createWebSocketServer(
     }
 
     const truncatedId = truncateSessionId(session.id);
-    log.info(`WebSocket connected: session ${truncatedId}`);
+    log.debug(`WebSocket connected: session ${truncatedId}`);
 
     // Initialize subscription tracking and heartbeat
     subscriptions.set(ws, new Set());
@@ -355,7 +355,7 @@ export function createWebSocketServer(
     });
 
     ws.on("close", () => {
-      log.info(`WebSocket disconnected: session ${truncatedId}`);
+      log.debug(`WebSocket disconnected: session ${truncatedId}`);
       subscriptions.delete(ws);
       alive.delete(ws);
     });

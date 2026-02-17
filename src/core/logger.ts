@@ -12,6 +12,17 @@ export interface Logger {
   debug(...args: unknown[]): void;
 }
 
+/**
+ * Default logger — prints info/warn/error, suppresses debug.
+ * Set DEBUG=1 to enable debug output.
+ */
+export const defaultLogger: Logger = {
+  info: console.info.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+  debug: process.env.DEBUG ? console.debug.bind(console) : () => {},
+};
+
 /** A logger that discards all output. */
 export const noopLogger: Logger = {
   info() {},

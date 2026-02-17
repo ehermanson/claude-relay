@@ -92,10 +92,10 @@ export class ClaudeProcess extends EventEmitter {
     this.resumeSessionId = options?.resumeSessionId ?? null;
     this.claudePath = this.findClaudeBinary();
     this.cwd = config.workingDirectory;
-    config.logger.info(`[Claude] Binary: ${this.claudePath}`);
-    config.logger.info(`[Claude] Working directory: ${this.cwd}`);
+    config.logger.debug(`[Claude] Binary: ${this.claudePath}`);
+    config.logger.debug(`[Claude] Working directory: ${this.cwd}`);
     if (this.resumeSessionId) {
-      config.logger.info(`[Claude] Resuming session: ${this.resumeSessionId}`);
+      config.logger.debug(`[Claude] Resuming session: ${this.resumeSessionId}`);
     }
   }
 

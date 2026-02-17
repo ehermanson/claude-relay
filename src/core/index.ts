@@ -24,7 +24,7 @@ export type { CoreConfig, CoreOptions } from "./config.js";
 export { resolveCoreConfig } from "./config.js";
 
 export type { Logger } from "./logger.js";
-export { noopLogger } from "./logger.js";
+export { defaultLogger, noopLogger } from "./logger.js";
 
 export { SessionDB } from "./db.js";
 export type { SessionRow } from "./db.js";

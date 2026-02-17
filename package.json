@@ -27,7 +27,7 @@
     "build:server": "tsc",
     "build:ui": "cd ui && npm run build",
     "start": "node dist/bin.js",
-    "dev": "concurrently -n srv,tsc,ui \"node --watch dist/bin.js\" \"tsc --watch\" \"cd ui && npm run dev\"",
+    "dev": "tsc && concurrently -n srv,tsc,ui \"DEV=1 node --watch dist/bin.js\" \"tsc --watch --preserveWatchOutput\" \"cd ui && npm run dev\"",
     "test": "node --test test/*.test.js",
     "fmt": "oxfmt src/ ui/src/",
     "fmt:check": "oxfmt --check src/ ui/src/",

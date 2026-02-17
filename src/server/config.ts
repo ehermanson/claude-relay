@@ -7,6 +7,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CoreConfig } from "../core/config.js";
+import { defaultLogger } from "../core/logger.js";
 
 /**
  * Fully resolved server configuration (all fields required).
@@ -50,7 +51,7 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     processTimeout: options.processTimeout ?? 5 * 60 * 1000,
     workingDirectory: options.workingDirectory ?? options.defaultWorkingDirectory ?? process.cwd(),
     serveUI: options.serveUI ?? true,
-    logger: options.logger ?? console,
+    logger: options.logger ?? defaultLogger,
     rateLimitMax: options.rateLimitMax ?? 5,
     rateLimitWindow: options.rateLimitWindow ?? 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
