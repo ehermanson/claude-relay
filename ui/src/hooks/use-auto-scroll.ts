@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useEffect } from "react";
 
 export function useAutoScroll<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -6,12 +6,12 @@ export function useAutoScroll<T extends HTMLElement>() {
   const isAutoScrolling = useRef(false);
   const rafId = useRef<number | null>(null);
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = () => {
     const el = ref.current;
     if (!el) return;
     isAutoScrolling.current = true;
     el.scrollTop = el.scrollHeight;
-  }, []);
+  };
 
   // Track user scroll intent — ignore programmatic scrolls
   useEffect(() => {
@@ -69,11 +69,11 @@ export function useAutoScroll<T extends HTMLElement>() {
     };
   }, []);
 
-  const onContentChange = useCallback(() => {
+  const onContentChange = () => {
     if (stickToBottom.current) {
       scrollToBottom();
     }
-  }, [scrollToBottom]);
+  };
 
   return { ref, scrollToBottom, onContentChange };
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -96,7 +96,7 @@ export function ImageThumbnail({
 function CopyButton({ preRef }: { preRef: React.RefObject<HTMLPreElement | null> }) {
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  const handleCopy = useCallback(() => {
+  const handleCopy = () => {
     const code = preRef.current?.querySelector("code");
     const text = code?.textContent || preRef.current?.textContent || "";
     navigator.clipboard.writeText(text).then(
@@ -119,7 +119,7 @@ function CopyButton({ preRef }: { preRef: React.RefObject<HTMLPreElement | null>
         }, 1500);
       },
     );
-  }, [preRef]);
+  };
 
   return (
     <button ref={btnRef} className="code-copy-btn" onClick={handleCopy}>
@@ -181,19 +181,19 @@ function PreBlock({
   );
 }
 
+const REMARK_PLUGINS = [remarkGfm];
+const MD_COMPONENTS = {
+  code: CodeBlock,
+  pre: PreBlock,
+  img: ImageThumbnail,
+};
+
 export function MarkdownContent({ text }: MarkdownContentProps) {
   const processed = preprocessImages(text);
 
   return (
     <div className="markdown-content">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          code: CodeBlock,
-          pre: PreBlock,
-          img: ImageThumbnail,
-        }}
-      >
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MD_COMPONENTS}>
         {processed}
       </ReactMarkdown>
     </div>

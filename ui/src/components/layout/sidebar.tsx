@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useWS } from "../../context/websocket-context";
+import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
 import { SidebarItem } from "./sidebar-item";
 import { ThemeToggle } from "../ui/theme-toggle";
@@ -17,7 +17,8 @@ import type { InstanceInfo } from "@shared/types";
 const INITIAL_SHOW_COUNT = 15;
 
 export function Sidebar() {
-  const { isConnected, instances, send } = useWS();
+  const { send } = useWSMethods();
+  const { isConnected, instances } = useWSState();
   const { logout } = useAuthContext();
   const navigate = useNavigate();
   const { id: currentId, projectId: currentProjectId } = useParams({ strict: false }) as {
@@ -48,7 +49,7 @@ export function Sidebar() {
     }
   });
 
-  const toggleActiveOnly = useCallback(() => {
+  const toggleActiveOnly = () => {
     setActiveOnly((prev) => {
       const next = !prev;
       try {
@@ -58,7 +59,7 @@ export function Sidebar() {
       }
       return next;
     });
-  }, []);
+  };
 
   // Navigate to newly created instance
   useEffect(() => {
@@ -76,105 +77,78 @@ export function Sidebar() {
   }, [instances, navigate]);
 
   // Filter instances
-  const filteredInstances = useMemo(() => {
-    let list = instances;
-    if (activeOnly) {
-      list = list.filter((i) => i.status !== "stopped");
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      list = list.filter((i) => i.name.toLowerCase().includes(q));
-    }
-    return list;
-  }, [instances, activeOnly, searchQuery]);
+  let filteredInstances = instances;
+  if (activeOnly) {
+    filteredInstances = filteredInstances.filter((i) => i.status !== "stopped");
+  }
+  if (searchQuery.trim()) {
+    const q = searchQuery.trim().toLowerCase();
+    filteredInstances = filteredInstances.filter((i) => i.name.toLowerCase().includes(q));
+  }
 
   const isSearching = searchQuery.trim().length > 0;
 
   // Group instances by working directory, split into git and non-git
-  const { gitGroups, systemGroups } = useMemo(() => {
-    const map = new Map<string, InstanceInfo[]>();
-    for (const inst of filteredInstances) {
-      const dir = inst.workingDirectory;
-      if (!map.has(dir)) map.set(dir, []);
-      map.get(dir)!.push(inst);
+  const groupMap = new Map<string, InstanceInfo[]>();
+  for (const inst of filteredInstances) {
+    const dir = inst.workingDirectory;
+    if (!groupMap.has(dir)) groupMap.set(dir, []);
+    groupMap.get(dir)!.push(inst);
+  }
+  // Sort instances within each group by most recent activity
+  for (const group of groupMap.values()) {
+    group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  }
+  // Split into git and non-git
+  const gitGroups: [string, InstanceInfo[]][] = [];
+  const systemGroups: [string, InstanceInfo[]][] = [];
+  for (const [dir, group] of groupMap.entries()) {
+    if (group.some((i) => i.gitInfo)) {
+      gitGroups.push([dir, group]);
+    } else {
+      systemGroups.push([dir, group]);
     }
-    // Sort instances within each group by most recent activity
-    for (const group of map.values()) {
-      group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
-    }
-    // Split into git and non-git
-    const git: [string, InstanceInfo[]][] = [];
-    const system: [string, InstanceInfo[]][] = [];
-    for (const [dir, group] of map.entries()) {
-      if (group.some((i) => i.gitInfo)) {
-        git.push([dir, group]);
-      } else {
-        system.push([dir, group]);
-      }
-    }
-    // Sort each by most recent activity
-    git.sort(([, a], [, b]) => b[0].lastActivityAt - a[0].lastActivityAt);
-    system.sort(([, a], [, b]) => b[0].lastActivityAt - a[0].lastActivityAt);
-    return { gitGroups: git, systemGroups: system };
-  }, [filteredInstances]);
+  }
+  // Sort each by most recent activity
+  gitGroups.sort(([, a], [, b]) => b[0].lastActivityAt - a[0].lastActivityAt);
+  systemGroups.sort(([, a], [, b]) => b[0].lastActivityAt - a[0].lastActivityAt);
 
   // Build a sessionId→instance lookup for parent linking
-  const sessionIdMap = useMemo(() => {
-    const m = new Map<string, InstanceInfo>();
-    for (const inst of instances) {
-      if (inst.sessionId) m.set(inst.sessionId, inst);
-    }
-    return m;
-  }, [instances]);
+  const sessionIdMap = new Map<string, InstanceInfo>();
+  for (const inst of instances) {
+    if (inst.sessionId) sessionIdMap.set(inst.sessionId, inst);
+  }
 
-  const handleCreate = useCallback(
-    (options: {
-      name?: string;
-      workingDirectory?: string;
-      dangerouslySkipPermissions?: boolean;
-    }) => {
-      pendingCreate.current = true;
-      send({ type: "create_instance", ...options });
-      setShowForm(false);
-    },
-    [send],
-  );
+  const handleCreate = (options: {
+    name?: string;
+    workingDirectory?: string;
+    dangerouslySkipPermissions?: boolean;
+  }) => {
+    pendingCreate.current = true;
+    send({ type: "create_instance", ...options });
+    setShowForm(false);
+  };
 
-  const handleQuickCreate = useCallback(
-    (workingDirectory: string) => {
-      pendingCreate.current = true;
-      send({ type: "create_instance", workingDirectory });
-    },
-    [send],
-  );
+  const handleQuickCreate = (workingDirectory: string) => {
+    pendingCreate.current = true;
+    send({ type: "create_instance", workingDirectory });
+  };
 
-  const handleDelete = useCallback(
-    (instanceId: string) => {
-      send({ type: "remove_instance", instanceId });
-    },
-    [send],
-  );
+  const handleDelete = (instanceId: string) => {
+    send({ type: "remove_instance", instanceId });
+  };
 
-  const handleRefreshTitle = useCallback(
-    (instanceId: string) => {
-      send({ type: "refresh_title", instanceId });
-    },
-    [send],
-  );
+  const handleRefreshTitle = (instanceId: string) => {
+    send({ type: "refresh_title", instanceId });
+  };
 
-  const handleRename = useCallback(
-    (instanceId: string, name: string) => {
-      send({ type: "rename_instance", instanceId, name });
-    },
-    [send],
-  );
+  const handleRename = (instanceId: string, name: string) => {
+    send({ type: "rename_instance", instanceId, name });
+  };
 
-  const handleMerge = useCallback(
-    (instanceId: string) => {
-      send({ type: "merge_instance", instanceId });
-    },
-    [send],
-  );
+  const handleMerge = (instanceId: string) => {
+    send({ type: "merge_instance", instanceId });
+  };
 
   const renderGroup = (dir: string, groupInstances: InstanceInfo[]) => {
     const dirName = dir.split("/").pop() || dir;

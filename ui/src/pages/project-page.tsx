@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "@tanstack/react-router";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import { useMediaQuery } from "../hooks/use-media-query";
@@ -211,11 +211,10 @@ export function ProjectPage() {
   }, [projectId]);
 
   // Build doc tabs — priority order: Memory > CLAUDE.md > README.md
-  const docTabs = useMemo(() => {
-    if (!artifacts) return [];
-    const tabs: DocTab[] = [];
+  const docTabs: DocTab[] = [];
+  if (artifacts) {
     if (artifacts.memory) {
-      tabs.push({
+      docTabs.push({
         key: "memory",
         label: "Memory",
         description: "Persistent notes Claude remembers across sessions.",
@@ -223,7 +222,7 @@ export function ProjectPage() {
       });
     }
     if (artifacts.claudeMd) {
-      tabs.push({
+      docTabs.push({
         key: "claude-md",
         label: "CLAUDE.md",
         description: "Project instructions checked into the codebase.",
@@ -231,15 +230,14 @@ export function ProjectPage() {
       });
     }
     if (artifacts.readmeMd) {
-      tabs.push({
+      docTabs.push({
         key: "readme",
         label: "README",
         description: "Project overview from the repository.",
         content: artifacts.readmeMd,
       });
     }
-    return tabs;
-  }, [artifacts]);
+  }
 
   const dirName = artifacts?.directory.split("/").pop() || projectId;
 

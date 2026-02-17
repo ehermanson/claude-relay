@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Menu } from "../ui/menu";
 import { Tooltip } from "../ui/tooltip";
@@ -46,30 +46,27 @@ export function SidebarItem({
     }
   }, [editing]);
 
-  const startEditing = useCallback(() => {
+  const startEditing = () => {
     setEditValue(instance.name);
     setEditing(true);
-  }, [instance.name]);
+  };
 
-  const commitEdit = useCallback(() => {
+  const commitEdit = () => {
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== instance.name) {
       onRename?.(trimmed);
     }
     setEditing(false);
-  }, [editValue, instance.name, onRename]);
+  };
 
-  const handleEditKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      e.stopPropagation();
-      if (e.key === "Enter") {
-        commitEdit();
-      } else if (e.key === "Escape") {
-        setEditing(false);
-      }
-    },
-    [commitEdit],
-  );
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      commitEdit();
+    } else if (e.key === "Escape") {
+      setEditing(false);
+    }
+  };
 
   const hasPendingTool = !!instance.pendingTool;
 
@@ -164,123 +161,137 @@ export function SidebarItem({
         </span>
       )}
 
-      {/* Context menu */}
-      {hasMenu && !editing && (
-        <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
-          <Menu.Trigger
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-all hover:!text-text ${
-              menuOpen ? "opacity-100" : "opacity-40 hover:!opacity-70"
-            }`}
+      {/* Context menu — only mount when open to avoid Menu overhead per item */}
+      {hasMenu &&
+        !editing &&
+        (menuOpen ? (
+          <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+            <Menu.Trigger
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-100 transition-all hover:!text-text"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="12" cy="19" r="2" />
+              </svg>
+            </Menu.Trigger>
+            <Menu.Content>
+              {onRename && (
+                <Menu.Item
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    startEditing();
+                  }}
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="text-muted"
+                  >
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                  Rename
+                </Menu.Item>
+              )}
+              {onRefreshTitle && (
+                <Menu.Item
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    onRefreshTitle();
+                  }}
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="text-muted"
+                  >
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                  </svg>
+                  Refresh title
+                </Menu.Item>
+              )}
+              {onMerge && (
+                <Menu.Item
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    onMerge();
+                  }}
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="text-muted"
+                  >
+                    <circle cx="18" cy="18" r="3" />
+                    <circle cx="6" cy="6" r="3" />
+                    <path d="M6 21V9a9 9 0 0 0 9 9" />
+                  </svg>
+                  Merge to main
+                </Menu.Item>
+              )}
+              {onDelete && (
+                <Menu.Item
+                  danger
+                  disabled={deleteDisabled}
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                  Delete
+                </Menu.Item>
+              )}
+            </Menu.Content>
+          </Menu.Root>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen(true);
+            }}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-40 transition-all hover:!opacity-70 hover:!text-text"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="12" cy="5" r="2" />
               <circle cx="12" cy="12" r="2" />
               <circle cx="12" cy="19" r="2" />
             </svg>
-          </Menu.Trigger>
-          <Menu.Content>
-            {onRename && (
-              <Menu.Item
-                onClick={(e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  startEditing();
-                }}
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="text-muted"
-                >
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-                Rename
-              </Menu.Item>
-            )}
-            {onRefreshTitle && (
-              <Menu.Item
-                onClick={(e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  onRefreshTitle();
-                }}
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="text-muted"
-                >
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-                Refresh title
-              </Menu.Item>
-            )}
-            {onMerge && (
-              <Menu.Item
-                onClick={(e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  onMerge();
-                }}
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="text-muted"
-                >
-                  <circle cx="18" cy="18" r="3" />
-                  <circle cx="6" cy="6" r="3" />
-                  <path d="M6 21V9a9 9 0 0 0 9 9" />
-                </svg>
-                Merge to main
-              </Menu.Item>
-            )}
-            {onDelete && (
-              <Menu.Item
-                danger
-                disabled={deleteDisabled}
-                onClick={(e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                </svg>
-                Delete
-              </Menu.Item>
-            )}
-          </Menu.Content>
-        </Menu.Root>
-      )}
+          </button>
+        ))}
     </div>
   );
 }

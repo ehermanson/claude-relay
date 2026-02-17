@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { DirectoryPicker } from "./directory-picker";
 import { Input } from "../ui/input";
 import { CheckboxField } from "../ui/checkbox";
@@ -23,7 +23,7 @@ export function NewInstanceForm({ onSubmit, onCancel }: NewInstanceFormProps) {
     nameRef.current?.focus();
   }, []);
 
-  const handleCreate = useCallback(() => {
+  const handleCreate = () => {
     const payload: {
       name?: string;
       workingDirectory?: string;
@@ -36,7 +36,7 @@ export function NewInstanceForm({ onSubmit, onCancel }: NewInstanceFormProps) {
     setName("");
     setCwd("");
     setSkipPerms(false);
-  }, [name, cwd, skipPerms, onSubmit]);
+  };
 
   return (
     <>

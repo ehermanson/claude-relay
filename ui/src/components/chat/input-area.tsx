@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState } from "react";
+import { useRef, useEffect, useState } from "react";
 import { ArrowUp, ImagePlus, Loader2, Square } from "lucide-react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { Button } from "../ui/button";
@@ -45,13 +45,13 @@ export function InputArea({
   const isMobile = useMediaQuery("(max-width: 768px)");
   const prevInstanceIdRef = useRef<string>(instanceId);
 
-  const adjustTextareaHeight = useCallback(() => {
+  const adjustTextareaHeight = () => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
     const max = isMobile ? 100 : 140;
     el.style.height = Math.min(el.scrollHeight, max) + "px";
-  }, [isMobile]);
+  };
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -76,13 +76,13 @@ export function InputArea({
       adjustTextareaHeight();
     }
     textareaRef.current?.focus();
-  }, [instanceId, adjustTextareaHeight]);
+  }, [instanceId]);
 
   useEffect(() => {
     setBannerDismissed(false);
   }, [sessionId]);
 
-  const addImages = useCallback((files: File[]) => {
+  const addImages = (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
     if (imageFiles.length === 0) return;
     setImages((prev) => [
@@ -92,15 +92,15 @@ export function InputArea({
         preview: URL.createObjectURL(file),
       })),
     ]);
-  }, []);
+  };
 
-  const removeImage = useCallback((index: number) => {
+  const removeImage = (index: number) => {
     setImages((prev) => {
       const removed = prev[index];
       if (removed) URL.revokeObjectURL(removed.preview);
       return prev.filter((_, i) => i !== index);
     });
-  }, []);
+  };
 
   // Cleanup object URLs on unmount
   useEffect(() => {
@@ -110,7 +110,7 @@ export function InputArea({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSend = useCallback(async () => {
+  const handleSend = async () => {
     if (!isConnected || uploading) return;
 
     const text = textareaRef.current?.value.trim() || "";
@@ -141,53 +141,44 @@ export function InputArea({
     // Clear image previews
     images.forEach((img) => URL.revokeObjectURL(img.preview));
     setImages([]);
-  }, [onSend, isConnected, images, uploading, instanceId]);
+  };
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-      if (e.key === "Escape") {
-        onCancel();
-      }
-    },
-    [handleSend, onCancel],
-  );
-
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const files: File[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.kind === "file" && item.type.startsWith("image/")) {
-          const file = item.getAsFile();
-          if (file) files.push(file);
-        }
-      }
-      if (files.length > 0) {
-        e.preventDefault();
-        addImages(files);
-      }
-    },
-    [addImages],
-  );
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      const files = Array.from(e.dataTransfer.files);
-      addImages(files);
-    },
-    [addImages],
-  );
+      handleSend();
+    }
+    if (e.key === "Escape") {
+      onCancel();
+    }
+  };
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault();
+      addImages(files);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-  }, []);
+    const files = Array.from(e.dataTransfer.files);
+    addImages(files);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
 
   const disabled = !isConnected;
   const showBanner =

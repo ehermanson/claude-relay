@@ -1,4 +1,4 @@
-import { useReducer, useCallback, useRef } from "react";
+import { useReducer, useRef } from "react";
 import type {
   ServerMessage,
   ActivityMessage,
@@ -20,13 +20,13 @@ export type ChatItem =
   | { kind: "claude"; text: string; timestamp?: number }
   | { kind: "system"; text: string; isError?: boolean }
   | { kind: "thinking-block"; text: string }
-  | { kind: "thinking-indicator" }
   | { kind: "activity-group"; activities: ActivityMessage[] }
   | { kind: "agent-transcript"; title: string; result: string; timestamp?: number };
 
 interface State {
   items: ChatItem[];
   isProcessing: boolean;
+  showThinkingIndicator: boolean;
   currentTasks: TaskItem[] | null;
   currentFiles: FileChange[] | null;
   currentTeam: TeamInfo | null;
@@ -49,6 +49,7 @@ function reducer(state: State, action: Action): State {
       return {
         items: [],
         isProcessing: false,
+        showThinkingIndicator: false,
         currentTasks: null,
         currentFiles: null,
         currentTeam: null,
@@ -153,26 +154,25 @@ function reducer(state: State, action: Action): State {
       flushActivities();
       flushClaude();
 
-      return { items, isProcessing: false, currentTasks, currentFiles, currentTeam };
+      return {
+        items,
+        isProcessing: false,
+        showThinkingIndicator: false,
+        currentTasks,
+        currentFiles,
+        currentTeam,
+      };
     }
 
     case "output": {
-      let items = [...state.items];
-
       if (action.thinking) {
-        // Remove thinking indicator if present
-        items = items.filter((i) => i.kind !== "thinking-indicator");
+        const items = [...state.items];
         items.push({ kind: "thinking-block", text: action.thinking });
-        // Re-add indicator — more events are coming after thinking
-        items.push({ kind: "thinking-indicator" });
-        return { ...state, items, isProcessing: true };
+        return { ...state, items, isProcessing: true, showThinkingIndicator: true };
       }
 
       if (action.text && action.text.trim()) {
-        // Remove thinking indicator
-        items = items.filter((i) => i.kind !== "thinking-indicator");
-
-        // Close activity group (don't need to do anything, just stop appending)
+        const items = [...state.items];
 
         // Append to existing claude message or create new one
         const lastIdx = items.length - 1;
@@ -186,46 +186,46 @@ function reducer(state: State, action: Action): State {
         } else {
           items.push({ kind: "claude", text: action.text, timestamp: Date.now() });
         }
+
+        if (action.isWaiting) {
+          return { ...state, items, isProcessing: false, showThinkingIndicator: false };
+        }
+
+        return { ...state, items, isProcessing: true, showThinkingIndicator: false };
       }
 
       if (action.isWaiting) {
-        items = items.filter((i) => i.kind !== "thinking-indicator");
-        return { ...state, items, isProcessing: false };
+        return { ...state, isProcessing: false, showThinkingIndicator: false };
       }
 
-      return { ...state, items, isProcessing: true };
+      return { ...state, isProcessing: true };
     }
 
     case "activity": {
-      let items = [...state.items];
-      // Remove thinking indicator
-      items = items.filter((i) => i.kind !== "thinking-indicator");
-
       if (action.message.activity === "task_list" && action.message.tasks) {
-        // Update currentTasks — tasks live in the sidecar, not in the chat
-        const currentTasks = action.message.tasks;
-
-        // Re-add thinking indicator — Claude is still processing
-        items.push({ kind: "thinking-indicator" });
-
-        return { ...state, items, isProcessing: true, currentTasks };
+        return {
+          ...state,
+          isProcessing: true,
+          showThinkingIndicator: true,
+          currentTasks: action.message.tasks,
+        };
       } else if (action.message.activity === "file_list" && action.message.files) {
-        // Update currentFiles — files live in the sidecar, not in the chat
-        const currentFiles = action.message.files;
-
-        // Re-add thinking indicator — Claude is still processing
-        items.push({ kind: "thinking-indicator" });
-
-        return { ...state, items, isProcessing: true, currentFiles };
+        return {
+          ...state,
+          isProcessing: true,
+          showThinkingIndicator: true,
+          currentFiles: action.message.files,
+        };
       } else if (action.message.activity === "team_info" && action.message.team) {
-        // Update currentTeam — team info lives in the sidecar, not in the chat
-        const currentTeam = action.message.team;
-
-        // Re-add thinking indicator — Claude is still processing
-        items.push({ kind: "thinking-indicator" });
-
-        return { ...state, items, isProcessing: true, currentTeam };
+        return {
+          ...state,
+          isProcessing: true,
+          showThinkingIndicator: true,
+          currentTeam: action.message.team,
+        };
       } else {
+        const items = [...state.items];
+
         // Append to the current activity group or create a new one
         const lastIdx = items.length - 1;
         if (lastIdx >= 0 && items[lastIdx].kind === "activity-group") {
@@ -243,30 +243,24 @@ function reducer(state: State, action: Action): State {
             activities: [action.message],
           });
         }
+
+        return { ...state, items, isProcessing: true, showThinkingIndicator: true };
       }
-
-      // Re-add thinking indicator — Claude is still processing after each activity
-      items.push({ kind: "thinking-indicator" });
-
-      return { ...state, items, isProcessing: true };
     }
 
     case "transcript": {
-      let items = [...state.items];
-      items = items.filter((i) => i.kind !== "thinking-indicator");
+      const items = [...state.items];
       items.push({
         kind: "agent-transcript",
         title: action.title,
         result: action.result,
         timestamp: Date.now(),
       });
-      return { ...state, items };
+      return { ...state, items, showThinkingIndicator: false };
     }
 
     case "user": {
-      // Close activity group (new user message starts fresh)
-      let items = [...state.items];
-      items = items.filter((i) => i.kind !== "thinking-indicator");
+      const items = [...state.items];
       const now = Date.now();
       const lastItem = items[items.length - 1];
       if (
@@ -279,38 +273,33 @@ function reducer(state: State, action: Action): State {
           ...lastItem,
           text: lastItem.text + "\n" + action.text,
         };
-        return { ...state, items };
+        return { ...state, items, showThinkingIndicator: false };
       }
       items.push({ kind: "user", text: action.text, timestamp: now });
-      return { ...state, items };
+      return { ...state, items, showThinkingIndicator: false };
     }
 
     case "exit": {
-      let items = [...state.items];
-      items = items.filter((i) => i.kind !== "thinking-indicator");
       if (action.code !== 0) {
+        const items = [...state.items];
         let text = action.signal
           ? `Claude process killed by ${action.signal}`
           : `Claude process exited with code ${action.code}`;
         if (action.stderr) text += `\n${action.stderr}`;
         items.push({ kind: "system", text, isError: true });
+        return { ...state, items, isProcessing: false, showThinkingIndicator: false };
       }
-      return { ...state, items, isProcessing: false };
+      return { ...state, isProcessing: false, showThinkingIndicator: false };
     }
 
     case "error": {
-      let items = [...state.items];
-      items = items.filter((i) => i.kind !== "thinking-indicator");
+      const items = [...state.items];
       items.push({ kind: "system", text: `Error: ${action.message}`, isError: true });
-      return { ...state, items, isProcessing: false };
+      return { ...state, items, isProcessing: false, showThinkingIndicator: false };
     }
 
     case "show_thinking": {
-      const items = [...state.items];
-      if (!items.some((i) => i.kind === "thinking-indicator")) {
-        items.push({ kind: "thinking-indicator" });
-      }
-      return { ...state, items, isProcessing: true };
+      return { ...state, isProcessing: true, showThinkingIndicator: true };
     }
 
     default:
@@ -322,13 +311,14 @@ export function useInstanceMessages() {
   const [state, dispatch] = useReducer(reducer, {
     items: [],
     isProcessing: false,
+    showThinkingIndicator: false,
     currentTasks: null,
     currentFiles: null,
     currentTeam: null,
   });
   const instanceIdRef = useRef<string | null>(null);
 
-  const handleMessage = useCallback((instanceId: string, message: ServerMessage) => {
+  const handleMessage = (instanceId: string, message: ServerMessage) => {
     if (instanceIdRef.current !== instanceId) return;
 
     switch (message.type) {
@@ -382,20 +372,21 @@ export function useInstanceMessages() {
         }
         break;
     }
-  }, []);
+  };
 
-  const setInstanceId = useCallback((id: string | null) => {
+  const setInstanceId = (id: string | null) => {
     instanceIdRef.current = id;
     dispatch({ type: "reset" });
-  }, []);
+  };
 
-  const showThinking = useCallback(() => {
+  const showThinking = () => {
     dispatch({ type: "show_thinking" });
-  }, []);
+  };
 
   return {
     items: state.items,
     isProcessing: state.isProcessing,
+    showThinkingIndicator: state.showThinkingIndicator,
     currentTasks: state.currentTasks,
     currentFiles: state.currentFiles,
     currentTeam: state.currentTeam,

@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useWS } from "../context/websocket-context";
+import { useWSState } from "../context/websocket-context";
 import { Tooltip } from "../components/ui/tooltip";
 import { fetchDashboardStats } from "../lib/api";
 import { formatTokens, formatCost, formatTimeAgo } from "../lib/utils";
@@ -125,7 +125,7 @@ function ProjectRow({
 // ─── Dashboard ──────────────────────────────────────────────────────────────
 
 export function Dashboard() {
-  const { instances } = useWS();
+  const { instances } = useWSState();
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
 
@@ -143,31 +143,26 @@ export function Dashboard() {
   }, []);
 
   // Aggregate current session stats from live instances (real-time via WS)
-  const currentStats = useMemo(() => {
-    let tokens = 0;
-    let cost = 0;
-    for (const inst of instances) {
-      if (inst.stats) {
-        tokens += inst.stats.inputTokens + inst.stats.outputTokens;
-        cost += inst.stats.costUSD;
-      }
+  let currentTokens = 0;
+  let currentCost = 0;
+  for (const inst of instances) {
+    if (inst.stats) {
+      currentTokens += inst.stats.inputTokens + inst.stats.outputTokens;
+      currentCost += inst.stats.costUSD;
     }
-    return { tokens, cost };
-  }, [instances]);
+  }
 
   // Group instances by working directory, sorted by most recent activity
-  const projectGroups = useMemo(() => {
-    const map = new Map<string, InstanceInfo[]>();
-    for (const inst of instances) {
-      const dir = inst.workingDirectory;
-      if (!map.has(dir)) map.set(dir, []);
-      map.get(dir)!.push(inst);
-    }
-    return Array.from(map.entries()).sort(
-      ([, a], [, b]) =>
-        Math.max(...b.map((i) => i.lastActivityAt)) - Math.max(...a.map((i) => i.lastActivityAt)),
-    );
-  }, [instances]);
+  const projectMap = new Map<string, InstanceInfo[]>();
+  for (const inst of instances) {
+    const dir = inst.workingDirectory;
+    if (!projectMap.has(dir)) projectMap.set(dir, []);
+    projectMap.get(dir)!.push(inst);
+  }
+  const projectGroups = Array.from(projectMap.entries()).sort(
+    ([, a], [, b]) =>
+      Math.max(...b.map((i) => i.lastActivityAt)) - Math.max(...a.map((i) => i.lastActivityAt)),
+  );
 
   const activeCount = instances.filter(
     (i) => i.status === "processing" || i.status === "idle",
@@ -211,11 +206,9 @@ export function Dashboard() {
           />
           <StatCard
             label="Current Cost"
-            value={currentStats.cost > 0 ? `~${formatCost(currentStats.cost)}` : "$0.00"}
+            value={currentCost > 0 ? `~${formatCost(currentCost)}` : "$0.00"}
             subValue={
-              currentStats.tokens > 0
-                ? `${formatTokens(currentStats.tokens)} tokens`
-                : "No tokens used"
+              currentTokens > 0 ? `${formatTokens(currentTokens)} tokens` : "No tokens used"
             }
             icon={
               <svg

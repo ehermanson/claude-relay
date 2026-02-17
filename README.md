@@ -142,7 +142,7 @@ src/
     config.ts              RelayConfig extends CoreConfig
     index.ts               ClaudeRelay class, createRelay(), re-exports core
   bin.ts                ← CLI entry point
-ui/                     ← React + Vite + Tailwind CSS v4
+ui/                     ← React app
 ```
 
 The package exposes two entry points:

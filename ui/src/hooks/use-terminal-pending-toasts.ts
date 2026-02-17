@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { useWS } from "../context/websocket-context";
+import { useWSState } from "../context/websocket-context";
 
 interface PrevState {
   pendingTool?: string;
@@ -12,7 +12,7 @@ interface PrevState {
  * and fires a toast when a non-viewed session needs terminal attention.
  */
 export function useTerminalPendingToasts(currentId?: string) {
-  const { instances } = useWS();
+  const { instances } = useWSState();
   const navigate = useNavigate();
   const prevRef = useRef<Map<string, PrevState>>(new Map());
 

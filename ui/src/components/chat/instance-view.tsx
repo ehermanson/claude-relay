@@ -1,7 +1,7 @@
-import { useEffect, useCallback, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { Group, Panel } from "react-resizable-panels";
-import { useWS } from "../../context/websocket-context";
+import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useInstanceMessages } from "../../hooks/use-instance-messages";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { MessageList } from "./message-list";
@@ -76,12 +76,13 @@ function DebugModal({
 export function InstanceView() {
   const { id } = useParams({ strict: false }) as { id?: string };
   const navigate = useNavigate();
-  const { isConnected, connectionId, instances, send, subscribe, unsubscribe, addMessageHandler } =
-    useWS();
+  const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
+  const { isConnected, connectionId, instances } = useWSState();
 
   const {
     items,
     isProcessing,
+    showThinkingIndicator,
     currentTasks,
     currentFiles,
     currentTeam,
@@ -124,19 +125,16 @@ export function InstanceView() {
     }
   }, [isConnected, instances, id, instance, navigate]);
 
-  const handleSend = useCallback(
-    (text: string, images?: string[]) => {
-      if (!id) return;
-      send({ type: "instance_message", instanceId: id, text, images });
-      showThinking();
-    },
-    [id, send, showThinking],
-  );
+  const handleSend = (text: string, images?: string[]) => {
+    if (!id) return;
+    send({ type: "instance_message", instanceId: id, text, images });
+    showThinking();
+  };
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = () => {
     if (!id || !isProcessing) return;
     send({ type: "instance_cancel", instanceId: id });
-  }, [id, isProcessing, send]);
+  };
 
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
@@ -160,33 +158,30 @@ export function InstanceView() {
     }
   }, [sidecarDismissed, sidecarContentCount]);
 
-  const handleDismissSidecar = useCallback(() => {
+  const handleDismissSidecar = () => {
     dismissedContentCountRef.current =
       (currentTasks?.length ?? 0) +
       (currentFiles?.length ?? 0) +
       (currentTeam?.members?.length ?? 0);
     setSidecarDismissed(true);
-  }, [currentTasks, currentFiles, currentTeam]);
+  };
 
-  const handleMerge = useCallback(() => {
+  const handleMerge = () => {
     if (!id) return;
     send({ type: "merge_instance", instanceId: id });
-  }, [id, send]);
+  };
 
-  const handleApproveTool = useCallback(
-    (tool: string) => {
-      if (!id) return;
-      setApprovedTools((prev) => {
-        if (prev.has(tool)) return prev;
-        send({ type: "approve_tool", instanceId: id, tool });
-        showThinking();
-        const next = new Set(prev);
-        next.add(tool);
-        return next;
-      });
-    },
-    [id, send, showThinking],
-  );
+  const handleApproveTool = (tool: string) => {
+    if (!id) return;
+    setApprovedTools((prev) => {
+      if (prev.has(tool)) return prev;
+      send({ type: "approve_tool", instanceId: id, tool });
+      showThinking();
+      const next = new Set(prev);
+      next.add(tool);
+      return next;
+    });
+  };
 
   if (!instance) {
     return null;
@@ -203,6 +198,7 @@ export function InstanceView() {
       <MessageList
         items={items}
         isProcessing={isProcessing}
+        showThinkingIndicator={showThinkingIndicator}
         instanceStatus={instance.status}
         onSendMessage={handleSend}
         isInteractive={true}

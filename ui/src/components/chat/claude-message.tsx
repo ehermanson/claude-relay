@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { MarkdownContent } from "./markdown-content";
 import { formatTimestamp } from "../../lib/utils";
 
@@ -15,15 +15,15 @@ export function ClaudeMessage({ text, timestamp, isLast }: ClaudeMessageProps) {
   const [isOverflowing, setIsOverflowing] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  const measure = useCallback(() => {
+  const measure = () => {
     const el = contentRef.current;
     if (!el) return;
     setIsOverflowing(el.scrollHeight > COLLAPSED_HEIGHT + 20);
-  }, []);
+  };
 
   useEffect(() => {
     measure();
-  }, [text, measure]);
+  }, [text]);
 
   const collapsed = isOverflowing && !expanded && !isLast;
 

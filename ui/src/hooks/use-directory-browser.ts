@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import { browsePath, fetchDirectories } from "../lib/api";
 
 export function useDirectoryBrowser() {
@@ -8,7 +8,7 @@ export function useDirectoryBrowser() {
   const [isOpen, setIsOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchHome = useCallback(async () => {
+  const fetchHome = async () => {
     try {
       const data = await fetchDirectories();
       if (data.defaultDirectory) {
@@ -18,29 +18,26 @@ export function useDirectoryBrowser() {
     } catch {
       return "";
     }
-  }, []);
+  };
 
-  const browse = useCallback(
-    (prefix: string) => {
-      const target = prefix || homeDir;
-      if (!target) return;
+  const browse = (prefix: string) => {
+    const target = prefix || homeDir;
+    if (!target) return;
 
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(async () => {
-        const data = await browsePath(target);
-        if (!homeDir && data.home) setHomeDir(data.home);
-        setSuggestions(data.directories || []);
-        setActiveIndex(-1);
-        setIsOpen((data.directories || []).length > 0);
-      }, 100);
-    },
-    [homeDir],
-  );
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      const data = await browsePath(target);
+      if (!homeDir && data.home) setHomeDir(data.home);
+      setSuggestions(data.directories || []);
+      setActiveIndex(-1);
+      setIsOpen((data.directories || []).length > 0);
+    }, 100);
+  };
 
-  const close = useCallback(() => {
+  const close = () => {
     setIsOpen(false);
     setActiveIndex(-1);
-  }, []);
+  };
 
   return {
     homeDir,

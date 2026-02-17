@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 import { useDirectoryBrowser } from "../../hooks/use-directory-browser";
 
 interface DirectoryPickerProps {
@@ -12,18 +12,15 @@ export function DirectoryPicker({ value, onChange, onAutoName }: DirectoryPicker
   const { homeDir, suggestions, activeIndex, setActiveIndex, isOpen, fetchHome, browse, close } =
     useDirectoryBrowser();
 
-  const selectDir = useCallback(
-    (dirPath: string) => {
-      onChange(dirPath + "/");
-      const dirName = dirPath.split("/").pop() || dirPath;
-      onAutoName?.(dirName);
-      close();
-      browse(dirPath + "/");
-    },
-    [onChange, onAutoName, close, browse],
-  );
+  const selectDir = (dirPath: string) => {
+    onChange(dirPath + "/");
+    const dirName = dirPath.split("/").pop() || dirPath;
+    onAutoName?.(dirName);
+    close();
+    browse(dirPath + "/");
+  };
 
-  const handleFocus = useCallback(async () => {
+  const handleFocus = async () => {
     if (!value) {
       let home = homeDir;
       if (!home) home = await fetchHome();
@@ -34,38 +31,35 @@ export function DirectoryPicker({ value, onChange, onAutoName }: DirectoryPicker
     } else {
       browse(value);
     }
-  }, [value, homeDir, fetchHome, onChange, browse]);
+  };
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Tab" && isOpen && suggestions.length > 0) {
-        e.preventDefault();
-        const idx = activeIndex >= 0 ? activeIndex : 0;
-        if (suggestions[idx]) selectDir(suggestions[idx]);
-        return;
-      }
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Tab" && isOpen && suggestions.length > 0) {
+      e.preventDefault();
+      const idx = activeIndex >= 0 ? activeIndex : 0;
+      if (suggestions[idx]) selectDir(suggestions[idx]);
+      return;
+    }
 
-      if (!isOpen || suggestions.length === 0) return;
+    if (!isOpen || suggestions.length === 0) return;
 
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActiveIndex(Math.min(activeIndex + 1, suggestions.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActiveIndex(Math.max(activeIndex - 1, 0));
-      } else if (e.key === "Enter" && activeIndex >= 0) {
-        e.preventDefault();
-        if (suggestions[activeIndex]) selectDir(suggestions[activeIndex]);
-      } else if (e.key === "Escape") {
-        close();
-      }
-    },
-    [isOpen, suggestions, activeIndex, setActiveIndex, selectDir, close],
-  );
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex(Math.min(activeIndex + 1, suggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex(Math.max(activeIndex - 1, 0));
+    } else if (e.key === "Enter" && activeIndex >= 0) {
+      e.preventDefault();
+      if (suggestions[activeIndex]) selectDir(suggestions[activeIndex]);
+    } else if (e.key === "Escape") {
+      close();
+    }
+  };
 
-  const handleBlur = useCallback(() => {
+  const handleBlur = () => {
     setTimeout(close, 150);
-  }, [close]);
+  };
 
   useEffect(() => {
     if (!isOpen) return;

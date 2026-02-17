@@ -36,6 +36,8 @@ function wsProxy(): Plugin {
               "\r\n\r\n",
           );
           if (proxyHead.length) socket.write(proxyHead);
+          proxySocket.on("error", () => socket.destroy());
+          socket.on("error", () => proxySocket.destroy());
           proxySocket.pipe(socket);
           socket.pipe(proxySocket);
         });
@@ -48,7 +50,11 @@ function wsProxy(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), react(), wsProxy()],
+  plugins: [
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    react({ babel: { plugins: [["babel-plugin-react-compiler", {}]] } }),
+    wsProxy(),
+  ],
   resolve: {
     alias: {
       "@shared": path.resolve(__dirname, "../src/core"),

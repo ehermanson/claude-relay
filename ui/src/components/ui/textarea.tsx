@@ -1,10 +1,4 @@
-import {
-  forwardRef,
-  useCallback,
-  useImperativeHandle,
-  useRef,
-  type TextareaHTMLAttributes,
-} from "react";
+import { forwardRef, useImperativeHandle, useRef, type TextareaHTMLAttributes } from "react";
 
 interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   /** Auto-resize to content height up to maxHeight (px). Default: no auto-resize. */
@@ -17,20 +11,17 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     const innerRef = useRef<HTMLTextAreaElement>(null);
     useImperativeHandle(ref, () => innerRef.current!);
 
-    const adjustHeight = useCallback(() => {
+    const adjustHeight = () => {
       const el = innerRef.current;
       if (!el || !autoResize) return;
       el.style.height = "auto";
       el.style.height = Math.min(el.scrollHeight, maxHeight) + "px";
-    }, [autoResize, maxHeight]);
+    };
 
-    const handleInput = useCallback(
-      (e: React.FormEvent<HTMLTextAreaElement>) => {
-        adjustHeight();
-        onInput?.(e);
-      },
-      [adjustHeight, onInput],
-    );
+    const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+      adjustHeight();
+      onInput?.(e);
+    };
 
     return (
       <textarea

@@ -2,25 +2,53 @@ import { createContext, useContext, type ReactNode } from "react";
 import { useWebSocket, type MessageHandler } from "../hooks/use-web-socket";
 import type { InstanceInfo, ClientMessage } from "@shared/types";
 
-interface WebSocketContextValue {
-  isConnected: boolean;
-  connectionId: number;
-  instances: InstanceInfo[];
+// Stable methods that never change — components consuming only this won't re-render
+interface WSMethodsContextValue {
   send: (message: ClientMessage) => void;
   subscribe: (instanceId: string) => void;
   unsubscribe: (instanceId: string) => void;
   addMessageHandler: (handler: MessageHandler) => () => void;
 }
 
-const WebSocketContext = createContext<WebSocketContextValue | null>(null);
-
-export function WebSocketProvider({ children }: { children: ReactNode }) {
-  const ws = useWebSocket();
-  return <WebSocketContext.Provider value={ws}>{children}</WebSocketContext.Provider>;
+// State that changes over time
+interface WSStateContextValue {
+  isConnected: boolean;
+  connectionId: number;
+  instances: InstanceInfo[];
 }
 
-export function useWS() {
-  const ctx = useContext(WebSocketContext);
-  if (!ctx) throw new Error("useWS must be used within WebSocketProvider");
+const WSMethodsContext = createContext<WSMethodsContextValue | null>(null);
+const WSStateContext = createContext<WSStateContextValue | null>(null);
+
+export function WebSocketProvider({ children }: { children: ReactNode }) {
+  const { isConnected, connectionId, instances, send, subscribe, unsubscribe, addMessageHandler } =
+    useWebSocket();
+
+  const methods = { send, subscribe, unsubscribe, addMessageHandler };
+  const state = { isConnected, connectionId, instances };
+
+  return (
+    <WSMethodsContext.Provider value={methods}>
+      <WSStateContext.Provider value={state}>{children}</WSStateContext.Provider>
+    </WSMethodsContext.Provider>
+  );
+}
+
+/** Stable methods only — never triggers re-renders */
+export function useWSMethods() {
+  const ctx = useContext(WSMethodsContext);
+  if (!ctx) throw new Error("useWSMethods must be used within WebSocketProvider");
   return ctx;
+}
+
+/** Connection + instance state — re-renders when instances or connection changes */
+export function useWSState() {
+  const ctx = useContext(WSStateContext);
+  if (!ctx) throw new Error("useWSState must be used within WebSocketProvider");
+  return ctx;
+}
+
+/** Combined (convenience) — use only when you need both methods and state */
+export function useWS() {
+  return { ...useWSMethods(), ...useWSState() };
 }

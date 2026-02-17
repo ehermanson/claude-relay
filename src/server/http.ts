@@ -595,7 +595,12 @@ export function createRequestHandler(
 
       if (method === "GET" && config.serveUI) {
         // Serve static assets from ui/dist
-        if (pathname.startsWith("/assets/") || pathname === "/favicon.ico") {
+        if (
+          pathname.startsWith("/assets/") ||
+          pathname === "/favicon.svg" ||
+          pathname === "/favicon.ico" ||
+          pathname === "/manifest.json"
+        ) {
           const filePath = path.join(uiDistDir, pathname);
           // Path traversal guard
           const resolved = path.resolve(filePath);

@@ -12,6 +12,7 @@ import type { ChatItem } from "../../hooks/use-instance-messages";
 interface MessageListProps {
   items: ChatItem[];
   isProcessing?: boolean;
+  showThinkingIndicator?: boolean;
   instanceStatus?: string;
   onSendMessage?: (text: string) => void;
   isInteractive?: boolean;
@@ -23,6 +24,7 @@ interface MessageListProps {
 export function MessageList({
   items,
   isProcessing,
+  showThinkingIndicator,
   instanceStatus,
   onSendMessage,
   isInteractive,
@@ -62,7 +64,7 @@ export function MessageList({
   // client-side state (showThinking() on send) or server-side status (covers
   // external sessions and fallback). No lastItemKind check — dots stay visible
   // even during text streaming to avoid flicker between tool calls.
-  const showThinking = !!isProcessing || instanceStatus === "processing";
+  const showThinking = !!showThinkingIndicator || !!isProcessing || instanceStatus === "processing";
 
   return (
     <div ref={ref} className="flex-1 overflow-y-auto">
@@ -84,8 +86,6 @@ export function MessageList({
               return <SystemMessage key={i} text={item.text} isError={item.isError} />;
             case "thinking-block":
               return <ThinkingBlock key={i} text={item.text} />;
-            case "thinking-indicator":
-              return null;
             case "agent-transcript":
               return <AgentTranscript key={i} title={item.title} result={item.result} />;
             case "activity-group": {
