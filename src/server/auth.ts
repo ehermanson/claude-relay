@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as cookie from "cookie";
-import type { Session } from "./types.js";
+import type { Session } from "../core/types.js";
 import type { RelayConfig } from "./config.js";
 
 const SESSION_COOKIE_NAME = "session";

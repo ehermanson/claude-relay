@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { AuthManager } from "../dist/auth.js";
-import { resolveConfig } from "../dist/config.js";
+import { AuthManager } from "../dist/server/auth.js";
+import { resolveConfig } from "../dist/server/config.js";
 
 describe("AuthManager", () => {
   let auth;

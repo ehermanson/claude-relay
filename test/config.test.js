@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { resolveConfig } from "../dist/config.js";
+import { resolveConfig } from "../dist/server/config.js";
 
 describe("resolveConfig", () => {
   it("requires password", () => {
@@ -21,6 +21,7 @@ describe("resolveConfig", () => {
     assert.equal(config.rateLimitWindow, 60_000);
     assert.equal(config.maxInstances, 10);
     assert.equal(config.sessionFile, join(homedir(), ".claude-relay", "sessions.json"));
+    assert.equal(config.manifestFile, join(homedir(), ".claude-relay", "instances.json"));
   });
 
   it("overrides defaults with user options", () => {

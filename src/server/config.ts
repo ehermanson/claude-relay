@@ -1,40 +1,31 @@
 /**
- * Configuration for Claude Relay
+ * Server configuration for Claude Relay
  *
- * Defines the full resolved config and the user-facing options type.
+ * Extends CoreConfig with HTTP/auth-specific fields.
  */
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Logger } from "./logger.js";
+import type { Logger } from "../core/logger.js";
+import type { CoreConfig } from "../core/config.js";
 
 /**
- * Fully resolved configuration (all fields required).
- * This is what internal modules receive.
+ * Fully resolved server configuration (all fields required).
+ * Extends CoreConfig with server-specific fields.
  */
-export interface RelayConfig {
+export interface RelayConfig extends CoreConfig {
   /** Port to run the server on */
   port: number;
   /** Password for authentication */
   password: string;
   /** Session lifetime in milliseconds */
   sessionMaxAge: number;
-  /** Whether to pass --dangerously-skip-permissions to Claude */
-  dangerouslySkipPermissions: boolean;
-  /** Process timeout in milliseconds (0 = no timeout) */
-  processTimeout: number;
-  /** Working directory for Claude processes */
-  workingDirectory: string;
   /** Whether to serve the built-in web UI at / and /chat */
   serveUI: boolean;
-  /** Logger implementation */
-  logger: Logger;
   /** Max auth attempts per IP within the rate limit window */
   rateLimitMax: number;
   /** Rate limit window in milliseconds */
   rateLimitWindow: number;
-  /** Maximum number of concurrent Claude instances */
-  maxInstances: number;
   /** Path to the session persistence file */
   sessionFile: string;
 }
@@ -66,5 +57,6 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     rateLimitWindow: options.rateLimitWindow ?? 60 * 1000,
     maxInstances: options.maxInstances ?? 10,
     sessionFile: options.sessionFile ?? join(homedir(), ".claude-relay", "sessions.json"),
+    manifestFile: options.manifestFile ?? join(homedir(), ".claude-relay", "instances.json"),
   };
 }

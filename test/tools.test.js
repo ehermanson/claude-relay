@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { describeToolUse, describeToolDetail } from "../dist/tools.js";
+import { describeToolUse, describeToolDetail, isPermissionDenial } from "../dist/core/tools.js";
 
 describe("describeToolUse", () => {
   it("returns 'Reading file' for Read", () => {
@@ -47,6 +47,43 @@ describe("describeToolUse", () => {
     assert.equal(describeToolUse("Read"), "Using Read");
     assert.equal(describeToolUse("Bash"), "Using Bash");
     assert.equal(describeToolUse("CustomTool"), "Using CustomTool");
+  });
+});
+
+describe("isPermissionDenial", () => {
+  it("detects 'haven't granted' format (Write)", () => {
+    assert.equal(
+      isPermissionDenial(
+        "Claude requested permissions to write to /Users/me/projects/README.md, but you haven't granted it yet."
+      ),
+      true
+    );
+  });
+
+  it("detects 'haven't granted' format (Bash)", () => {
+    assert.equal(
+      isPermissionDenial(
+        "Claude requested permissions to Bash(npm install), but you haven't granted it yet."
+      ),
+      true
+    );
+  });
+
+  it("detects 'requires approval' format", () => {
+    assert.equal(isPermissionDenial("This command requires approval"), true);
+  });
+
+  it("returns false for normal tool output", () => {
+    assert.equal(isPermissionDenial("hello\nworld"), false);
+  });
+
+  it("returns false for empty string", () => {
+    assert.equal(isPermissionDenial(""), false);
+  });
+
+  it("returns false for generic errors", () => {
+    assert.equal(isPermissionDenial("No files found"), false);
+    assert.equal(isPermissionDenial("Command failed with exit code 1"), false);
   });
 });
 

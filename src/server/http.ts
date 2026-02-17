@@ -8,20 +8,63 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { homedir } from "node:os";
 import type { AuthManager } from "./auth.js";
-import type { InstanceManager } from "./instance-manager.js";
+import type { InstanceManager } from "../core/instance-manager.js";
 import type { RelayConfig } from "./config.js";
 
-const publicDir = path.join(import.meta.dirname, "..", "public");
-const indexHtmlPath = path.join(publicDir, "index.html");
-const chatHtmlPath = path.join(publicDir, "chat.html");
+const uiDistDir = path.join(import.meta.dirname, "..", "..", "ui", "dist");
+const indexHtmlPath = path.join(uiDistDir, "index.html");
 
 // Read version from package.json at startup
-const packageJsonPath = path.join(import.meta.dirname, "..", "package.json");
+const packageJsonPath = path.join(import.meta.dirname, "..", "..", "package.json");
 const packageVersion: string = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")).version;
 
-function readHtmlFile(filePath: string): string {
-  return fs.readFileSync(filePath, "utf-8");
+// MIME type map for static files
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".map": "application/json",
+};
+
+function sendFile(
+  res: http.ServerResponse,
+  filePath: string,
+  isAsset: boolean
+): void {
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = MIME_TYPES[ext] || "application/octet-stream";
+
+  try {
+    const data = fs.readFileSync(filePath);
+    const headers: Record<string, string> = {
+      "Content-Type": contentType,
+      "Content-Length": String(data.length),
+    };
+
+    // Hashed assets from Vite are immutable
+    if (isAsset) {
+      headers["Cache-Control"] = "public, max-age=31536000, immutable";
+    } else {
+      headers["Cache-Control"] = "no-cache";
+    }
+
+    res.writeHead(200, headers);
+    res.end(data);
+  } catch {
+    res.writeHead(404);
+    res.end("Not found");
+  }
 }
 
 function sendHtml(
@@ -86,8 +129,17 @@ function parseJsonBody(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
+/** Serve the SPA index.html (React Router handles routing) */
+function serveIndex(res: http.ServerResponse): void {
+  try {
+    const html = fs.readFileSync(indexHtmlPath, "utf-8");
+    sendHtml(res, 200, html);
+  } catch {
+    sendHtml(res, 500, "<h1>UI not built. Run: npm run build:ui</h1>");
+  }
+}
+
 // Regex patterns for URL matching
-const chatRoutePattern = /^\/chat(?:\/([a-f0-9-]+))?$/;
 const instancesRoutePattern = /^\/api\/instances$/;
 const instanceByIdPattern = /^\/api\/instances\/([a-f0-9-]+)$/;
 const instanceHistoryPattern = /^\/api\/instances\/([a-f0-9-]+)\/history$/;
@@ -128,19 +180,6 @@ export function createRequestHandler(
         return;
       }
 
-      // GET / or GET /login
-      if (method === "GET" && (pathname === "/" || pathname === "/login")) {
-        if (isAuthenticated) {
-          redirect(res, "/chat");
-        } else if (config.serveUI) {
-          const html = readHtmlFile(indexHtmlPath);
-          sendHtml(res, 200, html);
-        } else {
-          sendJson(res, 200, { status: "ok", authenticated: false });
-        }
-        return;
-      }
-
       // POST /auth
       if (method === "POST" && pathname === "/auth") {
         const ip = req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "unknown";
@@ -159,20 +198,6 @@ export function createRequestHandler(
           sendJson(res, 200, { success: true }, { "Set-Cookie": cookie });
         } else {
           sendJson(res, 401, { error: "Wrong password" });
-        }
-        return;
-      }
-
-      // GET /chat or GET /chat/:id
-      const chatMatch = pathname.match(chatRoutePattern);
-      if (method === "GET" && chatMatch) {
-        if (!isAuthenticated) {
-          redirect(res, "/login");
-        } else if (config.serveUI) {
-          const html = readHtmlFile(chatHtmlPath);
-          sendHtml(res, 200, html);
-        } else {
-          sendJson(res, 200, { status: "ok", authenticated: true });
         }
         return;
       }
@@ -294,6 +319,130 @@ export function createRequestHandler(
           uptime: uptimeSeconds,
           connections: getConnectionCount ? getConnectionCount() : 0,
         });
+        return;
+      }
+
+      // GET /api/directories
+      if (method === "GET" && pathname === "/api/directories") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        sendJson(res, 200, {
+          defaultDirectory: instanceManager.defaultWorkingDirectory,
+          directories: instanceManager.getKnownDirectories(),
+        });
+        return;
+      }
+
+      // GET /api/browse?prefix=...  — list subdirectories for autocomplete
+      if (method === "GET" && pathname === "/api/browse") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        const home = homedir();
+        const raw = parsedUrl.searchParams.get("prefix") || "";
+        const prefix = raw && raw !== "/" ? raw : home + "/";
+
+        // Must stay under home directory
+        const resolved = path.resolve(prefix);
+        if (!resolved.startsWith(home)) {
+          sendJson(res, 400, { error: "Path must be under home directory" });
+          return;
+        }
+
+        // Determine parent dir and partial name to filter by
+        let dirToRead: string;
+        let partial: string;
+        try {
+          const stat = fs.statSync(resolved);
+          if (stat.isDirectory() && prefix.endsWith("/")) {
+            dirToRead = resolved;
+            partial = "";
+          } else if (stat.isDirectory()) {
+            dirToRead = path.dirname(resolved);
+            partial = path.basename(resolved);
+          } else {
+            dirToRead = path.dirname(resolved);
+            partial = path.basename(resolved);
+          }
+        } catch {
+          dirToRead = path.dirname(resolved);
+          partial = path.basename(resolved);
+        }
+
+        try {
+          const entries = fs.readdirSync(dirToRead, { withFileTypes: true });
+          const lowerPartial = partial.toLowerCase();
+          const dirs = entries
+            .filter((e) => {
+              if (!e.isDirectory()) return false;
+              if (e.name.startsWith(".")) return false;
+              if (!partial) return true;
+              return e.name.toLowerCase().startsWith(lowerPartial);
+            })
+            .slice(0, 20)
+            .map((e) => path.join(dirToRead, e.name));
+
+          sendJson(res, 200, { home, directories: dirs });
+        } catch {
+          sendJson(res, 200, { home, directories: [] });
+        }
+        return;
+      }
+
+      // =====================================================================
+      // Static file serving (React SPA from ui/dist)
+      // =====================================================================
+
+      if (method === "GET" && config.serveUI) {
+        // Serve static assets from ui/dist
+        if (pathname.startsWith("/assets/") || pathname === "/favicon.ico") {
+          const filePath = path.join(uiDistDir, pathname);
+          // Path traversal guard
+          const resolved = path.resolve(filePath);
+          if (!resolved.startsWith(uiDistDir)) {
+            sendHtml(res, 403, "<h1>Forbidden</h1>");
+            return;
+          }
+          const isAsset = pathname.startsWith("/assets/");
+          sendFile(res, resolved, isAsset);
+          return;
+        }
+
+        // GET / — redirect authenticated users to /chat, serve login for others
+        if (pathname === "/") {
+          if (isAuthenticated) {
+            redirect(res, "/chat");
+          } else {
+            serveIndex(res);
+          }
+          return;
+        }
+
+        // SPA fallback: /login, /chat, /chat/:id all serve index.html
+        // React Router handles which page renders
+        serveIndex(res);
+        return;
+      }
+
+      // Non-UI mode fallbacks
+      if (method === "GET" && (pathname === "/" || pathname === "/login")) {
+        if (isAuthenticated) {
+          redirect(res, "/chat");
+        } else {
+          sendJson(res, 200, { status: "ok", authenticated: false });
+        }
+        return;
+      }
+
+      if (method === "GET" && pathname.startsWith("/chat")) {
+        if (!isAuthenticated) {
+          redirect(res, "/login");
+        } else {
+          sendJson(res, 200, { status: "ok", authenticated: true });
+        }
         return;
       }
 

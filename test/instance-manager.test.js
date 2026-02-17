@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { InstanceManager } from "../dist/instance-manager.js";
-import { resolveConfig } from "../dist/config.js";
+import { InstanceManager } from "../dist/core/instance-manager.js";
+import { resolveConfig } from "../dist/server/config.js";
 
 // Use a noop logger to keep test output clean
 const noopLogger = {
@@ -124,6 +124,12 @@ describe("InstanceManager", () => {
   describe("cancelMessage guards", () => {
     it("throws for unknown instance", () => {
       assert.throws(() => manager.cancelMessage("nope"), /not found/);
+    });
+  });
+
+  describe("approveToolUse guards", () => {
+    it("throws for unknown instance", () => {
+      assert.throws(() => manager.approveToolUse("nope", "Bash"), /not found/);
     });
   });
 

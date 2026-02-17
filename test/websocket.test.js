@@ -5,11 +5,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { WebSocket } from "ws";
-import { createRequestHandler } from "../dist/server.js";
-import { createWebSocketServer } from "../dist/websocket.js";
-import { AuthManager } from "../dist/auth.js";
-import { InstanceManager } from "../dist/instance-manager.js";
-import { resolveConfig } from "../dist/config.js";
+import { createRequestHandler } from "../dist/server/http.js";
+import { createWebSocketServer } from "../dist/server/websocket.js";
+import { AuthManager } from "../dist/server/auth.js";
+import { InstanceManager } from "../dist/core/instance-manager.js";
+import { resolveConfig } from "../dist/server/config.js";
 
 const noopLogger = {
   info() {},

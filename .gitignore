@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+ui/dist/
+ui/node_modules/
 
 # Environment
 .env

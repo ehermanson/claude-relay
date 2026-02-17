@@ -1,14 +1,18 @@
 {
   "name": "claude-relay",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "A lightweight server that bridges remote clients to a local Claude Code CLI via WebSockets",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/core/index.js",
+  "types": "dist/core/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/core/index.js",
+      "types": "./dist/core/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server/index.js",
+      "types": "./dist/server/index.d.ts"
     }
   },
   "bin": {
@@ -16,12 +20,14 @@
   },
   "files": [
     "dist",
-    "public"
+    "ui/dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:server && npm run build:ui",
+    "build:server": "tsc",
+    "build:ui": "cd ui && npm run build",
     "start": "node dist/bin.js",
-    "dev": "tsc --watch & node --watch dist/bin.js",
+    "dev": "concurrently -n srv,tsc,ui \"node --watch dist/bin.js\" \"tsc --watch\" \"cd ui && npm run dev\"",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
@@ -32,6 +38,7 @@
     "@types/cookie": "^0.6.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.13",
+    "concurrently": "^9.2.1",
     "typescript": "^5.7.0"
   }
 }

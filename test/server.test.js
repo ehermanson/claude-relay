@@ -4,10 +4,10 @@ import http from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createRequestHandler } from "../dist/server.js";
-import { AuthManager } from "../dist/auth.js";
-import { InstanceManager } from "../dist/instance-manager.js";
-import { resolveConfig } from "../dist/config.js";
+import { createRequestHandler } from "../dist/server/http.js";
+import { AuthManager } from "../dist/server/auth.js";
+import { InstanceManager } from "../dist/core/instance-manager.js";
+import { resolveConfig } from "../dist/server/config.js";
 
 const noopLogger = {
   info() {},

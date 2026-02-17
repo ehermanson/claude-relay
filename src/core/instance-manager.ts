@@ -13,47 +13,42 @@ import { randomUUID } from "crypto";
 import {
   readdirSync,
   readFileSync,
+  writeFileSync,
+  mkdirSync,
   statSync,
   existsSync,
   openSync,
   readSync,
   closeSync,
 } from "fs";
+import { dirname } from "path";
 import { join } from "path";
 import { homedir } from "os";
 import { execSync } from "child_process";
 import { ClaudeProcess } from "./claude-process.js";
-import type { RelayConfig } from "./config.js";
+import type { CoreConfig } from "./config.js";
 import type {
   ServerMessage,
   OutputMessage,
   ExitMessage,
   ActivityMessage,
   UserMessage,
+  InstanceStatus,
+  LastMessagePreview,
+  InstanceInfo,
+  HistoryEntry,
 } from "./types.js";
-import { describeToolUse, describeToolDetail } from "./tools.js";
+import { describeToolUse, describeToolDetail, isPermissionDenial } from "./tools.js";
 
 // =============================================================================
-// Types
+// Re-exports
 // =============================================================================
 
-export type InstanceStatus = "idle" | "processing" | "error" | "stopped";
+export type { InstanceStatus, LastMessagePreview, InstanceInfo, HistoryEntry } from "./types.js";
 
-export interface InstanceInfo {
-  id: string;
-  name: string;
-  workingDirectory: string;
-  status: InstanceStatus;
-  createdAt: number;
-  lastActivityAt: number;
-  /** True for discovered external Claude sessions (read-only) */
-  external?: boolean;
-}
-
-export interface HistoryEntry {
-  timestamp: number;
-  message: ServerMessage;
-}
+// =============================================================================
+// Internal Types
+// =============================================================================
 
 interface ExternalState {
   jsonlPath: string;
@@ -61,11 +56,36 @@ interface ExternalState {
   sessionId: string;
 }
 
+interface WatchState {
+  jsonlPath: string;
+  fileOffset: number;
+  /** Tracks tool_use_id → tool name for permission denial attribution */
+  pendingTools: Map<string, string>;
+}
+
+interface ManifestEntry {
+  id: string;
+  name: string;
+  workingDirectory: string;
+  sessionId: string;
+  jsonlPath: string;
+  dangerouslySkipPermissions: boolean;
+  createdAt: number;
+}
+
 interface Instance {
   info: InstanceInfo;
   process: ClaudeProcess | null;
   history: HistoryEntry[];
   externalState?: ExternalState;
+  /** JSONL file watching state — independent of external vs managed */
+  watchState?: WatchState;
+  /** Auto-generate a title from the first user message */
+  autoTitle?: boolean;
+  /** Claude Code session ID (captured after first message exchange) */
+  sessionId?: string;
+  /** Path to the JSONL transcript file for this session */
+  jsonlPath?: string;
 }
 
 export interface InstanceManagerEvents {
@@ -100,16 +120,68 @@ export interface InstanceManager {
 const MAX_HISTORY = 1000;
 const DISCOVERY_INTERVAL = 10_000; // 10s
 const WATCH_POLL_INTERVAL = 2_000; // 2s
+const MAX_TITLE_LENGTH = 50;
+
+/**
+ * Strip internal Claude CLI XML tags from message text.
+ * These are metadata injected by the CLI (system reminders, local command
+ * wrappers, hook output, IDE events, etc.) and should never be shown to users.
+ * Returns the cleaned text, or empty string if nothing meaningful remains.
+ */
+const INTERNAL_TAGS = [
+  "system-reminder",
+  "local-command-caveat",
+  "command-name",
+  "command-message",
+  "command-args",
+  "local-command-stdout",
+  "user-prompt-submit-hook",
+  "ide_opened_file",
+  "synthetic",
+  "task-notification",
+  "task-id",
+  "task_id",
+  "task_type",
+  "retrieval_status",
+  "output-file",
+  "session-id",
+  "project-path",
+  "partial_json_fragment",
+  "more_fragments",
+  "persisted-output",
+  "tool_use_error",
+];
+
+const INTERNAL_TAG_RE = new RegExp(
+  `<(${INTERNAL_TAGS.join("|")})[^>]*>[\\s\\S]*?</\\1>`,
+  "g"
+);
+
+function stripInternalTags(text: string): string {
+  return text.replace(INTERNAL_TAG_RE, "").trim();
+}
+
+/** Generate a short session title from the first user message. */
+function generateTitle(text: string): string {
+  // Take the first line, strip markdown/special chars
+  const firstLine = text.split("\n")[0].replace(/[#*`_~\[\]>]/g, "").trim();
+  if (!firstLine) return "New session";
+  if (firstLine.length <= MAX_TITLE_LENGTH) return firstLine;
+  // Truncate at word boundary
+  const truncated = firstLine.slice(0, MAX_TITLE_LENGTH);
+  const lastSpace = truncated.lastIndexOf(" ");
+  return (lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated) + "\u2026";
+}
 
 export class InstanceManager extends EventEmitter {
   private instances = new Map<string, Instance>();
-  private baseConfig: RelayConfig;
+  private baseConfig: CoreConfig;
   private instanceCounter = 0;
   private discoveryInterval: ReturnType<typeof setInterval> | null = null;
   private watchIntervals = new Map<string, ReturnType<typeof setInterval>>();
   private claudeDir = join(homedir(), ".claude");
 
-  constructor(config: RelayConfig) {
+  constructor(config: CoreConfig) {
     super();
     this.baseConfig = config;
   }
@@ -133,7 +205,7 @@ export class InstanceManager extends EventEmitter {
     const workingDirectory = options?.workingDirectory || this.baseConfig.workingDirectory;
     const now = Date.now();
 
-    const instanceConfig: RelayConfig = {
+    const instanceConfig: CoreConfig = {
       ...this.baseConfig,
       workingDirectory,
       dangerouslySkipPermissions:
@@ -150,38 +222,13 @@ export class InstanceManager extends EventEmitter {
       lastActivityAt: now,
     };
 
-    const instance: Instance = { info, process: proc, history: [] };
+    const dirBasename = workingDirectory.split("/").pop() || "";
+    const hasCustomName = !!(options?.name && options.name !== dirBasename);
+    const instance: Instance = { info, process: proc, history: [], autoTitle: !hasCustomName };
     this.instances.set(id, instance);
 
-    // Wire up events
-    proc.on("output", (message) => {
-      this.pushHistory(instance, message);
-      info.lastActivityAt = Date.now();
-
-      if (message.isWaiting) {
-        this.setStatus(instance, "idle");
-      } else {
-        this.setStatus(instance, "processing");
-      }
-
-      this.emit("instance:output", id, message);
-    });
-
-    proc.on("activity", (message) => {
-      this.pushHistory(instance, message);
-      info.lastActivityAt = Date.now();
-      this.setStatus(instance, "processing");
-      this.emit("instance:activity", id, message);
-    });
-
-    proc.on("exit", (message) => {
-      this.pushHistory(instance, message);
-      info.lastActivityAt = Date.now();
-      if (message.code !== 0) {
-        this.setStatus(instance, "error");
-      }
-      this.emit("instance:exit", id, message);
-    });
+    this.wireProcessEvents(id, instance, proc);
+    this.captureSessionId(id, instance, proc);
 
     this.baseConfig.logger.info(`[InstanceManager] Created instance "${name}" (${id})`);
     return { ...info };
@@ -195,7 +242,7 @@ export class InstanceManager extends EventEmitter {
       instance.process.kill();
     }
 
-    // Stop JSONL watcher if external
+    // Stop JSONL watcher
     const watchInterval = this.watchIntervals.get(id);
     if (watchInterval) {
       clearInterval(watchInterval);
@@ -204,6 +251,7 @@ export class InstanceManager extends EventEmitter {
 
     instance.info.status = "stopped";
     this.instances.delete(id);
+    this.saveManifest();
     this.baseConfig.logger.info(`[InstanceManager] Removed instance "${instance.info.name}" (${id})`);
     return true;
   }
@@ -222,12 +270,19 @@ export class InstanceManager extends EventEmitter {
     if (!instance) throw new Error(`Instance ${id} not found`);
     if (instance.info.external) throw new Error("Cannot send messages to external instances");
 
+    // Auto-title from first user message
+    if (instance.autoTitle) {
+      instance.info.name = generateTitle(text);
+      instance.autoTitle = false;
+    }
+
     // Store user message in history so replay works across devices
     const userMessage: UserMessage = { type: "user", text, instanceId: id };
     this.pushHistory(instance, userMessage);
 
     // Immediately reflect processing status
     instance.info.lastActivityAt = Date.now();
+    instance.info.waitingForInput = false;
     this.setStatus(instance, "processing");
 
     instance.process!.send(text);
@@ -241,6 +296,28 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
+   * Approve a previously denied tool and retry. Adds the tool to the process's
+   * allowed list, stores a user message, and sends a retry prompt.
+   */
+  approveToolUse(id: string, tool: string): void {
+    const instance = this.instances.get(id);
+    if (!instance) throw new Error(`Instance ${id} not found`);
+    if (instance.info.external) throw new Error("Cannot approve tools on external instances");
+
+    instance.process!.addAllowedTool(tool);
+
+    const retryText = `I've granted permission for ${tool}. Please retry your last action.`;
+    const userMessage: UserMessage = { type: "user", text: retryText, instanceId: id };
+    this.pushHistory(instance, userMessage);
+
+    instance.info.lastActivityAt = Date.now();
+    instance.info.waitingForInput = false;
+    this.setStatus(instance, "processing");
+
+    instance.process!.send(retryText);
+  }
+
+  /**
    * Resume an external session — converts it from read-only monitoring
    * to an interactive managed instance using `claude -p --resume <sessionId>`.
    */
@@ -250,57 +327,34 @@ export class InstanceManager extends EventEmitter {
     if (!instance.externalState) throw new Error("Instance is not an external session");
 
     const sessionId = instance.externalState.sessionId;
+    const jsonlPath = instance.externalState.jsonlPath;
     const cwd = instance.info.workingDirectory;
 
-    // Stop the JSONL watcher
-    const watchInterval = this.watchIntervals.get(id);
-    if (watchInterval) {
-      clearInterval(watchInterval);
-      this.watchIntervals.delete(id);
-    }
+    // JSONL watcher keeps running — watchState is independent of externalState.
+    // The watcher suppresses emissions while the process is active (dedup),
+    // and picks up terminal-side changes when the process is idle.
 
     // Create a ClaudeProcess that resumes the session
-    const instanceConfig: RelayConfig = {
+    const instanceConfig: CoreConfig = {
       ...this.baseConfig,
       workingDirectory: cwd,
     };
 
     const proc = new ClaudeProcess(instanceConfig, { resumeSessionId: sessionId });
 
+    // Preserve session info so discovery doesn't re-create this instance
+    instance.sessionId = sessionId;
+    instance.jsonlPath = jsonlPath;
+
     // Convert from external to managed
     instance.process = proc;
     instance.info.external = false;
     delete instance.externalState;
 
-    // Wire up events (same as createInstance)
-    proc.on("output", (message) => {
-      this.pushHistory(instance, message);
-      instance.info.lastActivityAt = Date.now();
-      if (message.isWaiting) {
-        this.setStatus(instance, "idle");
-      } else {
-        this.setStatus(instance, "processing");
-      }
-      this.emit("instance:output", id, message);
-    });
-
-    proc.on("activity", (message) => {
-      this.pushHistory(instance, message);
-      instance.info.lastActivityAt = Date.now();
-      this.setStatus(instance, "processing");
-      this.emit("instance:activity", id, message);
-    });
-
-    proc.on("exit", (message) => {
-      this.pushHistory(instance, message);
-      instance.info.lastActivityAt = Date.now();
-      if (message.code !== 0) {
-        this.setStatus(instance, "error");
-      }
-      this.emit("instance:exit", id, message);
-    });
-
+    this.wireProcessEvents(id, instance, proc);
+    this.captureSessionId(id, instance, proc);
     this.setStatus(instance, "idle");
+    this.saveManifest();
     this.baseConfig.logger.info(
       `[InstanceManager] Resumed session "${instance.info.name}" (claude session: ${sessionId})`
     );
@@ -312,6 +366,56 @@ export class InstanceManager extends EventEmitter {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
     return [...instance.history];
+  }
+
+  /**
+   * Return directories where Claude has been used, sorted by most recent activity.
+   * Scans ~/.claude/projects/ and decodes the encoded directory names.
+   */
+  getKnownDirectories(): { path: string; lastUsed: number }[] {
+    const projectsDir = join(this.claudeDir, "projects");
+    if (!existsSync(projectsDir)) return [];
+
+    try {
+      return readdirSync(projectsDir)
+        .filter((name) => {
+          // Encoded dirs start with a dash (encoded leading /)
+          if (!name.startsWith("-")) return false;
+          try {
+            return statSync(join(projectsDir, name)).isDirectory();
+          } catch {
+            return false;
+          }
+        })
+        .map((name) => {
+          const decoded = name.replace(/-/g, "/");
+          let lastUsed = 0;
+          try {
+            // Use the most recent jsonl file's mtime as last used time
+            const files = readdirSync(join(projectsDir, name))
+              .filter((f) => f.endsWith(".jsonl"))
+              .map((f) => {
+                try {
+                  return statSync(join(projectsDir, name, f)).mtimeMs;
+                } catch {
+                  return 0;
+                }
+              });
+            lastUsed = files.length > 0 ? Math.max(...files) : 0;
+          } catch {
+            // ignore
+          }
+          return { path: decoded, lastUsed };
+        })
+        .filter((d) => existsSync(d.path)) // only include dirs that still exist
+        .sort((a, b) => b.lastUsed - a.lastUsed);
+    } catch {
+      return [];
+    }
+  }
+
+  get defaultWorkingDirectory(): string {
+    return this.baseConfig.workingDirectory;
   }
 
   stopAll(): void {
@@ -369,11 +473,14 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Track known external JSONL paths
+    // Track known JSONL paths (external + managed)
     const knownJsonls = new Map<string, string>(); // jsonlPath → instanceId
     for (const [instanceId, instance] of this.instances) {
       if (instance.externalState) {
         knownJsonls.set(instance.externalState.jsonlPath, instanceId);
+      }
+      if (instance.jsonlPath) {
+        knownJsonls.set(instance.jsonlPath, instanceId);
       }
     }
 
@@ -486,9 +593,28 @@ export class InstanceManager extends EventEmitter {
 
     const id = randomUUID();
     const dirName = cwd.split("/").pop() || "unknown";
-    const name = dirName;
+    const name = this.resolveSessionTitle(sessionId, cwd, history) || dirName;
     const now = Date.now();
     const lastActivity = history.length > 0 ? history[history.length - 1].timestamp : now;
+
+    // Find the last user or claude message for the dashboard preview
+    let lastMessage: LastMessagePreview | undefined;
+    let waitingForInput = false;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const msg = history[i].message;
+      if (msg.type === "user" && (msg as UserMessage).text) {
+        lastMessage = { text: (msg as UserMessage).text, from: "user", timestamp: history[i].timestamp };
+        break;
+      } else if (msg.type === "output") {
+        const output = msg as OutputMessage;
+        if (output.isWaiting) {
+          waitingForInput = true;
+        } else if (output.text && output.text.trim()) {
+          lastMessage = { text: output.text, from: "claude", timestamp: history[i].timestamp };
+          break;
+        }
+      }
+    }
 
     const info: InstanceInfo = {
       id,
@@ -498,6 +624,8 @@ export class InstanceManager extends EventEmitter {
       createdAt: lastActivity,
       lastActivityAt: lastActivity,
       external: true,
+      lastMessage,
+      waitingForInput,
     };
 
     let fileSize: number;
@@ -515,6 +643,11 @@ export class InstanceManager extends EventEmitter {
         jsonlPath,
         fileOffset: fileSize,
         sessionId,
+      },
+      watchState: {
+        jsonlPath,
+        fileOffset: fileSize,
+        pendingTools: new Map(),
       },
     };
 
@@ -598,6 +731,7 @@ export class InstanceManager extends EventEmitter {
         }
       }
 
+      const replayTools = new Map<string, string>();
       for (const line of tailContent.split("\n")) {
         if (!line.trim()) continue;
         try {
@@ -606,7 +740,7 @@ export class InstanceManager extends EventEmitter {
           if (!cwd && entry.cwd) cwd = entry.cwd;
           if (!slug && entry.slug) slug = entry.slug;
 
-          const converted = this.convertJsonlEntry(entry);
+          const converted = this.convertJsonlEntry(entry, replayTools);
           for (const h of converted) {
             history.push(h);
           }
@@ -631,9 +765,9 @@ export class InstanceManager extends EventEmitter {
     timestamp?: string;
     message?: {
       role?: string;
-      content?: string | Array<{ type: string; text?: string; thinking?: string; name?: string; input?: Record<string, unknown>; is_error?: boolean; content?: string }>;
+      content?: string | Array<{ type: string; text?: string; thinking?: string; name?: string; id?: string; input?: Record<string, unknown>; is_error?: boolean; content?: string; tool_use_id?: string }>;
     };
-  }): HistoryEntry[] {
+  }, pendingTools?: Map<string, string>): HistoryEntry[] {
     const results: HistoryEntry[] = [];
     const timestamp = entry.timestamp
       ? new Date(entry.timestamp).getTime()
@@ -650,7 +784,8 @@ export class InstanceManager extends EventEmitter {
           .map((c) => c.text!)
           .join("\n");
       }
-      // Skip interrupt markers
+      // Strip internal CLI tags; skip if nothing meaningful remains
+      text = stripInternalTags(text);
       if (text && !text.startsWith("[Request interrupted")) {
         results.push({
           timestamp,
@@ -677,16 +812,20 @@ export class InstanceManager extends EventEmitter {
             });
           } else if (block.type === "tool_use") {
             // Flush accumulated text first
-            if (textParts.length > 0) {
+            const flushed = stripInternalTags(textParts.join(""));
+            if (flushed) {
               results.push({
                 timestamp,
                 message: {
                   type: "output",
-                  text: textParts.join(""),
+                  text: flushed,
                   isWaiting: false,
                 } as OutputMessage,
               });
-              textParts = [];
+            }
+            textParts = [];
+            if (block.id && block.name && pendingTools) {
+              pendingTools.set(block.id, block.name);
             }
             results.push({
               timestamp,
@@ -694,20 +833,27 @@ export class InstanceManager extends EventEmitter {
                 type: "activity",
                 activity: "tool_use",
                 tool: block.name,
-                description: describeToolUse(block.name || "Unknown"),
+                description: describeToolUse(block.name || "Unknown", block.input),
                 detail: describeToolDetail(
                   block.name || "Unknown",
                   block.input
                 ),
+                input: block.input as Record<string, unknown> | undefined,
               } as ActivityMessage,
             });
           } else if (block.type === "tool_result") {
+            const blockContent = block.content || "";
+            const denied = block.is_error && isPermissionDenial(blockContent);
+            const deniedTool = denied ? (pendingTools?.get(block.tool_use_id || "") || "Unknown") : undefined;
             results.push({
               timestamp,
               message: {
                 type: "activity",
                 activity: "tool_result",
-                description: block.is_error ? "Tool error" : "Tool completed",
+                description: deniedTool ? "Permission denied" : block.is_error ? "Tool error" : "Tool completed",
+                tool: deniedTool,
+                detail: blockContent.slice(0, 200) || undefined,
+                permissionDenied: deniedTool,
               } as ActivityMessage,
             });
           } else if (block.type === "text" && block.text) {
@@ -716,12 +862,13 @@ export class InstanceManager extends EventEmitter {
         }
 
         // Flush remaining text
-        if (textParts.length > 0) {
+        const remaining = stripInternalTags(textParts.join(""));
+        if (remaining) {
           results.push({
             timestamp,
             message: {
               type: "output",
-              text: textParts.join(""),
+              text: remaining,
               isWaiting: false,
             } as OutputMessage,
           });
@@ -743,33 +890,38 @@ export class InstanceManager extends EventEmitter {
   // ===========================================================================
 
   private startWatching(instanceId: string, instance: Instance): void {
-    if (!instance.externalState) return;
+    if (!instance.watchState) return;
+    if (this.watchIntervals.has(instanceId)) return; // Already watching
 
     const interval = setInterval(() => {
-      if (!instance.externalState) return;
+      if (!instance.watchState) return;
 
       try {
-        const stat = statSync(instance.externalState.jsonlPath);
-        if (stat.size <= instance.externalState.fileOffset) return;
+        const stat = statSync(instance.watchState.jsonlPath);
+        if (stat.size <= instance.watchState.fileOffset) return;
 
         // Read new bytes
-        const fd = openSync(instance.externalState.jsonlPath, "r");
+        const fd = openSync(instance.watchState.jsonlPath, "r");
         let newContent: string;
         try {
-          const buf = Buffer.alloc(stat.size - instance.externalState.fileOffset);
-          readSync(fd, buf, 0, buf.length, instance.externalState.fileOffset);
+          const buf = Buffer.alloc(stat.size - instance.watchState.fileOffset);
+          readSync(fd, buf, 0, buf.length, instance.watchState.fileOffset);
           newContent = buf.toString("utf-8");
         } finally {
           closeSync(fd);
         }
 
-        instance.externalState.fileOffset = stat.size;
+        instance.watchState.fileOffset = stat.size;
+
+        // When the relay's own process is active, it handles output via
+        // wireProcessEvents. Suppress watcher emissions to avoid duplicates.
+        if (instance.process?.isProcessing) return;
 
         for (const line of newContent.split("\n")) {
           if (!line.trim()) continue;
           try {
             const entry = JSON.parse(line);
-            const converted = this.convertJsonlEntry(entry);
+            const converted = this.convertJsonlEntry(entry, instance.watchState.pendingTools);
             for (const histEntry of converted) {
               this.pushHistory(instance, histEntry.message);
               instance.info.lastActivityAt = Date.now();
@@ -778,6 +930,7 @@ export class InstanceManager extends EventEmitter {
               if (msg.type === "output") {
                 const output = msg as OutputMessage;
                 if (output.isWaiting) {
+                  instance.info.waitingForInput = true;
                   this.setStatus(instance, "idle");
                 } else {
                   this.setStatus(instance, "processing");
@@ -787,6 +940,7 @@ export class InstanceManager extends EventEmitter {
                 this.setStatus(instance, "processing");
                 this.emit("instance:activity", instanceId, msg as ActivityMessage);
               } else if (msg.type === "user") {
+                instance.info.waitingForInput = false;
                 this.emit("instance:user", instanceId, msg as UserMessage);
               }
             }
@@ -803,8 +957,296 @@ export class InstanceManager extends EventEmitter {
   }
 
   // ===========================================================================
+  // Instance persistence (manifest)
+  // ===========================================================================
+
+  private loadManifest(): ManifestEntry[] {
+    const filePath = this.baseConfig.manifestFile;
+    try {
+      const data = readFileSync(filePath, "utf-8");
+      return JSON.parse(data);
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return []; // First run — no manifest yet
+      }
+      this.baseConfig.logger.warn(`[InstanceManager] Failed to load manifest: ${err}`);
+      return [];
+    }
+  }
+
+  private saveManifest(): void {
+    const filePath = this.baseConfig.manifestFile;
+    const entries: ManifestEntry[] = [];
+
+    for (const [, instance] of this.instances) {
+      if (instance.info.external || !instance.sessionId) continue;
+      entries.push({
+        id: instance.info.id,
+        name: instance.info.name,
+        workingDirectory: instance.info.workingDirectory,
+        sessionId: instance.sessionId,
+        jsonlPath: instance.jsonlPath!,
+        dangerouslySkipPermissions: this.baseConfig.dangerouslySkipPermissions,
+        createdAt: instance.info.createdAt,
+      });
+    }
+
+    try {
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, JSON.stringify(entries, null, 2), "utf-8");
+    } catch (err: unknown) {
+      this.baseConfig.logger.warn(`[InstanceManager] Failed to save manifest: ${err}`);
+    }
+  }
+
+  restoreInstances(): void {
+    const entries = this.loadManifest();
+    if (entries.length === 0) return;
+
+    let restored = 0;
+    for (const entry of entries) {
+      if (!existsSync(entry.jsonlPath)) {
+        this.baseConfig.logger.debug(
+          `[InstanceManager] Skipping stale manifest entry "${entry.name}" — JSONL not found`
+        );
+        continue;
+      }
+
+      if (this.instances.size >= this.baseConfig.maxInstances) {
+        this.baseConfig.logger.warn(
+          `[InstanceManager] Max instances reached, skipping remaining manifest entries`
+        );
+        break;
+      }
+
+      // Parse JSONL to recover history
+      const { history } = this.parseJsonl(entry.jsonlPath);
+
+      // Create a ClaudeProcess that resumes the session
+      const instanceConfig: CoreConfig = {
+        ...this.baseConfig,
+        workingDirectory: entry.workingDirectory,
+        dangerouslySkipPermissions: entry.dangerouslySkipPermissions,
+      };
+
+      const proc = new ClaudeProcess(instanceConfig, { resumeSessionId: entry.sessionId });
+
+      const info: InstanceInfo = {
+        id: entry.id,
+        name: entry.name,
+        workingDirectory: entry.workingDirectory,
+        status: "idle",
+        createdAt: entry.createdAt,
+        lastActivityAt: Date.now(),
+      };
+
+      // Recover lastMessage from history
+      for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i].message;
+        if (msg.type === "user" && (msg as UserMessage).text) {
+          info.lastMessage = { text: (msg as UserMessage).text, from: "user", timestamp: history[i].timestamp };
+          break;
+        } else if (msg.type === "output") {
+          const output = msg as OutputMessage;
+          if (output.text && output.text.trim() && !output.isWaiting) {
+            info.lastMessage = { text: output.text, from: "claude", timestamp: history[i].timestamp };
+            break;
+          }
+        }
+      }
+
+      // Set up JSONL watching so terminal-side changes are picked up
+      let watchState: WatchState | undefined;
+      try {
+        watchState = {
+          jsonlPath: entry.jsonlPath,
+          fileOffset: statSync(entry.jsonlPath).size,
+          pendingTools: new Map(),
+        };
+      } catch {
+        // ignore — file stat failure handled by startWatching guard
+      }
+
+      const instance: Instance = {
+        info,
+        process: proc,
+        history,
+        sessionId: entry.sessionId,
+        jsonlPath: entry.jsonlPath,
+        watchState,
+      };
+
+      this.instances.set(entry.id, instance);
+      this.wireProcessEvents(entry.id, instance, proc);
+      this.startWatching(entry.id, instance);
+
+      this.emit("instance:created", entry.id, { ...info });
+      restored++;
+    }
+
+    if (restored > 0) {
+      this.baseConfig.logger.info(`[InstanceManager] Restored ${restored} instance(s) from manifest`);
+    }
+  }
+
+  // ===========================================================================
+  // Event wiring
+  // ===========================================================================
+
+  private wireProcessEvents(id: string, instance: Instance, proc: ClaudeProcess): void {
+    proc.on("output", (message) => {
+      this.pushHistory(instance, message);
+      instance.info.lastActivityAt = Date.now();
+
+      if (message.isWaiting) {
+        // Advance watcher offset so it doesn't re-emit what the process already handled
+        if (instance.watchState) {
+          try {
+            instance.watchState.fileOffset = statSync(instance.watchState.jsonlPath).size;
+          } catch {
+            // ignore — file may not exist yet
+          }
+        }
+        instance.info.waitingForInput = true;
+        this.setStatus(instance, "idle");
+      } else {
+        this.setStatus(instance, "processing");
+      }
+
+      this.emit("instance:output", id, message);
+    });
+
+    proc.on("activity", (message) => {
+      this.pushHistory(instance, message);
+      instance.info.lastActivityAt = Date.now();
+      this.setStatus(instance, "processing");
+      this.emit("instance:activity", id, message);
+    });
+
+    proc.on("exit", (message) => {
+      this.pushHistory(instance, message);
+      instance.info.lastActivityAt = Date.now();
+      if (message.code !== 0) {
+        this.setStatus(instance, "error");
+      }
+      this.emit("instance:exit", id, message);
+    });
+  }
+
+  private captureSessionId(id: string, instance: Instance, proc: ClaudeProcess): void {
+    const onOutput = (message: OutputMessage) => {
+      if (!message.isWaiting) return;
+
+      // One-shot: remove this listener after first capture
+      proc.off("output", onOutput);
+
+      const cwd = instance.info.workingDirectory;
+      const encoded = cwd.replace(/\//g, "-");
+      const projectDir = join(this.claudeDir, "projects", encoded);
+
+      if (!existsSync(projectDir)) return;
+
+      try {
+        const files = readdirSync(projectDir)
+          .filter((f) => f.endsWith(".jsonl"))
+          .map((f) => {
+            const fullPath = join(projectDir, f);
+            try {
+              return { path: fullPath, mtime: statSync(fullPath).mtimeMs };
+            } catch {
+              return null;
+            }
+          })
+          .filter((f): f is { path: string; mtime: number } => f !== null);
+
+        files.sort((a, b) => b.mtime - a.mtime);
+        if (files.length === 0) return;
+
+        const newestJsonl = files[0];
+        const fileName = newestJsonl.path.split("/").pop() || "";
+        const sessionId = fileName.replace(".jsonl", "");
+
+        instance.sessionId = sessionId;
+        instance.jsonlPath = newestJsonl.path;
+
+        // Feed session ID back to the process so subsequent sends use
+        // --resume <id> instead of --continue (which can pick up the wrong session).
+        proc.setSessionId(sessionId);
+
+        // Start JSONL watching so terminal-side changes are picked up.
+        // If a watcher exists on a different path (e.g. resumed session got a new JSONL),
+        // replace it. If already watching the same path, skip.
+        if (instance.watchState?.jsonlPath !== newestJsonl.path) {
+          const oldInterval = this.watchIntervals.get(id);
+          if (oldInterval) {
+            clearInterval(oldInterval);
+            this.watchIntervals.delete(id);
+          }
+          try {
+            instance.watchState = {
+              jsonlPath: newestJsonl.path,
+              fileOffset: statSync(newestJsonl.path).size,
+              pendingTools: new Map(),
+            };
+            this.startWatching(id, instance);
+          } catch {
+            // ignore — file may have been removed between checks
+          }
+        }
+
+        this.saveManifest();
+
+        this.baseConfig.logger.debug(
+          `[InstanceManager] Captured session ID "${sessionId}" for instance "${instance.info.name}"`
+        );
+      } catch (err) {
+        this.baseConfig.logger.debug(
+          `[InstanceManager] Failed to capture session ID for "${instance.info.name}": ${err}`
+        );
+      }
+    };
+
+    proc.on("output", onOutput);
+  }
+
+  // ===========================================================================
   // Internal helpers
   // ===========================================================================
+
+  /**
+   * Try to find a good title for an external session:
+   * 1. Check sessions-index.json for a summary
+   * 2. Fall back to first user message
+   */
+  private resolveSessionTitle(
+    sessionId: string,
+    cwd: string,
+    history: HistoryEntry[]
+  ): string | null {
+    // Try sessions-index.json summary
+    const encoded = cwd.replace(/\//g, "-");
+    const indexPath = join(this.claudeDir, "projects", encoded, "sessions-index.json");
+    try {
+      const indexData = JSON.parse(readFileSync(indexPath, "utf-8"));
+      if (indexData.entries && Array.isArray(indexData.entries)) {
+        const entry = indexData.entries.find(
+          (e: { sessionId?: string }) => e.sessionId === sessionId
+        );
+        if (entry?.summary) return entry.summary;
+      }
+    } catch {
+      // no index or parse error
+    }
+
+    // Fall back to first user message
+    for (const h of history) {
+      if (h.message.type === "user" && (h.message as UserMessage).text) {
+        return generateTitle((h.message as UserMessage).text);
+      }
+    }
+
+    return null;
+  }
 
   private setStatus(instance: Instance, status: InstanceStatus): void {
     if (instance.info.status === status) return;
@@ -813,10 +1255,28 @@ export class InstanceManager extends EventEmitter {
   }
 
   private pushHistory(instance: Instance, message: ServerMessage): void {
-    instance.history.push({ timestamp: Date.now(), message });
+    const now = Date.now();
+    instance.history.push({ timestamp: now, message });
     if (instance.history.length > MAX_HISTORY) {
       instance.history.splice(0, instance.history.length - MAX_HISTORY);
     }
+
+    // Track last meaningful message for dashboard preview
+    if (message.type === "user" && (message as UserMessage).text) {
+      instance.info.lastMessage = {
+        text: (message as UserMessage).text,
+        from: "user",
+        timestamp: now,
+      };
+    } else if (message.type === "output") {
+      const output = message as OutputMessage;
+      if (output.text && output.text.trim() && !output.isWaiting) {
+        instance.info.lastMessage = {
+          text: output.text,
+          from: "claude",
+          timestamp: now,
+        };
+      }
+    }
   }
 }
-

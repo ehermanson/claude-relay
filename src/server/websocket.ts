@@ -13,7 +13,8 @@
 import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AuthManager } from "./auth.js";
-import type { InstanceManager } from "./instance-manager.js";
+import type { InstanceManager } from "../core/instance-manager.js";
+import type { InstanceInfo } from "../core/types.js";
 import type { RelayConfig } from "./config.js";
 import type {
   ClientMessage,
@@ -21,8 +22,7 @@ import type {
   OutputMessage,
   ExitMessage,
   ActivityMessage,
-} from "./types.js";
-import type { InstanceInfo } from "./instance-manager.js";
+} from "../core/types.js";
 
 function truncateSessionId(sessionId: string): string {
   return sessionId.substring(0, 8) + "...";
@@ -248,6 +248,25 @@ export function createWebSocketServer(
               sendMessage(ws, {
                 type: "error",
                 message: err instanceof Error ? err.message : "Failed to resume",
+                instanceId: message.instanceId,
+              });
+            }
+            break;
+          }
+
+          case "approve_tool": {
+            try {
+              const retryText = `I've granted permission for ${message.tool}. Please retry your last action.`;
+              sendToSubscribers(message.instanceId, {
+                type: "user",
+                text: retryText,
+                instanceId: message.instanceId,
+              });
+              instanceManager.approveToolUse(message.instanceId, message.tool);
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to approve tool",
                 instanceId: message.instanceId,
               });
             }

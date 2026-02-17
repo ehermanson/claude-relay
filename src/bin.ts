@@ -15,10 +15,11 @@
  *   MAX_INSTANCES             (optional) Maximum concurrent instances, default 10
  *   TUNNEL                   (optional) Set to "true" to start a cloudflared tunnel
  *   SESSION_FILE             (optional) Path to session persistence file, default ~/.claude-relay/sessions.json
+ *   MANIFEST_FILE            (optional) Path to instance manifest file, default ~/.claude-relay/instances.json
  */
 
-import { spawn, type ChildProcess } from "child_process";
-import { createRelay } from "./index.js";
+import { createRelay } from "./server/index.js";
+import { startTunnel, stopTunnel } from "./server/tunnel.js";
 
 const password = process.env.RELAY_PASSWORD;
 
@@ -47,47 +48,8 @@ const relay = createRelay({
   maxInstances: parseInt(process.env.MAX_INSTANCES || "10"),
   serveUI: true,
   ...(process.env.SESSION_FILE ? { sessionFile: process.env.SESSION_FILE } : {}),
+  ...(process.env.MANIFEST_FILE ? { manifestFile: process.env.MANIFEST_FILE } : {}),
 });
-
-let tunnelProcess: ChildProcess | null = null;
-
-function startTunnel(localPort: number): void {
-  console.log("  Starting cloudflared tunnel...");
-
-  tunnelProcess = spawn("cloudflared", ["tunnel", "--url", `http://localhost:${localPort}`], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-
-  tunnelProcess.on("error", (err) => {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      console.error(
-        "\n  cloudflared not found. Install it:\n" +
-        "    brew install cloudflared        (macOS)\n" +
-        "    https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/\n"
-      );
-    } else {
-      console.error("  Tunnel error:", err.message);
-    }
-  });
-
-  // cloudflared prints the URL to stderr
-  let stderrBuf = "";
-  tunnelProcess.stderr?.on("data", (data: Buffer) => {
-    stderrBuf += data.toString();
-    const match = stderrBuf.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-    if (match) {
-      console.log(`\n  Tunnel URL: ${match[0]}\n`);
-      stderrBuf = ""; // stop accumulating
-    }
-  });
-
-  tunnelProcess.on("close", (code) => {
-    if (code !== null && code !== 0) {
-      console.error(`  Tunnel exited with code ${code}`);
-    }
-    tunnelProcess = null;
-  });
-}
 
 relay.start().then(() => {
   console.log(`\n  Claude Relay running at http://localhost:${port}`);
@@ -105,10 +67,7 @@ function shutdown() {
   stopping = true;
   console.log("\nShutting down...");
 
-  if (tunnelProcess) {
-    tunnelProcess.kill();
-    tunnelProcess = null;
-  }
+  stopTunnel();
 
   relay.stop().then(() => process.exit(0));
 }

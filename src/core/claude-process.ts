@@ -9,8 +9,8 @@ import { EventEmitter } from "events";
 import { spawn, execSync, type ChildProcess } from "child_process";
 import { existsSync } from "fs";
 import type { OutputMessage, ExitMessage, ActivityMessage } from "./types.js";
-import type { RelayConfig } from "./config.js";
-import { describeToolUse, describeToolDetail } from "./tools.js";
+import type { CoreConfig } from "./config.js";
+import { describeToolUse, describeToolDetail, isPermissionDenial } from "./tools.js";
 
 // =============================================================================
 // Types
@@ -50,10 +50,11 @@ export class ClaudeProcess extends EventEmitter {
   private claudePath: string;
   private cwd: string;
   private isFirstMessage = true;
-  private config: RelayConfig;
+  private config: CoreConfig;
   private resumeSessionId: string | null;
+  private allowedTools: string[] = [];
 
-  constructor(config: RelayConfig, options?: { resumeSessionId?: string }) {
+  constructor(config: CoreConfig, options?: { resumeSessionId?: string }) {
     super();
     this.config = config;
     this.resumeSessionId = options?.resumeSessionId ?? null;
@@ -68,6 +69,25 @@ export class ClaudeProcess extends EventEmitter {
 
   get isProcessing(): boolean {
     return this._isProcessing;
+  }
+
+  /**
+   * Set the session ID after it has been captured from the JSONL file.
+   * Subsequent sends will use --resume <id> for precise session targeting
+   * instead of --continue (which picks up the "last" session in the CWD).
+   */
+  setSessionId(sessionId: string): void {
+    this.resumeSessionId = sessionId;
+  }
+
+  /**
+   * Add a tool to the allowed list. Subsequent sends will include
+   * --allowedTools with all accumulated tools. Deduplicates.
+   */
+  addAllowedTool(tool: string): void {
+    if (!this.allowedTools.includes(tool)) {
+      this.allowedTools.push(tool);
+    }
   }
 
   private findClaudeBinary(): string {
@@ -115,7 +135,11 @@ export class ClaudeProcess extends EventEmitter {
       args.push("--dangerously-skip-permissions");
     }
 
-    if (this.isFirstMessage && this.resumeSessionId) {
+    if (this.allowedTools.length > 0) {
+      args.push("--allowedTools", this.allowedTools.join(" "));
+    }
+
+    if (this.resumeSessionId) {
       args.push("--resume", this.resumeSessionId);
     } else if (!this.isFirstMessage) {
       args.push("--continue");
@@ -137,6 +161,8 @@ export class ClaudeProcess extends EventEmitter {
 
     let lineBuffer = "";
     let hasEmittedContent = false;
+    // Map tool_use_id → tool name so tool_result denials know which tool was denied
+    const pendingTools = new Map<string, string>();
 
     this.currentProcess.stdout?.on("data", (data: Buffer) => {
       const chunk = data.toString();
@@ -168,12 +194,14 @@ export class ClaudeProcess extends EventEmitter {
                 hasEmittedContent = true;
               } else if (block.type === "tool_use") {
                 const toolName = block.name || "Unknown tool";
+                if (block.id) pendingTools.set(block.id, toolName);
                 const activity: ActivityMessage = {
                   type: "activity",
                   activity: "tool_use",
                   tool: toolName,
                   description: describeToolUse(toolName, block.input),
                   detail: describeToolDetail(toolName, block.input),
+                  input: block.input as Record<string, unknown> | undefined,
                 };
                 this.emit("activity", activity);
               } else if (block.type === "text" && block.text) {
@@ -188,22 +216,50 @@ export class ClaudeProcess extends EventEmitter {
             }
           } else if (event.type === "tool_use") {
             const toolName = event.name || event.tool || "Unknown tool";
+            if (event.id) pendingTools.set(event.id, toolName);
             const activity: ActivityMessage = {
               type: "activity",
               activity: "tool_use",
               tool: toolName,
               description: describeToolUse(toolName, event.input),
               detail: describeToolDetail(toolName, event.input),
+              input: event.input as Record<string, unknown> | undefined,
             };
             this.emit("activity", activity);
           } else if (event.type === "tool_result") {
+            const content = event.content || "";
+            const denied = event.is_error && isPermissionDenial(content);
+            const deniedTool = denied ? (pendingTools.get(event.tool_use_id) || "Unknown") : undefined;
             const activity: ActivityMessage = {
               type: "activity",
               activity: "tool_result",
-              description: event.is_error ? "Tool error" : "Tool completed",
-              detail: event.content?.slice?.(0, 200),
+              description: deniedTool ? "Permission denied" : event.is_error ? "Tool error" : "Tool completed",
+              tool: deniedTool,
+              detail: content.slice(0, 200) || undefined,
+              permissionDenied: deniedTool,
             };
             this.emit("activity", activity);
+          } else if (event.type === "user" && event.message?.content) {
+            // tool_result blocks arrive inside "user" type events in stream-json
+            const content = event.message.content;
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (block.type === "tool_result") {
+                  const text = block.content || "";
+                  const denied = block.is_error && isPermissionDenial(text);
+                  const deniedTool = denied ? (pendingTools.get(block.tool_use_id) || "Unknown") : undefined;
+                  const activity: ActivityMessage = {
+                    type: "activity",
+                    activity: "tool_result",
+                    description: deniedTool ? "Permission denied" : block.is_error ? "Tool error" : "Tool completed",
+                    tool: deniedTool,
+                    detail: text.slice(0, 200) || undefined,
+                    permissionDenied: deniedTool,
+                  };
+                  this.emit("activity", activity);
+                }
+              }
+            }
           } else if (event.type === "result") {
             this.config.logger.debug(`[Claude] result: success=${!event.is_error}`);
             if (!hasEmittedContent && event.result) {

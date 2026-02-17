@@ -1,11 +1,12 @@
 /**
- * Claude Relay — Programmatic API
+ * Claude Relay — Server Layer
  *
- * Use this module to embed a Claude Relay server in your own application.
+ * Full server with HTTP, WebSocket, auth, tunnel, and UI serving.
+ * Re-exports everything from the core library for convenience.
  *
  * @example
  * ```ts
- * import { createRelay } from "claude-relay";
+ * import { createRelay } from "claude-relay/server";
  *
  * const relay = createRelay({
  *   password: process.env.PASSWORD!,
@@ -26,9 +27,9 @@ import http from "node:http";
 import type { WebSocketServer } from "ws";
 import { resolveConfig, type RelayOptions, type RelayConfig } from "./config.js";
 import { AuthManager } from "./auth.js";
-import { InstanceManager } from "./instance-manager.js";
+import { InstanceManager } from "../core/instance-manager.js";
 import { createWebSocketServer } from "./websocket.js";
-import { createRequestHandler } from "./server.js";
+import { createRequestHandler } from "./http.js";
 
 export class ClaudeRelay {
   readonly config: RelayConfig;
@@ -69,6 +70,7 @@ export class ClaudeRelay {
    * Start listening for connections.
    */
   start(): Promise<void> {
+    this.instanceManager.restoreInstances();
     this.instanceManager.startDiscovery();
     return new Promise((resolve) => {
       this.server.listen(this.config.port, () => {
@@ -109,25 +111,14 @@ export function createRelay(options: RelayOptions): ClaudeRelay {
   return new ClaudeRelay(options);
 }
 
-// Re-export types for library consumers
+// Re-export everything from core for convenience
+export * from "../core/index.js";
+
+// Server-specific exports
+export { AuthManager } from "./auth.js";
 export type { RelayOptions, RelayConfig } from "./config.js";
-export type { Logger } from "./logger.js";
-export type { InstanceInfo, HistoryEntry } from "./instance-manager.js";
-export { describeToolUse, describeToolDetail } from "./tools.js";
-export type {
-  ClientMessage,
-  ServerMessage,
-  OutputMessage,
-  ActivityMessage,
-  ExitMessage,
-  ErrorMessage,
-  ConnectedMessage,
-  UserMessage,
-  Session,
-  InstanceListMessage,
-  InstanceCreatedMessage,
-  InstanceRemovedMessage,
-  InstanceStatusMessage,
-  InstanceHistoryMessage,
-  ResumeInstancePayload,
-} from "./types.js";
+export { resolveConfig } from "./config.js";
+export { createRequestHandler } from "./http.js";
+export { createWebSocketServer } from "./websocket.js";
+export type { WebSocketServerHandle } from "./websocket.js";
+export { startTunnel, stopTunnel } from "./tunnel.js";
