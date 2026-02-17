@@ -26,9 +26,22 @@ export { resolveCoreConfig } from "./config.js";
 export type { Logger } from "./logger.js";
 export { noopLogger } from "./logger.js";
 
-export { describeToolUse, describeToolDetail, isPermissionDenial } from "./tools.js";
+export { SessionDB } from "./db.js";
+export type { SessionRow } from "./db.js";
+
+export {
+  describeToolUse,
+  describeToolDetail,
+  extractToolResultText,
+  isPermissionDenial,
+  INTERACTIVE_TOOLS,
+  estimateCost,
+} from "./tools.js";
+
+export { isGitRepo, getRepoRoot, getCurrentBranch, createWorktree, removeWorktree } from "./git.js";
 
 export type {
+  SessionStats,
   InstanceStatus,
   LastMessagePreview,
   InstanceInfo,
@@ -42,7 +55,6 @@ export type {
   UnsubscribePayload,
   InstanceMessagePayload,
   InstanceCancelPayload,
-  ResumeInstancePayload,
   ApproveToolPayload,
   ClientMessage,
   ConnectedMessage,
@@ -58,4 +70,10 @@ export type {
   InstanceHistoryMessage,
   ServerMessage,
   Session,
+  TaskItem,
+  FileChange,
+  TeamMember,
+  TeamInfo,
+  ProjectPlan,
+  ProjectArtifacts,
 } from "./types.js";

@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","cwd":"/Users/test/projects/my-app","timestamp":"2026-02-10T11:00:00.000Z"}
+{"type":"user","message":{"role":"user","content":"Implement the plan. You can read the full transcript at: /Users/test/.claude/projects/-Users-test-projects-my-app/parent-session-id.jsonl"},"timestamp":"2026-02-10T11:00:01.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll implement the plan from the previous session."}]},"timestamp":"2026-02-10T11:00:05.000Z"}

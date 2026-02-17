@@ -14,9 +14,17 @@ interface MessageListProps {
   isInteractive?: boolean;
   onApproveTool?: (tool: string) => void;
   approvedTools?: Set<string>;
+  isExternal?: boolean;
 }
 
-export function MessageList({ items, onSendMessage, isInteractive, onApproveTool, approvedTools }: MessageListProps) {
+export function MessageList({
+  items,
+  onSendMessage,
+  isInteractive,
+  onApproveTool,
+  approvedTools,
+  isExternal,
+}: MessageListProps) {
   const { ref, scrollToBottom, onContentChange } = useAutoScroll<HTMLDivElement>();
 
   // Scroll to bottom immediately when items first load (history replay)
@@ -32,38 +40,58 @@ export function MessageList({ items, onSendMessage, isInteractive, onApproveTool
     }
   }, [items, scrollToBottom, onContentChange]);
 
-  // Only the last activity-group gets the Allow button
+  // Only the last activity-group is interactive (plan approval, questions, tool permissions)
   let lastActivityGroupIndex = -1;
+  let lastClaudeIndex = -1;
   for (let i = items.length - 1; i >= 0; i--) {
-    if (items[i].kind === "activity-group") {
+    if (lastActivityGroupIndex === -1 && items[i].kind === "activity-group") {
       lastActivityGroupIndex = i;
-      break;
     }
+    if (lastClaudeIndex === -1 && items[i].kind === "claude") {
+      lastClaudeIndex = i;
+    }
+    if (lastActivityGroupIndex !== -1 && lastClaudeIndex !== -1) break;
   }
 
   return (
-    <div
-      ref={ref}
-      className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-5 py-5 [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-border"
-    >
-      {items.map((item, i) => {
-        switch (item.kind) {
-          case "user":
-            return <UserMessage key={i} text={item.text} timestamp={item.timestamp} />;
-          case "claude":
-            return <ClaudeMessage key={i} text={item.text} timestamp={item.timestamp} />;
-          case "system":
-            return (
-              <SystemMessage key={i} text={item.text} isError={item.isError} />
-            );
-          case "thinking-block":
-            return <ThinkingBlock key={i} text={item.text} />;
-          case "thinking-indicator":
-            return <ThinkingIndicator key={i} />;
-          case "activity-group":
-            return <ActivityGroup key={i} activities={item.activities} onSendMessage={onSendMessage} isInteractive={isInteractive} onApproveTool={i === lastActivityGroupIndex ? onApproveTool : undefined} approvedTools={approvedTools} />;
-        }
-      })}
+    <div ref={ref} className="flex-1 overflow-y-auto">
+      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
+        {items.map((item, i) => {
+          switch (item.kind) {
+            case "user":
+              return <UserMessage key={i} text={item.text} timestamp={item.timestamp} />;
+            case "claude":
+              return (
+                <ClaudeMessage
+                  key={i}
+                  text={item.text}
+                  timestamp={item.timestamp}
+                  isLast={i === lastClaudeIndex}
+                />
+              );
+            case "system":
+              return <SystemMessage key={i} text={item.text} isError={item.isError} />;
+            case "thinking-block":
+              return <ThinkingBlock key={i} text={item.text} />;
+            case "thinking-indicator":
+              return <ThinkingIndicator key={i} />;
+            case "activity-group": {
+              const isLast = i === lastActivityGroupIndex;
+              return (
+                <ActivityGroup
+                  key={i}
+                  activities={item.activities}
+                  onSendMessage={isLast ? onSendMessage : undefined}
+                  isInteractive={isLast ? isInteractive : undefined}
+                  onApproveTool={isLast ? onApproveTool : undefined}
+                  approvedTools={approvedTools}
+                  isExternal={isLast ? isExternal : undefined}
+                />
+              );
+            }
+          }
+        })}
+      </div>
     </div>
   );
 }

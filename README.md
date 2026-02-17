@@ -44,6 +44,12 @@ Claude Relay also automatically discovers other Claude Code sessions running on 
 4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
 5. **Cloudflare Tunnel** (optional) gives you a public HTTPS URL for access from any device
 
+## Projects and Directories
+
+Claude Relay inherits Claude Code's project model: **the directory you launch `claude` from is your project**. The CLI loads `CLAUDE.md` from the working directory, project memory is keyed by it, and JSONL transcripts are stored under `~/.claude/projects/` using the encoded path. Relay uses the same convention — sessions are grouped by their starting directory in the sidebar, project pages aggregate artifacts by directory, and external session discovery reads the `cwd` from each session's JSONL init entry.
+
+This is a convention, not a constraint. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar` or running commands elsewhere. The working directory is a "home base," not a sandbox — the same way a git repo doesn't stop you from touching files outside it. In practice the heuristic is correct the vast majority of the time, since people launch `claude` from the repo they're working on.
+
 ## What It Does
 
 - **Multi-session management** — run multiple Claude Code instances side-by-side, each with its own working directory and conversation history
@@ -72,6 +78,19 @@ Open `http://localhost:7777`. That's it.
 
 ### Remote Access
 
+**Option A: Tailscale (recommended for personal use)**
+
+If you run [Tailscale](https://tailscale.com) on your devices, the relay is already accessible — no tunnel needed. Just start it and connect from any device on your tailnet:
+
+```bash
+RELAY_PASSWORD="your-secret" npm start
+# → http://your-machine:7777 from any tailnet device
+```
+
+Tailscale authenticates at the network layer, so only your devices can reach the relay. The password still protects the web UI as a second factor.
+
+**Option B: Cloudflare Tunnel (for public URLs)**
+
 ```bash
 # Built-in tunnel (requires cloudflared)
 TUNNEL=true RELAY_PASSWORD="your-secret" npm start
@@ -80,7 +99,7 @@ TUNNEL=true RELAY_PASSWORD="your-secret" npm start
 cloudflared tunnel --url http://localhost:7777
 ```
 
-This gives you a public `https://*.trycloudflare.com` URL you can open on any device.
+This gives you a public `https://*.trycloudflare.com` URL you can open on any device — useful when you need to share access or can't install Tailscale.
 
 ## Architecture
 
@@ -143,7 +162,7 @@ import { InstanceManager, resolveCoreConfig } from "claude-relay";
 
 const config = resolveCoreConfig({
   workingDirectory: "/my/project",
-  maxInstances: 5,
+  maxProcesses: 5,
 });
 
 const manager = new InstanceManager(config);
@@ -160,35 +179,35 @@ manager.sendMessage(instance.id, "Hello Claude");
 
 ### Environment Variables (CLI)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RELAY_PASSWORD` | **(required)** | Authentication password |
-| `PORT` | `7777` | Server port |
-| `WORKING_DIR` | `$HOME` | Default working directory for Claude |
-| `MAX_INSTANCES` | `10` | Maximum concurrent instances |
-| `TUNNEL` | `false` | Set `"true"` to start a Cloudflare Tunnel |
-| `DANGEROUS_SKIP_PERMISSIONS` | `false` | Set `"true"` to skip Claude's permission prompts |
-| `PROCESS_TIMEOUT` | `300000` | Process timeout in ms (5 min) |
-| `SESSION_MAX_AGE` | `604800000` | Session lifetime in ms (7 days) |
-| `SESSION_FILE` | `~/.claude-relay/sessions.json` | Session persistence file path |
-| `MANIFEST_FILE` | `~/.claude-relay/instances.json` | Instance manifest file path (for persistence across restarts) |
+| Variable                     | Default                          | Description                                                   |
+| ---------------------------- | -------------------------------- | ------------------------------------------------------------- |
+| `RELAY_PASSWORD`             | **(required)**                   | Authentication password                                       |
+| `PORT`                       | `7777`                           | Server port                                                   |
+| `WORKING_DIR`                | `$HOME`                          | Default working directory for Claude                          |
+| `MAX_PROCESSES`              | `15`                             | Maximum concurrent managed processes                          |
+| `TUNNEL`                     | `false`                          | Set `"true"` to start a Cloudflare Tunnel                     |
+| `DANGEROUS_SKIP_PERMISSIONS` | `false`                          | Set `"true"` to skip Claude's permission prompts              |
+| `PROCESS_TIMEOUT`            | `300000`                         | Process timeout in ms (5 min)                                 |
+| `SESSION_MAX_AGE`            | `604800000`                      | Session lifetime in ms (7 days)                               |
+| `SESSION_FILE`               | `~/.claude-relay/sessions.json`  | Session persistence file path                                 |
+| `MANIFEST_FILE`              | `~/.claude-relay/instances.json` | Instance manifest file path (for persistence across restarts) |
 
 ### Programmatic Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `password` | `string` | **(required)** | Authentication password |
-| `port` | `number` | `7777` | Server port |
-| `workingDirectory` | `string` | `process.cwd()` | Default working directory |
-| `maxInstances` | `number` | `10` | Max concurrent instances |
-| `dangerouslySkipPermissions` | `boolean` | `false` | Skip Claude's permission prompts |
-| `processTimeout` | `number` | `300000` | Process timeout in ms |
-| `serveUI` | `boolean` | `true` | Serve the built-in web UI |
-| `sessionMaxAge` | `number` | `604800000` | Session lifetime in ms |
-| `rateLimitMax` | `number` | `5` | Max login attempts per IP per window |
-| `rateLimitWindow` | `number` | `60000` | Rate limit window in ms |
-| `manifestFile` | `string` | `~/.claude-relay/instances.json` | Instance manifest file for restart persistence |
-| `logger` | `Logger` | `console` | Custom logger implementation |
+| Option                       | Type      | Default                          | Description                                    |
+| ---------------------------- | --------- | -------------------------------- | ---------------------------------------------- |
+| `password`                   | `string`  | **(required)**                   | Authentication password                        |
+| `port`                       | `number`  | `7777`                           | Server port                                    |
+| `workingDirectory`           | `string`  | `process.cwd()`                  | Default working directory                      |
+| `maxProcesses`               | `number`  | `15`                             | Max concurrent managed processes               |
+| `dangerouslySkipPermissions` | `boolean` | `false`                          | Skip Claude's permission prompts               |
+| `processTimeout`             | `number`  | `300000`                         | Process timeout in ms                          |
+| `serveUI`                    | `boolean` | `true`                           | Serve the built-in web UI                      |
+| `sessionMaxAge`              | `number`  | `604800000`                      | Session lifetime in ms                         |
+| `rateLimitMax`               | `number`  | `5`                              | Max login attempts per IP per window           |
+| `rateLimitWindow`            | `number`  | `60000`                          | Rate limit window in ms                        |
+| `manifestFile`               | `string`  | `~/.claude-relay/instances.json` | Instance manifest file for restart persistence |
+| `logger`                     | `Logger`  | `console`                        | Custom logger implementation                   |
 
 ## Security
 
@@ -216,4 +235,4 @@ npm run build
 
 - Node.js 20+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
-- [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (optional, for remote access)
+- [Tailscale](https://tailscale.com) (optional, for private remote access) or [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (optional, for public tunnel access)

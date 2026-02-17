@@ -37,9 +37,9 @@ export function NewInstanceForm({ onSubmit, onCancel }: NewInstanceFormProps) {
 
   return (
     <div className="shrink-0 border-b border-border px-4 py-3">
-      <div className="mb-2.5 flex flex-col gap-1.5">
-        <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted">
-          Name (optional)
+      <div className="mb-3 flex flex-col gap-1.5">
+        <label className="text-[0.6875rem] font-medium text-muted">
+          Name <span className="font-normal text-muted/60">(optional)</span>
         </label>
         <input
           ref={nameRef}
@@ -47,14 +47,12 @@ export function NewInstanceForm({ onSubmit, onCancel }: NewInstanceFormProps) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. My Project"
-          className="w-full rounded border border-border bg-bg px-2.5 py-[7px] font-mono text-xs text-text transition-colors placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_1px_var(--color-accent-dim)] focus:outline-none"
+          className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[0.8125rem] text-text transition-colors placeholder:text-muted focus:border-accent focus:ring-1 focus:ring-accent-dim focus:outline-none"
         />
       </div>
 
-      <div className="mb-2.5 flex flex-col gap-1.5">
-        <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted">
-          Working Directory
-        </label>
+      <div className="mb-3 flex flex-col gap-1.5">
+        <label className="text-[0.6875rem] font-medium text-muted">Working Directory</label>
         <DirectoryPicker
           value={cwd}
           onChange={setCwd}
@@ -64,17 +62,15 @@ export function NewInstanceForm({ onSubmit, onCancel }: NewInstanceFormProps) {
         />
       </div>
 
-      <div className="mb-2.5 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <input
           type="checkbox"
           id="skip-perms"
           checked={skipPerms}
           onChange={(e) => setSkipPerms(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-border accent-accent"
         />
-        <label
-          htmlFor="skip-perms"
-          className="cursor-pointer text-[0.6875rem] text-muted"
-        >
+        <label htmlFor="skip-perms" className="cursor-pointer text-[0.8125rem] text-muted">
           Skip permission prompts
         </label>
       </div>
@@ -87,13 +83,13 @@ export function NewInstanceForm({ onSubmit, onCancel }: NewInstanceFormProps) {
             setCwd("");
             setSkipPerms(false);
           }}
-          className="rounded border border-border bg-transparent px-3 py-1.5 font-mono text-[0.6875rem] text-muted transition-all hover:border-border-hover hover:text-text"
+          className="rounded-lg px-3.5 py-1.5 text-[0.8125rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
         >
           Cancel
         </button>
         <button
           onClick={handleCreate}
-          className="rounded border-none bg-accent px-3 py-1.5 font-mono text-[0.6875rem] font-semibold text-bg transition-all hover:bg-accent-hover"
+          className="rounded-lg bg-accent px-3.5 py-1.5 text-[0.8125rem] font-medium text-white transition-colors hover:bg-accent-hover"
         >
           Create
         </button>

@@ -2,19 +2,6 @@
   "name": "claude-relay",
   "version": "3.0.0",
   "description": "A lightweight server that bridges remote clients to a local Claude Code CLI via WebSockets",
-  "type": "module",
-  "main": "dist/core/index.js",
-  "types": "dist/core/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/core/index.js",
-      "types": "./dist/core/index.d.ts"
-    },
-    "./server": {
-      "import": "./dist/server/index.js",
-      "types": "./dist/server/index.d.ts"
-    }
-  },
   "bin": {
     "claude-relay": "dist/bin.js"
   },
@@ -22,23 +9,56 @@
     "dist",
     "ui/dist"
   ],
+  "type": "module",
+  "main": "dist/core/index.js",
+  "types": "dist/core/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    }
+  },
   "scripts": {
     "build": "npm run build:server && npm run build:ui",
     "build:server": "tsc",
     "build:ui": "cd ui && npm run build",
     "start": "node dist/bin.js",
     "dev": "concurrently -n srv,tsc,ui \"node --watch dist/bin.js\" \"tsc --watch\" \"cd ui && npm run dev\"",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "fmt": "oxfmt src/ ui/src/",
+    "fmt:check": "oxfmt --check src/ ui/src/",
+    "lint": "oxlint src/ ui/src/",
+    "lint:fix": "oxlint --fix src/ ui/src/",
+    "prepare": "husky"
   },
   "dependencies": {
+    "better-sqlite3": "^12.6.2",
     "cookie": "^0.6.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/cookie": "^0.6.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.13",
     "concurrently": "^9.2.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "oxfmt": "^0.31.0",
+    "oxlint": "^1.46.0",
     "typescript": "^5.7.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "oxfmt",
+      "oxlint"
+    ],
+    "*.{json,md,yaml,yml}": [
+      "oxfmt"
+    ]
   }
 }

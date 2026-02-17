@@ -34,7 +34,7 @@ export function useDirectoryBrowser() {
         setIsOpen((data.directories || []).length > 0);
       }, 100);
     },
-    [homeDir]
+    [homeDir],
   );
 
   const close = useCallback(() => {

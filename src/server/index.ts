@@ -38,6 +38,7 @@ export class ClaudeRelay {
   private wss: WebSocketServer;
   private auth: AuthManager;
   private instanceManager: InstanceManager;
+  private sockets = new Set<import("node:net").Socket>();
 
   constructor(options: RelayOptions) {
     this.config = resolveConfig(options);
@@ -48,19 +49,22 @@ export class ClaudeRelay {
     // even though the WSS is created after the HTTP server.
     let wsGetConnectionCount: (() => number) | null = null;
 
-    const handler = createRequestHandler(
-      this.config,
-      this.auth,
-      this.instanceManager,
-      () => wsGetConnectionCount ? wsGetConnectionCount() : 0
+    const handler = createRequestHandler(this.config, this.auth, this.instanceManager, () =>
+      wsGetConnectionCount ? wsGetConnectionCount() : 0,
     );
     this.server = http.createServer(handler);
+
+    // Track connections for clean shutdown
+    this.server.on("connection", (socket) => {
+      this.sockets.add(socket);
+      socket.on("close", () => this.sockets.delete(socket));
+    });
 
     const wsHandle = createWebSocketServer(
       this.server,
       this.instanceManager,
       this.auth,
-      this.config
+      this.config,
     );
     this.wss = wsHandle.wss;
     wsGetConnectionCount = wsHandle.getConnectionCount;
@@ -74,9 +78,7 @@ export class ClaudeRelay {
     this.instanceManager.startDiscovery();
     return new Promise((resolve) => {
       this.server.listen(this.config.port, () => {
-        this.config.logger.info(
-          `Claude Relay listening on http://localhost:${this.config.port}`
-        );
+        this.config.logger.info(`Claude Relay listening on http://localhost:${this.config.port}`);
         resolve();
       });
     });
@@ -88,10 +90,16 @@ export class ClaudeRelay {
   stop(): Promise<void> {
     this.instanceManager.stopAll();
 
-    // Close all WebSocket connections first
+    // Close all WebSocket connections
     for (const client of this.wss.clients) {
       client.close(1001, "Server shutting down");
     }
+
+    // Destroy all open HTTP connections so server.close() doesn't hang
+    for (const socket of this.sockets) {
+      socket.destroy();
+    }
+    this.sockets.clear();
 
     return new Promise((resolve, reject) => {
       this.wss.close(() => {

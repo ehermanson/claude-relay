@@ -159,7 +159,7 @@ export class AuthManager {
     return cookie.serialize(SESSION_COOKIE_NAME, sessionId, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: "strict",
+      sameSite: "lax",
       path: "/",
       maxAge: Math.floor(this.config.sessionMaxAge / 1000),
     });
@@ -174,7 +174,7 @@ export class AuthManager {
     return cookie.serialize(SESSION_COOKIE_NAME, "", {
       httpOnly: true,
       secure: isProduction,
-      sameSite: "strict",
+      sameSite: "lax",
       path: "/",
       maxAge: 0,
     });

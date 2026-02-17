@@ -3,6 +3,7 @@
 ## Self-Maintenance Rule
 
 **After any change to the codebase**, check whether CLAUDE.md and/or README.md need updating. This includes:
+
 - New files, renamed files, or deleted files → update file maps below
 - New features or changed behavior → update README
 - New environment variables or config options → update both
@@ -16,6 +17,7 @@ This is not optional. Stale docs are worse than no docs.
 Claude Relay is a bridge between remote devices and a local Claude Code CLI. It manages multiple Claude Code processes, discovers external sessions, and serves a React web UI.
 
 **Two-layer package:**
+
 - `claude-relay` (core) — process management, instance orchestration, types. No server deps.
 - `claude-relay/server` — HTTP, WebSocket, auth, tunnel, UI. Extends core.
 
@@ -26,7 +28,7 @@ Claude Relay is a bridge between remote devices and a local Claude Code CLI. It 
 - **Server**: Raw `node:http` + `ws` library. No Express/Fastify/etc.
 - **UI**: React 18 + Vite + Tailwind CSS v4 + React Router
 - **Tests**: Node.js built-in test runner (`node --test`)
-- **Dependencies**: Only `cookie` and `ws`. That's it.
+- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI)
 
 ## Build & Test
 
@@ -49,7 +51,9 @@ src/
     types.ts                 All shared type definitions (messages, instances, sessions)
     config.ts                CoreConfig interface, CoreOptions, resolveCoreConfig()
     logger.ts                Logger interface, noopLogger
-    tools.ts                 describeToolUse(), describeToolDetail()
+    tools.ts                 describeToolUse(), describeToolDetail(), estimateCost()
+    git.ts                   isGitRepo(), getRepoRoot(), createWorktree(), removeWorktree()
+    db.ts                    SessionDB class — SQLite-backed session persistence (better-sqlite3)
     claude-process.ts        ClaudeProcess class — spawns `claude -p`, parses stream-json, setSessionId()
     instance-manager.ts      InstanceManager — multi-instance + external session discovery
     index.ts                 Barrel: exports all core API
@@ -62,12 +66,14 @@ src/
     index.ts                 ClaudeRelay class, createRelay(), re-exports core + server
 test/
   *.test.js                  Tests import from dist/core/ and dist/server/
+  fixtures/                  JSONL session fixtures for history-parsing tests
 ui/
   src/
     context/                 AuthContext, WebSocketContext, ThemeContext
-    hooks/                   useAuth, useWebSocket, useInstanceMessages, useAutoScroll, useDirectoryBrowser, useMediaQuery
-    pages/                   LoginPage, ChatPage
-    components/chat/         InstanceView, MessageList, ClaudeMessage, UserMessage, InputArea, ActivityGroup, etc.
+    hooks/                   useAuth, useWebSocket, useInstanceMessages, useAutoScroll, useDirectoryBrowser, useMediaQuery, useTerminalPendingToasts
+    pages/                   LoginPage, ChatPage, ProjectPage
+    components/chat/         InstanceView, MessageList, ClaudeMessage, UserMessage, InputArea, ActivityGroup, Sidecar, PermissionBanner, etc.
+    components/ui/           ResizableHandle (react-resizable-panels Separator wrapper)
     components/layout/       Sidebar, SidebarItem
     components/forms/        NewInstanceForm, DirectoryPicker
     lib/                     api.ts, markdown.ts, utils.ts
@@ -78,42 +84,146 @@ ui/
 ## Key Conventions
 
 ### Config Hierarchy
-- `CoreConfig` — minimal: workingDirectory, dangerouslySkipPermissions, processTimeout, maxInstances, logger, manifestFile
+
+- `CoreConfig` — minimal: workingDirectory, dangerouslySkipPermissions, processTimeout, maxProcesses, logger, dbPath, manifestFile (legacy, optional)
 - `RelayConfig extends CoreConfig` — adds: port, password, sessionMaxAge, serveUI, rateLimitMax, rateLimitWindow, sessionFile
 - Core modules accept `CoreConfig`. Server modules accept `RelayConfig`. Structural subtyping makes RelayConfig assignable to CoreConfig.
 
 ### Package Exports
+
 ```json
 { ".": "./dist/core/index.js", "./server": "./dist/server/index.js" }
 ```
+
 - `server/index.ts` does `export * from "../core/index.js"` — so importing from `claude-relay/server` gives you everything.
+- `SessionDB` and `SessionRow` are exported from core (available via both `claude-relay` and `claude-relay/server`).
 - UI imports shared types via `@shared/types` (Vite alias resolves to `src/core/types.ts`).
 
 ### import.meta.dirname
+
 `server/http.ts` uses `import.meta.dirname` to locate `ui/dist/` and `package.json`. The compiled output lives at `dist/server/http.js`, so the path to project root is `../..`. If this file ever moves, update those paths.
 
+### Sidecar Panel (Tasks + Files + Team)
+
+- **Tasks:** ClaudeProcess accumulates task state: `taskMap` + `pendingTaskCreates` intercept TaskCreate/TaskUpdate/TaskList/TaskGet tool events
+- TaskCreate tool_use stores pending info; tool_result extracts ID via `Task #(\d+)` and creates TaskItem
+- TaskUpdate tool_use updates taskMap (or deletes on `status: "deleted"`); emits consolidated `task_list` activity
+- TaskList/TaskGet tools are suppressed (no activity emitted)
+- InstanceManager syncs `task_list` activities from process onto `instance.tasks`; JSONL parser handles `"deleted"` status
+- **Files:** ClaudeProcess tracks `fileMap` — intercepts Edit/Write/NotebookEdit `tool_use` events, extracts `file_path`/`path`/`notebook_path`, emits consolidated `file_list` activity
+- InstanceManager syncs `file_list` activities from process onto `instance.files`; JSONL `convertJsonlEntry` also tracks file changes
+- **Team:** ClaudeProcess tracks `teamState` — intercepts TeamCreate, Task (with `team_name`), SendMessage (shutdown_request), TeamDelete tool events
+- `TeamCreate` → initializes `TeamInfo` with name/description, emits consolidated `team_info` activity, suppressed from chat
+- `Task` with `team_name` → adds `TeamMember` (status: "running"), emits `team_info`, suppressed from chat
+- `SendMessage` with `type: "shutdown_request"` → updates member status to "shutting_down", emits `team_info`, NOT suppressed (still shows as activity)
+- `TeamDelete` → marks all members "shutdown", emits `team_info`, suppressed from chat
+- InstanceManager syncs `team_info` activities from process onto `instance.team`; `handleJsonlTeamTool` handles JSONL replay
+- JSONL watcher also syncs `team_info` activities back to `instance.team`
+- UI: `useInstanceMessages` exposes `currentTasks`, `currentFiles`, and `currentTeam` (separate from chat items); all persist across turns
+- UI: `Sidecar` component renders as a `w-72` panel to the right of the chat, hidden on mobile
+- Generalized N-tab support: available tabs built from content (Team > Tasks > Files priority order)
+- 0 tabs → hidden, 1 tab → no tab bar (just header), 2-3 tabs → tab bar with counts
+- Layout: `[Sidebar] [Chat | Sidecar]` — sidecar appears when tasks, files, or team exist; dismiss/un-dismiss based on combined content count
+
+### Resizable Panels
+
+- Sidebar and sidecar are resizable via `react-resizable-panels` (v4 API: `Group`, `Panel`, `Separator`)
+- `ResizableHandle` (`ui/src/components/ui/ResizableHandle.tsx`) wraps the library's `Separator` with themed styling
+- **ChatPage**: `Group` wraps sidebar panel (20% default, 12-35%, collapsible) + main panel (80%)
+- **InstanceView**: When sidecar is visible, `Group` wraps chat panel (75%) + sidecar panel (25%, 15-40%, collapsible)
+- Mobile (<=768px): No resizable panels — falls back to existing full-width/overlay behavior
+- Both sidebar and sidecar panels are collapsible (`collapsible collapsedSize={0}`)
+
+### Session Cost & Token Tracking
+
+- `SessionStats` type on `InstanceInfo.stats`: `inputTokens`, `outputTokens`, `cacheCreationTokens`, `cacheReadTokens`, `costUSD`
+- `estimateCost()` in `tools.ts`: pricing table keyed by model prefix (`claude-opus-4`, `claude-sonnet-4`, `claude-haiku-4`), fallback to Sonnet pricing
+- **ClaudeProcess**: Accumulates usage from `assistant` events (`event.message.usage/model`) and `result` events (`event.usage/model`). Emits `"stats"` event.
+- **InstanceManager**: Wires `proc.on("stats")` → `instance.info.stats`, broadcasts via `instance:status`. JSONL `parseJsonl` and `convertJsonlEntry` extract usage from assistant entries into `ctx.stats`. JSONL watcher also accumulates incrementally.
+- **UI header**: `{tokens} tokens · ~${cost}` displayed between status badge and debug button (hidden on mobile). Hover tooltip shows breakdown by category.
+
+### Image Attachment
+
+- Users can attach images via clipboard paste, file picker button, or drag-and-drop in the input area
+- Images are uploaded to `POST /api/upload` as raw binary (validated image MIME type, 10MB limit)
+- Uploaded files stored at `~/.claude-relay/uploads/{uuid}{ext}`
+- Upload returns `{ path: "/absolute/path" }` — these server-side paths are sent in the WS `instance_message`
+- `InstanceMessagePayload` and `UserMessage` both have optional `images?: string[]`
+- `InstanceManager.sendMessage()` appends `[Image: source: /path]` markers to the message text
+- Claude receives the file paths in the message and reads them via its Read tool
+- `ClaudeProcess.send()` signature unchanged — images are embedded in the text, not piped via stdin
+
 ### WebSocket Protocol
+
 - Clients authenticate via session cookie on WS upgrade
 - Subscription model: clients send `subscribe`/`unsubscribe` with instanceId
 - Instance output/activity/exit go only to subscribers
 - Status/create/remove events broadcast to all clients
 
 ### Permission Approval Flow
+
 - When `dangerouslySkipPermissions` is false (default), Claude CLI denies tool use with an `is_error` tool_result
 - `parsePermissionDenial()` in `tools.ts` extracts the tool name from denial messages
 - `ClaudeProcess.allowedTools` accumulates approved tools; passed as `--allowedTools` on each `send()`
-- `InstanceManager.approveToolUse(id, tool)` adds the tool and sends a retry prompt
-- UI shows "Allow {tool}" button via `permissionDenied` field on `ActivityMessage`
-- `allowedTools` is ephemeral — resets on relay restart
+- **Cancel on first denial**: `ClaudeProcess.cancelForPermission()` sends SIGINT after the first permission denial to stop the retry loop (saves ~1-2k tokens per denial cycle). Subsequent denials from buffered output are suppressed via `_cancelledForPermission` flag. Close handler suppresses error events when cancelled for permission.
+- **File-write grouping**: Approving any of Edit/Write/NotebookEdit approves all three (`FILE_WRITE_GROUP`)
+- **`pendingPermission`**: Set on `InstanceInfo` when a managed instance gets a permission denial; cleared on approval or next user message. Broadcast via `instance:status`.
+- **Permission banner**: `PermissionBanner.tsx` renders a sticky banner above InputArea with contextual labels ("edit files" / "run commands" / tool name) and an "Allow" button. Existing inline "Allow" buttons in `ActivityEntry` remain as fallback.
+- `InstanceManager.approveToolUse(id, tool)` adds grouped tools, persists to DB, and sends a contextual retry prompt (or queues it via `pendingRetry` if the process is still running — drained when process becomes idle)
+- **`allowedTools` persists in SQLite** (`allowed_tools` TEXT column, JSON array) — survives relay restarts including dev-mode hot reloads. DB schema v2 migration adds the column. Restored on managed instance startup.
+- Retry message: "Permission granted for {file writes|tool}. Please continue."
 - WS message: `{ type: "approve_tool", instanceId, tool }`
+- **Known limitation (external sessions):** When a terminal-side Claude Code session prompts the user to approve a tool (e.g., "Allow Bash?"), nothing is written to the JSONL until the user responds. The relay sees the `tool_use` activity but cannot distinguish "waiting for permission" from "tool is running." This means **no banner, toast, or visual indicator** appears in the UI for permission prompts on external sessions. Only `INTERACTIVE_TOOLS` (AskUserQuestion, ExitPlanMode, EnterPlanMode) are detected because those tools _always_ block for input. Fixing this would require either an upstream JSONL event for permission prompts, or a timeout-based heuristic (tool_use without tool_result for N seconds).
+
+### Instance Renaming
+
+- Users can rename instances via the sidebar context menu (inline edit)
+- `renameInstance(id, name)` sets `customTitle: true` on the instance, preventing auto-refresh from overwriting it
+- `refreshTitle()` clears `customTitle` — explicit refresh re-enables auto-detection
+- `doRefreshTitle()` skips instances with `customTitle: true`
+- `customTitle` persists in the session database so it survives restarts
+- WS message: `{ type: "rename_instance", instanceId, name }`
+
+### Git Worktree Isolation
+
+- When creating a new managed instance (not a resume) in a git repository, the relay automatically creates a git worktree for isolation
+- Worktree path: `~/.claude-relay/worktrees/<shortId>/` where shortId is the first 8 chars of the instance UUID
+- Branch name: `relay/<shortId>` — created at HEAD of the current branch
+- `InstanceInfo.gitBranch` and `InstanceInfo.originalDirectory` expose worktree metadata to the UI
+- `Instance.actualCwd` stores the worktree path (used for ClaudeProcess CWD, JSONL path encoding, resume/revive)
+- `info.workingDirectory` stays as the original project directory for sidebar grouping and display
+- On instance removal, `removeWorktree()` cleans up the worktree directory and deletes the branch
+- Worktree metadata persists in SQLite (`worktree_path`, `original_directory` columns, schema v3) — survives restarts
+- On restore, if the worktree directory no longer exists on disk, falls back to the original directory with a warning
+- Non-git directories are unaffected — no worktree created, works exactly as before
+- If `git worktree add` fails, falls back to the original directory with a warning log
+- UI: sidebar shows branch name with git-branch icon below instance name; header shows branch badge pill (hidden on mobile)
+
+### Project Landing Page
+
+- Route: `/projects/$projectId` — `projectId` can be a basename slug (e.g., `claude-relay`) or full encoded path
+- `resolveProjectId(slug)` resolves basenames by scanning `~/.claude/projects/` for dirs ending with `-{slug}`
+- `getProjectArtifacts(projectId)` aggregates memory, CLAUDE.md, README.md, and plans for a project
+- **Docs**: All available shown with tabs (Memory → CLAUDE.md → README.md priority order); single doc renders without tabs
+- **Plans**: Slugs extracted from JSONL first 4KB → matched to `~/.claude/plans/{slug}.md` → content + title from first `# ` heading
+- Sidebar directory headers are clickable links using the directory basename as the URL slug
+- UI: Two-column layout — instructions on left, Plans on right; stacks on mobile
+- `createInstance({ resumeSessionId })` available in backend for future use — creates ClaudeProcess with `--resume <id>`
 
 ### External Session Discovery
+
 - InstanceManager polls `ps` + `lsof` every 10s to find running `claude` processes
+- Managed instance PIDs are excluded from discovery to prevent duplicate instances
 - Matches PIDs to JSONL transcript files in `~/.claude/projects/`
 - Watches JSONL files for incremental updates (2s poll)
 - External sessions can be "resumed" — converts to a managed ClaudeProcess with `--resume`
+- `resumeInstance()` uses atomic state transitions with rollback on failure — prevents duplicate instances
+- **Directory path decoding**: `decodeProjectDir()` uses greedy filesystem-validated decode instead of naive `-` → `/` replacement. Handles dashed project names (e.g., `ghin-plus`, `Watch-List`). `readCwdFromJsonl()` reads 32KB (not 4KB) to handle large init entries. `scanAllSessions()` repairs corrupted `working_directory` values in the DB on every scan.
+- Session stitching uses file mtime as fallback when JSONL entries lack timestamps
+- `findPlanParent()` scans up to 32KB (not a fixed line count) to find plan continuation references
 
 ### JSONL Watching (`watchState`)
+
 - `watchState` (`jsonlPath` + `fileOffset`) lives on `Instance` independently of `externalState`
 - All instance types get a JSONL watcher: external (on discovery), managed (after `captureSessionId`), restored (on startup)
 - After resume, the watcher keeps running — picks up terminal-side changes when someone does `claude --resume` externally
@@ -124,51 +234,66 @@ ui/
 - Concurrent writes (UI + terminal at the same time) are unsupported — one active writer at a time
 
 ### Session Targeting
+
 - First message of a new instance: `claude -p "message"` (no flags — creates a new session)
 - `captureSessionId` fires after the first response, finds the JSONL, extracts the session ID, and calls `proc.setSessionId(id)`
 - All subsequent messages use `--resume <sessionId>` for precise session targeting
 - **Never relies on `--continue`** after session capture — `--continue` picks up the "most recently modified" session in the CWD, which can be wrong when multiple sessions share a directory
 
-### Instance Persistence
-- Managed instances are persisted to a JSON manifest file (`manifestFile` config)
-- On startup, `restoreInstances()` reads the manifest and resumes sessions via `claude -p --resume <sessionId>`
-- Session IDs are captured after the first message exchange by scanning `~/.claude/projects/<encoded-cwd>/` for the newest JSONL file
-- `saveManifest()` is called after session ID capture and after instance removal
-- `stopAll()` does NOT clear the manifest — instances survive relay restarts
-- Stale entries (missing JSONL files) are silently skipped during restore
-- `discoverExisting()` skips JSONL paths belonging to restored managed instances to prevent duplicates
+### Instance Persistence (SQLite Session Registry)
+
+- **SQLite is a rebuildable cache/index** — JSONL files on disk are the canonical source of truth. If the DB is lost or corrupted, it is rebuilt by scanning `~/.claude/projects/`.
+- `SessionDB` (in `src/core/db.ts`) wraps `better-sqlite3` with prepared statements for synchronous access. WAL journal mode, 3s busy timeout.
+- **Schema versioning**: `schema_version` table tracks migrations. Current version: 1.
+- **Startup sequence**: `migrateFromManifest()` (one-time import from legacy `instances.json`) → `scanAllSessions()` (discover JSONL files on disk, upsert new ones, archive missing ones) → restore active sessions.
+- **`scanAllSessions()`**: Walks `~/.claude/projects/` directories, reads `sessions-index.json` for fast metadata, compares with DB via `getJsonlPaths()`, upserts new sessions, repairs corrupted `working_directory` values, archives DB entries whose JSONL files no longer exist on disk. Also archives sessions from deleted directories (no longer exist on disk) and temp directories (`/tmp`, `/private/tmp`).
+- **Archive model** replaces pruning: `removeInstance()` archives (sets `archived = 1`) instead of deleting. Discovery auto-unarchives if the JSONL reappears. Archived sessions are excluded from `getAllActive()` but retained in the DB.
+- **Corruption recovery**: If the DB file cannot be opened, it is renamed to `sessions.db.corrupt.{timestamp}` and recreated from scratch. `needsRebuild` flag triggers a full scan.
+- **Managed restore**: Creates `ClaudeProcess` with `--resume <sessionId>`, wires events, starts watcher
+- **External restore**: Creates stopped instance with `process: null`, `external: true`, no watcher — visible in UI with full history from JSONL
+- **Discovery upgrade**: When a `claude` process starts in a dir matching a restored stopped external, `upgradeRestoredExternal()` sets `externalState`, starts watcher, transitions to `idle`
+- `db.upsert()` is called after: session ID capture, instance removal (archive), external discovery, session stitching, stats updates
+- `stopAll()` does NOT clear the DB — instances survive relay restarts
+- `discoverExisting()` skips JSONL paths already known (managed or external) to prevent duplicates
 
 ### REST API
+
 All routes except `/health` and `/auth` require authentication (session cookie).
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check (unauthenticated) |
-| POST | `/auth` | Login with password |
-| GET | `/logout` | Clear session |
-| GET | `/api/instances` | List all instances |
-| POST | `/api/instances` | Create new instance |
-| DELETE | `/api/instances/:id` | Remove instance |
-| GET | `/api/instances/:id/history` | Get conversation history |
-| GET | `/api/stats` | Server stats |
-| GET | `/api/directories` | Known Claude project directories |
-| GET | `/api/browse?prefix=...` | Directory autocomplete |
+| Method | Path                         | Description                                                                 |
+| ------ | ---------------------------- | --------------------------------------------------------------------------- |
+| GET    | `/health`                    | Health check (unauthenticated)                                              |
+| POST   | `/auth`                      | Login with password                                                         |
+| GET    | `/logout`                    | Clear session                                                               |
+| GET    | `/api/instances`             | List all instances                                                          |
+| POST   | `/api/instances`             | Create new instance (optional `resumeSessionId` to resume existing session) |
+| DELETE | `/api/instances/:id`         | Remove instance                                                             |
+| GET    | `/api/instances/:id/history` | Get conversation history                                                    |
+| GET    | `/api/stats`                 | Server stats                                                                |
+| GET    | `/api/directories`           | Known Claude project directories                                            |
+| GET    | `/api/browse?prefix=...`     | Directory autocomplete                                                      |
+| GET    | `/api/projects/:id`          | Project artifacts (accepts basename slug or full encoded path)              |
+| POST   | `/api/upload`                | Upload image file for attachment (raw binary body, returns `{ path }`)      |
+| GET    | `/api/file?path=...`         | Serve local image file (images only, under `$HOME`, 10MB limit)             |
 
 ### Testing
+
 - Tests are plain `.js` files in `test/` that import from compiled `dist/`
 - Core tests import from `dist/core/`, server tests from `dist/server/`
 - The InstanceManager test uses `resolveConfig()` (server) to create config — works via structural subtyping
+- JSONL history tests use fixture files in `test/fixtures/` — restored via DB to test the full parse pipeline
 - Always build before testing
 
 ### Defaults
+
 - `dangerouslySkipPermissions`: `false`
-- `maxInstances`: `10`
+- `maxProcesses`: `15`
 - `serveUI`: `true`
 - `port`: `7777`
 - `processTimeout`: 5 minutes
 - `sessionMaxAge`: 7 days
 - `rateLimitMax`: 5 per minute
-- `manifestFile`: `~/.claude-relay/instances.json`
+- `dbPath`: `~/.claude-relay/sessions.db`
 - History capped at 1000 entries per instance
 
 ## Common Pitfalls

@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","cwd":"/Users/test/projects/my-app","timestamp":"2026-02-10T10:00:00.000Z"}
+{"type":"user","message":{"role":"user","content":"Install the dependencies"},"timestamp":"2026-02-10T10:00:01.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool_bash_2","name":"Bash","input":{"command":"npm install"}}]},"timestamp":"2026-02-10T10:00:03.000Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_bash_2","content":"Claude requested permissions to Bash(npm install), but you haven't granted it yet.","is_error":true}]},"timestamp":"2026-02-10T10:00:04.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I need permission to run that command. Could you approve it?"}]},"timestamp":"2026-02-10T10:00:06.000Z"}

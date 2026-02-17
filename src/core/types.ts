@@ -11,6 +11,14 @@
 
 export type InstanceStatus = "idle" | "processing" | "error" | "stopped";
 
+export interface SessionStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  costUSD: number;
+}
+
 export interface LastMessagePreview {
   text: string;
   from: "user" | "claude";
@@ -26,7 +34,21 @@ export interface InstanceInfo {
   lastActivityAt: number;
   external?: boolean;
   lastMessage?: LastMessagePreview;
-  waitingForInput?: boolean;
+  /** Tool name when an external/terminal session has a pending tool_use awaiting approval */
+  pendingTool?: string;
+  /** Tool name when a managed instance has a pending permission denial awaiting approval */
+  pendingPermission?: string;
+  sessionId?: string;
+  /** True when the user has manually set the title (prevents auto-refresh) */
+  customTitle?: boolean;
+  /** Running token/cost stats for this session */
+  stats?: SessionStats;
+  /** Git branch name when instance runs in a worktree (e.g. "relay/a1b2c3d4") */
+  gitBranch?: string;
+  /** Original project directory before worktree substitution */
+  originalDirectory?: string;
+  /** Git metadata for the working directory (directory-level, independent of worktrees) */
+  gitInfo?: { branch: string; isWorktree: boolean };
 }
 
 export interface HistoryEntry {
@@ -56,6 +78,8 @@ export interface CreateInstancePayload {
   name?: string;
   workingDirectory?: string;
   dangerouslySkipPermissions?: boolean;
+  /** Resume an existing Claude Code session by ID */
+  resumeSessionId?: string;
 }
 
 export interface RemoveInstancePayload {
@@ -77,6 +101,7 @@ export interface InstanceMessagePayload {
   type: "instance_message";
   instanceId: string;
   text: string;
+  images?: string[];
 }
 
 export interface InstanceCancelPayload {
@@ -84,15 +109,21 @@ export interface InstanceCancelPayload {
   instanceId: string;
 }
 
-export interface ResumeInstancePayload {
-  type: "resume_instance";
-  instanceId: string;
-}
-
 export interface ApproveToolPayload {
   type: "approve_tool";
   instanceId: string;
   tool: string;
+}
+
+export interface RefreshTitlePayload {
+  type: "refresh_title";
+  instanceId: string;
+}
+
+export interface RenameInstancePayload {
+  type: "rename_instance";
+  instanceId: string;
+  name: string;
 }
 
 export type ClientMessage =
@@ -105,8 +136,9 @@ export type ClientMessage =
   | UnsubscribePayload
   | InstanceMessagePayload
   | InstanceCancelPayload
-  | ResumeInstancePayload
-  | ApproveToolPayload;
+  | ApproveToolPayload
+  | RefreshTitlePayload
+  | RenameInstancePayload;
 
 // =============================================================================
 // Server -> Client Messages
@@ -127,12 +159,15 @@ export interface OutputMessage {
 export interface UserMessage {
   type: "user";
   text: string;
+  images?: string[];
   instanceId?: string;
 }
 
 export interface ExitMessage {
   type: "exit";
   code: number;
+  signal?: string;
+  stderr?: string;
   instanceId?: string;
 }
 
@@ -142,15 +177,47 @@ export interface ErrorMessage {
   instanceId?: string;
 }
 
+export interface TaskItem {
+  id: string;
+  subject: string;
+  status: "pending" | "in_progress" | "completed";
+  activeForm?: string;
+}
+
+export interface FileChange {
+  path: string;
+  editCount: number;
+  /** "added" when first operation was Write, "edited" for Edit/NotebookEdit */
+  type: "added" | "edited";
+}
+
+export interface TeamMember {
+  name: string;
+  subagentType: string;
+  description: string;
+  status: "running" | "shutting_down" | "shutdown";
+  spawnedAt: number;
+}
+
+export interface TeamInfo {
+  name: string;
+  description?: string;
+  members: TeamMember[];
+}
+
 export interface ActivityMessage {
   type: "activity";
-  activity: "tool_use" | "tool_result" | "thinking";
+  activity: "tool_use" | "tool_result" | "thinking" | "task_list" | "file_list" | "team_info";
   tool?: string;
   description: string;
   detail?: string;
   input?: Record<string, unknown>;
   instanceId?: string;
   permissionDenied?: string;
+  tasks?: TaskItem[];
+  files?: FileChange[];
+  team?: TeamInfo;
+  inputDescription?: string;
 }
 
 export interface InstanceListMessage {
@@ -201,4 +268,26 @@ export interface Session {
   id: string;
   createdAt: number;
   expiresAt: number;
+}
+
+// =============================================================================
+// Project Artifact Types
+// =============================================================================
+
+export interface ProjectPlan {
+  slug: string;
+  title: string;
+  modifiedAt: number;
+  content: string;
+}
+
+export interface ProjectArtifacts {
+  projectId: string;
+  directory: string;
+  memory: string | null;
+  /** Contents of CLAUDE.md from the project root */
+  claudeMd: string | null;
+  /** Contents of README.md from the project root (last-resort fallback) */
+  readmeMd: string | null;
+  plans: ProjectPlan[];
 }

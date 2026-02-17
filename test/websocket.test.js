@@ -46,7 +46,10 @@ function createClient(server, sessionId) {
       return Promise.resolve(buffer.shift());
     }
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for message")), timeoutMs);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for message")),
+        timeoutMs,
+      );
       waiters.push((msg) => {
         clearTimeout(timeout);
         resolve(msg);
@@ -92,11 +95,13 @@ describe("WebSocket Server", () => {
     const config = resolveConfig({
       password: "testpass",
       logger: noopLogger,
-      maxInstances: 5,
+      maxProcesses: 5,
       serveUI: false,
       rateLimitMax: 10,
       rateLimitWindow: 60_000,
       sessionFile: join(tempDir, "sessions.json"),
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir: join(tempDir, ".claude"),
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
@@ -226,7 +231,12 @@ describe("WebSocket Server", () => {
       const ws = await connect(session.id);
       await ws.waitForHandshake();
 
-      ws.send(JSON.stringify({ type: "remove_instance", instanceId: "00000000-0000-0000-0000-000000000000" }));
+      ws.send(
+        JSON.stringify({
+          type: "remove_instance",
+          instanceId: "00000000-0000-0000-0000-000000000000",
+        }),
+      );
 
       const msg = await ws.nextMessage();
       assert.equal(msg.type, "error");

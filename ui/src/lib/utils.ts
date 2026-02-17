@@ -35,6 +35,18 @@ export function formatTimestamp(ts: number): string {
   return `${day}, ${time}`;
 }
 
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return String(n);
+}
+
+export function formatCost(usd: number): string {
+  if (usd < 0.005) return "$0.00";
+  if (usd < 10) return "$" + usd.toFixed(2);
+  return "$" + usd.toFixed(1);
+}
+
 export function getCollapsedDetail(detail: string, tool?: string): string {
   if (!detail) return "";
   if (tool === "Read" || tool === "Edit" || tool === "Write") {

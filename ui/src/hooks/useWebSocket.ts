@@ -1,9 +1,5 @@
 import { useReducer, useCallback, useRef, useEffect, useState } from "react";
-import type {
-  ServerMessage,
-  InstanceInfo,
-  ClientMessage,
-} from "@shared/types";
+import type { ServerMessage, InstanceInfo, ClientMessage } from "@shared/types";
 
 // Instance list reducer
 type InstanceAction =
@@ -12,10 +8,7 @@ type InstanceAction =
   | { type: "removed"; instanceId: string }
   | { type: "status"; instanceId: string; instance: InstanceInfo };
 
-function instanceReducer(
-  state: InstanceInfo[],
-  action: InstanceAction
-): InstanceInfo[] {
+function instanceReducer(state: InstanceInfo[], action: InstanceAction): InstanceInfo[] {
   switch (action.type) {
     case "set_list":
       return action.instances;
@@ -24,9 +17,7 @@ function instanceReducer(
     case "removed":
       return state.filter((i) => i.id !== action.instanceId);
     case "status":
-      return state.map((i) =>
-        i.id === action.instanceId ? action.instance : i
-      );
+      return state.map((i) => (i.id === action.instanceId ? action.instance : i));
   }
 }
 
@@ -49,14 +40,14 @@ export function useWebSocket() {
     (instanceId: string) => {
       send({ type: "subscribe", instanceId });
     },
-    [send]
+    [send],
   );
 
   const unsubscribe = useCallback(
     (instanceId: string) => {
       send({ type: "unsubscribe", instanceId });
     },
-    [send]
+    [send],
   );
 
   const addMessageHandler = useCallback((handler: MessageHandler) => {

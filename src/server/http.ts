@@ -6,6 +6,7 @@
  */
 
 import http from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
@@ -30,6 +31,9 @@ const MIME_TYPES: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
   ".ico": "image/x-icon",
   ".woff": "font/woff",
   ".woff2": "font/woff2",
@@ -37,11 +41,7 @@ const MIME_TYPES: Record<string, string> = {
   ".map": "application/json",
 };
 
-function sendFile(
-  res: http.ServerResponse,
-  filePath: string,
-  isAsset: boolean
-): void {
+function sendFile(res: http.ServerResponse, filePath: string, isAsset: boolean): void {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
 
@@ -67,11 +67,7 @@ function sendFile(
   }
 }
 
-function sendHtml(
-  res: http.ServerResponse,
-  statusCode: number,
-  html: string
-): void {
+function sendHtml(res: http.ServerResponse, statusCode: number, html: string): void {
   res.writeHead(statusCode, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": Buffer.byteLength(html),
@@ -83,7 +79,7 @@ function sendJson(
   res: http.ServerResponse,
   statusCode: number,
   data: unknown,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
 ): void {
   const json = JSON.stringify(data);
   res.writeHead(statusCode, {
@@ -97,7 +93,7 @@ function sendJson(
 function redirect(
   res: http.ServerResponse,
   location: string,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
 ): void {
   res.writeHead(302, { Location: location, ...headers });
   res.end();
@@ -151,14 +147,14 @@ export function createRequestHandler(
   config: RelayConfig,
   auth: AuthManager,
   instanceManager: InstanceManager,
-  getConnectionCount?: () => number
+  getConnectionCount?: () => number,
 ): (req: http.IncomingMessage, res: http.ServerResponse) => void {
   const log = config.logger;
   const startedAt = Date.now();
 
   return async function handleRequest(
     req: http.IncomingMessage,
-    res: http.ServerResponse
+    res: http.ServerResponse,
   ): Promise<void> {
     const { method } = req;
     const parsedUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
@@ -182,7 +178,13 @@ export function createRequestHandler(
 
       // POST /auth
       if (method === "POST" && pathname === "/auth") {
-        const ip = req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "unknown";
+        const forwarded = req.headers["x-forwarded-for"];
+        const rawIp =
+          (typeof forwarded === "string" ? forwarded.split(",")[0].trim() : null) ||
+          req.socket.remoteAddress ||
+          "unknown";
+        // Normalize IPv4-mapped IPv6 addresses (::ffff:127.0.0.1 → 127.0.0.1)
+        const ip = rawIp.startsWith("::ffff:") ? rawIp.slice(7) : rawIp;
 
         if (!auth.checkRateLimit(ip)) {
           log.warn(`Rate limit exceeded for ${ip}`);
@@ -237,11 +239,13 @@ export function createRequestHandler(
             name?: string;
             workingDirectory?: string;
             dangerouslySkipPermissions?: boolean;
+            resumeSessionId?: string;
           };
           const info = instanceManager.createInstance({
             name: body.name,
             workingDirectory: body.workingDirectory,
             dangerouslySkipPermissions: body.dangerouslySkipPermissions,
+            resumeSessionId: body.resumeSessionId,
           });
           sendJson(res, 201, info);
         } catch (err) {
@@ -298,7 +302,7 @@ export function createRequestHandler(
 
         let active = 0;
         let idle = 0;
-        let external = 0;
+        let external = 0; // cross-cutting: overlaps with status counts
         let stopped = 0;
 
         for (const inst of allInstances) {
@@ -313,8 +317,8 @@ export function createRequestHandler(
             total: allInstances.length,
             active,
             idle,
-            external,
             stopped,
+            external, // Note: cross-cutting attribute, not a status. An external instance is also counted in active/idle/stopped.
           },
           uptime: uptimeSeconds,
           connections: getConnectionCount ? getConnectionCount() : 0,
@@ -388,6 +392,143 @@ export function createRequestHandler(
           sendJson(res, 200, { home, directories: dirs });
         } catch {
           sendJson(res, 200, { home, directories: [] });
+        }
+        return;
+      }
+
+      // GET /api/projects/:id — project artifacts (accepts basename slug or full encoded path)
+      const projectMatch = pathname.match(/^\/api\/projects\/([-a-zA-Z0-9_.]+)$/);
+      if (method === "GET" && projectMatch) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        const id = projectMatch[1];
+        const artifacts = instanceManager.getProjectArtifacts(id);
+        if (!artifacts) {
+          sendJson(res, 404, { error: "Project not found" });
+          return;
+        }
+        sendJson(res, 200, artifacts);
+        return;
+      }
+
+      // POST /api/upload — upload an image file for attachment
+      if (method === "POST" && pathname === "/api/upload") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+
+        const contentType = req.headers["content-type"] || "";
+        const ALLOWED_MIMES: Record<string, string> = {
+          "image/png": ".png",
+          "image/jpeg": ".jpg",
+          "image/gif": ".gif",
+          "image/webp": ".webp",
+          "image/svg+xml": ".svg",
+          "image/bmp": ".bmp",
+          "image/avif": ".avif",
+        };
+        const ext = ALLOWED_MIMES[contentType];
+        if (!ext) {
+          sendJson(res, 400, { error: "Unsupported image type" });
+          return;
+        }
+
+        const MAX_UPLOAD = 10 * 1024 * 1024; // 10MB
+        const contentLength = parseInt(req.headers["content-length"] || "0", 10);
+        if (contentLength > MAX_UPLOAD) {
+          sendJson(res, 413, { error: "File too large (10MB limit)" });
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        let size = 0;
+        req.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > MAX_UPLOAD) {
+            sendJson(res, 413, { error: "File too large (10MB limit)" });
+            req.destroy();
+            return;
+          }
+          chunks.push(chunk);
+        });
+        req.on("end", () => {
+          const data = Buffer.concat(chunks);
+          const uploadsDir = path.join(homedir(), ".claude-relay", "uploads");
+          fs.mkdirSync(uploadsDir, { recursive: true });
+          const filename = `${crypto.randomUUID()}${ext}`;
+          const filePath = path.join(uploadsDir, filename);
+          fs.writeFileSync(filePath, data);
+          sendJson(res, 200, { path: filePath });
+        });
+        req.on("error", () => {
+          sendJson(res, 500, { error: "Upload failed" });
+        });
+        return;
+      }
+
+      // GET /api/file?path=... — serve local image files for inline display
+      if (method === "GET" && pathname === "/api/file") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        const filePath = parsedUrl.searchParams.get("path");
+        if (!filePath) {
+          sendJson(res, 400, { error: "Missing path parameter" });
+          return;
+        }
+        const resolved = path.resolve(filePath);
+
+        // Restrict to files under the user's home directory
+        const home = homedir();
+        if (!resolved.startsWith(home + path.sep) && resolved !== home) {
+          sendJson(res, 403, { error: "Access denied: file must be under home directory" });
+          return;
+        }
+
+        const ext = path.extname(resolved).toLowerCase();
+        const IMAGE_EXTS = new Set([
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".gif",
+          ".webp",
+          ".svg",
+          ".bmp",
+          ".avif",
+        ]);
+        if (!IMAGE_EXTS.has(ext)) {
+          sendJson(res, 400, { error: "Only image files are supported" });
+          return;
+        }
+
+        // Check file size before reading (10MB limit)
+        const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+        try {
+          const stat = fs.statSync(resolved);
+          if (stat.size > MAX_IMAGE_SIZE) {
+            sendJson(res, 413, { error: "File too large (10MB limit)" });
+            return;
+          }
+        } catch {
+          sendJson(res, 404, { error: "File not found" });
+          return;
+        }
+
+        const contentType = MIME_TYPES[ext] || "application/octet-stream";
+        try {
+          const data = fs.readFileSync(resolved);
+          res.writeHead(200, {
+            "Content-Type": contentType,
+            "Content-Length": String(data.length),
+            "Cache-Control": "public, max-age=3600",
+          });
+          res.end(data);
+        } catch {
+          sendJson(res, 404, { error: "File not found" });
         }
         return;
       }

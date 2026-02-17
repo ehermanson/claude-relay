@@ -23,8 +23,8 @@ export function startTunnel(localPort: number): void {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       console.error(
         "\n  cloudflared not found. Install it:\n" +
-        "    brew install cloudflared        (macOS)\n" +
-        "    https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/\n"
+          "    brew install cloudflared        (macOS)\n" +
+          "    https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/\n",
       );
     } else {
       console.error("  Tunnel error:", err.message);

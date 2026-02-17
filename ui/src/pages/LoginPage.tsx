@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@tanstack/react-router";
 import { useAuthContext } from "../context/AuthContext";
 
 export function LoginPage() {
@@ -28,7 +28,7 @@ export function LoginPage() {
     try {
       const result = await login(password);
       if (result.success) {
-        navigate("/chat", { replace: true });
+        navigate({ to: "/chat", replace: true });
       } else {
         setError(result.error || "Authentication failed");
         inputRef.current?.focus();
@@ -42,30 +42,25 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-bg p-4 font-mono">
-      <div className="w-full max-w-[340px]">
-        <div className="mb-8 text-center">
-          <h1 className="mb-2 text-[1.3rem] font-semibold tracking-tight text-text-bright">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-bg p-6">
+      <div className="w-full max-w-[360px]">
+        <div className="mb-10 text-center">
+          <h1 className="mb-2 text-2xl font-semibold tracking-tight text-text-bright">
             Claude Relay
           </h1>
-          <p className="text-[0.6875rem] text-muted">
-            Enter your password to continue
-          </p>
+          <p className="text-sm text-muted">Enter your password to continue</p>
         </div>
 
-        <div className="rounded-md border border-border bg-surface p-6">
+        <div className="rounded-xl border border-border bg-surface p-7 shadow-sm">
           {error && (
-            <div className="mb-4 rounded border border-error/20 bg-error/[0.08] px-3.5 py-2.5 text-xs text-error">
+            <div className="mb-5 rounded-lg border border-error/20 bg-error-dim px-4 py-3 text-sm text-error">
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit}>
-            <div className="mb-4">
-              <label
-                htmlFor="password"
-                className="mb-2 block text-[0.625rem] font-medium uppercase tracking-wider text-muted"
-              >
+            <div className="mb-5">
+              <label htmlFor="password" className="mb-2 block text-xs font-medium text-muted">
                 Password
               </label>
               <input
@@ -79,14 +74,14 @@ export function LoginPage() {
                 }}
                 placeholder="Enter password"
                 autoComplete="current-password"
-                className="w-full rounded border border-border bg-bg px-3.5 py-2.5 font-mono text-[0.8125rem] text-text transition-colors placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_1px_var(--color-accent-dim)] focus:outline-none"
+                className="w-full rounded-lg border border-border bg-bg px-4 py-2.5 text-sm text-text transition-all placeholder:text-muted focus:border-accent focus:ring-1 focus:ring-accent-dim focus:outline-none"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded border-none bg-accent px-4 py-2.5 font-mono text-xs font-semibold tracking-wide text-bg transition-all hover:bg-accent-hover hover:shadow-[0_0_20px_var(--color-accent-dim)] disabled:cursor-not-allowed disabled:opacity-40"
+              className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
               {loading ? "Signing in..." : "Sign In"}
             </button>

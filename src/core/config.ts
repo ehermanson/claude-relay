@@ -20,12 +20,16 @@ export interface CoreConfig {
   dangerouslySkipPermissions: boolean;
   /** Process timeout in milliseconds (0 = no timeout) */
   processTimeout: number;
-  /** Maximum number of concurrent Claude instances */
-  maxInstances: number;
+  /** Maximum number of concurrent managed Claude processes */
+  maxProcesses: number;
   /** Logger implementation */
   logger: Logger;
-  /** Path to the instance manifest file for persistence across restarts */
-  manifestFile: string;
+  /** Path to the SQLite database for session persistence */
+  dbPath: string;
+  /** Legacy manifest file path — used only for one-time migration to SQLite */
+  manifestFile?: string;
+  /** Override for ~/.claude directory (used in tests) */
+  claudeDir?: string;
 }
 
 /**
@@ -41,8 +45,9 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
     workingDirectory: options.workingDirectory ?? process.cwd(),
     dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? false,
     processTimeout: options.processTimeout ?? 5 * 60 * 1000,
-    maxInstances: options.maxInstances ?? 10,
+    maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? console,
-    manifestFile: options.manifestFile ?? join(homedir(), ".claude-relay", "instances.json"),
+    dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
+    manifestFile: options.manifestFile,
   };
 }

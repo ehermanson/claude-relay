@@ -1,5 +1,8 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { InstanceManager } from "../dist/core/instance-manager.js";
 import { resolveConfig } from "../dist/server/config.js";
 
@@ -12,10 +15,13 @@ const noopLogger = {
 };
 
 function makeConfig(overrides = {}) {
+  const tempDir = mkdtempSync(join(tmpdir(), "relay-im-test-"));
   return resolveConfig({
     password: "test",
     logger: noopLogger,
-    maxInstances: 3,
+    maxProcesses: 3,
+    dbPath: join(tempDir, "sessions.db"),
+    claudeDir: join(tempDir, ".claude"),
     ...overrides,
   });
 }
@@ -52,11 +58,11 @@ describe("InstanceManager", () => {
       assert.equal(b.name, "Instance 2");
     });
 
-    it("enforces maxInstances limit", () => {
+    it("enforces maxProcesses limit", () => {
       manager.createInstance();
       manager.createInstance();
       manager.createInstance();
-      assert.throws(() => manager.createInstance(), /Maximum instances/);
+      assert.throws(() => manager.createInstance(), /Maximum processes/);
     });
   });
 

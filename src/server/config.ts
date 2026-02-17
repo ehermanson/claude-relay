@@ -6,7 +6,6 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Logger } from "../core/logger.js";
 import type { CoreConfig } from "../core/config.js";
 
 /**
@@ -49,14 +48,15 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     sessionMaxAge: options.sessionMaxAge ?? 7 * 24 * 60 * 60 * 1000,
     dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? false,
     processTimeout: options.processTimeout ?? 5 * 60 * 1000,
-    workingDirectory:
-      options.workingDirectory ?? options.defaultWorkingDirectory ?? process.cwd(),
+    workingDirectory: options.workingDirectory ?? options.defaultWorkingDirectory ?? process.cwd(),
     serveUI: options.serveUI ?? true,
     logger: options.logger ?? console,
     rateLimitMax: options.rateLimitMax ?? 5,
     rateLimitWindow: options.rateLimitWindow ?? 60 * 1000,
-    maxInstances: options.maxInstances ?? 10,
+    maxProcesses: options.maxProcesses ?? 15,
     sessionFile: options.sessionFile ?? join(homedir(), ".claude-relay", "sessions.json"),
-    manifestFile: options.manifestFile ?? join(homedir(), ".claude-relay", "instances.json"),
+    dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
+    manifestFile: options.manifestFile,
+    claudeDir: options.claudeDir,
   };
 }

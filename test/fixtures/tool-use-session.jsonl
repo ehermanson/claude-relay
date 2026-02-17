@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","cwd":"/Users/test/projects/my-app","timestamp":"2026-02-10T10:00:00.000Z"}
+{"type":"user","message":{"role":"user","content":"Run the tests"},"timestamp":"2026-02-10T10:00:01.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"I need to run the test suite for this project."},{"type":"tool_use","id":"tool_bash_1","name":"Bash","input":{"command":"npm test","description":"Run test suite"}},{"type":"text","text":"Running the tests now."}]},"timestamp":"2026-02-10T10:00:05.000Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_bash_1","content":"All 10 tests passed."}]},"timestamp":"2026-02-10T10:00:10.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"All tests are passing!"}]},"timestamp":"2026-02-10T10:00:12.000Z"}

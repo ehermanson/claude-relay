@@ -1,0 +1,333 @@
+/**
+ * Tests for HTTP routes that were missing coverage:
+ * - GET /logout
+ * - GET /api/directories
+ * - GET /api/browse?prefix=...
+ * - GET /api/file?path=...
+ * - Stats endpoint external double-counting behavior
+ */
+
+import { describe, it, beforeEach, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir, homedir } from "node:os";
+import { createRequestHandler } from "../dist/server/http.js";
+import { AuthManager } from "../dist/server/auth.js";
+import { InstanceManager } from "../dist/core/instance-manager.js";
+import { resolveConfig } from "../dist/server/config.js";
+
+const noopLogger = {
+  info() {},
+  warn() {},
+  error() {},
+  debug() {},
+};
+
+function request(server, method, path, options = {}) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, `http://localhost:${server.address().port}`);
+    const req = http.request(url, { method, headers: options.headers || {} }, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        try {
+          resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(body) });
+        } catch {
+          resolve({ status: res.statusCode, headers: res.headers, body });
+        }
+      });
+    });
+    req.on("error", reject);
+    if (options.body) req.write(JSON.stringify(options.body));
+    req.end();
+  });
+}
+
+describe("HTTP Routes — Additional Coverage", () => {
+  let server;
+  let auth;
+  let manager;
+  let tempDir;
+
+  beforeEach((_, done) => {
+    tempDir = mkdtempSync(join(tmpdir(), "relay-http-test-"));
+    const config = resolveConfig({
+      password: "testpass",
+      logger: noopLogger,
+      maxProcesses: 5,
+      serveUI: false,
+      rateLimitMax: 10,
+      rateLimitWindow: 60_000,
+      sessionFile: join(tempDir, "sessions.json"),
+    });
+    auth = new AuthManager(config);
+    manager = new InstanceManager(config);
+    const handler = createRequestHandler(config, auth, manager);
+    server = http.createServer(handler);
+    server.listen(0, done);
+  });
+
+  afterEach((_, done) => {
+    manager.stopAll();
+    rmSync(tempDir, { recursive: true, force: true });
+    server.close(done);
+  });
+
+  describe("GET /logout", () => {
+    it("clears session and redirects to /login", async () => {
+      const session = auth.createSession();
+      const res = await request(server, "GET", "/logout", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 302);
+      assert.equal(res.headers.location, "/login");
+      // Cookie should be cleared
+      const setCookie = res.headers["set-cookie"];
+      assert.ok(setCookie);
+      const cookieStr = Array.isArray(setCookie) ? setCookie.join("; ") : setCookie;
+      assert.ok(cookieStr.includes("Max-Age=0"));
+
+      // Session should be invalidated
+      const validated = auth.validateSession(session.id);
+      assert.equal(validated, null);
+    });
+
+    it("works even without an active session", async () => {
+      const res = await request(server, "GET", "/logout");
+      assert.equal(res.status, 302);
+      assert.equal(res.headers.location, "/login");
+    });
+  });
+
+  describe("GET /api/directories", () => {
+    it("requires authentication", async () => {
+      const res = await request(server, "GET", "/api/directories");
+      assert.equal(res.status, 401);
+    });
+
+    it("returns defaultDirectory and directories array", async () => {
+      const session = auth.createSession();
+      const res = await request(server, "GET", "/api/directories", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 200);
+      assert.ok("defaultDirectory" in res.body);
+      assert.ok(Array.isArray(res.body.directories));
+    });
+  });
+
+  describe("GET /api/browse", () => {
+    it("requires authentication", async () => {
+      const res = await request(server, "GET", "/api/browse?prefix=/tmp");
+      assert.equal(res.status, 401);
+    });
+
+    it("returns directories for a valid prefix", async () => {
+      const session = auth.createSession();
+      const home = homedir();
+      const res = await request(
+        server,
+        "GET",
+        `/api/browse?prefix=${encodeURIComponent(home + "/")}`,
+        {
+          headers: { Cookie: `session=${session.id}` },
+        },
+      );
+      assert.equal(res.status, 200);
+      assert.ok("directories" in res.body);
+      assert.ok(Array.isArray(res.body.directories));
+      assert.equal(res.body.home, home);
+    });
+
+    it("returns empty array for nonexistent prefix", async () => {
+      const session = auth.createSession();
+      const res = await request(
+        server,
+        "GET",
+        `/api/browse?prefix=${encodeURIComponent(homedir() + "/nonexistent-dir-12345/")}`,
+        {
+          headers: { Cookie: `session=${session.id}` },
+        },
+      );
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body.directories, []);
+    });
+
+    it("rejects paths outside home directory", async () => {
+      const session = auth.createSession();
+      const res = await request(
+        server,
+        "GET",
+        `/api/browse?prefix=${encodeURIComponent("/etc/")}`,
+        {
+          headers: { Cookie: `session=${session.id}` },
+        },
+      );
+      assert.equal(res.status, 400);
+      assert.ok(res.body.error.includes("home directory"));
+    });
+  });
+
+  describe("GET /api/file", () => {
+    it("requires authentication", async () => {
+      const res = await request(server, "GET", "/api/file?path=/tmp/test.png");
+      assert.equal(res.status, 401);
+    });
+
+    it("rejects missing path parameter", async () => {
+      const session = auth.createSession();
+      const res = await request(server, "GET", "/api/file", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 400);
+      assert.ok(res.body.error.includes("Missing path"));
+    });
+
+    it("rejects non-image file extensions", async () => {
+      const session = auth.createSession();
+      // Use a path under home directory so the restriction doesn't kick in first
+      const filePath = join(homedir(), "test-nonimage-12345.txt");
+      const res = await request(server, "GET", `/api/file?path=${encodeURIComponent(filePath)}`, {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 400);
+      assert.ok(res.body.error.includes("image"));
+    });
+
+    it("returns 404 for nonexistent image file", async () => {
+      const session = auth.createSession();
+      const filePath = join(homedir(), "nonexistent-image-12345.png");
+      const res = await request(server, "GET", `/api/file?path=${encodeURIComponent(filePath)}`, {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 404);
+    });
+
+    it("serves a valid image file", async () => {
+      const session = auth.createSession();
+      // Create a tiny 1x1 PNG in the temp directory (under home)
+      // This is the smallest valid PNG: 67 bytes
+      const pngHeader = Buffer.from([
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a, // PNG signature
+        0x00,
+        0x00,
+        0x00,
+        0x0d,
+        0x49,
+        0x48,
+        0x44,
+        0x52, // IHDR
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x08,
+        0x02,
+        0x00,
+        0x00,
+        0x00,
+        0x90,
+        0x77,
+        0x53,
+        0xde,
+        0x00,
+        0x00,
+        0x00,
+        0x0c,
+        0x49,
+        0x44,
+        0x41, // IDAT
+        0x54,
+        0x08,
+        0xd7,
+        0x63,
+        0xf8,
+        0xcf,
+        0xc0,
+        0x00,
+        0x00,
+        0x00,
+        0x02,
+        0x00,
+        0x01,
+        0xe2,
+        0x21,
+        0xbc,
+        0x33,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x49,
+        0x45,
+        0x4e, // IEND
+        0x44,
+        0xae,
+        0x42,
+        0x60,
+        0x82,
+      ]);
+      const imgPath = join(tempDir, "test-image.png");
+      writeFileSync(imgPath, pngHeader);
+
+      const res = await request(server, "GET", `/api/file?path=${encodeURIComponent(imgPath)}`, {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      // tempDir is under system temp which may not be under homedir,
+      // so this might return 403 depending on platform
+      if (imgPath.startsWith(homedir())) {
+        assert.equal(res.status, 200);
+      } else {
+        assert.equal(res.status, 403);
+      }
+    });
+
+    it("rejects files outside home directory", async () => {
+      const session = auth.createSession();
+      const res = await request(
+        server,
+        "GET",
+        `/api/file?path=${encodeURIComponent("/etc/hosts.png")}`,
+        {
+          headers: { Cookie: `session=${session.id}` },
+        },
+      );
+      // Should be 403 (access denied) or 404 (not found with .png extension)
+      assert.ok(res.status === 403 || res.status === 404);
+    });
+  });
+
+  describe("Stats endpoint counting", () => {
+    it("counts external as a separate cross-cutting dimension", async () => {
+      const session = auth.createSession();
+
+      // Create a normal instance
+      await request(server, "POST", "/api/instances", {
+        headers: { Cookie: `session=${session.id}` },
+        body: { name: "Normal" },
+      });
+
+      const res = await request(server, "GET", "/api/stats", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.instances.total, 1);
+      // Normal instances are idle, not external
+      assert.equal(res.body.instances.idle, 1);
+      assert.equal(res.body.instances.external, 0);
+    });
+  });
+});

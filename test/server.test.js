@@ -50,11 +50,13 @@ describe("HTTP Server", () => {
     const config = resolveConfig({
       password: "testpass",
       logger: noopLogger,
-      maxInstances: 5,
+      maxProcesses: 5,
       serveUI: false, // return JSON instead of HTML for easier testing
       rateLimitMax: 3,
       rateLimitWindow: 60_000,
       sessionFile: join(tempDir, "sessions.json"),
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir: join(tempDir, ".claude"),
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
@@ -183,7 +185,11 @@ describe("HTTP Server", () => {
 
   describe("DELETE /api/instances/:id", () => {
     it("returns 401 without auth", async () => {
-      const res = await request(server, "DELETE", "/api/instances/00000000-0000-0000-0000-000000000000");
+      const res = await request(
+        server,
+        "DELETE",
+        "/api/instances/00000000-0000-0000-0000-000000000000",
+      );
       assert.equal(res.status, 401);
     });
 
@@ -212,16 +218,25 @@ describe("HTTP Server", () => {
 
     it("returns 404 for unknown instance", async () => {
       const session = auth.createSession();
-      const res = await request(server, "DELETE", "/api/instances/00000000-0000-0000-0000-000000000000", {
-        headers: { Cookie: `session=${session.id}` },
-      });
+      const res = await request(
+        server,
+        "DELETE",
+        "/api/instances/00000000-0000-0000-0000-000000000000",
+        {
+          headers: { Cookie: `session=${session.id}` },
+        },
+      );
       assert.equal(res.status, 404);
     });
   });
 
   describe("GET /api/instances/:id/history", () => {
     it("returns 401 without auth", async () => {
-      const res = await request(server, "GET", "/api/instances/00000000-0000-0000-0000-000000000000/history");
+      const res = await request(
+        server,
+        "GET",
+        "/api/instances/00000000-0000-0000-0000-000000000000/history",
+      );
       assert.equal(res.status, 401);
     });
 
@@ -243,9 +258,14 @@ describe("HTTP Server", () => {
 
     it("returns 404 for unknown instance", async () => {
       const session = auth.createSession();
-      const res = await request(server, "GET", "/api/instances/00000000-0000-0000-0000-000000000000/history", {
-        headers: { Cookie: `session=${session.id}` },
-      });
+      const res = await request(
+        server,
+        "GET",
+        "/api/instances/00000000-0000-0000-0000-000000000000/history",
+        {
+          headers: { Cookie: `session=${session.id}` },
+        },
+      );
       assert.equal(res.status, 404);
     });
   });

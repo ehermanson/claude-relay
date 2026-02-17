@@ -28,10 +28,30 @@ export async function fetchDirectories(): Promise<{
   return res.json();
 }
 
-export async function browsePath(
-  prefix: string
-): Promise<{ home: string; directories: string[] }> {
+export async function browsePath(prefix: string): Promise<{ home: string; directories: string[] }> {
   const res = await fetch("/api/browse?prefix=" + encodeURIComponent(prefix));
   if (!res.ok) return { home: "", directories: [] };
+  return res.json();
+}
+
+export async function uploadImage(file: File): Promise<string> {
+  const res = await fetch("/api/upload", {
+    method: "POST",
+    headers: { "Content-Type": file.type },
+    body: file,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Upload failed" }));
+    throw new Error(data.error || "Upload failed");
+  }
+  const data = await res.json();
+  return data.path;
+}
+
+export async function fetchProjectArtifacts(
+  projectId: string,
+): Promise<import("@shared/types").ProjectArtifacts> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`);
+  if (!res.ok) throw new Error("Failed to fetch project");
   return res.json();
 }

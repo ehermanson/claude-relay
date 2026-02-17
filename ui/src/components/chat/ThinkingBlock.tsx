@@ -6,11 +6,16 @@ interface ThinkingBlockProps {
 
 export function ThinkingBlock({ text }: ThinkingBlockProps) {
   return (
-    <div className="animate-fade-in max-w-[85%] self-start whitespace-pre-wrap rounded-md rounded-bl-sm border border-claude/10 border-l-2 border-l-claude bg-claude/5 px-3.5 py-2.5 text-xs italic leading-relaxed text-muted">
-      <div className="mb-1 text-[0.625rem] font-semibold not-italic uppercase tracking-wider text-claude">
-        Thinking
+    <div className="animate-fade-in flex flex-col gap-1">
+      <div className="border-l-2 border-l-claude/25 pl-4">
+        <div className="mb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-claude/70">
+          Thinking
+        </div>
+        <div
+          className="whitespace-pre-wrap text-[0.8125rem] italic leading-relaxed text-muted"
+          dangerouslySetInnerHTML={{ __html: escapeHtml(text) }}
+        />
       </div>
-      <span dangerouslySetInnerHTML={{ __html: escapeHtml(text) }} />
     </div>
   );
 }

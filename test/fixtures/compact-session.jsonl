@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","cwd":"/Users/test/projects/my-app","timestamp":"2026-02-10T09:00:00.000Z"}
+{"type":"user","message":{"role":"user","content":"First message before compact"},"timestamp":"2026-02-10T09:00:01.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"First response before compact."}]},"timestamp":"2026-02-10T09:00:05.000Z"}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-02-10T09:30:00.000Z"}
+{"type":"user","message":{"role":"user","content":"Second message after compact"},"timestamp":"2026-02-10T09:30:01.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Second response after compact."}]},"timestamp":"2026-02-10T09:30:05.000Z"}

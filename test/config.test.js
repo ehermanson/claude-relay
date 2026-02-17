@@ -19,21 +19,21 @@ describe("resolveConfig", () => {
     assert.equal(config.serveUI, true);
     assert.equal(config.rateLimitMax, 5);
     assert.equal(config.rateLimitWindow, 60_000);
-    assert.equal(config.maxInstances, 10);
+    assert.equal(config.maxProcesses, 15);
     assert.equal(config.sessionFile, join(homedir(), ".claude-relay", "sessions.json"));
-    assert.equal(config.manifestFile, join(homedir(), ".claude-relay", "instances.json"));
+    assert.equal(config.dbPath, join(homedir(), ".claude-relay", "sessions.db"));
   });
 
   it("overrides defaults with user options", () => {
     const config = resolveConfig({
       password: "p",
       port: 9999,
-      maxInstances: 3,
+      maxProcesses: 3,
       dangerouslySkipPermissions: true,
       serveUI: false,
     });
     assert.equal(config.port, 9999);
-    assert.equal(config.maxInstances, 3);
+    assert.equal(config.maxProcesses, 3);
     assert.equal(config.dangerouslySkipPermissions, true);
     assert.equal(config.serveUI, false);
   });

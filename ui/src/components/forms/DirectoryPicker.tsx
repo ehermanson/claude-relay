@@ -7,22 +7,10 @@ interface DirectoryPickerProps {
   onAutoName?: (name: string) => void;
 }
 
-export function DirectoryPicker({
-  value,
-  onChange,
-  onAutoName,
-}: DirectoryPickerProps) {
+export function DirectoryPicker({ value, onChange, onAutoName }: DirectoryPickerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const {
-    homeDir,
-    suggestions,
-    activeIndex,
-    setActiveIndex,
-    isOpen,
-    fetchHome,
-    browse,
-    close,
-  } = useDirectoryBrowser();
+  const { homeDir, suggestions, activeIndex, setActiveIndex, isOpen, fetchHome, browse, close } =
+    useDirectoryBrowser();
 
   const selectDir = useCallback(
     (dirPath: string) => {
@@ -32,7 +20,7 @@ export function DirectoryPicker({
       close();
       browse(dirPath + "/");
     },
-    [onChange, onAutoName, close, browse]
+    [onChange, onAutoName, close, browse],
   );
 
   const handleFocus = useCallback(async () => {
@@ -50,11 +38,7 @@ export function DirectoryPicker({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (
-        e.key === "Tab" &&
-        isOpen &&
-        suggestions.length > 0
-      ) {
+      if (e.key === "Tab" && isOpen && suggestions.length > 0) {
         e.preventDefault();
         const idx = activeIndex >= 0 ? activeIndex : 0;
         if (suggestions[idx]) selectDir(suggestions[idx]);
@@ -76,7 +60,7 @@ export function DirectoryPicker({
         close();
       }
     },
-    [isOpen, suggestions, activeIndex, setActiveIndex, selectDir, close]
+    [isOpen, suggestions, activeIndex, setActiveIndex, selectDir, close],
   );
 
   const handleBlur = useCallback(() => {
@@ -85,9 +69,7 @@ export function DirectoryPicker({
 
   useEffect(() => {
     if (!isOpen) return;
-    const items = inputRef.current?.parentElement?.querySelectorAll(
-      ".dir-picker-item"
-    );
+    const items = inputRef.current?.parentElement?.querySelectorAll(".dir-picker-item");
     if (items && activeIndex >= 0 && items[activeIndex]) {
       items[activeIndex].scrollIntoView({ block: "nearest" });
     }
@@ -108,22 +90,16 @@ export function DirectoryPicker({
         onBlur={handleBlur}
         placeholder={homeDir || "/path/to/project"}
         autoComplete="off"
-        className="w-full rounded border border-border bg-bg px-2.5 py-[7px] font-mono text-xs text-text transition-colors placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_1px_var(--color-accent-dim)] focus:outline-none"
+        className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-[0.8125rem] text-text transition-colors placeholder:text-muted focus:border-accent focus:ring-1 focus:ring-accent-dim focus:outline-none"
       />
-      {homeDir && (
-        <div className="mt-0.5 text-[0.625rem] text-muted">
-          Default: {homeDir}
-        </div>
-      )}
+      {homeDir && <div className="mt-1 text-[0.6875rem] text-muted/60">Default: {homeDir}</div>}
       {isOpen && (
-        <div className="absolute top-full right-0 left-0 z-10 max-h-[200px] overflow-y-auto rounded-b border border-t-0 border-border bg-surface">
+        <div className="absolute top-full right-0 left-0 z-10 mt-1 max-h-[200px] overflow-y-auto rounded-lg border border-border bg-surface-raised shadow-lg">
           {suggestions.map((dir, i) => (
             <div
               key={dir}
-              className={`dir-picker-item cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap border-b border-border px-2.5 py-1.5 font-mono text-[0.6875rem] text-text transition-colors last:border-b-0 ${
-                i === activeIndex
-                  ? "bg-accent-dim text-accent"
-                  : "hover:bg-accent-dim hover:text-accent"
+              className={`dir-picker-item cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap px-3 py-2 font-mono text-[0.8125rem] text-text transition-colors ${
+                i === activeIndex ? "bg-accent-dim text-accent" : "hover:bg-surface-hover"
               }`}
               onMouseDown={(e) => {
                 e.preventDefault();

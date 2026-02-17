@@ -48,7 +48,7 @@ export function createWebSocketServer(
   server: http.Server,
   instanceManager: InstanceManager,
   auth: AuthManager,
-  config: RelayConfig
+  config: RelayConfig,
 ): WebSocketServerHandle {
   const wss = new WebSocketServer({ server });
   const log = config.logger;
@@ -148,6 +148,7 @@ export function createWebSocketServer(
                 name: message.name,
                 workingDirectory: message.workingDirectory,
                 dangerouslySkipPermissions: message.dangerouslySkipPermissions,
+                resumeSessionId: message.resumeSessionId,
               });
               broadcast({ type: "instance_created", instance: info });
             } catch (err) {
@@ -207,15 +208,34 @@ export function createWebSocketServer(
           }
 
           case "instance_message": {
-            if (typeof message.text === "string" && message.text.trim()) {
+            const hasText = typeof message.text === "string" && message.text.trim();
+            const hasImages = Array.isArray(message.images) && message.images.length > 0;
+            if (hasText || hasImages) {
               try {
+                // Build display text with image markers for the echoed user message
+                let echoText = message.text || "";
+                if (hasImages) {
+                  const markers = message
+                    .images!.map((p: string) => `[Image: source: ${p}]`)
+                    .join("\n");
+                  echoText = echoText.trim() ? `${echoText}\n${markers}` : markers;
+                }
                 // Echo user message to subscribers
                 sendToSubscribers(message.instanceId, {
                   type: "user",
-                  text: message.text,
+                  text: echoText,
+                  images: hasImages ? message.images : undefined,
                   instanceId: message.instanceId,
                 });
-                instanceManager.sendMessage(message.instanceId, message.text);
+                const resumed = instanceManager.sendMessage(
+                  message.instanceId,
+                  message.text || "",
+                  hasImages ? message.images : undefined,
+                );
+                // If sendMessage triggered a transparent resume, broadcast the transition
+                if (resumed) {
+                  broadcast({ type: "instance_status", instanceId: resumed.id, instance: resumed });
+                }
               } catch (err) {
                 sendMessage(ws, {
                   type: "error",
@@ -240,23 +260,12 @@ export function createWebSocketServer(
             break;
           }
 
-          case "resume_instance": {
-            try {
-              const info = instanceManager.resumeInstance(message.instanceId);
-              broadcast({ type: "instance_status", instanceId: info.id, instance: info });
-            } catch (err) {
-              sendMessage(ws, {
-                type: "error",
-                message: err instanceof Error ? err.message : "Failed to resume",
-                instanceId: message.instanceId,
-              });
-            }
-            break;
-          }
-
           case "approve_tool": {
             try {
-              const retryText = `I've granted permission for ${message.tool}. Please retry your last action.`;
+              const FILE_WRITE_GROUP = ["Edit", "Write", "NotebookEdit"];
+              const isFileWrite = FILE_WRITE_GROUP.includes(message.tool);
+              const toolLabel = isFileWrite ? "file writes" : message.tool;
+              const retryText = `Permission granted for ${toolLabel}. Please continue.`;
               sendToSubscribers(message.instanceId, {
                 type: "user",
                 text: retryText,
@@ -273,14 +282,15 @@ export function createWebSocketServer(
             break;
           }
 
-          // Legacy single-instance messages (kept for compatibility)
-          case "message":
-            log.warn("Legacy 'message' type received — use instance_message instead");
+          case "refresh_title": {
+            instanceManager.refreshTitle(message.instanceId);
             break;
+          }
 
-          case "cancel":
-            log.warn("Legacy 'cancel' type received — use instance_cancel instead");
+          case "rename_instance": {
+            instanceManager.renameInstance(message.instanceId, message.name);
             break;
+          }
 
           default:
             log.warn("Unknown message type:", (message as { type: string }).type);
