@@ -22,6 +22,7 @@ import type {
   OutputMessage,
   ExitMessage,
   ActivityMessage,
+  TranscriptMessage,
 } from "../core/types.js";
 
 function truncateSessionId(sessionId: string): string {
@@ -55,6 +56,24 @@ export function createWebSocketServer(
 
   // Per-client subscription sets
   const subscriptions = new Map<WebSocket, Set<string>>();
+
+  // Ping/pong heartbeat to detect dead connections (e.g. network drops)
+  const PING_INTERVAL = 30_000;
+  const alive = new Map<WebSocket, boolean>();
+  const pingTimer = setInterval(() => {
+    for (const [ws] of subscriptions) {
+      if (alive.get(ws) === false) {
+        // No pong received since last ping — connection is dead
+        log.info("WebSocket connection dead (no pong), terminating");
+        alive.delete(ws);
+        ws.terminate();
+        continue;
+      }
+      alive.set(ws, false);
+      ws.ping();
+    }
+  }, PING_INTERVAL);
+  wss.on("close", () => clearInterval(pingTimer));
 
   // Broadcast to all authenticated clients
   function broadcast(message: ServerMessage): void {
@@ -106,6 +125,10 @@ export function createWebSocketServer(
     sendToSubscribers(instanceId, { ...message, instanceId });
   });
 
+  instanceManager.on("instance:transcript", (instanceId: string, message: TranscriptMessage) => {
+    sendToSubscribers(instanceId, { ...message, instanceId });
+  });
+
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
     const cookieHeader = req.headers.cookie;
     const session = auth.getSessionFromCookies(cookieHeader);
@@ -119,8 +142,12 @@ export function createWebSocketServer(
     const truncatedId = truncateSessionId(session.id);
     log.info(`WebSocket connected: session ${truncatedId}`);
 
-    // Initialize subscription tracking
+    // Initialize subscription tracking and heartbeat
     subscriptions.set(ws, new Set());
+    alive.set(ws, true);
+    ws.on("pong", () => {
+      alive.set(ws, true);
+    });
 
     // Send connected + current instance list
     sendMessage(ws, { type: "connected" });
@@ -292,6 +319,29 @@ export function createWebSocketServer(
             break;
           }
 
+          case "merge_instance": {
+            try {
+              const { targetBranch } = instanceManager.mergeInstance(message.instanceId);
+              // Clean up subscriptions (instance is removed)
+              for (const [, subs] of subscriptions) {
+                subs.delete(message.instanceId);
+              }
+              broadcast({ type: "instance_removed", instanceId: message.instanceId });
+              // Notify the requesting client of success
+              sendMessage(ws, {
+                type: "error", // Reuse error type for client-side notification
+                message: `Merged into ${targetBranch} successfully`,
+              });
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to merge",
+                instanceId: message.instanceId,
+              });
+            }
+            break;
+          }
+
           default:
             log.warn("Unknown message type:", (message as { type: string }).type);
         }
@@ -307,6 +357,7 @@ export function createWebSocketServer(
     ws.on("close", () => {
       log.info(`WebSocket disconnected: session ${truncatedId}`);
       subscriptions.delete(ws);
+      alive.delete(ws);
     });
   });
 

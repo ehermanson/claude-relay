@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 export interface SessionRow {
   session_id: string;
@@ -35,6 +35,7 @@ export interface SessionRow {
   allowed_tools: string;
   worktree_path: string | null;
   original_directory: string | null;
+  parent_session_id: string | null;
 }
 
 export class SessionDB {
@@ -61,6 +62,8 @@ export class SessionDB {
   private stmtDeleteBySessionId!: Database.Statement;
   private stmtUpdateAllowedTools!: Database.Statement;
   private stmtUpdateWorkingDirectory!: Database.Statement;
+  private stmtGetProjectStats!: Database.Statement;
+  private stmtGetGlobalStats!: Database.Statement;
 
   constructor(dbPath: string, logger: Logger) {
     this.logger = logger;
@@ -156,6 +159,14 @@ export class SessionDB {
       }
     }
 
+    // v4: add parent_session_id column for plan-parent linking
+    {
+      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === "parent_session_id")) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN parent_session_id TEXT`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -171,13 +182,13 @@ export class SessionDB {
         created_at, last_activity_at, type, archived, custom_title,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_usd, summary, first_prompt, git_branch, message_count, allowed_tools,
-        worktree_path, original_directory
+        worktree_path, original_directory, parent_session_id
       ) VALUES (
         @session_id, @instance_id, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @cost_usd, @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
-        @worktree_path, @original_directory
+        @worktree_path, @original_directory, @parent_session_id
       )
       ON CONFLICT(session_id) DO UPDATE SET
         instance_id = excluded.instance_id,
@@ -199,7 +210,8 @@ export class SessionDB {
         message_count = excluded.message_count,
         allowed_tools = excluded.allowed_tools,
         worktree_path = excluded.worktree_path,
-        original_directory = excluded.original_directory
+        original_directory = excluded.original_directory,
+        parent_session_id = excluded.parent_session_id
     `);
 
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
@@ -253,6 +265,29 @@ export class SessionDB {
     this.stmtUpdateWorkingDirectory = this.db.prepare(
       "UPDATE sessions SET working_directory = ? WHERE session_id = ?",
     );
+
+    this.stmtGetProjectStats = this.db.prepare(`
+      SELECT
+        COUNT(*) as session_count,
+        COALESCE(SUM(input_tokens), 0) as input_tokens,
+        COALESCE(SUM(output_tokens), 0) as output_tokens,
+        COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
+        COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+        COALESCE(SUM(cost_usd), 0) as cost_usd
+      FROM sessions
+      WHERE working_directory = ?
+    `);
+
+    this.stmtGetGlobalStats = this.db.prepare(`
+      SELECT
+        COUNT(*) as session_count,
+        COALESCE(SUM(input_tokens), 0) as input_tokens,
+        COALESCE(SUM(output_tokens), 0) as output_tokens,
+        COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
+        COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+        COALESCE(SUM(cost_usd), 0) as cost_usd
+      FROM sessions
+    `);
   }
 
   upsert(row: SessionRow): void {
@@ -338,6 +373,58 @@ export class SessionDB {
 
   updateWorkingDirectory(sessionId: string, workingDirectory: string): void {
     this.stmtUpdateWorkingDirectory.run(workingDirectory, sessionId);
+  }
+
+  getProjectStats(workingDirectory: string): {
+    sessionCount: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    costUSD: number;
+  } {
+    const row = this.stmtGetProjectStats.get(workingDirectory) as {
+      session_count: number;
+      input_tokens: number;
+      output_tokens: number;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+      cost_usd: number;
+    };
+    return {
+      sessionCount: row.session_count,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      cacheCreationTokens: row.cache_creation_tokens,
+      cacheReadTokens: row.cache_read_tokens,
+      costUSD: row.cost_usd,
+    };
+  }
+
+  getGlobalStats(): {
+    sessionCount: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    costUSD: number;
+  } {
+    const row = this.stmtGetGlobalStats.get() as {
+      session_count: number;
+      input_tokens: number;
+      output_tokens: number;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+      cost_usd: number;
+    };
+    return {
+      sessionCount: row.session_count,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      cacheCreationTokens: row.cache_creation_tokens,
+      cacheReadTokens: row.cache_read_tokens,
+      costUSD: row.cost_usd,
+    };
   }
 
   deleteBySessionId(sessionId: string): void {

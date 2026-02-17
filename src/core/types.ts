@@ -17,6 +17,8 @@ export interface SessionStats {
   cacheCreationTokens: number;
   cacheReadTokens: number;
   costUSD: number;
+  /** Model identifier from the most recent API response (e.g. "claude-opus-4-6") */
+  model?: string;
 }
 
 export interface LastMessagePreview {
@@ -45,10 +47,14 @@ export interface InstanceInfo {
   stats?: SessionStats;
   /** Git branch name when instance runs in a worktree (e.g. "relay/a1b2c3d4") */
   gitBranch?: string;
+  /** True when the worktree has uncommitted changes or commits ahead of the original branch */
+  hasChanges?: boolean;
   /** Original project directory before worktree substitution */
   originalDirectory?: string;
   /** Git metadata for the working directory (directory-level, independent of worktrees) */
   gitInfo?: { branch: string; isWorktree: boolean };
+  /** Claude session ID of the plan-mode parent (UI-only link, no state merging) */
+  parentSessionId?: string;
 }
 
 export interface HistoryEntry {
@@ -126,6 +132,11 @@ export interface RenameInstancePayload {
   name: string;
 }
 
+export interface MergeInstancePayload {
+  type: "merge_instance";
+  instanceId: string;
+}
+
 export type ClientMessage =
   | MessagePayload
   | CancelPayload
@@ -138,7 +149,8 @@ export type ClientMessage =
   | InstanceCancelPayload
   | ApproveToolPayload
   | RefreshTitlePayload
-  | RenameInstancePayload;
+  | RenameInstancePayload
+  | MergeInstancePayload;
 
 // =============================================================================
 // Server -> Client Messages
@@ -247,6 +259,13 @@ export interface InstanceHistoryMessage {
   history: HistoryEntry[];
 }
 
+export interface TranscriptMessage {
+  type: "transcript";
+  title: string;
+  result: string;
+  instanceId?: string;
+}
+
 export type ServerMessage =
   | ConnectedMessage
   | OutputMessage
@@ -258,7 +277,8 @@ export type ServerMessage =
   | InstanceCreatedMessage
   | InstanceRemovedMessage
   | InstanceStatusMessage
-  | InstanceHistoryMessage;
+  | InstanceHistoryMessage
+  | TranscriptMessage;
 
 // =============================================================================
 // Session Types
@@ -281,6 +301,47 @@ export interface ProjectPlan {
   content: string;
 }
 
+export interface ProjectStats {
+  sessionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  costUSD: number;
+}
+
+export interface DashboardStats {
+  instances: {
+    total: number;
+    active: number;
+    idle: number;
+    stopped: number;
+    external: number;
+  };
+  currentSessions: {
+    tokens: number;
+    costUSD: number;
+  };
+  allTime: {
+    sessionCount: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    tokens: number;
+    costUSD: number;
+  };
+  uptime: number;
+  connections: number;
+}
+
+export interface McpServerConfig {
+  type: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+}
+
 export interface ProjectArtifacts {
   projectId: string;
   directory: string;
@@ -290,4 +351,10 @@ export interface ProjectArtifacts {
   /** Contents of README.md from the project root (last-resort fallback) */
   readmeMd: string | null;
   plans: ProjectPlan[];
+  /** Aggregated token/cost stats across all sessions in this project */
+  stats: ProjectStats;
+  /** GitHub repository URL for this project (from ~/.claude.json) */
+  githubUrl: string | null;
+  /** MCP server configurations for this project (from ~/.claude.json) */
+  mcpServers: Record<string, McpServerConfig> | null;
 }

@@ -5,11 +5,43 @@
  * `which claude`, `ps`, and `lsof` elsewhere in the codebase.
  */
 
-import { execSync } from "child_process";
-import { join } from "path";
+import { execSync, execFileSync } from "child_process";
+import { existsSync } from "fs";
+import { join, resolve, dirname } from "path";
 import { homedir } from "os";
 
 const WORKTREE_BASE = join(homedir(), ".claude-relay", "worktrees");
+
+/** Pattern matching ~/.claude-relay/worktrees/<id> paths */
+const RELAY_WORKTREE_RE = /[/\\]\.claude-relay[/\\]worktrees[/\\][a-f0-9]+\/?$/;
+
+/**
+ * Check if a directory path is a relay-managed worktree.
+ */
+export function isRelayWorktreePath(dir: string): boolean {
+  return RELAY_WORKTREE_RE.test(dir);
+}
+
+/**
+ * For a relay worktree path, resolve the original repository directory
+ * by reading git's common-dir (which points to the main repo's .git/).
+ * Returns null if the worktree doesn't exist on disk or git can't resolve it.
+ */
+export function resolveWorktreeOrigin(worktreePath: string): string | null {
+  if (!isRelayWorktreePath(worktreePath)) return null;
+  if (!existsSync(worktreePath)) return null;
+
+  try {
+    const opts = { cwd: worktreePath, timeout: 2000, encoding: "utf8" as const };
+    const gitCommonDir = execFileSync("git", ["rev-parse", "--git-common-dir"], opts).trim();
+    // git-common-dir returns the main repo's .git dir (may be relative)
+    const resolved = resolve(worktreePath, gitCommonDir);
+    // Parent of .git is the repo root
+    return dirname(resolved);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Check if a directory is inside a git working tree.
@@ -87,6 +119,108 @@ export function createWorktree(
     return { worktreePath, branchName };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Check if a worktree has any changes (uncommitted or committed) vs the original branch.
+ * Returns true if:
+ *   - The worktree has uncommitted changes (dirty), OR
+ *   - The worktree branch has commits ahead of the original branch
+ * Returns true on errors (safe default — assume changes exist).
+ */
+export function hasWorktreeChanges(worktreePath: string, originalDirectory: string): boolean {
+  // Check uncommitted changes first (fast)
+  if (isWorktreeDirty(worktreePath)) return true;
+
+  // Check if worktree branch has commits not in the original branch
+  try {
+    const originalBranch = getCurrentBranch(originalDirectory);
+    if (!originalBranch) return true; // can't determine, assume changes
+
+    const count = execSync(`git rev-list --count "${originalBranch}..HEAD"`, {
+      cwd: worktreePath,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5000,
+    })
+      .toString()
+      .trim();
+
+    return parseInt(count, 10) > 0;
+  } catch {
+    return true; // can't determine, assume changes
+  }
+}
+
+/**
+ * Check if a worktree has uncommitted changes.
+ */
+export function isWorktreeDirty(worktreePath: string): boolean {
+  try {
+    const output = execSync("git status --porcelain", {
+      cwd: worktreePath,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 10000,
+    })
+      .toString()
+      .trim();
+    return output.length > 0;
+  } catch {
+    return true; // Assume dirty if we can't check
+  }
+}
+
+/**
+ * Merge a worktree branch into whatever branch is checked out in the primary worktree.
+ *
+ * On conflict: runs `git merge --abort` and returns an error.
+ * Caller should check `isWorktreeDirty()` first to reject dirty worktrees.
+ */
+export function mergeWorktreeBranch(
+  repoRoot: string,
+  branchName: string,
+): { success: true } | { success: false; error: string } {
+  try {
+    execSync(`git merge "${branchName}" --no-edit`, {
+      cwd: repoRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 30000,
+    });
+    return { success: true };
+  } catch (err) {
+    // Merge failed (conflict or other error) — abort to leave repo clean
+    const errorMessage = err instanceof Error ? err.message : "Unknown merge error";
+    try {
+      execSync("git merge --abort", {
+        cwd: repoRoot,
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 10000,
+      });
+    } catch {
+      // abort may fail if merge didn't start — ignore
+    }
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Stage all changes and commit in a worktree directory.
+ * Safe for relay worktrees since they are isolated — everything in them is Claude's work.
+ */
+export function commitAll(
+  worktreePath: string,
+  message: string,
+): { success: true } | { success: false; error: string } {
+  try {
+    execSync(`git add -A && git commit -m "${message.replace(/"/g, '\\"')}"`, {
+      cwd: worktreePath,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 30000,
+    });
+    return { success: true };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Unknown commit error";
+    return { success: false, error: errorMessage };
   }
 }
 

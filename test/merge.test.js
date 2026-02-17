@@ -1,0 +1,434 @@
+/**
+ * Tests for the "Merge to main" feature:
+ * - git.ts: isWorktreeDirty(), mergeWorktreeBranch()
+ * - instance-manager.ts: mergeInstance()
+ * - http.ts: POST /api/instances/:id/merge
+ * - websocket.ts: merge_instance message
+ */
+
+import { describe, it, beforeEach, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
+import { WebSocket } from "ws";
+import {
+  isWorktreeDirty,
+  mergeWorktreeBranch,
+  createWorktree,
+  removeWorktree,
+  getRepoRoot,
+  getCurrentBranch,
+} from "../dist/core/git.js";
+import { InstanceManager } from "../dist/core/instance-manager.js";
+import { createRequestHandler } from "../dist/server/http.js";
+import { createWebSocketServer } from "../dist/server/websocket.js";
+import { AuthManager } from "../dist/server/auth.js";
+import { resolveConfig } from "../dist/server/config.js";
+
+const noopLogger = {
+  info() {},
+  warn() {},
+  error() {},
+  debug() {},
+};
+
+/** Create a temporary git repo with an initial commit. Returns repo path. */
+function createTempRepo() {
+  const dir = mkdtempSync(join(tmpdir(), "relay-merge-test-"));
+  execSync("git init", { cwd: dir, stdio: "pipe" });
+  execSync("git config user.email test@test.com", { cwd: dir, stdio: "pipe" });
+  execSync("git config user.name Test", { cwd: dir, stdio: "pipe" });
+  writeFileSync(join(dir, "README.md"), "# Test\n");
+  execSync("git add . && git commit -m 'initial'", { cwd: dir, stdio: "pipe" });
+  return dir;
+}
+
+// =============================================================================
+// git.ts — isWorktreeDirty / mergeWorktreeBranch
+// =============================================================================
+
+describe("git merge utilities", () => {
+  let repoDir;
+
+  beforeEach(() => {
+    repoDir = createTempRepo();
+  });
+
+  afterEach(() => {
+    // Clean up worktrees before removing the repo
+    try {
+      execSync("git worktree prune", { cwd: repoDir, stdio: "pipe" });
+    } catch {}
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  describe("isWorktreeDirty", () => {
+    it("returns false for a clean worktree", () => {
+      assert.equal(isWorktreeDirty(repoDir), false);
+    });
+
+    it("returns true when there are uncommitted changes", () => {
+      writeFileSync(join(repoDir, "dirty.txt"), "uncommitted\n");
+      assert.equal(isWorktreeDirty(repoDir), true);
+    });
+
+    it("returns true when there are staged but uncommitted changes", () => {
+      writeFileSync(join(repoDir, "staged.txt"), "staged\n");
+      execSync("git add staged.txt", { cwd: repoDir, stdio: "pipe" });
+      assert.equal(isWorktreeDirty(repoDir), true);
+    });
+
+    it("returns true for a nonexistent directory", () => {
+      assert.equal(isWorktreeDirty("/nonexistent/path"), true);
+    });
+  });
+
+  describe("mergeWorktreeBranch", () => {
+    it("successfully merges a branch", () => {
+      // Create a branch with a commit
+      execSync("git checkout -b feature-branch", { cwd: repoDir, stdio: "pipe" });
+      writeFileSync(join(repoDir, "feature.txt"), "new feature\n");
+      execSync("git add . && git commit -m 'add feature'", { cwd: repoDir, stdio: "pipe" });
+      execSync("git checkout main", { cwd: repoDir, stdio: "pipe" });
+
+      const result = mergeWorktreeBranch(repoDir, "feature-branch");
+      assert.deepEqual(result, { success: true });
+
+      // Verify the file exists on main now
+      const output = execSync("git log --oneline -1", { cwd: repoDir, stdio: "pipe" }).toString();
+      assert.ok(output.includes("feature"));
+    });
+
+    it("returns error on merge conflict and aborts", () => {
+      // Create conflicting changes
+      execSync("git checkout -b conflict-branch", { cwd: repoDir, stdio: "pipe" });
+      writeFileSync(join(repoDir, "README.md"), "conflict branch content\n");
+      execSync("git add . && git commit -m 'conflict change'", { cwd: repoDir, stdio: "pipe" });
+      execSync("git checkout main", { cwd: repoDir, stdio: "pipe" });
+      writeFileSync(join(repoDir, "README.md"), "main branch content\n");
+      execSync("git add . && git commit -m 'main change'", { cwd: repoDir, stdio: "pipe" });
+
+      const result = mergeWorktreeBranch(repoDir, "conflict-branch");
+      assert.equal(result.success, false);
+      assert.ok(result.error.length > 0);
+
+      // Verify repo is clean (merge was aborted)
+      assert.equal(isWorktreeDirty(repoDir), false);
+    });
+
+    it("returns error for nonexistent branch", () => {
+      const result = mergeWorktreeBranch(repoDir, "nonexistent-branch");
+      assert.equal(result.success, false);
+    });
+  });
+
+  describe("end-to-end worktree merge flow", () => {
+    it("creates worktree, commits changes, merges back", () => {
+      const wt = createWorktree(repoDir, "test-wt");
+      assert.ok(wt);
+
+      // Make a change in the worktree
+      writeFileSync(join(wt.worktreePath, "worktree-change.txt"), "from worktree\n");
+      execSync("git add . && git commit -m 'worktree commit'", {
+        cwd: wt.worktreePath,
+        stdio: "pipe",
+      });
+
+      // Worktree should be clean after commit
+      assert.equal(isWorktreeDirty(wt.worktreePath), false);
+
+      // Merge the worktree branch into main
+      const result = mergeWorktreeBranch(repoDir, wt.branchName);
+      assert.deepEqual(result, { success: true });
+
+      // Clean up
+      removeWorktree(repoDir, wt.worktreePath, wt.branchName);
+
+      // Verify the change is on main
+      const branch = getCurrentBranch(repoDir);
+      assert.equal(branch, "main");
+      const log = execSync("git log --oneline", { cwd: repoDir, stdio: "pipe" }).toString();
+      assert.ok(log.includes("worktree commit"));
+    });
+  });
+});
+
+// =============================================================================
+// InstanceManager.mergeInstance()
+// =============================================================================
+
+describe("InstanceManager.mergeInstance", () => {
+  let manager;
+  let tempDir;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "relay-merge-im-"));
+    const config = resolveConfig({
+      password: "test",
+      logger: noopLogger,
+      maxProcesses: 5,
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir: join(tempDir, ".claude"),
+    });
+    manager = new InstanceManager(config);
+  });
+
+  afterEach(() => {
+    manager.stopAll();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("throws for unknown instance", () => {
+    assert.throws(() => manager.mergeInstance("nonexistent"), /not found/);
+  });
+
+  it("throws for instance without worktree metadata", () => {
+    // Use tempDir (not a git repo) so no worktree is created
+    const info = manager.createInstance({ name: "No Worktree", workingDirectory: tempDir });
+    assert.throws(() => manager.mergeInstance(info.id), /does not have a worktree/);
+  });
+});
+
+// =============================================================================
+// HTTP: POST /api/instances/:id/merge
+// =============================================================================
+
+function request(server, method, path, options = {}) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, `http://localhost:${server.address().port}`);
+    const req = http.request(url, { method, headers: options.headers || {} }, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        try {
+          resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(body) });
+        } catch {
+          resolve({ status: res.statusCode, headers: res.headers, body });
+        }
+      });
+    });
+    req.on("error", reject);
+    if (options.body) req.write(JSON.stringify(options.body));
+    req.end();
+  });
+}
+
+describe("POST /api/instances/:id/merge", () => {
+  let server;
+  let auth;
+  let manager;
+  let tempDir;
+
+  beforeEach((_, done) => {
+    tempDir = mkdtempSync(join(tmpdir(), "relay-merge-http-"));
+    const config = resolveConfig({
+      password: "testpass",
+      logger: noopLogger,
+      maxProcesses: 5,
+      serveUI: false,
+      rateLimitMax: 10,
+      rateLimitWindow: 60_000,
+      sessionFile: join(tempDir, "sessions.json"),
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir: join(tempDir, ".claude"),
+    });
+    auth = new AuthManager(config);
+    manager = new InstanceManager(config);
+    const handler = createRequestHandler(config, auth, manager);
+    server = http.createServer(handler);
+    server.listen(0, done);
+  });
+
+  afterEach((_, done) => {
+    manager.stopAll();
+    rmSync(tempDir, { recursive: true, force: true });
+    server.close(done);
+  });
+
+  it("requires authentication", async () => {
+    const res = await request(
+      server,
+      "POST",
+      "/api/instances/00000000-0000-0000-0000-000000000000/merge",
+    );
+    assert.equal(res.status, 401);
+  });
+
+  it("returns 400 for nonexistent instance", async () => {
+    const session = auth.createSession();
+    const res = await request(
+      server,
+      "POST",
+      "/api/instances/00000000-0000-0000-0000-000000000000/merge",
+      { headers: { Cookie: `session=${session.id}` } },
+    );
+    assert.equal(res.status, 400);
+    assert.ok(res.body.error.includes("not found"));
+  });
+
+  it("returns 400 for instance without worktree", async () => {
+    const session = auth.createSession();
+    // Use tempDir (not a git repo) so no worktree metadata is set
+    const info = manager.createInstance({ name: "No WT", workingDirectory: tempDir });
+    const res = await request(server, "POST", `/api/instances/${info.id}/merge`, {
+      headers: { Cookie: `session=${session.id}` },
+    });
+    assert.equal(res.status, 400);
+    assert.ok(res.body.error.includes("worktree"));
+  });
+});
+
+// =============================================================================
+// WebSocket: merge_instance message
+// =============================================================================
+
+function createClient(server, sessionId) {
+  const port = server.address().port;
+  const headers = sessionId ? { Cookie: `session=${sessionId}` } : {};
+  const ws = new WebSocket(`ws://localhost:${port}`, { headers });
+
+  const buffer = [];
+  const waiters = [];
+
+  ws.on("message", (data) => {
+    const msg = JSON.parse(data.toString());
+    if (waiters.length > 0) {
+      waiters.shift()(msg);
+    } else {
+      buffer.push(msg);
+    }
+  });
+
+  ws.nextMessage = (timeoutMs = 5000) => {
+    if (buffer.length > 0) {
+      return Promise.resolve(buffer.shift());
+    }
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for message")),
+        timeoutMs,
+      );
+      waiters.push((msg) => {
+        clearTimeout(timeout);
+        resolve(msg);
+      });
+    });
+  };
+
+  ws.collectMessages = async (count, timeoutMs = 5000) => {
+    const messages = [];
+    for (let i = 0; i < count; i++) {
+      messages.push(await ws.nextMessage(timeoutMs));
+    }
+    return messages;
+  };
+
+  ws.waitForHandshake = async () => {
+    const msgs = await ws.collectMessages(2);
+    assert.equal(msgs[0].type, "connected");
+    assert.equal(msgs[1].type, "instance_list");
+    return msgs;
+  };
+
+  const ready = new Promise((resolve, reject) => {
+    ws.on("open", () => resolve(ws));
+    ws.on("error", reject);
+  });
+
+  return { ws, ready };
+}
+
+describe("WebSocket merge_instance", () => {
+  let server;
+  let auth;
+  let manager;
+  let tempDir;
+  let wsHandle;
+  const openSockets = [];
+
+  beforeEach((_, done) => {
+    tempDir = mkdtempSync(join(tmpdir(), "relay-merge-ws-"));
+    const config = resolveConfig({
+      password: "testpass",
+      logger: noopLogger,
+      maxProcesses: 5,
+      serveUI: false,
+      rateLimitMax: 10,
+      rateLimitWindow: 60_000,
+      sessionFile: join(tempDir, "sessions.json"),
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir: join(tempDir, ".claude"),
+    });
+    auth = new AuthManager(config);
+    manager = new InstanceManager(config);
+    const handler = createRequestHandler(config, auth, manager);
+    server = http.createServer(handler);
+    wsHandle = createWebSocketServer(server, manager, auth, config);
+    server.listen(0, done);
+  });
+
+  afterEach((_, done) => {
+    for (const ws of openSockets) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    }
+    openSockets.length = 0;
+    manager.stopAll();
+    rmSync(tempDir, { recursive: true, force: true });
+    wsHandle.wss.close(() => {
+      server.close(done);
+    });
+  });
+
+  function connect(sessionId) {
+    const { ws, ready } = createClient(server, sessionId);
+    openSockets.push(ws);
+    return ready;
+  }
+
+  it("returns error for nonexistent instance", async () => {
+    const session = auth.createSession();
+    const ws = await connect(session.id);
+    await ws.waitForHandshake();
+
+    ws.send(
+      JSON.stringify({
+        type: "merge_instance",
+        instanceId: "00000000-0000-0000-0000-000000000000",
+      }),
+    );
+
+    const msg = await ws.nextMessage();
+    assert.equal(msg.type, "error");
+    assert.ok(msg.message.includes("not found"));
+  });
+
+  it("returns error for instance without worktree", async () => {
+    const session = auth.createSession();
+    // Use tempDir (not a git repo) so no worktree metadata is set
+    const info = manager.createInstance({ name: "No WT", workingDirectory: tempDir });
+
+    const ws = await connect(session.id);
+    await ws.waitForHandshake();
+
+    ws.send(
+      JSON.stringify({
+        type: "merge_instance",
+        instanceId: info.id,
+      }),
+    );
+
+    // May receive instance_status events from process startup — find the error
+    let msg;
+    for (let i = 0; i < 10; i++) {
+      msg = await ws.nextMessage();
+      if (msg.type === "error" && msg.instanceId === info.id) break;
+    }
+    assert.equal(msg.type, "error");
+    assert.ok(msg.message.includes("worktree"));
+  });
+});

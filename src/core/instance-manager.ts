@@ -20,7 +20,7 @@ import {
   readSync,
   closeSync,
 } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import { homedir } from "os";
 import { execSync, execFileSync } from "child_process";
 import { ClaudeProcess } from "./claude-process.js";
@@ -33,6 +33,7 @@ import type {
   ExitMessage,
   ActivityMessage,
   UserMessage,
+  TranscriptMessage,
   InstanceStatus,
   LastMessagePreview,
   InstanceInfo,
@@ -43,6 +44,7 @@ import type {
   TeamInfo,
   ProjectArtifacts,
   ProjectPlan,
+  McpServerConfig,
 } from "./types.js";
 import {
   describeToolUse,
@@ -53,7 +55,18 @@ import {
   INTERACTIVE_TOOLS,
   estimateCost,
 } from "./tools.js";
-import { getRepoRoot, createWorktree, removeWorktree } from "./git.js";
+import {
+  getRepoRoot,
+  getCurrentBranch,
+  createWorktree,
+  removeWorktree,
+  isWorktreeDirty,
+  hasWorktreeChanges,
+  commitAll,
+  mergeWorktreeBranch,
+  isRelayWorktreePath,
+  resolveWorktreeOrigin,
+} from "./git.js";
 
 // =============================================================================
 // Re-exports
@@ -118,6 +131,7 @@ export interface InstanceManagerEvents {
   "instance:created": [instanceId: string, info: InstanceInfo];
   "instance:removed": [instanceId: string];
   "instance:user": [instanceId: string, message: UserMessage];
+  "instance:transcript": [instanceId: string, message: TranscriptMessage];
 }
 
 export interface InstanceManager {
@@ -139,9 +153,11 @@ export interface InstanceManager {
 const MAX_HISTORY = 1000;
 const DISCOVERY_INTERVAL = 10_000; // 10s
 const WATCH_POLL_INTERVAL = 2_000; // 2s
+/** Number of consecutive discovery misses before marking an external session as ended */
+const STALE_THRESHOLD = 3; // 3 × 10s = 30s grace period
 const MAX_TITLE_LENGTH = 50;
-const STITCH_WINDOW_MS = 60_000; // 60s — max gap to stitch sessions
 const PLAN_TRANSCRIPT_RE = /read the full transcript at:\s*(\S+\.jsonl)/;
+const TRANSCRIPT_AVAILABLE_RE = /^Full transcript available at:\s+(\S+)$/;
 const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite"]);
 const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 const FILE_WRITE_GROUP = ["Edit", "Write", "NotebookEdit"];
@@ -182,7 +198,7 @@ function stripInternalTags(text: string): string {
   return text.replace(INTERNAL_TAG_RE, "").trim();
 }
 
-/** Generate a short session title from the first user message. */
+/** Generate a short session title from a user message. */
 function generateTitle(text: string): string {
   // Take the first line, strip markdown/special chars
   const firstLine = text
@@ -195,6 +211,115 @@ function generateTitle(text: string): string {
   const truncated = firstLine.slice(0, MAX_TITLE_LENGTH);
   const lastSpace = truncated.lastIndexOf(" ");
   return (lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated) + "\u2026";
+}
+
+/** Words/patterns that make a user message useless as a title. */
+const TRIVIAL_MESSAGE_RE =
+  /^(ok|okay|yes|no|yep|nah|sure|thanks|thank you|great|good|done|lgtm|go ahead|sounds good|perfect|commit|commit this|ship it|push it|nice|cool|looks good|approved|continue|proceed|👍|y|n)\.?!?$/i;
+
+/** True if the message text is too short or too generic to be a useful title. */
+function isTrivialMessage(text: string): boolean {
+  const cleaned = text
+    .replace(/[#*`_~[\]>]/g, "")
+    .split("\n")[0]
+    .trim();
+  return cleaned.length < 8 || TRIVIAL_MESSAGE_RE.test(cleaned);
+}
+
+/**
+ * Extract the final assistant text output from a background agent transcript file.
+ * Transcript files are JSONL (same format as session files) containing the agent's
+ * full conversation — prompt, tool calls, and final output.
+ * Returns { title, result } or null if the file is missing/unparseable.
+ */
+function extractTranscriptResult(filePath: string): { title: string; result: string } | null {
+  try {
+    const raw = readFileSync(filePath, "utf-8");
+    const lines = raw.split("\n").filter((l) => l.trim());
+    let firstUserText: string | null = null;
+    let lastAssistantText: string | null = null;
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === "user" && entry.message?.content && !firstUserText) {
+          const content = entry.message.content;
+          if (typeof content === "string") {
+            firstUserText = stripInternalTags(content);
+          } else if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === "text" && typeof block.text === "string") {
+                const cleaned = stripInternalTags(block.text);
+                if (cleaned) {
+                  firstUserText = cleaned;
+                  break;
+                }
+              }
+            }
+          }
+        } else if (entry.type === "assistant" && entry.message?.content) {
+          const content = entry.message.content;
+          if (Array.isArray(content)) {
+            const textParts: string[] = [];
+            for (const block of content) {
+              if (block.type === "text" && typeof block.text === "string") {
+                textParts.push(block.text);
+              }
+            }
+            if (textParts.length > 0) {
+              lastAssistantText = textParts.join("\n");
+            }
+          }
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    if (!lastAssistantText) return null;
+    const title = firstUserText ? generateTitle(firstUserText) : "Background agent";
+    return { title, result: lastAssistantText };
+  } catch {
+    // File missing or unreadable
+    return null;
+  }
+}
+
+/**
+ * Read the first user message from a JSONL file by scanning the first ~64KB.
+ * Returns the user message text, or null if not found.
+ */
+function readFirstUserMessage(jsonlPath: string): string | null {
+  try {
+    const fd = openSync(jsonlPath, "r");
+    try {
+      const buf = Buffer.alloc(65536);
+      const bytesRead = readSync(fd, buf, 0, 65536, 0);
+      const text = buf.toString("utf-8", 0, bytesRead);
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.type === "user" && parsed.message?.content) {
+            // User message content is an array of blocks
+            for (const block of parsed.message.content) {
+              if (block.type === "text" && typeof block.text === "string") {
+                const cleaned = stripInternalTags(block.text);
+                if (cleaned && !isTrivialMessage(cleaned)) return cleaned;
+              }
+            }
+          }
+        } catch {
+          // partial line at end of buffer — skip
+        }
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    // file read error
+  }
+  return null;
 }
 
 /**
@@ -278,8 +403,15 @@ function getGitInfo(dir: string): { branch: string; isWorktree: boolean } | null
   try {
     const opts = { cwd: dir, timeout: 2000, encoding: "utf8" as const };
     const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts).trim();
-    const toplevel = execFileSync("git", ["rev-parse", "--show-toplevel"], opts).trim();
-    info = { branch, isWorktree: toplevel !== dir };
+    // Detect worktrees: in a worktree, --git-dir points to main-repo/.git/worktrees/<name>
+    // while --git-common-dir points to main-repo/.git. In the main repo they are equal.
+    // (--show-toplevel returns the worktree's own root, so it can't distinguish worktrees.)
+    const gitDir = resolve(dir, execFileSync("git", ["rev-parse", "--git-dir"], opts).trim());
+    const gitCommonDir = resolve(
+      dir,
+      execFileSync("git", ["rev-parse", "--git-common-dir"], opts).trim(),
+    );
+    info = { branch, isWorktree: gitDir !== gitCommonDir };
   } catch {
     // Not a git repo or git not available
   }
@@ -291,6 +423,8 @@ function getGitInfo(dir: string): { branch: string; isWorktree: boolean } | null
 function extractLastMessage(history: HistoryEntry[]): LastMessagePreview | undefined {
   for (let i = history.length - 1; i >= 0; i--) {
     const msg = history[i].message;
+    // Skip transcript messages — they shouldn't be the sidebar preview
+    if (msg.type === "transcript") continue;
     if (msg.type === "user" && (msg as UserMessage).text) {
       return {
         text: (msg as UserMessage).text,
@@ -337,6 +471,8 @@ export class InstanceManager extends EventEmitter {
   private instanceCounter = 0;
   private discoveryInterval: ReturnType<typeof setInterval> | null = null;
   private watchIntervals = new Map<string, ReturnType<typeof setInterval>>();
+  /** Tracks consecutive discovery misses per external instance (grace period before marking stopped) */
+  private staleCounts = new Map<string, number>();
   private claudeDir: string;
 
   constructor(config: CoreConfig) {
@@ -492,6 +628,7 @@ export class InstanceManager extends EventEmitter {
       clearInterval(watchInterval);
       this.watchIntervals.delete(id);
     }
+    this.staleCounts.delete(id);
 
     instance.info.status = "stopped";
     this.instances.delete(id);
@@ -516,6 +653,55 @@ export class InstanceManager extends EventEmitter {
       `[InstanceManager] Removed instance "${instance.info.name}" (${id})`,
     );
     return true;
+  }
+
+  /**
+   * Merge a worktree instance's branch into the original directory's current branch,
+   * then clean up the worktree and archive the instance.
+   *
+   * Throws if the instance has no worktree, the worktree is dirty, or the merge fails.
+   */
+  mergeInstance(id: string): { targetBranch: string } {
+    const instance = this.instances.get(id);
+    if (!instance) throw new Error(`Instance ${id} not found`);
+
+    if (!instance.worktreePath || !instance.gitBranch || !instance.originalDirectory) {
+      throw new Error("Instance does not have a worktree to merge");
+    }
+
+    // Auto-commit dirty worktrees — safe because worktrees are isolated Claude work
+    if (isWorktreeDirty(instance.worktreePath)) {
+      const commitMsg = instance.info.name || "Claude Relay work";
+      this.baseConfig.logger.info(
+        `[InstanceManager] Auto-committing changes in worktree for "${commitMsg}"`,
+      );
+      const commitResult = commitAll(instance.worktreePath, commitMsg);
+      if (!commitResult.success) {
+        throw new Error(`Auto-commit failed: ${commitResult.error}`);
+      }
+    }
+
+    const repoRoot = getRepoRoot(instance.originalDirectory);
+    if (!repoRoot) {
+      throw new Error("Could not determine git repository root");
+    }
+
+    const targetBranch = getCurrentBranch(repoRoot) || "unknown";
+
+    const result = mergeWorktreeBranch(repoRoot, instance.gitBranch);
+    if (!result.success) {
+      throw new Error(`Merge failed: ${result.error}`);
+    }
+
+    this.baseConfig.logger.info(
+      `[InstanceManager] Merged branch ${instance.gitBranch} into ${targetBranch}`,
+    );
+
+    // Clean up: remove worktree + archive instance
+    this.removeInstance(id);
+    this.emit("instance:removed", id);
+
+    return { targetBranch };
   }
 
   listInstances(): InstanceInfo[] {
@@ -643,10 +829,9 @@ export class InstanceManager extends EventEmitter {
   resumeInstance(id: string): InstanceInfo {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
-    if (!instance.externalState) throw new Error("Instance is not an external session");
-
-    const sessionId = instance.externalState.sessionId;
-    const jsonlPath = instance.externalState.jsonlPath;
+    const sessionId = instance.externalState?.sessionId ?? instance.sessionId;
+    const jsonlPath = instance.externalState?.jsonlPath ?? instance.jsonlPath;
+    if (!sessionId) throw new Error("Instance has no session ID to resume");
     const cwd = instance.actualCwd || instance.info.workingDirectory;
 
     // JSONL watcher keeps running — watchState is independent of externalState.
@@ -745,6 +930,12 @@ export class InstanceManager extends EventEmitter {
       );
       throw err;
     }
+
+    // After reviving, this is a managed instance — clear external flag
+    // so subsequent sendMessage calls route directly to process.send()
+    // instead of hitting resumeInstance (which requires externalState).
+    instance.info.external = false;
+    delete instance.externalState;
 
     this.setStatus(instance, "idle");
     this.dbSave(instance);
@@ -885,6 +1076,17 @@ export class InstanceManager extends EventEmitter {
     return null;
   }
 
+  getGlobalStats(): {
+    sessionCount: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    costUSD: number;
+  } {
+    return this.db.getGlobalStats();
+  }
+
   getProjectArtifacts(projectId: string): ProjectArtifacts | null {
     const resolvedId = this.resolveProjectId(projectId);
     if (!resolvedId) return null;
@@ -972,6 +1174,7 @@ export class InstanceManager extends EventEmitter {
         .filter((f) => f.endsWith(".jsonl"))
         .map((f) => join(projectDir, f));
 
+      // Pass 1: slug-based discovery (fast — reads first 32KB of each JSONL)
       for (const jsonlPath of jsonlFiles) {
         const slug = this.extractSlugFromJsonl(jsonlPath);
         if (slug && !seenSlugs.has(slug)) {
@@ -1000,12 +1203,142 @@ export class InstanceManager extends EventEmitter {
           }
         }
       }
+
+      // Pass 2: discover plans with custom filenames (not matching session slug).
+      // Check plan files on disk that weren't found via slug, then search JSONL
+      // content for references to them (Write/Edit tool calls to ~/.claude/plans/).
+      const plansDir = join(this.claudeDir, "plans");
+      try {
+        const undiscovered = readdirSync(plansDir)
+          .filter((f) => f.endsWith(".md"))
+          .map((f) => f.slice(0, -3))
+          .filter((s) => !seenSlugs.has(s));
+
+        if (undiscovered.length > 0) {
+          for (const jsonlPath of jsonlFiles) {
+            if (undiscovered.length === 0) break;
+            try {
+              const raw = readFileSync(jsonlPath, "utf-8");
+              if (!raw.includes(".claude/plans/")) continue;
+              for (let i = undiscovered.length - 1; i >= 0; i--) {
+                const planSlug = undiscovered[i];
+                if (raw.includes(`plans/${planSlug}.md`)) {
+                  seenSlugs.add(planSlug);
+                  undiscovered.splice(i, 1);
+                  const planPath = join(plansDir, `${planSlug}.md`);
+                  try {
+                    const content = readFileSync(planPath, "utf-8");
+                    let mtime: number;
+                    try {
+                      mtime = statSync(jsonlPath).mtimeMs;
+                    } catch {
+                      mtime = statSync(planPath).mtimeMs;
+                    }
+                    let title = planSlug;
+                    for (const line of content.split("\n")) {
+                      if (line.startsWith("# ")) {
+                        title = line.slice(2).trim();
+                        break;
+                      }
+                    }
+                    plans.push({
+                      slug: planSlug,
+                      title,
+                      modifiedAt: mtime,
+                      content,
+                    });
+                  } catch {
+                    /* plan file missing */
+                  }
+                }
+              }
+            } catch {
+              /* read error */
+            }
+          }
+        }
+      } catch {
+        /* plans dir missing */
+      }
+
       plans.sort((a, b) => a.modifiedAt - b.modifiedAt);
     } catch {
       /* ignore */
     }
 
-    return { projectId: resolvedId, directory, memory, claudeMd, readmeMd, plans };
+    // Aggregate token/cost stats from DB
+    const stats = this.db.getProjectStats(directory);
+
+    // .claude.json data — GitHub URL, MCP servers
+    const claudeConfig = this.readClaudeConfig();
+    let githubUrl: string | null = null;
+    let mcpServers: Record<string, McpServerConfig> | null = null;
+
+    if (claudeConfig) {
+      // Reverse lookup: path → "owner/repo"
+      if (claudeConfig.githubRepoPaths) {
+        for (const [repo, paths] of Object.entries(claudeConfig.githubRepoPaths)) {
+          if (Array.isArray(paths) && paths.includes(directory)) {
+            githubUrl = `https://github.com/${repo}`;
+            break;
+          }
+        }
+      }
+
+      // MCP servers from the project entry
+      const projectEntry = claudeConfig.projects?.[directory];
+      if (projectEntry?.mcpServers && Object.keys(projectEntry.mcpServers).length > 0) {
+        mcpServers = projectEntry.mcpServers;
+      }
+    }
+
+    return {
+      projectId: resolvedId,
+      directory,
+      memory,
+      claudeMd,
+      readmeMd,
+      plans,
+      stats,
+      githubUrl,
+      mcpServers,
+    };
+  }
+
+  /**
+   * Read ~/.claude.json and return parsed config.
+   * Re-read on each call (file is small, no watcher needed).
+   */
+  private readClaudeConfig(): {
+    githubRepoPaths?: Record<string, string[]>;
+    projects?: Record<string, { mcpServers?: Record<string, McpServerConfig> }>;
+  } | null {
+    try {
+      const configPath = join(homedir(), ".claude.json");
+      const raw = readFileSync(configPath, "utf-8");
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Return a map of local directory paths → GitHub repository URLs.
+   * Built from the `githubRepoPaths` field in ~/.claude.json.
+   */
+  getGitHubLinks(): Record<string, string> {
+    const claudeConfig = this.readClaudeConfig();
+    if (!claudeConfig?.githubRepoPaths) return {};
+
+    const result: Record<string, string> = {};
+    for (const [repo, paths] of Object.entries(claudeConfig.githubRepoPaths)) {
+      if (!Array.isArray(paths)) continue;
+      const url = `https://github.com/${repo}`;
+      for (const p of paths) {
+        if (typeof p === "string") result[p] = url;
+      }
+    }
+    return result;
   }
 
   private extractSlugFromJsonl(filePath: string): string | null {
@@ -1049,6 +1382,7 @@ export class InstanceManager extends EventEmitter {
       }
     }
     this.instances.clear();
+    this.staleCounts.clear();
     this.stopDiscovery();
     this.db.close();
   }
@@ -1124,12 +1458,7 @@ export class InstanceManager extends EventEmitter {
         // Check if this is a restored stopped external that should be upgraded to active
         const existingId = knownJsonls.get(jsonlPath)!;
         const existing = this.instances.get(existingId);
-        if (
-          existing &&
-          existing.info.external &&
-          existing.info.status === "stopped" &&
-          !existing.externalState
-        ) {
+        if (existing && existing.info.external && existing.info.status === "stopped") {
           this.upgradeRestoredExternal(existingId, existing, jsonlPath);
         }
         continue;
@@ -1145,19 +1474,10 @@ export class InstanceManager extends EventEmitter {
           this.db.unarchive(archivedRow.session_id);
         }
 
-        // Check for plan-continuation (explicit parent reference in first message)
+        // Check for plan-continuation parent (explicit reference in first message)
         const planParent = this.findPlanParent(jsonlPath);
-        if (planParent && !planParent.process) {
-          this.stitchSession(planParent, sessionId, jsonlPath);
-        } else {
-          // Fall back to temporal stitch (same CWD + stopped + within 60s)
-          const stitchTarget = this.findStitchTarget(cwd, jsonlPath);
-          if (stitchTarget) {
-            this.stitchSession(stitchTarget, sessionId, jsonlPath);
-          } else {
-            this.addExternalInstance(sessionId, jsonlPath);
-          }
-        }
+        const parentSessionId = planParent?.sessionId || planParent?.info.sessionId;
+        this.addExternalInstance(sessionId, jsonlPath, parentSessionId);
       } catch (err) {
         this.baseConfig.logger.debug(`[InstanceManager] Failed to add external session: ${err}`);
       }
@@ -1234,28 +1554,59 @@ export class InstanceManager extends EventEmitter {
 
   private removeStaleExternals(activeJsonlPaths: Set<string>): void {
     for (const [instanceId, instance] of this.instances) {
-      if (instance.externalState && !activeJsonlPaths.has(instance.externalState.jsonlPath)) {
-        // Preserve jsonlPath for dedup so discovery doesn't re-add this session
-        instance.jsonlPath = instance.externalState.jsonlPath;
-        instance.sessionId = instance.sessionId || instance.externalState.sessionId;
-        delete instance.externalState;
+      if (!instance.externalState) continue;
 
-        // Stop the JSONL watcher — session is no longer active
-        const watchInterval = this.watchIntervals.get(instanceId);
-        if (watchInterval) {
-          clearInterval(watchInterval);
-          this.watchIntervals.delete(instanceId);
-        }
-
-        this.setStatus(instance, "stopped");
-        // Update DB with last activity timestamp
-        if (instance.sessionId) {
-          this.db.updateLastActivity(instance.sessionId, instance.info.lastActivityAt);
-        }
-        this.baseConfig.logger.info(
-          `[InstanceManager] External session ended: "${instance.info.name}"`,
-        );
+      if (activeJsonlPaths.has(instance.externalState.jsonlPath)) {
+        // Found in active set — reset stale counter
+        this.staleCounts.delete(instanceId);
+        continue;
       }
+
+      // Not found in ps/lsof — check JSONL mtime as secondary signal
+      const jsonlPath = instance.externalState.jsonlPath;
+      try {
+        const mtime = statSync(jsonlPath).mtimeMs;
+        const age = Date.now() - mtime;
+        if (age < DISCOVERY_INTERVAL * STALE_THRESHOLD) {
+          // JSONL was recently modified — session is likely still active
+          this.staleCounts.delete(instanceId);
+          continue;
+        }
+      } catch {
+        // File gone — proceed to stale tracking
+      }
+
+      // Increment stale counter
+      const count = (this.staleCounts.get(instanceId) || 0) + 1;
+      this.staleCounts.set(instanceId, count);
+
+      if (count < STALE_THRESHOLD) {
+        this.baseConfig.logger.debug(
+          `[InstanceManager] External session "${instance.info.name}" not found in ps (${count}/${STALE_THRESHOLD})`,
+        );
+        continue;
+      }
+
+      // Grace period exceeded — mark as stopped
+      this.staleCounts.delete(instanceId);
+      instance.jsonlPath = instance.externalState.jsonlPath;
+      instance.sessionId = instance.sessionId || instance.externalState.sessionId;
+      delete instance.externalState;
+
+      // Stop the JSONL watcher — session is no longer active
+      const watchInterval = this.watchIntervals.get(instanceId);
+      if (watchInterval) {
+        clearInterval(watchInterval);
+        this.watchIntervals.delete(instanceId);
+      }
+
+      this.setStatus(instance, "stopped");
+      if (instance.sessionId) {
+        this.db.updateLastActivity(instance.sessionId, instance.info.lastActivityAt);
+      }
+      this.baseConfig.logger.info(
+        `[InstanceManager] External session ended: "${instance.info.name}"`,
+      );
     }
   }
 
@@ -1290,22 +1641,44 @@ export class InstanceManager extends EventEmitter {
     );
   }
 
-  private addExternalInstance(sessionId: string, jsonlPath: string): void {
+  private addExternalInstance(
+    sessionId: string,
+    jsonlPath: string,
+    parentSessionId?: string,
+  ): void {
     const { cwd, history, tasks, files, team, stats } = this.parseJsonl(jsonlPath);
     if (!cwd) return; // Can't determine working directory
 
+    // Detect relay worktree paths and resolve the original project directory
+    let workingDirectory = cwd;
+    let worktreePath: string | undefined;
+    let gitBranch: string | undefined;
+    let originalDirectory: string | undefined;
+
+    if (isRelayWorktreePath(cwd)) {
+      const origin = resolveWorktreeOrigin(cwd);
+      if (origin) {
+        workingDirectory = origin;
+        worktreePath = cwd;
+        originalDirectory = origin;
+      }
+    }
+
     const id = randomUUID();
-    const dirName = cwd.split("/").pop() || "unknown";
-    const name = this.resolveSessionTitle(sessionId, cwd, history) || dirName;
+    const dirName = workingDirectory.split("/").pop() || "unknown";
+    const name = this.resolveSessionTitle(sessionId, workingDirectory, history) || dirName;
     const now = Date.now();
     const lastActivity = history.length > 0 ? history[history.length - 1].timestamp : now;
 
     const lastMessage = extractLastMessage(history);
 
+    const gitInfo = getGitInfo(workingDirectory) ?? undefined;
+    if (gitInfo && worktreePath) gitBranch = gitInfo.branch;
+
     const info: InstanceInfo = {
       id,
       name,
-      workingDirectory: cwd,
+      workingDirectory,
       status: "idle",
       createdAt: lastActivity,
       lastActivityAt: lastActivity,
@@ -1313,7 +1686,10 @@ export class InstanceManager extends EventEmitter {
       lastMessage,
       sessionId,
       stats: stats.costUSD > 0 ? stats : undefined,
-      gitInfo: getGitInfo(cwd) ?? undefined,
+      gitInfo: worktreePath ? (getGitInfo(cwd) ?? undefined) : gitInfo,
+      gitBranch,
+      originalDirectory,
+      parentSessionId,
     };
 
     let fileSize: number;
@@ -1337,6 +1713,10 @@ export class InstanceManager extends EventEmitter {
       tasks: tasks.size > 0 ? tasks : undefined,
       files: files.size > 0 ? files : undefined,
       team: team ?? undefined,
+      worktreePath,
+      gitBranch,
+      originalDirectory,
+      actualCwd: worktreePath ? cwd : undefined,
     };
 
     this.instances.set(id, instance);
@@ -1347,67 +1727,6 @@ export class InstanceManager extends EventEmitter {
     this.baseConfig.logger.info(
       `[InstanceManager] Discovered external session "${name}" in ${cwd}`,
     );
-  }
-
-  /**
-   * Find an existing stopped instance that a new session should be stitched onto.
-   * Matches on same CWD, stopped status, and temporal proximity.
-   */
-  private findStitchTarget(cwd: string, newJsonlPath: string): Instance | null {
-    // Get the first entry timestamp from the new JSONL (partial read — only need the first entry)
-    let newSessionStart: number | null = null;
-    let fd: number;
-    try {
-      fd = openSync(newJsonlPath, "r");
-    } catch {
-      return null;
-    }
-    try {
-      const buf = Buffer.alloc(32768);
-      const bytesRead = readSync(fd, buf, 0, 32768, 0);
-      const head = buf.toString("utf-8", 0, bytesRead);
-      for (const line of head.split("\n")) {
-        if (!line.trim()) continue;
-        try {
-          const entry = JSON.parse(line);
-          if (entry.timestamp) {
-            const parsed = new Date(entry.timestamp).getTime();
-            if (!isNaN(parsed)) {
-              newSessionStart = parsed;
-              break;
-            }
-          }
-        } catch {
-          // skip — possibly truncated line at end of buffer
-        }
-      }
-
-      // Fallback: use file mtime if no valid timestamp found in entries
-      if (newSessionStart === null) {
-        newSessionStart = statSync(newJsonlPath).mtimeMs;
-      }
-    } catch {
-      closeSync(fd);
-      return null;
-    }
-    closeSync(fd);
-    if (!newSessionStart) return null;
-
-    let bestMatch: Instance | null = null;
-    let smallestGap = Infinity;
-
-    for (const instance of this.instances.values()) {
-      if (instance.info.workingDirectory !== cwd) continue;
-      if (instance.info.status !== "stopped") continue;
-
-      const gap = Math.abs(newSessionStart - instance.info.lastActivityAt);
-      if (gap <= STITCH_WINDOW_MS && gap < smallestGap) {
-        smallestGap = gap;
-        bestMatch = instance;
-      }
-    }
-
-    return bestMatch;
   }
 
   /**
@@ -1490,121 +1809,6 @@ export class InstanceManager extends EventEmitter {
     }
 
     return null;
-  }
-
-  /**
-   * Stitch a new session onto an existing instance — used when /clear
-   * creates a new JSONL file but the user considers it the same workflow.
-   */
-  private stitchSession(instance: Instance, sessionId: string, jsonlPath: string): void {
-    const { history: newHistory, tasks, files, team, stats } = this.parseJsonl(jsonlPath);
-
-    // Accumulate stats from stitched session
-    if (stats.costUSD > 0) {
-      if (instance.info.stats) {
-        instance.info.stats.inputTokens += stats.inputTokens;
-        instance.info.stats.outputTokens += stats.outputTokens;
-        instance.info.stats.cacheCreationTokens += stats.cacheCreationTokens;
-        instance.info.stats.cacheReadTokens += stats.cacheReadTokens;
-        instance.info.stats.costUSD += stats.costUSD;
-      } else {
-        instance.info.stats = stats;
-      }
-    }
-
-    // Add a separator so the UI shows the session boundary
-    instance.history.push({
-      timestamp: Date.now(),
-      message: {
-        type: "output",
-        text: "--- Session continued ---",
-        isWaiting: false,
-      } as OutputMessage,
-    });
-
-    // Append new history
-    for (const entry of newHistory) {
-      instance.history.push(entry);
-    }
-
-    // Trim to MAX_HISTORY
-    if (instance.history.length > MAX_HISTORY) {
-      instance.history.splice(0, instance.history.length - MAX_HISTORY);
-    }
-
-    // Stop old watcher
-    const oldInterval = this.watchIntervals.get(instance.info.id);
-    if (oldInterval) {
-      clearInterval(oldInterval);
-      this.watchIntervals.delete(instance.info.id);
-    }
-
-    // Update instance state to point to new session
-    const oldSessionId = instance.sessionId;
-    instance.sessionId = sessionId;
-    instance.jsonlPath = jsonlPath;
-    instance.info.sessionId = sessionId;
-
-    let fileSize: number;
-    try {
-      fileSize = statSync(jsonlPath).size;
-    } catch {
-      fileSize = 0;
-    }
-
-    // Only set externalState for external instances — managed instances
-    // should never be flipped to external by stitching.
-    if (instance.info.external) {
-      instance.externalState = {
-        jsonlPath,
-        sessionId,
-      };
-    }
-
-    instance.watchState = createWatchState(jsonlPath, fileSize, instance.info.stats);
-
-    if (tasks.size > 0) instance.tasks = tasks;
-    if (files.size > 0) instance.files = files;
-    if (team) instance.team = team;
-
-    // Update activity and status
-    const lastEntry = newHistory[newHistory.length - 1];
-    if (lastEntry) {
-      instance.info.lastActivityAt = lastEntry.timestamp;
-      const msg = lastEntry.message;
-      if (msg.type === "user" && (msg as UserMessage).text) {
-        instance.info.lastMessage = {
-          text: (msg as UserMessage).text,
-          from: "user",
-          timestamp: lastEntry.timestamp,
-        };
-      } else if (msg.type === "output") {
-        const output = msg as OutputMessage;
-        if (output.text && output.text.trim() && !output.isWaiting) {
-          instance.info.lastMessage = {
-            text: output.text,
-            from: "claude",
-            timestamp: lastEntry.timestamp,
-          };
-        }
-      }
-    }
-
-    this.setStatus(instance, instance.info.external ? "idle" : instance.info.status);
-    this.startWatching(instance.info.id, instance);
-
-    // Update DB: remove old session entry, upsert new one
-    if (oldSessionId && oldSessionId !== sessionId) {
-      this.db.deleteBySessionId(oldSessionId);
-    }
-    this.dbSave(instance);
-
-    // Broadcast the update
-    this.emit("instance:status", instance.info.id, { ...instance.info });
-
-    this.baseConfig.logger.info(
-      `[InstanceManager] Stitched session "${instance.info.name}" to new session ${sessionId}`,
-    );
   }
 
   // ===========================================================================
@@ -1833,10 +2037,27 @@ export class InstanceManager extends EventEmitter {
       // Strip internal CLI tags; skip if nothing meaningful remains
       text = stripInternalTags(text);
       if (text && !text.startsWith("[Request interrupted")) {
-        results.push({
-          timestamp,
-          message: { type: "user", text } as UserMessage,
-        });
+        // Check for background agent transcript completion messages
+        const transcriptMatch = TRANSCRIPT_AVAILABLE_RE.exec(text);
+        if (transcriptMatch) {
+          const transcript = extractTranscriptResult(transcriptMatch[1]);
+          if (transcript) {
+            results.push({
+              timestamp,
+              message: {
+                type: "transcript",
+                title: transcript.title,
+                result: transcript.result,
+              } as TranscriptMessage,
+            });
+          }
+          // Suppress the raw "Full transcript available at:" message entirely
+        } else {
+          results.push({
+            timestamp,
+            message: { type: "user", text } as UserMessage,
+          });
+        }
       }
     } else if (entry.type === "assistant" && entry.message?.content) {
       const content = entry.message.content;
@@ -2034,6 +2255,7 @@ export class InstanceManager extends EventEmitter {
         ctx.stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
         ctx.stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
         ctx.stats.costUSD += estimateCost(entry.message.model, u);
+        ctx.stats.model = entry.message.model;
       }
     }
 
@@ -2196,6 +2418,7 @@ export class InstanceManager extends EventEmitter {
               if (msg.type === "output") {
                 const output = msg as OutputMessage;
                 if (output.isWaiting) {
+                  this.checkWorktreeChanges(instance);
                   this.setStatus(instance, "idle");
                   this.doRefreshTitle(instance);
                 } else {
@@ -2219,6 +2442,8 @@ export class InstanceManager extends EventEmitter {
                 }
                 this.setStatus(instance, "processing");
                 this.emit("instance:activity", instanceId, activity);
+              } else if (msg.type === "transcript") {
+                this.emit("instance:transcript", instanceId, msg as TranscriptMessage);
               } else if (msg.type === "user") {
                 instance.info.pendingTool = undefined;
                 this.emit("instance:user", instanceId, msg as UserMessage);
@@ -2266,6 +2491,7 @@ export class InstanceManager extends EventEmitter {
       allowed_tools: "[]",
       worktree_path: instance.worktreePath ?? null,
       original_directory: instance.originalDirectory ?? null,
+      parent_session_id: instance.info.parentSessionId ?? null,
     };
   }
 
@@ -2334,6 +2560,7 @@ export class InstanceManager extends EventEmitter {
           allowed_tools: "[]",
           worktree_path: null,
           original_directory: null,
+          parent_session_id: null,
         });
       }
 
@@ -2423,20 +2650,25 @@ export class InstanceManager extends EventEmitter {
                 if (mtime > existing.last_activity_at) {
                   this.db.updateLastActivity(existing.session_id, mtime);
                 }
-                // Repair corrupted working_directory: re-read from JSONL and validate
-                let correctCwd = readCwdFromJsonl(jsonlPath);
-                if (correctCwd && !existsSync(correctCwd)) {
-                  // JSONL cwd is stale (project renamed?) — try filesystem decode
-                  const decoded = decodeProjectDir(projDir);
-                  if (existsSync(decoded)) correctCwd = decoded;
-                }
-                if (!correctCwd) {
-                  // No JSONL cwd — try filesystem decode
-                  const decoded = decodeProjectDir(projDir);
-                  if (existsSync(decoded)) correctCwd = decoded;
-                }
-                if (correctCwd && correctCwd !== existing.working_directory) {
-                  this.db.updateWorkingDirectory(existing.session_id, correctCwd);
+                // Repair corrupted working_directory: re-read from JSONL and validate.
+                // Skip repair for worktree instances — their working_directory was
+                // intentionally set to the original project dir, not the worktree path
+                // that Claude Code writes into the JSONL cwd field.
+                if (!existing.original_directory) {
+                  let correctCwd = readCwdFromJsonl(jsonlPath);
+                  if (correctCwd && !existsSync(correctCwd)) {
+                    // JSONL cwd is stale (project renamed?) — try filesystem decode
+                    const decoded = decodeProjectDir(projDir);
+                    if (existsSync(decoded)) correctCwd = decoded;
+                  }
+                  if (!correctCwd) {
+                    // No JSONL cwd — try filesystem decode
+                    const decoded = decodeProjectDir(projDir);
+                    if (existsSync(decoded)) correctCwd = decoded;
+                  }
+                  if (correctCwd && correctCwd !== existing.working_directory) {
+                    this.db.updateWorkingDirectory(existing.session_id, correctCwd);
+                  }
                 }
               }
             } catch {
@@ -2461,6 +2693,25 @@ export class InstanceManager extends EventEmitter {
             // No JSONL cwd — use filesystem-validated decode
             cwd = decodeProjectDir(projDir);
           }
+
+          // Detect relay worktree paths and resolve the original project directory.
+          // When a managed worktree instance's DB entry is lost (rebuild, corruption),
+          // the JSONL cwd is the worktree path — resolve it back to the original repo.
+          let scanWorktreePath: string | null = null;
+          let scanOriginalDir: string | null = null;
+          let scanGitBranch: string | null = null;
+
+          if (isRelayWorktreePath(cwd)) {
+            const origin = resolveWorktreeOrigin(cwd);
+            if (origin) {
+              scanWorktreePath = cwd;
+              scanOriginalDir = origin;
+              cwd = origin; // Use original dir as working_directory
+              const gitInfo = getGitInfo(cwd);
+              if (gitInfo) scanGitBranch = gitInfo.branch;
+            }
+          }
+
           try {
             const head = readFileSync(jsonlPath, "utf-8").split("\n")[0];
             const parsed = JSON.parse(head);
@@ -2483,7 +2734,8 @@ export class InstanceManager extends EventEmitter {
             createdAt = indexEntry?.createdAt ?? lastActivityAt;
           }
 
-          const name = indexEntry?.summary || generateTitle(sessionId);
+          const firstMsg = readFirstUserMessage(jsonlPath);
+          const name = indexEntry?.summary || (firstMsg ? generateTitle(firstMsg) : "New session");
 
           rows.push({
             session_id: sessionId,
@@ -2503,11 +2755,12 @@ export class InstanceManager extends EventEmitter {
             cost_usd: 0,
             summary: indexEntry?.summary ?? null,
             first_prompt: null,
-            git_branch: null,
+            git_branch: scanGitBranch,
             message_count: indexEntry?.messageCount ?? 0,
             allowed_tools: "[]",
-            worktree_path: null,
-            original_directory: null,
+            worktree_path: scanWorktreePath,
+            original_directory: scanOriginalDir,
+            parent_session_id: null,
           });
           discovered++;
         }
@@ -2538,7 +2791,15 @@ export class InstanceManager extends EventEmitter {
     for (const row of this.db.getAllActive()) {
       if (!row.working_directory) continue;
       const isTempDir = /^(\/private)?\/tmp(\/|$)/.test(row.working_directory);
-      if (isTempDir || !existsSync(row.working_directory)) {
+      if (isTempDir) {
+        this.db.archive(row.session_id);
+        archived++;
+      } else if (!existsSync(row.working_directory)) {
+        // Don't archive worktree instances if the original directory still exists —
+        // the worktree path may have been cleaned up but the session is still valid.
+        if (row.original_directory && existsSync(row.original_directory)) {
+          continue;
+        }
         this.db.archive(row.session_id);
         archived++;
       }
@@ -2585,6 +2846,11 @@ export class InstanceManager extends EventEmitter {
       }
 
       if (entry.type === "external") {
+        // Restore worktree metadata if present (from scanAllSessions worktree recovery)
+        const extWorktreePath = entry.worktree_path ?? undefined;
+        const extOriginalDir = entry.original_directory ?? undefined;
+        const extGitBranch = entry.git_branch ?? undefined;
+
         const info: InstanceInfo = {
           id: entry.instance_id,
           name: entry.name,
@@ -2597,7 +2863,12 @@ export class InstanceManager extends EventEmitter {
           sessionId: entry.session_id,
           customTitle: entry.custom_title === 1,
           stats: parsedStats,
-          gitInfo: getGitInfo(entry.working_directory) ?? undefined,
+          gitBranch: extGitBranch,
+          originalDirectory: extOriginalDir,
+          gitInfo: extWorktreePath
+            ? (getGitInfo(extWorktreePath) ?? undefined)
+            : (getGitInfo(entry.working_directory) ?? undefined),
+          parentSessionId: entry.parent_session_id ?? undefined,
         };
 
         const instance: Instance = {
@@ -2606,9 +2877,17 @@ export class InstanceManager extends EventEmitter {
           history,
           sessionId: entry.session_id,
           jsonlPath: entry.jsonl_path,
+          externalState: {
+            jsonlPath: entry.jsonl_path,
+            sessionId: entry.session_id,
+          },
           tasks: tasks.size > 0 ? tasks : undefined,
           files: files.size > 0 ? files : undefined,
           team: team ?? undefined,
+          worktreePath: extWorktreePath,
+          gitBranch: extGitBranch,
+          originalDirectory: extOriginalDir,
+          actualCwd: extWorktreePath ? extWorktreePath : undefined,
         };
 
         this.instances.set(entry.instance_id, instance);
@@ -2670,6 +2949,7 @@ export class InstanceManager extends EventEmitter {
           gitBranch: restoreGitBranch,
           originalDirectory: restoreOriginalDirectory,
           gitInfo: getGitInfo(entry.working_directory) ?? undefined,
+          parentSessionId: entry.parent_session_id ?? undefined,
         };
 
         let watchState: WatchState | undefined;
@@ -2714,78 +2994,37 @@ export class InstanceManager extends EventEmitter {
       );
     }
 
-    this.stitchExistingPlanSessions();
+    this.linkPlanSessions();
   }
 
-  private stitchExistingPlanSessions(): void {
-    let stitchedAny = false;
-    let found: boolean;
+  /**
+   * Set `parentSessionId` on restored instances that are plan-continuations.
+   * UI-only metadata — no history merging or state mutation.
+   */
+  private linkPlanSessions(): void {
+    let linked = 0;
 
-    do {
-      found = false;
+    for (const instance of this.instances.values()) {
+      if (instance.info.parentSessionId) continue; // already linked (from DB)
 
-      for (const [childId, child] of this.instances) {
-        const jsonlPath = child.jsonlPath || child.externalState?.jsonlPath;
-        if (!jsonlPath) continue;
+      const jsonlPath = instance.jsonlPath || instance.externalState?.jsonlPath;
+      if (!jsonlPath) continue;
 
-        const parent = this.findPlanParent(jsonlPath);
-        if (!parent || parent.info.id === childId) continue;
+      const parent = this.findPlanParent(jsonlPath);
+      if (!parent || parent.info.id === instance.info.id) continue;
 
-        parent.history.push({
-          timestamp: Date.now(),
-          message: {
-            type: "output",
-            text: "--- Session continued ---",
-            isWaiting: false,
-          } as OutputMessage,
-        });
-        for (const entry of child.history) {
-          parent.history.push(entry);
-        }
-        if (parent.history.length > MAX_HISTORY) {
-          parent.history.splice(0, parent.history.length - MAX_HISTORY);
-        }
+      const parentSid = parent.sessionId || parent.info.sessionId;
+      if (!parentSid) continue;
 
-        const sessionId =
-          child.sessionId ||
-          child.externalState?.sessionId ||
-          jsonlPath.split("/").pop()?.replace(".jsonl", "") ||
-          "";
-        parent.sessionId = sessionId;
-        parent.jsonlPath = jsonlPath;
-        parent.info.sessionId = sessionId;
+      instance.info.parentSessionId = parentSid;
+      this.dbSave(instance);
+      linked++;
+    }
 
-        if (child.info.lastActivityAt > parent.info.lastActivityAt) {
-          parent.info.lastActivityAt = child.info.lastActivityAt;
-        }
-        if (child.info.lastMessage) {
-          parent.info.lastMessage = child.info.lastMessage;
-        }
-
-        if (child.tasks && child.tasks.size > 0) {
-          parent.tasks = child.tasks;
-        }
-        if (child.files && child.files.size > 0) {
-          parent.files = child.files;
-        }
-
-        this.baseConfig.logger.info(
-          `[InstanceManager] Retroactively stitched "${child.info.name}" into "${parent.info.name}"`,
-        );
-
-        // Remove child instance (cleans up watcher, emits removed, archives in DB)
-        this.removeInstance(childId);
-        found = true;
-        stitchedAny = true;
-        break; // Restart iteration — map was modified
-      }
-    } while (found);
-
-    if (stitchedAny) {
-      for (const instance of this.instances.values()) {
-        this.emit("instance:status", instance.info.id, { ...instance.info });
-        this.dbSave(instance);
-      }
+    if (linked > 0) {
+      this.baseConfig.logger.info(
+        `[InstanceManager] Linked ${linked} plan-continuation session(s) to parents`,
+      );
     }
   }
 
@@ -2818,6 +3057,7 @@ export class InstanceManager extends EventEmitter {
           this.setStatus(instance, "processing");
           instance.process!.send(retryText);
         } else {
+          this.checkWorktreeChanges(instance);
           this.setStatus(instance, "idle");
           this.doRefreshTitle(instance);
         }
@@ -3042,11 +3282,15 @@ export class InstanceManager extends EventEmitter {
       return true;
     }
 
-    // Fallback: last user message from history (reflects recent context)
+    // Fallback: scan history backwards for a substantive user message
+    // (skip trivial messages like "ok", "done", "commit this", etc.)
     for (let i = instance.history.length - 1; i >= 0; i--) {
       const msg = instance.history[i].message;
+      if (msg.type === "transcript") continue;
       if (msg.type === "user" && (msg as UserMessage).text) {
-        const title = generateTitle((msg as UserMessage).text);
+        const text = (msg as UserMessage).text;
+        if (isTrivialMessage(text)) continue;
+        const title = generateTitle(text);
         if (title && title !== instance.info.name) {
           instance.info.name = title;
           this.emit("instance:status", instance.info.id, { ...instance.info });
@@ -3059,6 +3303,14 @@ export class InstanceManager extends EventEmitter {
     }
 
     return false;
+  }
+
+  private checkWorktreeChanges(instance: Instance): void {
+    if (!instance.worktreePath || !instance.originalDirectory) return;
+    instance.info.hasChanges = hasWorktreeChanges(
+      instance.worktreePath,
+      instance.originalDirectory,
+    );
   }
 
   private setStatus(instance: Instance, status: InstanceStatus): void {
@@ -3074,7 +3326,8 @@ export class InstanceManager extends EventEmitter {
       instance.history.splice(0, instance.history.length - MAX_HISTORY);
     }
 
-    // Track last meaningful message for dashboard preview
+    // Track last meaningful message for dashboard preview (skip transcripts)
+    if (message.type === "transcript") return;
     if (message.type === "user" && (message as UserMessage).text) {
       instance.info.lastMessage = {
         text: (message as UserMessage).text,

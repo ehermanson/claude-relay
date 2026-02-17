@@ -5,6 +5,7 @@ node_modules/
 dist/
 ui/dist/
 ui/node_modules/
+ui/src/routeTree.gen.ts
 
 # Environment
 .env

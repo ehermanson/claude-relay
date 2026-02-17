@@ -48,6 +48,18 @@ export async function uploadImage(file: File): Promise<string> {
   return data.path;
 }
 
+export async function fetchDashboardStats(): Promise<import("@shared/types").DashboardStats> {
+  const res = await fetch("/api/stats");
+  if (!res.ok) throw new Error("Failed to fetch stats");
+  return res.json();
+}
+
+export async function fetchGitHubLinks(): Promise<Record<string, string>> {
+  const res = await fetch("/api/github-links");
+  if (!res.ok) return {};
+  return res.json();
+}
+
 export async function fetchProjectArtifacts(
   projectId: string,
 ): Promise<import("@shared/types").ProjectArtifacts> {

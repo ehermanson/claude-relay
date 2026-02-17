@@ -28,7 +28,7 @@ Claude Relay is a bridge between remote devices and a local Claude Code CLI. It 
 - **Server**: Raw `node:http` + `ws` library. No Express/Fastify/etc.
 - **UI**: React 18 + Vite + Tailwind CSS v4 + React Router
 - **Tests**: Node.js built-in test runner (`node --test`)
-- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI)
+- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI)
 
 ## Build & Test
 
@@ -69,13 +69,13 @@ test/
   fixtures/                  JSONL session fixtures for history-parsing tests
 ui/
   src/
-    context/                 AuthContext, WebSocketContext, ThemeContext
-    hooks/                   useAuth, useWebSocket, useInstanceMessages, useAutoScroll, useDirectoryBrowser, useMediaQuery, useTerminalPendingToasts
-    pages/                   LoginPage, ChatPage, ProjectPage
-    components/chat/         InstanceView, MessageList, ClaudeMessage, UserMessage, InputArea, ActivityGroup, Sidecar, PermissionBanner, etc.
-    components/ui/           ResizableHandle (react-resizable-panels Separator wrapper)
-    components/layout/       Sidebar, SidebarItem
-    components/forms/        NewInstanceForm, DirectoryPicker
+    context/                 auth-context, websocket-context, theme-context
+    hooks/                   use-auth, use-web-socket, use-instance-messages, use-auto-scroll, use-directory-browser, use-media-query, use-terminal-pending-toasts
+    pages/                   chat-page, login-page, project-page
+    components/chat/         instance-view, message-list, claude-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
+    components/ui/           resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react)
+    components/layout/       app-layout, sidebar, sidebar-item
+    components/forms/        new-instance-form, directory-picker
     lib/                     api.ts, markdown.ts, utils.ts
   vite.config.ts             @shared alias → ../src/core
   tsconfig.json              paths: @shared/* → ../src/core/*
@@ -129,7 +129,7 @@ ui/
 
 - Sidebar and sidecar are resizable via `react-resizable-panels` (v4 API: `Group`, `Panel`, `Separator`)
 - `ResizableHandle` (`ui/src/components/ui/ResizableHandle.tsx`) wraps the library's `Separator` with themed styling
-- **ChatPage**: `Group` wraps sidebar panel (20% default, 12-35%, collapsible) + main panel (80%)
+- **AppLayout**: `Group` wraps sidebar panel (25% default, 12-40%, collapsible) + main panel (75%). Shared across ChatPage and ProjectPage via layout route — sidebar persists across navigation.
 - **InstanceView**: When sidecar is visible, `Group` wraps chat panel (75%) + sidecar panel (25%, 15-40%, collapsible)
 - Mobile (<=768px): No resizable panels — falls back to existing full-width/overlay behavior
 - Both sidebar and sidecar panels are collapsible (`collapsible collapsedSize={0}`)
@@ -159,6 +159,17 @@ ui/
 - Subscription model: clients send `subscribe`/`unsubscribe` with instanceId
 - Instance output/activity/exit go only to subscribers
 - Status/create/remove events broadcast to all clients
+
+### Agent Transcript Messages
+
+- When Claude Code runs background agents (`Task` with `run_in_background: true`), the CLI injects a user message: `Full transcript available at: /path/to/file`
+- `TRANSCRIPT_AVAILABLE_RE` in `instance-manager.ts` detects these messages in `convertJsonlEntry()`
+- `extractTranscriptResult()` reads the transcript file (JSONL format), extracts the first user message (for title) and last assistant text (the result)
+- Returns a `TranscriptMessage` (`type: "transcript"`) instead of a `UserMessage` — suppresses the raw path from appearing as a user message
+- If the transcript file is missing or unparseable, the message is suppressed entirely (no entry returned)
+- `TranscriptMessage` is skipped by `extractLastMessage()`, `pushHistory()`, and `doRefreshTitle()` — transcripts don't become sidebar previews or instance names
+- WS event: `instance:transcript` → sends `TranscriptMessage` with `instanceId` to subscribers
+- UI: `AgentTranscript` component (`agent-transcript.tsx`) renders a collapsible card with "Agent result" header and markdown-rendered result body
 
 ### Permission Approval Flow
 
@@ -198,6 +209,13 @@ ui/
 - Non-git directories are unaffected — no worktree created, works exactly as before
 - If `git worktree add` fails, falls back to the original directory with a warning log
 - UI: sidebar shows branch name with git-branch icon below instance name; header shows branch badge pill (hidden on mobile)
+- **Merge to main**: Sidebar context menu action (only on instances with `gitBranch`) merges the worktree branch into the original directory's current branch, then cleans up the worktree and archives the instance
+  - `mergeWorktreeBranch()` in `git.ts`: runs `git merge <branch> --no-edit` in the repo root; aborts on conflict
+  - `InstanceManager.mergeInstance(id)`: validates worktree metadata, checks for uncommitted changes, merges, then calls `removeInstance()` on success
+  - Rejects dirty worktrees (uncommitted changes) with a descriptive error
+  - On merge conflict: aborts the merge, leaves the worktree intact for manual resolution
+  - WS message: `{ type: "merge_instance", instanceId }`
+  - REST: `POST /api/instances/:id/merge` → `{ success: true, targetBranch }` or `{ error: "..." }`
 
 ### Project Landing Page
 
@@ -210,6 +228,13 @@ ui/
 - UI: Two-column layout — instructions on left, Plans on right; stacks on mobile
 - `createInstance({ resumeSessionId })` available in backend for future use — creates ClaudeProcess with `--resume <id>`
 
+### `.claude.json` Integration
+
+- `readClaudeConfig()` reads `~/.claude.json` on demand (small file, no watcher needed)
+- **GitHub links**: `getGitHubLinks()` reverses `githubRepoPaths` map to `path → https://github.com/owner/repo`. Exposed via `GET /api/github-links`. Sidebar renders a GitHub icon per directory group. Project page header includes a GitHub link button.
+- **MCP servers**: `getProjectArtifacts()` includes `mcpServers` from `projects[directory].mcpServers`. Project page shows an "Integrations" section with compact cards (name, type badge, URL/command).
+- Types: `McpServerConfig` in `types.ts`; `ProjectArtifacts` extended with `githubUrl`, `mcpServers`.
+
 ### External Session Discovery
 
 - InstanceManager polls `ps` + `lsof` every 10s to find running `claude` processes
@@ -219,8 +244,8 @@ ui/
 - External sessions can be "resumed" — converts to a managed ClaudeProcess with `--resume`
 - `resumeInstance()` uses atomic state transitions with rollback on failure — prevents duplicate instances
 - **Directory path decoding**: `decodeProjectDir()` uses greedy filesystem-validated decode instead of naive `-` → `/` replacement. Handles dashed project names (e.g., `ghin-plus`, `Watch-List`). `readCwdFromJsonl()` reads 32KB (not 4KB) to handle large init entries. `scanAllSessions()` repairs corrupted `working_directory` values in the DB on every scan.
-- Session stitching uses file mtime as fallback when JSONL entries lack timestamps
 - `findPlanParent()` scans up to 32KB (not a fixed line count) to find plan continuation references
+- **Plan-parent linking** (no stitching): `linkPlanSessions()` sets `parentSessionId` on child instances for UI display. No history merging or state mutation — each session stays independent. `parentSessionId` persists in SQLite (`parent_session_id` column, schema v4).
 
 ### JSONL Watching (`watchState`)
 
@@ -244,7 +269,7 @@ ui/
 
 - **SQLite is a rebuildable cache/index** — JSONL files on disk are the canonical source of truth. If the DB is lost or corrupted, it is rebuilt by scanning `~/.claude/projects/`.
 - `SessionDB` (in `src/core/db.ts`) wraps `better-sqlite3` with prepared statements for synchronous access. WAL journal mode, 3s busy timeout.
-- **Schema versioning**: `schema_version` table tracks migrations. Current version: 1.
+- **Schema versioning**: `schema_version` table tracks migrations. Current version: 4.
 - **Startup sequence**: `migrateFromManifest()` (one-time import from legacy `instances.json`) → `scanAllSessions()` (discover JSONL files on disk, upsert new ones, archive missing ones) → restore active sessions.
 - **`scanAllSessions()`**: Walks `~/.claude/projects/` directories, reads `sessions-index.json` for fast metadata, compares with DB via `getJsonlPaths()`, upserts new sessions, repairs corrupted `working_directory` values, archives DB entries whose JSONL files no longer exist on disk. Also archives sessions from deleted directories (no longer exist on disk) and temp directories (`/tmp`, `/private/tmp`).
 - **Archive model** replaces pruning: `removeInstance()` archives (sets `archived = 1`) instead of deleting. Discovery auto-unarchives if the JSONL reappears. Archived sessions are excluded from `getAllActive()` but retained in the DB.
@@ -252,7 +277,7 @@ ui/
 - **Managed restore**: Creates `ClaudeProcess` with `--resume <sessionId>`, wires events, starts watcher
 - **External restore**: Creates stopped instance with `process: null`, `external: true`, no watcher — visible in UI with full history from JSONL
 - **Discovery upgrade**: When a `claude` process starts in a dir matching a restored stopped external, `upgradeRestoredExternal()` sets `externalState`, starts watcher, transitions to `idle`
-- `db.upsert()` is called after: session ID capture, instance removal (archive), external discovery, session stitching, stats updates
+- `db.upsert()` is called after: session ID capture, instance removal (archive), external discovery, plan-parent linking, stats updates
 - `stopAll()` does NOT clear the DB — instances survive relay restarts
 - `discoverExisting()` skips JSONL paths already known (managed or external) to prevent duplicates
 
@@ -268,8 +293,10 @@ All routes except `/health` and `/auth` require authentication (session cookie).
 | GET    | `/api/instances`             | List all instances                                                          |
 | POST   | `/api/instances`             | Create new instance (optional `resumeSessionId` to resume existing session) |
 | DELETE | `/api/instances/:id`         | Remove instance                                                             |
+| POST   | `/api/instances/:id/merge`   | Merge worktree branch into main and remove instance                         |
 | GET    | `/api/instances/:id/history` | Get conversation history                                                    |
 | GET    | `/api/stats`                 | Server stats                                                                |
+| GET    | `/api/github-links`          | Map of local directory paths to GitHub repo URLs (from `~/.claude.json`)    |
 | GET    | `/api/directories`           | Known Claude project directories                                            |
 | GET    | `/api/browse?prefix=...`     | Directory autocomplete                                                      |
 | GET    | `/api/projects/:id`          | Project artifacts (accepts basename slug or full encoded path)              |

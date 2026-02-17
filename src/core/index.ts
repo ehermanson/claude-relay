@@ -38,7 +38,15 @@ export {
   estimateCost,
 } from "./tools.js";
 
-export { isGitRepo, getRepoRoot, getCurrentBranch, createWorktree, removeWorktree } from "./git.js";
+export {
+  isGitRepo,
+  getRepoRoot,
+  getCurrentBranch,
+  createWorktree,
+  removeWorktree,
+  isRelayWorktreePath,
+  resolveWorktreeOrigin,
+} from "./git.js";
 
 export type {
   SessionStats,
@@ -75,5 +83,6 @@ export type {
   TeamMember,
   TeamInfo,
   ProjectPlan,
+  ProjectStats,
   ProjectArtifacts,
 } from "./types.js";

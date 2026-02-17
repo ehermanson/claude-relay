@@ -61,6 +61,7 @@ function seedDB(tempDir, entries) {
       allowed_tools: "[]",
       worktree_path: null,
       original_directory: null,
+      parent_session_id: null,
     });
   }
   db.close();

@@ -139,6 +139,7 @@ function serveIndex(res: http.ServerResponse): void {
 const instancesRoutePattern = /^\/api\/instances$/;
 const instanceByIdPattern = /^\/api\/instances\/([a-f0-9-]+)$/;
 const instanceHistoryPattern = /^\/api\/instances\/([a-f0-9-]+)\/history$/;
+const instanceMergePattern = /^\/api\/instances\/([a-f0-9-]+)\/merge$/;
 
 /**
  * Create the HTTP request handler.
@@ -273,6 +274,25 @@ export function createRequestHandler(
         return;
       }
 
+      // POST /api/instances/:id/merge
+      const mergeMatch = pathname.match(instanceMergePattern);
+      if (method === "POST" && mergeMatch) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        const id = mergeMatch[1];
+        try {
+          const { targetBranch } = instanceManager.mergeInstance(id);
+          sendJson(res, 200, { success: true, targetBranch });
+        } catch (err) {
+          sendJson(res, 400, {
+            error: err instanceof Error ? err.message : "Failed to merge",
+          });
+        }
+        return;
+      }
+
       // GET /api/instances/:id/history
       const historyMatch = pathname.match(instanceHistoryPattern);
       if (method === "GET" && historyMatch) {
@@ -312,6 +332,19 @@ export function createRequestHandler(
           if (inst.external) external++;
         }
 
+        // Aggregate token/cost stats from current (live) instances
+        let currentTokens = 0;
+        let currentCost = 0;
+        for (const inst of allInstances) {
+          if (inst.stats) {
+            currentTokens += inst.stats.inputTokens + inst.stats.outputTokens;
+            currentCost += inst.stats.costUSD;
+          }
+        }
+
+        // All-time stats from the database (includes archived sessions)
+        const allTime = instanceManager.getGlobalStats();
+
         sendJson(res, 200, {
           instances: {
             total: allInstances.length,
@@ -320,9 +353,32 @@ export function createRequestHandler(
             stopped,
             external, // Note: cross-cutting attribute, not a status. An external instance is also counted in active/idle/stopped.
           },
+          currentSessions: {
+            tokens: currentTokens,
+            costUSD: currentCost,
+          },
+          allTime: {
+            sessionCount: allTime.sessionCount,
+            inputTokens: allTime.inputTokens,
+            outputTokens: allTime.outputTokens,
+            cacheCreationTokens: allTime.cacheCreationTokens,
+            cacheReadTokens: allTime.cacheReadTokens,
+            tokens: allTime.inputTokens + allTime.outputTokens,
+            costUSD: allTime.costUSD,
+          },
           uptime: uptimeSeconds,
           connections: getConnectionCount ? getConnectionCount() : 0,
         });
+        return;
+      }
+
+      // GET /api/github-links
+      if (method === "GET" && pathname === "/api/github-links") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        sendJson(res, 200, instanceManager.getGitHubLinks());
         return;
       }
 

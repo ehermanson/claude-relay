@@ -284,6 +284,7 @@ export class ClaudeProcess extends EventEmitter {
     this._stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
     this._stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
     this._stats.costUSD += estimateCost(model, u);
+    this._stats.model = model;
     this.emit("stats", { ...this._stats });
   }
 

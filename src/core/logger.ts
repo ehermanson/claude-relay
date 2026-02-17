@@ -12,7 +12,7 @@ export interface Logger {
   debug(...args: unknown[]): void;
 }
 
-/** A logger that discards all output */
+/** A logger that discards all output. */
 export const noopLogger: Logger = {
   info() {},
   warn() {},

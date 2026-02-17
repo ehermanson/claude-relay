@@ -4,6 +4,8 @@ A lightweight bridge between remote devices and your local [Claude Code](https:/
 
 Claude Relay also automatically discovers other Claude Code sessions running on your machine and lets you monitor or resume them from the web UI.
 
+> **Fair warning:** This project is held together with duct tape and optimism. It relies on Claude Code's undocumented JSONL transcript format, its `stream-json` output mode, the layout of `~/.claude/`, and various CLI flags that could change without notice. Any Claude Code update could break things in spectacular and unexpected ways. There is no stable API contract here — just a guy reading JSONL files and hoping for the best. If it works today, celebrate. If it breaks tomorrow, that's expected.
+
 ## How It Works
 
 ```
@@ -22,27 +24,27 @@ Claude Relay also automatically discovers other Claude Code sessions running on 
   │                             │  WebSocket ─ streaming   │     │
   │                             │  Auth   ─── sessions     │     │
   │                             │  UI     ─── React SPA    │     │
-  │                             └─────────────┬────────────┘     │
-  │                                           │                  │
-  │                             ┌─────────────┴────────────┐     │
-  │                             │  cloudflared (optional)   │     │
-  │                             └─────────────┬────────────┘     │
-  └───────────────────────────────────────────┼──────────────────┘
-                                              │
-                                      HTTPS tunnel
-                                              │
-              ┌───────────────────────────────┼───────────────────────────┐
-              │                               │                           │
-         ┌────┴────┐                   ┌──────┴─────┐              ┌──────┴─────┐
-         │  Phone  │                   │   Laptop   │              │  Browser   │
-         └─────────┘                   └────────────┘              └────────────┘
+  │                             └──────┬─────────┬─────────┘     │
+  │                                    │         │               │
+  │                     ┌──────────────┴┐  ┌─────┴────────────┐  │
+  │                     │  Tailscale    │  │  cloudflared      │  │
+  │                     │  (tailnet)    │  │  (public tunnel)  │  │
+  │                     └──────────────┬┘  └─────┬────────────┘  │
+  └────────────────────────────────────┼─────────┼───────────────┘
+                                       │         │
+                                 tailnet mesh   HTTPS tunnel
+                                       │         │
+                              ┌────────┴─┐  ┌────┴─────┐
+                              │  Phone   │  │  Laptop  │
+                              └──────────┘  └──────────┘
 ```
 
 1. **Claude Relay** runs on your dev machine alongside Claude Code
 2. **InstanceManager** spawns and manages Claude Code processes (`claude -p --output-format stream-json`)
 3. **Session discovery** finds Claude Code instances you started in the terminal and streams their JSONL transcripts
 4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
-5. **Cloudflare Tunnel** (optional) gives you a public HTTPS URL for access from any device
+5. **Tailscale** (optional) makes the relay reachable from any device on your private tailnet
+6. **Cloudflare Tunnel** (optional) gives you a public HTTPS URL for access from any device
 
 ## Projects and Directories
 
@@ -75,6 +77,25 @@ RELAY_PASSWORD="your-secret" npm start
 ```
 
 Open `http://localhost:7777`. That's it.
+
+### Setting a Password
+
+The `RELAY_PASSWORD` environment variable is required. You can set it in a few ways:
+
+```bash
+# Inline (simplest — good for one-off launches)
+RELAY_PASSWORD="your-secret" npm start
+
+# Export it for the current shell session
+export RELAY_PASSWORD="your-secret"
+npm start
+
+# Or put it in a .env file (not committed to git)
+echo 'RELAY_PASSWORD=your-secret' > .env
+source .env && npm start
+```
+
+The password protects the web UI — you'll enter it once on the login page, then a session cookie keeps you authenticated for 7 days.
 
 ### Remote Access
 

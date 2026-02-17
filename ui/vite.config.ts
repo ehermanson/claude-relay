@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import http from "http";
@@ -32,7 +33,7 @@ function wsProxy(): Plugin {
               Object.entries(proxyRes.headers)
                 .map(([k, v]) => `${k}: ${v}`)
                 .join("\r\n") +
-              "\r\n\r\n"
+              "\r\n\r\n",
           );
           if (proxyHead.length) socket.write(proxyHead);
           proxySocket.pipe(socket);
@@ -47,7 +48,7 @@ function wsProxy(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), wsProxy()],
+  plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), react(), wsProxy()],
   resolve: {
     alias: {
       "@shared": path.resolve(__dirname, "../src/core"),

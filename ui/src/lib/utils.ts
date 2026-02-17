@@ -47,6 +47,16 @@ export function formatCost(usd: number): string {
   return "$" + usd.toFixed(1);
 }
 
+/** Turn a model ID like "claude-opus-4-6" into a short display name like "Opus 4.6" */
+export function formatModel(model: string): string {
+  // Match "claude-{family}-{major}-{minor}" or "claude-{family}-{major}"
+  const m = model.match(/^claude-(\w+)-(\d+)(?:-(\d+))?/);
+  if (!m) return model;
+  const family = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+  const version = m[3] ? `${m[2]}.${m[3]}` : m[2];
+  return `${family} ${version}`;
+}
+
 export function getCollapsedDetail(detail: string, tool?: string): string {
   if (!detail) return "";
   if (tool === "Read" || tool === "Edit" || tool === "Write") {
