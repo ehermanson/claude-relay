@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Relay - Login</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      font-size: 16px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #0a0a0a;
+      color: #fafafa;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 360px;
+    }
+
+    .login-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .login-header h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: #fafafa;
+    }
+
+    .login-header p {
+      font-size: 0.875rem;
+      color: #a3a3a3;
+    }
+
+    .login-card {
+      background-color: #171717;
+      border: 1px solid #262626;
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      color: #a3a3a3;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      background-color: #0a0a0a;
+      border: 1px solid #262626;
+      border-radius: 0.5rem;
+      color: #fafafa;
+      transition: border-color 0.15s ease;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #d4a574;
+    }
+
+    .form-group input::placeholder {
+      color: #a3a3a3;
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      font-weight: 500;
+      background-color: #d4a574;
+      color: #0a0a0a;
+      border: none;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      transition: background-color 0.15s ease, opacity 0.15s ease;
+    }
+
+    .submit-btn:hover {
+      background-color: #c49664;
+    }
+
+    .submit-btn:active {
+      background-color: #b48654;
+    }
+
+    .submit-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .error-message {
+      display: none;
+      background-color: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+      color: #f87171;
+    }
+
+    .error-message.visible {
+      display: block;
+    }
+
+    @media (max-width: 480px) {
+      .login-container {
+        max-width: 100%;
+      }
+
+      .login-card {
+        padding: 1.25rem;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-header">
+      <h1>Claude Relay</h1>
+      <p>Enter your password to continue</p>
+    </div>
+
+    <div class="login-card">
+      <div id="error-message" class="error-message"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            placeholder="Enter password"
+            autocomplete="current-password"
+            required
+          >
+        </div>
+
+        <button type="submit" class="submit-btn" id="submit-btn">
+          Sign In
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const form = document.getElementById("login-form");
+      const passwordInput = document.getElementById("password");
+      const submitBtn = document.getElementById("submit-btn");
+      const errorMessage = document.getElementById("error-message");
+
+      // Auto-focus on password field
+      passwordInput.focus();
+
+      // Clear error when user starts typing
+      passwordInput.addEventListener("input", function() {
+        hideError();
+      });
+
+      function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.classList.add("visible");
+      }
+
+      function hideError() {
+        errorMessage.classList.remove("visible");
+      }
+
+      function setLoading(loading) {
+        submitBtn.disabled = loading;
+        submitBtn.textContent = loading ? "Signing in..." : "Sign In";
+      }
+
+      form.addEventListener("submit", async function(e) {
+        e.preventDefault();
+        hideError();
+
+        const password = passwordInput.value;
+
+        if (!password) {
+          showError("Please enter a password");
+          passwordInput.focus();
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+          const response = await fetch("/auth", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ password: password })
+          });
+
+          if (response.ok) {
+            // Success - redirect to chat
+            window.location.href = "/chat";
+          } else {
+            // Parse error message from response
+            let errorText = "Authentication failed";
+            try {
+              const data = await response.json();
+              if (data.error) {
+                errorText = data.error;
+              }
+            } catch {
+              // Use default error message if JSON parsing fails
+            }
+            showError(errorText);
+            passwordInput.focus();
+            passwordInput.select();
+          }
+        } catch (err) {
+          showError("Connection failed. Please try again.");
+          console.error("Login error:", err);
+        } finally {
+          setLoading(false);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
