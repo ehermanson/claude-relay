@@ -37,7 +37,7 @@ function highlightCode(code: string, lang?: string): string | undefined {
 }
 
 interface ActivityEntryProps {
-  activity: "tool_use" | "tool_result" | "thinking" | "task_list";
+  activity: "tool_use" | "tool_result" | "thinking" | "task_list" | "file_list" | "team_info";
   description: string;
   tool?: string;
   detail?: string;
@@ -52,7 +52,7 @@ interface ActivityEntryProps {
   isExternalPending?: boolean;
 }
 
-function ActivityIcon({ type }: { type: "tool_use" | "tool_result" | "thinking" | "task_list" }) {
+function ActivityIcon({ type }: { type: ActivityEntryProps["activity"] }) {
   switch (type) {
     case "tool_use":
       return (
@@ -107,6 +107,8 @@ function ActivityIcon({ type }: { type: "tool_use" | "tool_result" | "thinking" 
           </svg>
         </div>
       );
+    default:
+      return null;
   }
 }
 
@@ -368,7 +370,7 @@ function PlanApprovalContent({
                 Approve Plan
               </button>
             )}
-            {canAct && state !== "editing" && (
+            {canAct && (
               <button
                 onClick={() => setState("editing")}
                 className="rounded-lg px-3.5 py-1.5 text-[0.8125rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-warning"

@@ -14,6 +14,8 @@ interface ActivityGroupProps {
   isExternal?: boolean;
 }
 
+const INTERACTIVE_TOOLS = ["AskUserQuestion", "ExitPlanMode", "EnterPlanMode"];
+
 export function ActivityGroup({
   activities,
   onSendMessage,
@@ -55,7 +57,7 @@ export function ActivityGroup({
 
   return (
     <div className="flex flex-col gap-px">
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {hiddenCount > 0 && (
           <motion.div
             key="expand-btn"
@@ -89,7 +91,7 @@ export function ActivityGroup({
         {rendered.map(({ act, origIndex }, vi) => {
           const isLastDenialForTool =
             act.permissionDenied && lastDenialIndex.get(act.permissionDenied) === origIndex;
-          const INTERACTIVE_TOOLS = ["AskUserQuestion", "ExitPlanMode", "EnterPlanMode"];
+
           const isPendingInTerminal =
             isExternal &&
             act.activity === "tool_use" &&
