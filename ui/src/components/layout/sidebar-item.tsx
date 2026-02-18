@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Menu } from "../ui/menu";
 import { Tooltip } from "../ui/tooltip";
 import { formatTimeAgo } from "../../lib/utils";
@@ -10,7 +10,8 @@ interface SidebarItemProps {
   isActive: boolean;
   isChild?: boolean;
   parentInstance?: { id: string; name: string };
-  onClick: () => void;
+  to: string;
+  params: Record<string, string>;
   onDelete?: () => void;
   deleteDisabled?: boolean;
   onRefreshTitle?: () => void;
@@ -23,7 +24,8 @@ export function SidebarItem({
   isActive,
   isChild,
   parentInstance,
-  onClick,
+  to,
+  params,
   onDelete,
   deleteDisabled,
   onRefreshTitle,
@@ -71,8 +73,12 @@ export function SidebarItem({
   const hasPendingTool = !!instance.pendingTool;
 
   return (
-    <div
-      onClick={editing ? undefined : onClick}
+    <Link
+      to={to}
+      params={params}
+      onClick={(e: React.MouseEvent) => {
+        if (editing) e.preventDefault();
+      }}
       className={`group relative flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 transition-colors ${
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
@@ -297,6 +303,6 @@ export function SidebarItem({
             </svg>
           </button>
         ))}
-    </div>
+    </Link>
   );
 }

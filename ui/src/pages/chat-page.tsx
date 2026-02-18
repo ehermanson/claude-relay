@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useWSState } from "../context/websocket-context";
 import { Tooltip } from "../components/ui/tooltip";
 import { fetchDashboardStats } from "../lib/api";
@@ -38,11 +38,11 @@ function StatCard({
 function ProjectRow({
   directory,
   instances,
-  onClick,
+  projectId,
 }: {
   directory: string;
   instances: InstanceInfo[];
-  onClick: () => void;
+  projectId: string;
 }) {
   const dirName = directory.split("/").pop() || directory;
   const activeCount = instances.filter(
@@ -57,8 +57,9 @@ function ProjectRow({
   const gitInfo = instances.find((i) => i.gitInfo)?.gitInfo;
 
   return (
-    <button
-      onClick={onClick}
+    <Link
+      to="/projects/$projectId"
+      params={{ projectId }}
       className="flex w-full items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors hover:bg-surface-hover"
     >
       {/* Icon */}
@@ -118,7 +119,7 @@ function ProjectRow({
 
       {/* Last activity */}
       <div className="shrink-0 text-[0.6875rem] text-muted">{formatTimeAgo(lastActivity)}</div>
-    </button>
+    </Link>
   );
 }
 
@@ -126,7 +127,6 @@ function ProjectRow({
 
 export function Dashboard() {
   const { instances } = useWSState();
-  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
 
   useEffect(() => {
@@ -306,12 +306,7 @@ export function Dashboard() {
                   key={dir}
                   directory={dir}
                   instances={groupInstances}
-                  onClick={() =>
-                    navigate({
-                      to: "/projects/$projectId",
-                      params: { projectId: dir.split("/").pop() || dir },
-                    })
-                  }
+                  projectId={dir.split("/").pop() || dir}
                 />
               ))}
             </div>

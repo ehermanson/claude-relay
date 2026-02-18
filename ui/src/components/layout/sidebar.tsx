@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, Link } from "@tanstack/react-router";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
 import { SidebarItem } from "./sidebar-item";
@@ -9,12 +9,12 @@ import { Button } from "../ui/button";
 import { Popover } from "../ui/popover";
 import { Collapsible } from "../ui/collapsible";
 import { Tooltip } from "../ui/tooltip";
-import { Switch } from "../ui/switch";
+
 import { NewInstanceForm } from "../forms/new-instance-form";
 import { fetchGitHubLinks } from "../../lib/api";
 import type { InstanceInfo } from "@shared/types";
 
-const INITIAL_SHOW_COUNT = 15;
+const MAX_SIDEBAR_SESSIONS = 10;
 
 export function Sidebar() {
   const { send } = useWSMethods();
@@ -27,7 +27,6 @@ export function Sidebar() {
   };
   const [showForm, setShowForm] = useState(false);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const prevInstanceIds = useRef(new Set<string>());
   const pendingCreate = useRef(false);
 
@@ -39,27 +38,7 @@ export function Sidebar() {
       .catch(() => {});
   }, []);
 
-  // Filter state
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeOnly, setActiveOnly] = useState(() => {
-    try {
-      return localStorage.getItem("sidebar-active-only") === "true";
-    } catch {
-      return false;
-    }
-  });
-
-  const toggleActiveOnly = () => {
-    setActiveOnly((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("sidebar-active-only", String(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  };
 
   // Navigate to newly created instance
   useEffect(() => {
@@ -82,9 +61,6 @@ export function Sidebar() {
 
   // Filter instances
   let filteredInstances = instances;
-  if (activeOnly) {
-    filteredInstances = filteredInstances.filter((i) => i.status !== "stopped");
-  }
   if (searchQuery.trim()) {
     const q = searchQuery.trim().toLowerCase();
     filteredInstances = filteredInstances.filter((i) => i.name.toLowerCase().includes(q));
@@ -159,6 +135,82 @@ export function Sidebar() {
     const isActiveProject = currentProjectId === dirName;
     const isOpen = isSearching || !collapsedDirs.has(dir);
     const gitInfo = groupInstances.find((i) => i.gitInfo)?.gitInfo;
+
+    // Build parent/child ordered list: children appear right after their parent
+    const childIds = new Set<string>();
+    const parentChildren = new Map<string, InstanceInfo[]>();
+    for (const inst of groupInstances) {
+      if (inst.parentSessionId) {
+        const parent = sessionIdMap.get(inst.parentSessionId);
+        if (parent && parent.workingDirectory === inst.workingDirectory) {
+          childIds.add(inst.id);
+          const children = parentChildren.get(parent.id) || [];
+          children.push(inst);
+          parentChildren.set(parent.id, children);
+        }
+      }
+    }
+
+    const ordered: Array<{
+      inst: InstanceInfo;
+      isChild: boolean;
+      parentInst?: InstanceInfo;
+    }> = [];
+    for (const inst of groupInstances) {
+      if (childIds.has(inst.id)) continue;
+      ordered.push({ inst, isChild: false });
+      const children = parentChildren.get(inst.id);
+      if (children) {
+        for (const child of children) {
+          ordered.push({ inst: child, isChild: true, parentInst: inst });
+        }
+      }
+    }
+
+    // Determine visible sessions: all when searching, otherwise active + recent up to MAX
+    let visible = ordered;
+    let hiddenCount = 0;
+    if (!isSearching) {
+      const activeSessions = ordered.filter((o) => o.inst.status !== "stopped");
+      const stoppedSessions = ordered.filter((o) => o.inst.status === "stopped");
+      const slotsForStopped = Math.max(0, MAX_SIDEBAR_SESSIONS - activeSessions.length);
+      const visibleIds = new Set([
+        ...activeSessions.map((o) => o.inst.id),
+        ...stoppedSessions.slice(0, slotsForStopped).map((o) => o.inst.id),
+      ]);
+      if (currentId) visibleIds.add(currentId);
+      visible = ordered.filter((o) => visibleIds.has(o.inst.id));
+      hiddenCount = ordered.length - visible.length;
+    }
+
+    const renderSessionItem = ({
+      inst,
+      isChild,
+      parentInst,
+    }: {
+      inst: InstanceInfo;
+      isChild: boolean;
+      parentInst?: InstanceInfo;
+    }) => (
+      <SidebarItem
+        key={inst.id}
+        instance={inst}
+        isActive={inst.id === currentId}
+        isChild={isChild}
+        parentInstance={parentInst ? { id: parentInst.id, name: parentInst.name } : undefined}
+        to="/projects/$projectId/chats/$chatId"
+        params={{
+          projectId: inst.workingDirectory.split("/").pop() || inst.workingDirectory,
+          chatId: inst.id,
+        }}
+        onDelete={() => handleDelete(inst.id)}
+        deleteDisabled={inst.external === true && inst.status !== "stopped"}
+        onRename={(name) => handleRename(inst.id, name)}
+        onRefreshTitle={() => handleRefreshTitle(inst.id)}
+        onMerge={inst.gitBranch && inst.hasChanges ? () => handleMerge(inst.id) : undefined}
+      />
+    );
+
     return (
       <Collapsible.Root
         key={dir}
@@ -173,9 +225,9 @@ export function Sidebar() {
         }}
       >
         <div className="mb-1.5">
-          {/* Project header */}
+          {/* Project header — collapse toggle */}
           <div className="group flex items-center gap-1.5 px-3 pt-4 pb-1">
-            <Collapsible.Trigger className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-bright/60 transition-colors hover:text-text-bright">
+            <Collapsible.Trigger className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-0.5 text-left transition-colors hover:bg-surface-hover">
               <svg
                 width="12"
                 height="12"
@@ -185,73 +237,54 @@ export function Sidebar() {
                 strokeWidth={3}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className={`transition-transform ${isOpen ? "" : "-rotate-90"}`}
+                className={`shrink-0 text-text-bright/60 transition-transform ${isOpen ? "" : "-rotate-90"}`}
               >
                 <polyline points="6 9 12 15 18 9" />
               </svg>
-            </Collapsible.Trigger>
-            {gitInfo ? (
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="shrink-0 text-text/40"
-                aria-label="Git repository"
-              >
-                <line x1="6" y1="3" x2="6" y2="15" />
-                <circle cx="18" cy="6" r="3" />
-                <circle cx="6" cy="18" r="3" />
-                <path d="M18 9a9 9 0 0 1-9 9" />
-              </svg>
-            ) : (
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="shrink-0 text-text/40"
-                aria-label="Directory"
-              >
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-            )}
-            <Tooltip content={dir} side="bottom">
-              <button
-                onClick={() =>
-                  navigate({
-                    to: "/projects/$projectId",
-                    params: { projectId: dirName },
-                  })
-                }
-                className={`group/project min-w-0 flex-1 truncate rounded-md px-1 py-0.5 text-left text-[0.875rem] font-semibold uppercase tracking-wider transition-colors hover:bg-surface-hover hover:underline ${
-                  isActiveProject ? "text-accent" : "text-text-bright hover:text-text-bright"
-                }`}
-              >
-                {dirName}
+              {gitInfo ? (
                 <svg
-                  width="9"
-                  height="9"
+                  width="13"
+                  height="13"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth={2.5}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="mb-px ml-1 inline shrink-0 opacity-0 transition-opacity group-hover/project:opacity-60"
+                  className="shrink-0 text-text/40"
+                  aria-label="Git repository"
                 >
-                  <polyline points="9 18 15 12 9 6" />
+                  <line x1="6" y1="3" x2="6" y2="15" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M18 9a9 9 0 0 1-9 9" />
                 </svg>
-              </button>
-            </Tooltip>
+              ) : (
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="shrink-0 text-text/40"
+                  aria-label="Directory"
+                >
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+              )}
+              <Tooltip content={dir} side="bottom">
+                <span
+                  className={`min-w-0 flex-1 truncate text-[0.875rem] font-semibold uppercase tracking-wider ${
+                    isActiveProject ? "text-accent" : "text-text-bright"
+                  }`}
+                >
+                  {dirName}
+                </span>
+              </Tooltip>
+            </Collapsible.Trigger>
             {githubLinks[dir] && (
               <Tooltip content="Open on GitHub">
                 <a
@@ -267,114 +300,91 @@ export function Sidebar() {
                 </a>
               </Tooltip>
             )}
-            <Tooltip content={`New instance in ${dirName}`}>
-              <button
-                onClick={() => handleQuickCreate(dir)}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted/50 transition-colors hover:text-accent"
+          </div>
+
+          {/* Content */}
+          <Collapsible.Content>
+            <div className="pl-6 pr-2">
+              {/* Overview link */}
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId: dirName }}
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[0.8125rem] transition-colors ${
+                  isActiveProject && !currentId
+                    ? "bg-accent-dim text-accent"
+                    : "text-muted hover:bg-surface-hover hover:text-text"
+                }`}
               >
                 <svg
-                  width="12"
-                  height="12"
+                  width="14"
+                  height="14"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth={2.5}
+                  strokeWidth={2}
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  className="shrink-0"
                 >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
-              </button>
-            </Tooltip>
-          </div>
+                Overview
+              </Link>
 
-          {/* Instance items */}
-          <Collapsible.Content>
-            {(() => {
-              // Build parent/child ordered list: children appear right after their parent
-              const childIds = new Set<string>();
-              const parentChildren = new Map<string, InstanceInfo[]>();
-              for (const inst of groupInstances) {
-                if (inst.parentSessionId) {
-                  const parent = sessionIdMap.get(inst.parentSessionId);
-                  if (parent && parent.workingDirectory === inst.workingDirectory) {
-                    childIds.add(inst.id);
-                    const children = parentChildren.get(parent.id) || [];
-                    children.push(inst);
-                    parentChildren.set(parent.id, children);
-                  }
-                }
-              }
-
-              const ordered: Array<{
-                inst: InstanceInfo;
-                isChild: boolean;
-                parentInst?: InstanceInfo;
-              }> = [];
-              for (const inst of groupInstances) {
-                if (childIds.has(inst.id)) continue;
-                ordered.push({ inst, isChild: false });
-                const children = parentChildren.get(inst.id);
-                if (children) {
-                  for (const child of children) {
-                    ordered.push({ inst: child, isChild: true, parentInst: inst });
-                  }
-                }
-              }
-
-              const isExpanded = expandedDirs.has(dir);
-              const activeIndex = ordered.findIndex((o) => o.inst.id === currentId);
-              const needsExpand = activeIndex >= INITIAL_SHOW_COUNT;
-              const shouldShowAll =
-                isExpanded || needsExpand || ordered.length <= INITIAL_SHOW_COUNT;
-              const visible = shouldShowAll ? ordered : ordered.slice(0, INITIAL_SHOW_COUNT);
-              const hiddenCount = ordered.length - visible.length;
-              return (
-                <div className="px-2 pl-6">
-                  {visible.map(({ inst, isChild, parentInst }) => (
-                    <SidebarItem
-                      key={inst.id}
-                      instance={inst}
-                      isActive={inst.id === currentId}
-                      isChild={isChild}
-                      parentInstance={
-                        parentInst ? { id: parentInst.id, name: parentInst.name } : undefined
-                      }
-                      onClick={() => {
-                        const projectId =
-                          inst.workingDirectory.split("/").pop() || inst.workingDirectory;
-                        navigate({
-                          to: "/projects/$projectId/chats/$chatId",
-                          params: { projectId, chatId: inst.id },
-                        });
-                      }}
-                      onDelete={() => handleDelete(inst.id)}
-                      deleteDisabled={inst.external === true && inst.status !== "stopped"}
-                      onRename={(name) => handleRename(inst.id, name)}
-                      onRefreshTitle={() => handleRefreshTitle(inst.id)}
-                      onMerge={
-                        inst.gitBranch && inst.hasChanges ? () => handleMerge(inst.id) : undefined
-                      }
-                    />
-                  ))}
-                  {hiddenCount > 0 && (
-                    <button
-                      onClick={() =>
-                        setExpandedDirs((prev) => {
-                          const next = new Set(prev);
-                          next.add(dir);
-                          return next;
-                        })
-                      }
-                      className="w-full rounded-md px-2 py-1.5 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              {/* Sessions section */}
+              <div className="mt-1.5 flex items-center gap-1.5 px-3 py-1">
+                <span className="flex-1 text-[0.6875rem] font-medium uppercase tracking-wider text-muted/70">
+                  Sessions
+                </span>
+                <Tooltip content={`New instance in ${dirName}`}>
+                  <button
+                    onClick={() => handleQuickCreate(dir)}
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted/50 transition-colors hover:text-accent"
+                  >
+                    <svg
+                      width="11"
+                      height="11"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
-                      Show all ({groupInstances.length})
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                  </button>
+                </Tooltip>
+              </div>
+
+              {/* Session items */}
+              {visible.map(renderSessionItem)}
+
+              {/* Show all link */}
+              {hiddenCount > 0 && (
+                <Link
+                  to="/projects/$projectId/chats"
+                  params={{ projectId: dirName }}
+                  className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+                >
+                  Show all ({ordered.length})
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </Link>
+              )}
+            </div>
           </Collapsible.Content>
         </div>
       </Collapsible.Root>
@@ -387,15 +397,15 @@ export function Sidebar() {
     <aside className="flex h-full w-full flex-col border-r border-border bg-surface">
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between px-5 py-4">
-        <button
-          onClick={() => navigate({ to: "/" })}
+        <Link
+          to="/"
           className="flex items-center gap-2.5 rounded-md transition-opacity hover:opacity-80"
         >
           <RelayLogo size={44} connected={isConnected} />
           <span className="text-[0.9375rem] font-semibold tracking-tight text-text-bright">
             Claude Relay
           </span>
-        </button>
+        </Link>
         <div className="flex items-center gap-1">
           <Popover.Root open={showForm} onOpenChange={setShowForm}>
             <Tooltip content="New instance">
@@ -441,10 +451,10 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Search + Active/All filter */}
+      {/* Search */}
       {instances.length > 0 && (
-        <div className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <div className="relative flex-1">
+        <div className="shrink-0 px-3 pb-2">
+          <div className="relative">
             <svg
               width="13"
               height="13"
@@ -487,10 +497,6 @@ export function Sidebar() {
               </button>
             )}
           </div>
-          <label className="flex shrink-0 cursor-pointer items-center gap-1.5">
-            <Switch checked={!activeOnly} onCheckedChange={toggleActiveOnly} />
-            <span className="text-[0.6875rem] text-muted">Show all</span>
-          </label>
         </div>
       )}
 
@@ -503,24 +509,13 @@ export function Sidebar() {
           </div>
         ) : !hasResults ? (
           <div className="flex flex-col items-center justify-center p-10 text-center">
-            <p className="mb-1 text-xs text-muted">
-              {isSearching
-                ? "No matching instances"
-                : activeOnly
-                  ? "No active instances"
-                  : "No instances"}
-            </p>
-            {(isSearching || activeOnly) && (
-              <button
-                onClick={() => {
-                  setSearchQuery("");
-                  setActiveOnly(false);
-                }}
-                className="text-xs text-accent hover:underline"
-              >
-                Clear filters
-              </button>
-            )}
+            <p className="mb-1 text-xs text-muted">No matching instances</p>
+            <button
+              onClick={() => setSearchQuery("")}
+              className="text-xs text-accent hover:underline"
+            >
+              Clear search
+            </button>
           </div>
         ) : (
           <>

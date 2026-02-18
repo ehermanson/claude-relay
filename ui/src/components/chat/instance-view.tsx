@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "@tanstack/react-router";
+import { useParams, useNavigate, Link } from "@tanstack/react-router";
 import { Group, Panel } from "react-resizable-panels";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useInstanceMessages } from "../../hooks/use-instance-messages";
@@ -301,10 +301,12 @@ export function InstanceView() {
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-3">
         <Tooltip content="Back">
-          <Button
-            variant="icon"
-            onClick={() => navigate({ to: "/" })}
-            className="hidden max-[768px]:flex"
+          <Link
+            to="/projects/$projectId/chats"
+            params={{
+              projectId: instance.workingDirectory.split("/").pop() || "",
+            }}
+            className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
           >
             <svg
               width="16"
@@ -318,13 +320,19 @@ export function InstanceView() {
             >
               <polyline points="15 18 9 12 15 6" />
             </svg>
-          </Button>
+          </Link>
         </Tooltip>
         <div className="min-w-0 flex-1">
           <Tooltip content={instance.workingDirectory} side="bottom">
-            <p className="hidden truncate text-[0.6875rem] text-muted sm:block">
+            <Link
+              to="/projects/$projectId/chats"
+              params={{
+                projectId: instance.workingDirectory.split("/").pop() || instance.workingDirectory,
+              }}
+              className="hidden truncate text-[0.6875rem] text-muted transition-colors hover:text-accent sm:block"
+            >
               {instance.workingDirectory.split("/").pop() || instance.workingDirectory}
-            </p>
+            </Link>
           </Tooltip>
           <h1 className="truncate text-[0.9375rem] font-semibold tracking-tight text-text-bright">
             {instance.name}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "@tanstack/react-router";
+import { useParams, Link } from "@tanstack/react-router";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import { useMediaQuery } from "../hooks/use-media-query";
 import { Tabs } from "../components/ui/tabs";
@@ -10,11 +10,11 @@ import { fetchProjectArtifacts } from "../lib/api";
 import { formatTokens, formatCost } from "../lib/utils";
 import type { ProjectArtifacts, ProjectPlan, McpServerConfig } from "@shared/types";
 
-function BackButton({ onClick }: { onClick: () => void }) {
+function BackButton({ to }: { to: string }) {
   return (
     <Tooltip content="Back">
-      <button
-        onClick={onClick}
+      <Link
+        to={to}
         className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
       >
         <svg
@@ -29,7 +29,7 @@ function BackButton({ onClick }: { onClick: () => void }) {
         >
           <polyline points="15 18 9 12 15 6" />
         </svg>
-      </button>
+      </Link>
     </Tooltip>
   );
 }
@@ -193,7 +193,6 @@ function McpServerCard({ name, config }: { name: string; config: McpServerConfig
 
 export function ProjectPage() {
   const { projectId } = useParams({ strict: false }) as { projectId: string };
-  const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 768px)");
 
   const [artifacts, setArtifacts] = useState<ProjectArtifacts | null>(null);
@@ -286,7 +285,7 @@ export function ProjectPage() {
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-3">
-        {isMobile && <BackButton onClick={() => navigate({ to: "/" })} />}
+        {isMobile && <BackButton to="/" />}
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[0.9375rem] font-semibold tracking-tight text-text-bright">
             {dirName}
@@ -294,6 +293,27 @@ export function ProjectPage() {
           <p className="truncate text-xs text-muted">{artifacts.directory}</p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          <Tooltip content="All sessions">
+            <Link
+              to="/projects/$projectId/chats"
+              params={{ projectId }}
+              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              <span className="text-xs font-medium">Sessions</span>
+            </Link>
+          </Tooltip>
           {artifacts.githubUrl && (
             <Tooltip content="Open on GitHub">
               <a
