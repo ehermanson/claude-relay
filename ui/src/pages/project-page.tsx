@@ -286,7 +286,7 @@ export function ProjectPage() {
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-3">
-        {isMobile && <BackButton onClick={() => navigate({ to: "/chat" })} />}
+        {isMobile && <BackButton onClick={() => navigate({ to: "/" })} />}
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[0.9375rem] font-semibold tracking-tight text-text-bright">
             {dirName}

@@ -24,11 +24,16 @@ export function useTerminalPendingToasts(currentId?: string) {
       // Pending tool approval (any instance type)
       if (inst.pendingTool && !prev?.pendingTool) {
         const instanceId = inst.id;
+        const projectId = inst.workingDirectory.split("/").pop() || inst.workingDirectory;
         toast.warning(inst.name, {
           description: `Waiting for approval to use ${inst.pendingTool}`,
           action: {
             label: "View",
-            onClick: () => navigate({ to: "/chat/$id", params: { id: instanceId } }),
+            onClick: () =>
+              navigate({
+                to: "/projects/$projectId/chats/$chatId",
+                params: { projectId, chatId: instanceId },
+              }),
           },
         });
       }

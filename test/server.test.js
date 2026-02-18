@@ -96,13 +96,14 @@ describe("HTTP Server", () => {
       assert.equal(res.body.authenticated, false);
     });
 
-    it("redirects to /chat when authenticated", async () => {
+    it("returns JSON status when authenticated (serveUI=false)", async () => {
       const session = auth.createSession();
       const res = await request(server, "GET", "/", {
         headers: { Cookie: `session=${session.id}` },
       });
-      assert.equal(res.status, 302);
-      assert.equal(res.headers.location, "/chat");
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, "ok");
+      assert.equal(res.body.authenticated, true);
     });
   });
 

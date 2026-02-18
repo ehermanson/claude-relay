@@ -137,8 +137,14 @@ export function useWebSocket() {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (staleTimerRef.current) clearInterval(staleTimerRef.current);
+
+      // Server rejected us as unauthorized — redirect to login
+      if (event.code === 4001) {
+        window.location.href = "/login";
+        return;
+      }
 
       // Delay the visual disconnected state so brief restarts don't flash
       if (!graceRef.current) {

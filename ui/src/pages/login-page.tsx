@@ -36,7 +36,7 @@ export function LoginPage() {
     try {
       const result = await login(password);
       if (result.success) {
-        navigate({ to: "/chat", replace: true });
+        navigate({ to: "/", replace: true });
       } else {
         setError(result.error || "Authentication failed");
         inputRef.current?.focus();

@@ -139,7 +139,12 @@ export function SidebarItem({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                navigate({ to: "/chat/$id", params: { id: parentInstance.id } });
+                const projectId =
+                  instance.workingDirectory.split("/").pop() || instance.workingDirectory;
+                navigate({
+                  to: "/projects/$projectId/chats/$chatId",
+                  params: { projectId, chatId: parentInstance.id },
+                });
               }}
               className="mt-0.5 max-w-full truncate text-[0.6875rem] leading-tight text-muted transition-colors hover:text-accent"
             >

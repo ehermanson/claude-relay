@@ -613,17 +613,13 @@ export function createRequestHandler(
           return;
         }
 
-        // GET / — redirect authenticated users to /chat, serve login for others
+        // GET / — serve login for unauthenticated users, dashboard for others
         if (pathname === "/") {
-          if (isAuthenticated) {
-            redirect(res, "/chat");
-          } else {
-            serveIndex(res);
-          }
+          serveIndex(res);
           return;
         }
 
-        // SPA fallback: /login, /chat, /chat/:id all serve index.html
+        // SPA fallback: /login, /projects/:id, /projects/:id/chats/:id all serve index.html
         // React Router handles which page renders
         serveIndex(res);
         return;
@@ -632,14 +628,14 @@ export function createRequestHandler(
       // Non-UI mode fallbacks
       if (method === "GET" && (pathname === "/" || pathname === "/login")) {
         if (isAuthenticated) {
-          redirect(res, "/chat");
+          sendJson(res, 200, { status: "ok", authenticated: true });
         } else {
           sendJson(res, 200, { status: "ok", authenticated: false });
         }
         return;
       }
 
-      if (method === "GET" && pathname.startsWith("/chat")) {
+      if (method === "GET" && pathname.startsWith("/projects")) {
         if (!isAuthenticated) {
           redirect(res, "/login");
         } else {

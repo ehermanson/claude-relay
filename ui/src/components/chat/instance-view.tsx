@@ -74,7 +74,7 @@ function DebugModal({
 }
 
 export function InstanceView() {
-  const { id } = useParams({ strict: false }) as { id?: string };
+  const { chatId: id } = useParams({ strict: false }) as { chatId?: string };
   const navigate = useNavigate();
   const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
   const { isConnected, connectionId, instances } = useWSState();
@@ -121,7 +121,7 @@ export function InstanceView() {
   // Navigate away if instance doesn't exist
   useEffect(() => {
     if (isConnected && instances.length > 0 && id && !instance) {
-      navigate({ to: "/chat", replace: true });
+      navigate({ to: "/", replace: true });
     }
   }, [isConnected, instances, id, instance, navigate]);
 
@@ -303,7 +303,7 @@ export function InstanceView() {
         <Tooltip content="Back">
           <Button
             variant="icon"
-            onClick={() => navigate({ to: "/chat" })}
+            onClick={() => navigate({ to: "/" })}
             className="hidden max-[768px]:flex"
           >
             <svg

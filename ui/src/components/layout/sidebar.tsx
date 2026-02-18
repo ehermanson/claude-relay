@@ -21,8 +21,8 @@ export function Sidebar() {
   const { isConnected, instances } = useWSState();
   const { logout } = useAuthContext();
   const navigate = useNavigate();
-  const { id: currentId, projectId: currentProjectId } = useParams({ strict: false }) as {
-    id?: string;
+  const { chatId: currentId, projectId: currentProjectId } = useParams({ strict: false }) as {
+    chatId?: string;
     projectId?: string;
   };
   const [showForm, setShowForm] = useState(false);
@@ -68,7 +68,11 @@ export function Sidebar() {
       for (const inst of instances) {
         if (!prevInstanceIds.current.has(inst.id) && !inst.external) {
           pendingCreate.current = false;
-          navigate({ to: "/chat/$id", params: { id: inst.id } });
+          const projectId = inst.workingDirectory.split("/").pop() || inst.workingDirectory;
+          navigate({
+            to: "/projects/$projectId/chats/$chatId",
+            params: { projectId, chatId: inst.id },
+          });
           break;
         }
       }
@@ -337,7 +341,14 @@ export function Sidebar() {
                       parentInstance={
                         parentInst ? { id: parentInst.id, name: parentInst.name } : undefined
                       }
-                      onClick={() => navigate({ to: "/chat/$id", params: { id: inst.id } })}
+                      onClick={() => {
+                        const projectId =
+                          inst.workingDirectory.split("/").pop() || inst.workingDirectory;
+                        navigate({
+                          to: "/projects/$projectId/chats/$chatId",
+                          params: { projectId, chatId: inst.id },
+                        });
+                      }}
                       onDelete={() => handleDelete(inst.id)}
                       deleteDisabled={inst.external === true && inst.status !== "stopped"}
                       onRename={(name) => handleRename(inst.id, name)}
@@ -377,7 +388,7 @@ export function Sidebar() {
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between px-5 py-4">
         <button
-          onClick={() => navigate({ to: "/chat" })}
+          onClick={() => navigate({ to: "/" })}
           className="flex items-center gap-2.5 rounded-md transition-opacity hover:opacity-80"
         >
           <RelayLogo size={44} connected={isConnected} />

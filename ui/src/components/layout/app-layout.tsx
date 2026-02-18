@@ -7,12 +7,15 @@ import { useMediaQuery } from "../../hooks/use-media-query";
 import { useTheme } from "../../context/theme-context";
 
 export function AppLayout() {
-  const { id, projectId } = useParams({ strict: false }) as { id?: string; projectId?: string };
+  const { chatId, projectId } = useParams({ strict: false }) as {
+    chatId?: string;
+    projectId?: string;
+  };
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { theme } = useTheme();
 
-  // On mobile: show sidebar only when on /chat with no instance selected
-  const hasContent = !!id || !!projectId;
+  // On mobile: show sidebar only when on / with no instance selected
+  const hasContent = !!chatId || !!projectId;
   const showSidebar = !isMobile || !hasContent;
   const showMain = !isMobile || hasContent;
 
