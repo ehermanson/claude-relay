@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, useParams, Link } from "@tanstack/react-router";
+import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
 import { SidebarItem } from "./sidebar-item";
@@ -25,6 +25,7 @@ export function Sidebar() {
     chatId?: string;
     projectId?: string;
   };
+  const location = useLocation();
   const [showForm, setShowForm] = useState(false);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
   const prevInstanceIds = useRef(new Set<string>());
@@ -133,6 +134,9 @@ export function Sidebar() {
   const renderGroup = (dir: string, groupInstances: InstanceInfo[]) => {
     const dirName = dir.split("/").pop() || dir;
     const isActiveProject = currentProjectId === dirName;
+    const isPlansActive = isActiveProject && location.pathname.includes("/plans");
+    const isChatsActive = isActiveProject && location.pathname.includes("/chats") && !currentId;
+    const isOverviewActive = isActiveProject && !currentId && !isPlansActive && !isChatsActive;
     const isOpen = isSearching || !collapsedDirs.has(dir);
     const gitInfo = groupInstances.find((i) => i.gitInfo)?.gitInfo;
 
@@ -310,7 +314,7 @@ export function Sidebar() {
                 to="/projects/$projectId"
                 params={{ projectId: dirName }}
                 className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[0.8125rem] transition-colors ${
-                  isActiveProject && !currentId
+                  isOverviewActive
                     ? "bg-accent-dim text-accent"
                     : "text-muted hover:bg-surface-hover hover:text-text"
                 }`}
@@ -330,6 +334,33 @@ export function Sidebar() {
                   <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
                 Overview
+              </Link>
+
+              {/* Plans link */}
+              <Link
+                to="/projects/$projectId/plans"
+                params={{ projectId: dirName }}
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[0.8125rem] transition-colors ${
+                  isPlansActive
+                    ? "bg-accent-dim text-accent"
+                    : "text-muted hover:bg-surface-hover hover:text-text"
+                }`}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="shrink-0"
+                >
+                  <path d="M9 11l3 3L22 4" />
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                </svg>
+                Plans
               </Link>
 
               {/* Sessions section */}

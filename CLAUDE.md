@@ -69,9 +69,9 @@ test/
   fixtures/                  JSONL session fixtures for history-parsing tests
 ui/
   src/
-    context/                 auth-context, websocket-context, theme-context
+    context/                 auth-context, websocket-context, theme-context, project-context
     hooks/                   use-auth, use-web-socket, use-instance-messages, use-auto-scroll, use-directory-browser, use-media-query, use-terminal-pending-toasts
-    pages/                   chat-page, login-page, project-page
+    pages/                   chat-page, login-page, project-page, plans-page, plan-page
     components/chat/         instance-view, message-list, claude-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
     components/ui/           resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react)
     components/layout/       app-layout, sidebar, sidebar-item
@@ -217,15 +217,22 @@ ui/
   - WS message: `{ type: "merge_instance", instanceId }`
   - REST: `POST /api/instances/:id/merge` → `{ success: true, targetBranch }` or `{ error: "..." }`
 
-### Project Landing Page
+### Project Navigation
 
-- Route: `/projects/$projectId` — `projectId` can be a basename slug (e.g., `claude-relay`) or full encoded path
+- **Layout route**: `routes/_app/projects/$projectId.tsx` wraps all `$projectId/*` children with shared header + sub-nav
+- **Sub-nav tabs**: Overview | Plans (count) | Sessions (count · active) — pill-style with underline active indicator
+- **Conditional rendering**: When `chatId` or `planSlug` params exist, layout skips header + sub-nav and just renders `<Outlet />`
+- **ProjectContext**: Layout fetches `fetchProjectArtifacts(projectId)` once, provides via `ProjectContext` to all children
+- **Routes**:
+  - `/projects/$projectId/` → Overview (docs + integrations, no plans)
+  - `/projects/$projectId/plans` → Plans list page
+  - `/projects/$projectId/plans/$planSlug` → Plan detail (own header with back button to plans list)
+  - `/projects/$projectId/chats` → Sessions list
+  - `/projects/$projectId/chats/$chatId` → Chat view (own header)
 - `resolveProjectId(slug)` resolves basenames by scanning `~/.claude/projects/` for dirs ending with `-{slug}`
 - `getProjectArtifacts(projectId)` aggregates memory, CLAUDE.md, README.md, and plans for a project
-- **Docs**: All available shown with tabs (Memory → CLAUDE.md → README.md priority order); single doc renders without tabs
 - **Plans**: Slugs extracted from JSONL first 4KB → matched to `~/.claude/plans/{slug}.md` → content + title from first `# ` heading
-- Sidebar directory headers are clickable links using the directory basename as the URL slug
-- UI: Two-column layout — instructions on left, Plans on right; stacks on mobile
+- **Sidebar**: Overview, Plans, and Sessions links per project group; Plans link highlighted when on any `/plans` route
 - `createInstance({ resumeSessionId })` available in backend for future use — creates ClaudeProcess with `--resume <id>`
 
 ### `.claude.json` Integration

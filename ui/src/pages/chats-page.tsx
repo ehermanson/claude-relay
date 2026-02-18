@@ -7,30 +7,6 @@ import { Badge } from "../components/ui/badge";
 import { formatTimeAgo, formatTokens, formatCost, formatModel } from "../lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
-function BackButton({ to }: { to: string }) {
-  return (
-    <Tooltip content="Back">
-      <Link
-        to={to}
-        className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="15 18 9 12 15 6" />
-        </svg>
-      </Link>
-    </Tooltip>
-  );
-}
-
 function StatusDot({ instance }: { instance: InstanceInfo }) {
   const hasPendingTool = !!instance.pendingTool;
   return (
@@ -193,70 +169,30 @@ export function ChatsPage() {
     return map;
   }, [projectInstances, instances]);
 
-  // Aggregate stats
-  const stats = useMemo(() => {
-    let totalCost = 0;
-    let activeCount = 0;
-    for (const inst of projectInstances) {
-      if (inst.stats?.costUSD) totalCost += inst.stats.costUSD;
-      if (inst.status === "idle" || inst.status === "processing") activeCount++;
-    }
-    return { totalCost, activeCount, total: projectInstances.length };
-  }, [projectInstances]);
-
-  const dirPath = projectInstances[0]?.workingDirectory || "";
-
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-3">
-        {isMobile && <BackButton to={`/projects/${projectId}`} />}
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[0.9375rem] font-semibold tracking-tight text-text-bright">
-            {projectId}
-            <span className="ml-2 font-normal text-muted">— Sessions</span>
-          </h1>
-          {dirPath && <p className="truncate text-xs text-muted">{dirPath}</p>}
+    <div className="flex-1 overflow-y-auto">
+      {projectInstances.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <p className="mb-1 text-sm text-muted">No sessions found</p>
+          <span className="text-xs text-muted opacity-60">
+            Sessions for this project will appear here
+          </span>
         </div>
-        <div className="shrink-0 text-right text-[0.6875rem] text-muted">
-          <div>
-            {stats.total} session{stats.total !== 1 ? "s" : ""}
-            {stats.activeCount > 0 && (
-              <>
-                {" · "}
-                <span className="text-accent">{stats.activeCount} active</span>
-              </>
-            )}
+      ) : (
+        <div className="mx-auto px-6 py-4">
+          <div className="flex flex-col gap-2">
+            {projectInstances.map((inst) => (
+              <SessionCard
+                key={inst.id}
+                instance={inst}
+                projectId={projectId}
+                parentName={parentNames.get(inst.id)}
+                isMobile={isMobile}
+              />
+            ))}
           </div>
-          {stats.totalCost > 0 && <div>~{formatCost(stats.totalCost)}</div>}
         </div>
-      </div>
-
-      {/* Session list */}
-      <div className="flex-1 overflow-y-auto">
-        {projectInstances.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <p className="mb-1 text-sm text-muted">No sessions found</p>
-            <span className="text-xs text-muted opacity-60">
-              Sessions for this project will appear here
-            </span>
-          </div>
-        ) : (
-          <div className="mx-auto max-w-4xl px-6 py-4">
-            <div className="flex flex-col gap-2">
-              {projectInstances.map((inst) => (
-                <SessionCard
-                  key={inst.id}
-                  instance={inst}
-                  projectId={projectId}
-                  parentName={parentNames.get(inst.id)}
-                  isMobile={isMobile}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

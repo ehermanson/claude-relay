@@ -1,10 +1,8 @@
-import { useState, useEffect } from "react";
 import { useParams, Link } from "@tanstack/react-router";
+import { useProjectContext } from "../context/project-context";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import { Spinner } from "../components/ui/spinner";
 import { Tooltip } from "../components/ui/tooltip";
-import { fetchProjectArtifacts } from "../lib/api";
-import type { ProjectArtifacts } from "@shared/types";
 
 function formatDate(epoch: number): string {
   if (!epoch) return "";
@@ -22,19 +20,7 @@ export function PlanPage() {
     planSlug: string;
   };
 
-  const [artifacts, setArtifacts] = useState<ProjectArtifacts | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!projectId) return;
-    setLoading(true);
-    setError(null);
-    fetchProjectArtifacts(projectId)
-      .then(setArtifacts)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [projectId]);
+  const { artifacts, loading, error } = useProjectContext();
 
   if (loading) {
     return (
@@ -61,11 +47,11 @@ export function PlanPage() {
       <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
         <p className="mb-1 text-sm font-medium text-text">Plan not found</p>
         <Link
-          to="/projects/$projectId"
+          to="/projects/$projectId/plans"
           params={{ projectId }}
           className="text-xs text-accent hover:underline"
         >
-          Back to project
+          Back to plans
         </Link>
       </div>
     );
@@ -74,9 +60,9 @@ export function PlanPage() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-3">
-        <Tooltip content={`Back to ${dirName}`}>
+        <Tooltip content={`Back to ${dirName} plans`}>
           <Link
-            to="/projects/$projectId"
+            to="/projects/$projectId/plans"
             params={{ projectId }}
             className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
