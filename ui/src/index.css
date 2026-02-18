@@ -36,8 +36,8 @@
   --color-panel-header: rgba(0, 0, 0, 0.25);
   --color-panel-content: rgba(0, 0, 0, 0.15);
   --color-panel-options: rgba(0, 0, 0, 0.08);
-  --color-diff-remove-bg: rgba(248, 113, 113, 0.06);
-  --color-diff-add-bg: rgba(16, 185, 129, 0.06);
+  --color-diff-remove-bg: rgba(248, 113, 113, 0.1);
+  --color-diff-add-bg: rgba(16, 185, 129, 0.1);
   --color-code-bg: rgba(0, 0, 0, 0.35);
   --color-pre-bg: #0c0c0f;
   --color-blockquote-bg: rgba(167, 139, 250, 0.04);
@@ -143,8 +143,8 @@ html.light {
   --color-panel-header: rgba(0, 0, 0, 0.03);
   --color-panel-content: rgba(0, 0, 0, 0.02);
   --color-panel-options: rgba(0, 0, 0, 0.015);
-  --color-diff-remove-bg: rgba(220, 38, 38, 0.05);
-  --color-diff-add-bg: rgba(5, 150, 105, 0.05);
+  --color-diff-remove-bg: rgba(220, 38, 38, 0.08);
+  --color-diff-add-bg: rgba(5, 150, 105, 0.08);
   --color-code-bg: rgba(0, 0, 0, 0.04);
   --color-pre-bg: #f6f8fa;
   --color-blockquote-bg: rgba(124, 58, 237, 0.03);

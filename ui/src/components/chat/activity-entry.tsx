@@ -14,11 +14,35 @@ const EXT_TO_LANG: Record<string, string> = {
   py: "python",
   sh: "bash",
   bash: "bash",
+  zsh: "bash",
   json: "json",
   css: "css",
   html: "html",
   xml: "xml",
   svg: "xml",
+  swift: "swift",
+  go: "go",
+  rs: "rust",
+  rb: "ruby",
+  java: "java",
+  kt: "kotlin",
+  kts: "kotlin",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  cc: "cpp",
+  cxx: "cpp",
+  hpp: "cpp",
+  yaml: "yaml",
+  yml: "yaml",
+  sql: "sql",
+  md: "markdown",
+  mdx: "markdown",
+  php: "php",
+  toml: "ini",
+  ini: "ini",
+  diff: "diff",
+  patch: "diff",
 };
 
 function langFromPath(filePath?: string): string | undefined {
@@ -155,22 +179,22 @@ function DiffView({
           {filePath}
         </div>
       )}
-      <div className="overflow-x-auto">
+      <div className="hljs overflow-x-auto bg-transparent">
         {oldLines.map((line, i) => (
           <div
             key={`old-${i}`}
-            className="whitespace-pre bg-diff-remove-bg px-3 py-px font-mono text-[0.75rem] text-error"
+            className="whitespace-pre bg-diff-remove-bg px-3 py-px font-mono text-[0.75rem]"
           >
-            <span className="mr-2 inline-block w-3 select-none opacity-50">-</span>
+            <span className="mr-2 inline-block w-3 select-none text-error/70">-</span>
             <span dangerouslySetInnerHTML={{ __html: line || " " }} />
           </div>
         ))}
         {newLines.map((line, i) => (
           <div
             key={`new-${i}`}
-            className="whitespace-pre bg-diff-add-bg px-3 py-px font-mono text-[0.75rem] text-accent"
+            className="whitespace-pre bg-diff-add-bg px-3 py-px font-mono text-[0.75rem]"
           >
-            <span className="mr-2 inline-block w-3 select-none opacity-50">+</span>
+            <span className="mr-2 inline-block w-3 select-none text-accent/70">+</span>
             <span dangerouslySetInnerHTML={{ __html: line || " " }} />
           </div>
         ))}
