@@ -6,6 +6,8 @@ Claude Relay also automatically discovers other Claude Code sessions running on 
 
 > **Fair warning:** This project is held together with duct tape and optimism. It relies on Claude Code's undocumented JSONL transcript format, its `stream-json` output mode, the layout of `~/.claude/`, and various CLI flags that could change without notice. Any Claude Code update could break things in spectacular and unexpected ways. There is no stable API contract here — just a guy reading JSONL files and hoping for the best. If it works today, celebrate. If it breaks tomorrow, that's expected.
 
+![Claude Relay](claude-relay.png)
+
 ## How It Works
 
 ```
