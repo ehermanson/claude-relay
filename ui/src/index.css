@@ -44,7 +44,9 @@
   --color-table-header-bg: rgba(0, 0, 0, 0.25);
   --color-hover-highlight: rgba(255, 255, 255, 0.03);
 
-  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans:
+    "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", Monaco, Consolas, monospace;
 
   --animate-pulse-dot: pulse-dot 1.5s ease-in-out infinite;
@@ -373,6 +375,8 @@ body {
   font-size: 0.8125rem;
   line-height: 1.65;
   color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .markdown-content blockquote {
