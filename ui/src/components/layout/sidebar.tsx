@@ -11,7 +11,7 @@ import { Collapsible } from "../ui/collapsible";
 import { Tooltip } from "../ui/tooltip";
 
 import { NewInstanceForm } from "../forms/new-instance-form";
-import { fetchGitHubLinks } from "../../lib/api";
+import { fetchGitHubLinks, fetchBeadsProjects } from "../../lib/api";
 import type { InstanceInfo } from "@shared/types";
 
 const MAX_SIDEBAR_SESSIONS = 10;
@@ -36,6 +36,14 @@ export function Sidebar() {
   useEffect(() => {
     fetchGitHubLinks()
       .then(setGithubLinks)
+      .catch(() => {});
+  }, []);
+
+  // Beads directories
+  const [beadsDirs, setBeadsDirs] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    fetchBeadsProjects()
+      .then((dirs) => setBeadsDirs(new Set(dirs)))
       .catch(() => {});
   }, []);
 
@@ -135,8 +143,10 @@ export function Sidebar() {
     const dirName = dir.split("/").pop() || dir;
     const isActiveProject = currentProjectId === dirName;
     const isPlansActive = isActiveProject && location.pathname.includes("/plans");
+    const isIssuesActive = isActiveProject && location.pathname.includes("/issues");
     const isChatsActive = isActiveProject && location.pathname.includes("/chats") && !currentId;
-    const isOverviewActive = isActiveProject && !currentId && !isPlansActive && !isChatsActive;
+    const isOverviewActive =
+      isActiveProject && !currentId && !isPlansActive && !isIssuesActive && !isChatsActive;
     const isOpen = isSearching || !collapsedDirs.has(dir);
     const gitInfo = groupInstances.find((i) => i.gitInfo)?.gitInfo;
 
@@ -362,6 +372,36 @@ export function Sidebar() {
                 </svg>
                 Plans
               </Link>
+
+              {/* Issues link (beads) */}
+              {beadsDirs.has(dir) && (
+                <Link
+                  to="/projects/$projectId/issues"
+                  params={{ projectId: dirName }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[0.8125rem] transition-colors ${
+                    isIssuesActive
+                      ? "bg-accent-dim text-accent"
+                      : "text-muted hover:bg-surface-hover hover:text-text"
+                  }`}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="shrink-0"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  Issues
+                </Link>
+              )}
 
               {/* Sessions section */}
               <div className="mt-1.5 flex items-center gap-1.5 px-3 py-1">

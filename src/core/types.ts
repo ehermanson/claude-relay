@@ -342,6 +342,28 @@ export interface McpServerConfig {
   args?: string[];
 }
 
+export interface BeadIssueDep {
+  id: string;
+  title: string;
+  status: string;
+}
+
+export interface BeadIssue {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: number;
+  issue_type: string;
+  owner: string;
+  created_at: string;
+  updated_at: string;
+  dependency_count: number;
+  dependent_count: number;
+  dependencies?: BeadIssueDep[];
+  dependents?: BeadIssueDep[];
+}
+
 export interface ProjectArtifacts {
   projectId: string;
   directory: string;
@@ -357,4 +379,6 @@ export interface ProjectArtifacts {
   githubUrl: string | null;
   /** MCP server configurations for this project (from ~/.claude.json) */
   mcpServers: Record<string, McpServerConfig> | null;
+  /** Open issues from beads (bd) issue tracker, if present in the project */
+  beadsIssues: BeadIssue[] | null;
 }

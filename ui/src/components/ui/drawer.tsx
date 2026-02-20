@@ -1,0 +1,93 @@
+import { DrawerPreview as BaseDrawer } from "@base-ui/react/drawer";
+import type { ReactNode } from "react";
+
+interface DrawerProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}
+
+function DrawerRoot({ open, onOpenChange, children }: DrawerProps) {
+  return (
+    <BaseDrawer.Root open={open} onOpenChange={onOpenChange} swipeDirection="right">
+      {children}
+    </BaseDrawer.Root>
+  );
+}
+
+interface DrawerContentProps {
+  children: ReactNode;
+  className?: string;
+  /** Width class. Default: "w-[420px] max-w-[85vw]" */
+  width?: string;
+}
+
+function DrawerContent({
+  children,
+  className = "",
+  width = "w-[420px] max-w-[85vw]",
+}: DrawerContentProps) {
+  return (
+    <BaseDrawer.Portal>
+      <BaseDrawer.Backdrop className="fixed inset-0 z-[9998] bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+      <BaseDrawer.Popup
+        className={`fixed inset-y-0 right-0 z-[9999] flex ${width} flex-col border-l border-border bg-surface shadow-2xl transition-transform duration-200 ease-out data-[ending-style]:translate-x-full data-[starting-style]:translate-x-full ${className}`}
+      >
+        {children}
+      </BaseDrawer.Popup>
+    </BaseDrawer.Portal>
+  );
+}
+
+function DrawerHeader({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={`flex items-center justify-between border-b border-border px-5 py-4 ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DrawerTitle({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <BaseDrawer.Title className={`text-[0.9375rem] font-semibold text-text-bright ${className}`}>
+      {children}
+    </BaseDrawer.Title>
+  );
+}
+
+function DrawerClose({ className = "" }: { className?: string }) {
+  return (
+    <BaseDrawer.Close
+      className={`flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text ${className}`}
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </BaseDrawer.Close>
+  );
+}
+
+function DrawerBody({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`flex-1 overflow-y-auto ${className}`}>{children}</div>;
+}
+
+export const Drawer = {
+  Root: DrawerRoot,
+  Content: DrawerContent,
+  Header: DrawerHeader,
+  Title: DrawerTitle,
+  Close: DrawerClose,
+  Body: DrawerBody,
+};

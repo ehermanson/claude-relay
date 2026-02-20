@@ -45,6 +45,7 @@ import type {
   ProjectArtifacts,
   ProjectPlan,
   McpServerConfig,
+  BeadIssue,
 } from "./types.js";
 import {
   describeToolUse,
@@ -1292,6 +1293,9 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
+    // Beads issues
+    const beadsIssues = this.getBeadsIssues(directory);
+
     return {
       projectId: resolvedId,
       directory,
@@ -1302,7 +1306,43 @@ export class InstanceManager extends EventEmitter {
       stats,
       githubUrl,
       mcpServers,
+      beadsIssues,
     };
+  }
+
+  /**
+   * Fetch open issues from beads (bd) issue tracker if the project uses it.
+   * Returns null if .beads/ directory doesn't exist or bd is not installed.
+   */
+  private getBeadsIssues(directory: string): BeadIssue[] | null {
+    if (!directory) return null;
+    try {
+      const beadsDir = join(directory, ".beads");
+      if (!existsSync(beadsDir)) return null;
+
+      // Get all issue IDs
+      const listResult = execFileSync("bd", ["list", "--json", "--all", "--limit", "0"], {
+        cwd: directory,
+        timeout: 5000,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const listed = JSON.parse(listResult) as BeadIssue[];
+      if (listed.length === 0) return [];
+
+      // Fetch full details with dependencies via bd show
+      const ids = listed.map((i) => i.id);
+      const showResult = execFileSync("bd", ["show", ...ids, "--json"], {
+        cwd: directory,
+        timeout: 10000,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const detailed = JSON.parse(showResult) as BeadIssue[];
+      return detailed;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1326,6 +1366,24 @@ export class InstanceManager extends EventEmitter {
    * Return a map of local directory paths → GitHub repository URLs.
    * Built from the `githubRepoPaths` field in ~/.claude.json.
    */
+  /**
+   * Return a set of working directories that have a .beads/ issue tracker.
+   * Checks all known instance directories for a .beads/ subdirectory.
+   */
+  getBeadsDirectories(): string[] {
+    const dirs = new Set<string>();
+    for (const instance of this.instances.values()) {
+      dirs.add(instance.info.workingDirectory);
+    }
+    const result: string[] = [];
+    for (const dir of dirs) {
+      if (existsSync(join(dir, ".beads"))) {
+        result.push(dir);
+      }
+    }
+    return result;
+  }
+
   getGitHubLinks(): Record<string, string> {
     const claudeConfig = this.readClaudeConfig();
     if (!claudeConfig?.githubRepoPaths) return {};

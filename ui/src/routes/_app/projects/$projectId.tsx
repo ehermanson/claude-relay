@@ -98,11 +98,13 @@ function ProjectLayout() {
   // Active tab
   const pathname = location.pathname;
   const isPlansTab = pathname.includes("/plans");
+  const isIssuesTab = pathname.includes("/issues");
   const isChatsTab = pathname.includes("/chats");
-  const isOverviewTab = !isPlansTab && !isChatsTab;
+  const isOverviewTab = !isPlansTab && !isIssuesTab && !isChatsTab;
 
   const dirName = artifacts?.directory.split("/").pop() || projectId;
   const planCount = artifacts?.plans.length ?? 0;
+  const issueCount = artifacts?.beadsIssues?.length ?? 0;
 
   const ctxValue = useMemo(() => ({ artifacts, loading, error }), [artifacts, loading, error]);
 
@@ -190,6 +192,11 @@ function ProjectLayout() {
           <NavTab to="/projects/$projectId/plans" params={{ projectId }} active={isPlansTab}>
             Plans{!loading && planCount > 0 ? ` (${planCount})` : ""}
           </NavTab>
+          {issueCount > 0 && (
+            <NavTab to="/projects/$projectId/issues" params={{ projectId }} active={isIssuesTab}>
+              Issues ({issueCount})
+            </NavTab>
+          )}
           <NavTab to="/projects/$projectId/chats" params={{ projectId }} active={isChatsTab}>
             {sessionLabel}
           </NavTab>

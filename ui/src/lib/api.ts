@@ -60,6 +60,12 @@ export async function fetchGitHubLinks(): Promise<Record<string, string>> {
   return res.json();
 }
 
+export async function fetchBeadsProjects(): Promise<string[]> {
+  const res = await fetch("/api/beads-projects");
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function fetchProjectArtifacts(
   projectId: string,
 ): Promise<import("@shared/types").ProjectArtifacts> {
