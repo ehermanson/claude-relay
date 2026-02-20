@@ -12,6 +12,18 @@
 
 This is not optional. Stale docs are worse than no docs.
 
+## Workflow Rule
+
+For anything beyond a trivial fix, **create Beads (bd) issues before starting work**:
+
+1. Break the task into discrete issues (use epics to group related issues if needed)
+2. Create issues via `bd create "Title"` (use `bd epic create` for epics, `bd dep add` for dependencies)
+3. Then start implementation — claim issues with `bd update <id> --claim`
+4. Keep issues updated as you go: `bd close <id>` when done, `bd comments add <id>` for notable decisions
+5. Use `bd list`, `bd show <id>`, `bd status` to review state
+
+Skip issue creation only for single-line fixes, typo corrections, or other clearly trivial changes.
+
 ## Project Overview
 
 Claude Relay is a bridge between remote devices and a local Claude Code CLI. It manages multiple Claude Code processes, discovers external sessions, and serves a React web UI.
@@ -71,7 +83,7 @@ ui/
   src/
     context/                 auth-context, websocket-context, theme-context, project-context
     hooks/                   use-auth, use-web-socket, use-instance-messages, use-auto-scroll, use-directory-browser, use-media-query, use-terminal-pending-toasts
-    pages/                   chat-page, login-page, project-page, plans-page, plan-page
+    pages/                   chat-page, login-page, project-page, plans-page, plan-page, issues-page
     components/chat/         instance-view, message-list, claude-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
     components/ui/           resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react)
     components/layout/       app-layout, sidebar, sidebar-item
@@ -242,6 +254,19 @@ ui/
 - **MCP servers**: `getProjectArtifacts()` includes `mcpServers` from `projects[directory].mcpServers`. Project page shows an "Integrations" section with compact cards (name, type badge, URL/command).
 - Types: `McpServerConfig` in `types.ts`; `ProjectArtifacts` extended with `githubUrl`, `mcpServers`.
 
+### Beads (bd) Integration
+
+- Projects with a `.beads/` directory are detected automatically
+- `getBeadsIssues(directory)` runs `bd list --json --all --limit 0` in the project directory (5s timeout)
+- Returns `BeadIssue[]` (id, title, description, status, priority, issue_type, etc.) or `null` if beads isn't present
+- `beadsIssues` field on `ProjectArtifacts` — included in `getProjectArtifacts()` response
+- `getBeadsDirectories()` returns directories with `.beads/` — used by sidebar to show Issues link
+- `GET /api/beads-projects` returns the list of beads-enabled directories
+- **UI**: Issues page (`issues-page.tsx`) groups by status (In Progress, Open, Blocked, Deferred, Closed) with collapsible description cards
+- **Sub-nav**: "Issues (N)" tab shown conditionally when issues exist
+- **Sidebar**: Issues link shown per project group when beads is detected
+- Types: `BeadIssue` in `types.ts`; route at `/projects/$projectId/issues`
+
 ### External Session Discovery
 
 - InstanceManager polls `ps` + `lsof` every 10s to find running `claude` processes
@@ -304,6 +329,7 @@ All routes except `/health` and `/auth` require authentication (session cookie).
 | GET    | `/api/instances/:id/history` | Get conversation history                                                    |
 | GET    | `/api/stats`                 | Server stats                                                                |
 | GET    | `/api/github-links`          | Map of local directory paths to GitHub repo URLs (from `~/.claude.json`)    |
+| GET    | `/api/beads-projects`        | List of directory paths that have a beads (bd) issue tracker                |
 | GET    | `/api/directories`           | Known Claude project directories                                            |
 | GET    | `/api/browse?prefix=...`     | Directory autocomplete                                                      |
 | GET    | `/api/projects/:id`          | Project artifacts (accepts basename slug or full encoded path)              |
