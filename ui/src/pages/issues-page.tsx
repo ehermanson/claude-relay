@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useProjectContext } from "../context/project-context";
 import { useMediaQuery } from "../hooks/use-media-query";
@@ -103,113 +103,172 @@ function IssueCard({ issue, onClick }: { issue: BeadIssue; onClick: () => void }
   );
 }
 
-// ─── Issue Drawer ───────────────────────────────────────────────────────────
+// ─── Issue Drawer Content ───────────────────────────────────────────────────
 
-function IssueDrawer({
+function IssueDrawerBody({
   issue,
-  open,
+  onSelectIssue,
+  showBack,
+  onBack,
+}: {
+  issue: BeadIssue;
+  onSelectIssue: (id: string) => void;
+  showBack?: boolean;
+  onBack?: () => void;
+}) {
+  return (
+    <>
+      <Drawer.Header className="items-start">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          {showBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+          )}
+          <div className="min-w-0 flex-1">
+            <Drawer.Title>{issue.title}</Drawer.Title>
+            <span className="shrink-0 font-mono text-xs text-muted">{issue.id}</span>
+          </div>
+        </div>
+        <Drawer.Close />
+      </Drawer.Header>
+      <Drawer.Body className="px-5 py-4">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Badge variant={statusVariants[issue.status] ?? "default"}>
+            {statusLabels[issue.status] ?? issue.status}
+          </Badge>
+          <Badge variant={priorityVariants[issue.priority] ?? "default"}>
+            {priorityLabels[issue.priority] ?? `P${issue.priority}`}
+          </Badge>
+          <Badge>{issue.issue_type}</Badge>
+        </div>
+
+        {/* Dependencies */}
+        {issue.dependencies && issue.dependencies.length > 0 && (
+          <div className="mb-4">
+            <h4 className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
+              Blocked by
+            </h4>
+            <div className="flex flex-col gap-1">
+              {issue.dependencies.map((dep) => (
+                <button
+                  key={dep.id}
+                  type="button"
+                  onClick={() => onSelectIssue(dep.id)}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
+                >
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotColors[dep.status] ?? "bg-muted"}`}
+                  />
+                  <span className="font-mono text-[0.625rem] text-muted">{dep.id}</span>
+                  <span className="truncate text-[0.8125rem] text-text-bright">{dep.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Dependents */}
+        {issue.dependents && issue.dependents.length > 0 && (
+          <div className="mb-4">
+            <h4 className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
+              Blocks
+            </h4>
+            <div className="flex flex-col gap-1">
+              {issue.dependents.map((dep) => (
+                <button
+                  key={dep.id}
+                  type="button"
+                  onClick={() => onSelectIssue(dep.id)}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
+                >
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotColors[dep.status] ?? "bg-muted"}`}
+                  />
+                  <span className="font-mono text-[0.625rem] text-muted">{dep.id}</span>
+                  <span className="truncate text-[0.8125rem] text-text-bright">{dep.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mb-4 text-[0.6875rem] text-muted">
+          Updated {formatTimeAgo(issue.updated_at)}
+        </div>
+        {issue.description ? (
+          <div className="prose-sm text-sm">
+            <MarkdownContent text={issue.description} />
+          </div>
+        ) : (
+          <p className="text-sm text-muted italic">No description</p>
+        )}
+      </Drawer.Body>
+    </>
+  );
+}
+
+// ─── Stacked Drawer ─────────────────────────────────────────────────────────
+
+interface StackItem {
+  key: string;
+  issueId: string;
+  open: boolean;
+}
+
+function StackedDrawer({
+  item,
+  issue,
+  isFirst,
+  reversedPosition,
   onClose,
   onSelectIssue,
 }: {
+  item: StackItem;
   issue: BeadIssue | null;
-  open: boolean;
+  isFirst: boolean;
+  reversedPosition: number;
   onClose: () => void;
   onSelectIssue: (id: string) => void;
 }) {
-  // Keep the last non-null issue so content stays visible during exit animation
   const lastIssue = useRef<BeadIssue | null>(null);
   if (issue) lastIssue.current = issue;
   const display = issue ?? lastIssue.current;
 
+  const isClosing = !item.open;
+  const stackStyle: React.CSSProperties =
+    reversedPosition > 0 && !isClosing
+      ? {
+          transform: `translateX(${-reversedPosition * 20}px) scale(${1 - reversedPosition * 0.03})`,
+          opacity: Math.max(1 - reversedPosition * 0.04, 0.85),
+        }
+      : {};
+
   return (
-    <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Drawer.Content>
+    <Drawer.Root open={item.open} onOpenChange={(o) => !o && onClose()}>
+      <Drawer.Content showBackdrop={isFirst} style={stackStyle}>
         {display && (
-          <>
-            <Drawer.Header className="items-start">
-              <div className="min-w-0 flex-1">
-                <Drawer.Title>{display.title}</Drawer.Title>
-                <span className="shrink-0 font-mono text-xs text-muted">{display.id}</span>
-              </div>
-              <Drawer.Close />
-            </Drawer.Header>
-            <Drawer.Body className="px-5 py-4">
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                <Badge variant={statusVariants[display.status] ?? "default"}>
-                  {statusLabels[display.status] ?? display.status}
-                </Badge>
-                <Badge variant={priorityVariants[display.priority] ?? "default"}>
-                  {priorityLabels[display.priority] ?? `P${display.priority}`}
-                </Badge>
-                <Badge>{display.issue_type}</Badge>
-              </div>
-
-              {/* Dependencies */}
-              {display.dependencies && display.dependencies.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
-                    Blocked by
-                  </h4>
-                  <div className="flex flex-col gap-1">
-                    {display.dependencies.map((dep) => (
-                      <button
-                        key={dep.id}
-                        type="button"
-                        onClick={() => onSelectIssue(dep.id)}
-                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotColors[dep.status] ?? "bg-muted"}`}
-                        />
-                        <span className="font-mono text-[0.625rem] text-muted">{dep.id}</span>
-                        <span className="truncate text-[0.8125rem] text-text-bright">
-                          {dep.title}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Dependents */}
-              {display.dependents && display.dependents.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
-                    Blocks
-                  </h4>
-                  <div className="flex flex-col gap-1">
-                    {display.dependents.map((dep) => (
-                      <button
-                        key={dep.id}
-                        type="button"
-                        onClick={() => onSelectIssue(dep.id)}
-                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotColors[dep.status] ?? "bg-muted"}`}
-                        />
-                        <span className="font-mono text-[0.625rem] text-muted">{dep.id}</span>
-                        <span className="truncate text-[0.8125rem] text-text-bright">
-                          {dep.title}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="mb-4 text-[0.6875rem] text-muted">
-                Updated {formatTimeAgo(display.updated_at)}
-              </div>
-              {display.description ? (
-                <div className="prose-sm text-sm">
-                  <MarkdownContent text={display.description} />
-                </div>
-              ) : (
-                <p className="text-sm text-muted italic">No description</p>
-              )}
-            </Drawer.Body>
-          </>
+          <IssueDrawerBody
+            issue={display}
+            onSelectIssue={onSelectIssue}
+            showBack={!isFirst}
+            onBack={onClose}
+          />
         )}
       </Drawer.Content>
     </Drawer.Root>
@@ -280,13 +339,62 @@ export function IssuesPage() {
     from: "/_app/projects/$projectId/issues/",
   });
   const navigate = useNavigate();
+  const [stack, setStack] = useState<StackItem[]>([]);
+
+  // Sync URL → stack (initial load, browser back/forward)
+  useEffect(() => {
+    if (selectedId) {
+      setStack((prev) => {
+        if (prev.length === 0 || prev[0].issueId !== selectedId) {
+          return [{ key: "base", issueId: selectedId, open: true }];
+        }
+        return prev;
+      });
+    } else {
+      setStack([]);
+    }
+  }, [selectedId]);
 
   const selectIssue = (id: string) => {
+    setStack([{ key: "base", issueId: id, open: true }]);
     navigate({ search: { issue: id } });
   };
 
-  const closeDrawer = () => {
-    navigate({ search: {} });
+  const pushDrawer = (issueId: string) => {
+    setStack((prev) => {
+      const top = prev[prev.length - 1];
+      if (top?.issueId === issueId) return prev;
+      const key = `stacked-${Date.now()}`;
+      // Add closed — opened next frame so Base UI applies entry animation
+      return [...prev, { key, issueId, open: false }];
+    });
+    // Open in next frame to trigger slide-in animation
+    requestAnimationFrame(() => {
+      setStack((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && !last.open) {
+          return prev.map((s, i) => (i === prev.length - 1 ? { ...s, open: true } : s));
+        }
+        return prev;
+      });
+    });
+  };
+
+  const popAt = (idx: number) => {
+    if (idx === 0) {
+      // Close all drawers
+      setStack((prev) => prev.map((s) => ({ ...s, open: false })));
+      setTimeout(() => {
+        setStack([]);
+        navigate({ search: {} });
+      }, 200);
+    } else {
+      // Close this drawer and everything above it
+      setStack((prev) => prev.map((s, i) => (i >= idx ? { ...s, open: false } : s)));
+      setTimeout(() => {
+        setStack((prev) => prev.slice(0, idx));
+      }, 200);
+    }
   };
 
   if (loading) {
@@ -320,11 +428,28 @@ export function IssuesPage() {
     );
   }
 
-  const selectedIssue = selectedId ? (issues.find((i) => i.id === selectedId) ?? null) : null;
-
   const grouped = Object.fromEntries(
     STATUS_ORDER.map((s) => [s, issues.filter((i) => i.status === s)]),
   );
+
+  const openItems = stack.filter((s) => s.open);
+  const drawerStack = stack.map((item, idx) => {
+    const issue = issues.find((i) => i.id === item.issueId) ?? null;
+    const posInOpen = openItems.findIndex((s) => s.key === item.key);
+    const reversedPos = posInOpen >= 0 ? openItems.length - posInOpen - 1 : 0;
+
+    return (
+      <StackedDrawer
+        key={item.key}
+        item={item}
+        issue={issue}
+        isFirst={idx === 0}
+        reversedPosition={reversedPos}
+        onClose={() => popAt(idx)}
+        onSelectIssue={pushDrawer}
+      />
+    );
+  });
 
   if (isMobile) {
     return (
@@ -340,12 +465,7 @@ export function IssuesPage() {
             />
           ))}
         </div>
-        <IssueDrawer
-          issue={selectedIssue}
-          open={!!selectedId}
-          onClose={closeDrawer}
-          onSelectIssue={selectIssue}
-        />
+        {drawerStack}
       </div>
     );
   }
@@ -357,12 +477,7 @@ export function IssuesPage() {
           <KanbanColumn key={s} status={s} issues={grouped[s]} onSelectIssue={selectIssue} />
         ))}
       </div>
-      <IssueDrawer
-        issue={selectedIssue}
-        open={!!selectedId}
-        onClose={closeDrawer}
-        onSelectIssue={selectIssue}
-      />
+      {drawerStack}
     </div>
   );
 }

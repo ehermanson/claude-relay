@@ -20,18 +20,27 @@ interface DrawerContentProps {
   className?: string;
   /** Width class. Default: "w-[420px] max-w-[85vw]" */
   width?: string;
+  /** Inline styles forwarded to the popup element (used for stacking transforms) */
+  style?: React.CSSProperties;
+  /** Show dark backdrop overlay. Default: true. When false, backdrop is invisible but still captures clicks. */
+  showBackdrop?: boolean;
 }
 
 function DrawerContent({
   children,
   className = "",
   width = "w-[420px] max-w-[85vw]",
+  style,
+  showBackdrop = true,
 }: DrawerContentProps) {
   return (
     <BaseDrawer.Portal>
-      <BaseDrawer.Backdrop className="fixed inset-0 z-[9998] bg-black/40 backdrop-blur-sm transition-opacity duration-200 ease-out data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+      <BaseDrawer.Backdrop
+        className={`fixed inset-0 z-[9999] transition-opacity duration-200 ease-out data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 ${showBackdrop ? "bg-black/40 backdrop-blur-sm" : ""}`}
+      />
       <BaseDrawer.Popup
-        className={`fixed inset-y-0 right-0 z-[9999] flex ${width} flex-col border-l border-border bg-surface shadow-2xl transition-transform duration-200 ease-out data-[ending-style]:translate-x-full data-[starting-style]:translate-x-full ${className}`}
+        className={`fixed inset-y-0 right-0 z-[9999] flex ${width} flex-col border-l border-border bg-surface shadow-2xl transition-[transform,translate,scale,box-shadow,opacity] duration-200 ease-out data-[ending-style]:translate-x-full data-[starting-style]:translate-x-full ${className}`}
+        style={style}
       >
         {children}
       </BaseDrawer.Popup>
