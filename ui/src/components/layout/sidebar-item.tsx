@@ -178,7 +178,10 @@ export function SidebarItem({
         (menuOpen ? (
           <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
             <Menu.Trigger
-              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              onClick={(e: React.MouseEvent) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-100 transition-all hover:!text-text"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
@@ -291,6 +294,7 @@ export function SidebarItem({
         ) : (
           <button
             onClick={(e) => {
+              e.preventDefault();
               e.stopPropagation();
               setMenuOpen(true);
             }}
