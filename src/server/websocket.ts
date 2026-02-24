@@ -319,6 +319,11 @@ export function createWebSocketServer(
             break;
           }
 
+          case "set_model": {
+            instanceManager.setModel(message.instanceId, message.model);
+            break;
+          }
+
           case "merge_instance": {
             try {
               const { targetBranch } = instanceManager.mergeInstance(message.instanceId);

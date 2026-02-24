@@ -232,6 +232,7 @@ function seedDB(tempDir, entries) {
       worktree_path: null,
       original_directory: null,
       parent_session_id: entry.parentSessionId || null,
+      preferred_model: null,
     });
   }
   db.close();

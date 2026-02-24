@@ -74,6 +74,7 @@ export class ClaudeProcess extends EventEmitter {
   private fileMap = new Map<string, FileChange>();
   private teamState: TeamInfo | null = null;
   private _cancelledForPermission = false;
+  private _preferredModel: string | null = null;
   private _stats: SessionStats = {
     inputTokens: 0,
     outputTokens: 0,
@@ -86,10 +87,11 @@ export class ClaudeProcess extends EventEmitter {
     return { ...this._stats };
   }
 
-  constructor(config: CoreConfig, options?: { resumeSessionId?: string }) {
+  constructor(config: CoreConfig, options?: { resumeSessionId?: string; model?: string }) {
     super();
     this.config = config;
     this.resumeSessionId = options?.resumeSessionId ?? null;
+    this._preferredModel = options?.model ?? null;
     this.claudePath = this.findClaudeBinary();
     this.cwd = config.workingDirectory;
     config.logger.debug(`[Claude] Binary: ${this.claudePath}`);
@@ -125,6 +127,13 @@ export class ClaudeProcess extends EventEmitter {
     if (!this.allowedTools.includes(tool)) {
       this.allowedTools.push(tool);
     }
+  }
+
+  /**
+   * Set the preferred model for subsequent sends. Pass null to clear.
+   */
+  setModel(model: string | null): void {
+    this._preferredModel = model;
   }
 
   /**
@@ -333,6 +342,10 @@ export class ClaudeProcess extends EventEmitter {
 
     if (this.allowedTools.length > 0) {
       args.push("--allowedTools", this.allowedTools.join(" "));
+    }
+
+    if (this._preferredModel) {
+      args.push("--model", this._preferredModel);
     }
 
     if (this.resumeSessionId) {

@@ -55,6 +55,8 @@ export interface InstanceInfo {
   gitInfo?: { branch: string; isWorktree: boolean };
   /** Claude session ID of the plan-mode parent (UI-only link, no state merging) */
   parentSessionId?: string;
+  /** Preferred model override for this instance (e.g. "claude-opus-4-6") */
+  preferredModel?: string;
 }
 
 export interface HistoryEntry {
@@ -137,6 +139,13 @@ export interface MergeInstancePayload {
   instanceId: string;
 }
 
+export interface SetModelPayload {
+  type: "set_model";
+  instanceId: string;
+  /** Model ID to use (e.g. "claude-opus-4-6"), or null to clear the preference */
+  model: string | null;
+}
+
 export type ClientMessage =
   | MessagePayload
   | CancelPayload
@@ -150,7 +159,8 @@ export type ClientMessage =
   | ApproveToolPayload
   | RefreshTitlePayload
   | RenameInstancePayload
-  | MergeInstancePayload;
+  | MergeInstancePayload
+  | SetModelPayload;
 
 // =============================================================================
 // Server -> Client Messages

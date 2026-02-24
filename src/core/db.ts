@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 
 export interface SessionRow {
   session_id: string;
@@ -36,6 +36,7 @@ export interface SessionRow {
   worktree_path: string | null;
   original_directory: string | null;
   parent_session_id: string | null;
+  preferred_model: string | null;
 }
 
 export class SessionDB {
@@ -62,6 +63,7 @@ export class SessionDB {
   private stmtDeleteBySessionId!: Database.Statement;
   private stmtUpdateAllowedTools!: Database.Statement;
   private stmtUpdateWorkingDirectory!: Database.Statement;
+  private stmtUpdatePreferredModel!: Database.Statement;
   private stmtGetProjectStats!: Database.Statement;
   private stmtGetGlobalStats!: Database.Statement;
 
@@ -167,6 +169,14 @@ export class SessionDB {
       }
     }
 
+    // v5: add preferred_model column for per-instance model selection
+    {
+      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === "preferred_model")) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN preferred_model TEXT`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -182,13 +192,13 @@ export class SessionDB {
         created_at, last_activity_at, type, archived, custom_title,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_usd, summary, first_prompt, git_branch, message_count, allowed_tools,
-        worktree_path, original_directory, parent_session_id
+        worktree_path, original_directory, parent_session_id, preferred_model
       ) VALUES (
         @session_id, @instance_id, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @cost_usd, @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
-        @worktree_path, @original_directory, @parent_session_id
+        @worktree_path, @original_directory, @parent_session_id, @preferred_model
       )
       ON CONFLICT(session_id) DO UPDATE SET
         instance_id = excluded.instance_id,
@@ -211,7 +221,8 @@ export class SessionDB {
         allowed_tools = excluded.allowed_tools,
         worktree_path = excluded.worktree_path,
         original_directory = excluded.original_directory,
-        parent_session_id = excluded.parent_session_id
+        parent_session_id = excluded.parent_session_id,
+        preferred_model = excluded.preferred_model
     `);
 
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
@@ -264,6 +275,10 @@ export class SessionDB {
 
     this.stmtUpdateWorkingDirectory = this.db.prepare(
       "UPDATE sessions SET working_directory = ? WHERE session_id = ?",
+    );
+
+    this.stmtUpdatePreferredModel = this.db.prepare(
+      "UPDATE sessions SET preferred_model = ? WHERE session_id = ?",
     );
 
     this.stmtGetProjectStats = this.db.prepare(`
@@ -373,6 +388,10 @@ export class SessionDB {
 
   updateWorkingDirectory(sessionId: string, workingDirectory: string): void {
     this.stmtUpdateWorkingDirectory.run(workingDirectory, sessionId);
+  }
+
+  updatePreferredModel(sessionId: string, model: string | null): void {
+    this.stmtUpdatePreferredModel.run(model, sessionId);
   }
 
   getProjectStats(workingDirectory: string): {
