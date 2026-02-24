@@ -275,6 +275,7 @@ export function InstanceView() {
         isStopped={isStopped}
         isExternal={!!instance.external}
         isPendingInTerminal={!!pendingTerminalTool}
+        preferredModel={instance.preferredModel}
       />
     </>
   );
