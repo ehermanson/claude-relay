@@ -32,6 +32,7 @@ function makeRow(overrides = {}) {
     worktree_path: null,
     original_directory: null,
     parent_session_id: null,
+    preferred_model: null,
     ...overrides,
   };
 }

@@ -492,6 +492,7 @@ export class InstanceManager extends EventEmitter {
     workingDirectory?: string;
     dangerouslySkipPermissions?: boolean;
     resumeSessionId?: string;
+    model?: string;
   }): InstanceInfo {
     const managedCount = [...this.instances.values()].filter((i) => !i.info.external).length;
     if (managedCount >= this.baseConfig.maxProcesses) {
@@ -539,8 +540,8 @@ export class InstanceManager extends EventEmitter {
     };
 
     const proc = resumeId
-      ? new ClaudeProcess(instanceConfig, { resumeSessionId: resumeId })
-      : new ClaudeProcess(instanceConfig);
+      ? new ClaudeProcess(instanceConfig, { resumeSessionId: resumeId, model: options?.model })
+      : new ClaudeProcess(instanceConfig, { model: options?.model });
 
     // Resolve name: explicit > session summary > auto-title from first message
     let name = options?.name || "";
@@ -559,6 +560,7 @@ export class InstanceManager extends EventEmitter {
       gitBranch,
       originalDirectory,
       gitInfo: getGitInfo(workingDirectory) ?? undefined,
+      preferredModel: options?.model,
     };
 
     const dirBasename = workingDirectory.split("/").pop() || "";
@@ -791,7 +793,7 @@ export class InstanceManager extends EventEmitter {
     if (instance.sessionId) {
       try {
         // Collect all currently allowed tools from the process
-        const allTools = [...new Set([...toolsToAdd])];
+        const allTools = [...new Set(toolsToAdd)];
         // Merge with any tools already in DB
         const row = this.db.getBySessionId(instance.sessionId);
         if (row) {
@@ -2558,6 +2560,7 @@ export class InstanceManager extends EventEmitter {
       worktree_path: instance.worktreePath ?? null,
       original_directory: instance.originalDirectory ?? null,
       parent_session_id: instance.info.parentSessionId ?? null,
+      preferred_model: instance.info.preferredModel ?? null,
     };
   }
 
@@ -2627,6 +2630,7 @@ export class InstanceManager extends EventEmitter {
           worktree_path: null,
           original_directory: null,
           parent_session_id: null,
+          preferred_model: null,
         });
       }
 
@@ -2827,6 +2831,7 @@ export class InstanceManager extends EventEmitter {
             worktree_path: scanWorktreePath,
             original_directory: scanOriginalDir,
             parent_session_id: null,
+            preferred_model: null,
           });
           discovered++;
         }
@@ -2935,6 +2940,7 @@ export class InstanceManager extends EventEmitter {
             ? (getGitInfo(extWorktreePath) ?? undefined)
             : (getGitInfo(entry.working_directory) ?? undefined),
           parentSessionId: entry.parent_session_id ?? undefined,
+          preferredModel: entry.preferred_model ?? undefined,
         };
 
         const instance: Instance = {
@@ -2984,7 +2990,10 @@ export class InstanceManager extends EventEmitter {
           workingDirectory: restoreActualCwd,
         };
 
-        const proc = new ClaudeProcess(instanceConfig, { resumeSessionId: entry.session_id });
+        const proc = new ClaudeProcess(instanceConfig, {
+          resumeSessionId: entry.session_id,
+          model: entry.preferred_model ?? undefined,
+        });
 
         // Restore previously approved tools from DB
         try {
@@ -3016,6 +3025,7 @@ export class InstanceManager extends EventEmitter {
           originalDirectory: restoreOriginalDirectory,
           gitInfo: getGitInfo(entry.working_directory) ?? undefined,
           parentSessionId: entry.parent_session_id ?? undefined,
+          preferredModel: entry.preferred_model ?? undefined,
         };
 
         let watchState: WatchState | undefined;
@@ -3330,6 +3340,23 @@ export class InstanceManager extends EventEmitter {
     this.emit("instance:status", instance.info.id, { ...instance.info });
     const sid = instance.sessionId || instance.info.sessionId;
     if (sid) this.db.updateName(sid, trimmed, true);
+    return true;
+  }
+
+  /**
+   * Set the preferred model for a managed instance.
+   * The model is applied on the next message send via --model <id>.
+   * Pass null to clear the preference (reverts to Claude's default).
+   */
+  setModel(id: string, model: string | null): boolean {
+    const instance = this.instances.get(id);
+    if (!instance || instance.info.external) return false;
+
+    instance.info.preferredModel = model ?? undefined;
+    instance.process?.setModel(model);
+    this.emit("instance:status", instance.info.id, { ...instance.info });
+    const sid = instance.sessionId || instance.info.sessionId;
+    if (sid) this.db.updatePreferredModel(sid, model);
     return true;
   }
 

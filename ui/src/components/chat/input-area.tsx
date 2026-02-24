@@ -1,9 +1,18 @@
 import { useRef, useEffect, useState } from "react";
 import { ArrowUp, ImagePlus, Loader2, Square } from "lucide-react";
 import { useMediaQuery } from "../../hooks/use-media-query";
+import { useWSMethods } from "../../context/websocket-context";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
+import { Menu } from "../ui/menu";
 import { uploadImage } from "../../lib/api";
+
+// TODO: Use
+const MODELS = [
+  { id: "claude-opus-4-6", label: "Opus 4.6" },
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+] as const;
 
 // Persist draft text across instance switches (module-level, survives re-renders)
 const drafts = new Map<string, string>();
@@ -23,6 +32,7 @@ interface InputAreaProps {
   isStopped?: boolean;
   isExternal?: boolean;
   isPendingInTerminal?: boolean;
+  preferredModel?: string;
 }
 
 export function InputArea({
@@ -35,6 +45,7 @@ export function InputArea({
   isStopped,
   isExternal,
   isPendingInTerminal,
+  preferredModel,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +55,15 @@ export function InputArea({
   const [uploading, setUploading] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const prevInstanceIdRef = useRef<string>(instanceId);
+  const { send } = useWSMethods();
+
+  const setModel = (model: string | null) => {
+    send({ type: "set_model", instanceId, model });
+  };
+
+  const modelLabel = preferredModel
+    ? (MODELS.find((m) => m.id === preferredModel)?.label ?? preferredModel)
+    : "Model";
 
   const adjustTextareaHeight = () => {
     const el = textareaRef.current;
@@ -191,6 +211,73 @@ export function InputArea({
   // Round icon button overrides for circular input-area buttons
   const roundIcon = "h-8 w-8 shrink-0 !rounded-full";
   const roundPrimary = "h-8 w-8 shrink-0 !rounded-full !p-0";
+
+  const modelPickerButton = !isExternal && (
+    <Menu.Root>
+      <Tooltip content="Select model">
+        <Menu.Trigger
+          disabled={isProcessing}
+          className={`flex shrink-0 items-center gap-1 rounded-full p-2 text-xs transition-colors ${
+            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-surface-hover"
+          } ${preferredModel ? "text-accent" : "text-muted"}`}
+        >
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+          </svg>
+          <span>{modelLabel}</span>
+        </Menu.Trigger>
+      </Tooltip>
+      <Menu.Content side="top" align="start">
+        <Menu.Item onClick={() => setModel(null)}>
+          <span className="flex-1">Default</span>
+          {!preferredModel && (
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          )}
+        </Menu.Item>
+        <Menu.Separator />
+        {MODELS.map((m) => (
+          <Menu.Item key={m.id} onClick={() => setModel(m.id)}>
+            <span className="flex-1">{m.label}</span>
+            {preferredModel === m.id && (
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </Menu.Item>
+        ))}
+      </Menu.Content>
+    </Menu.Root>
+  );
 
   const sendIcon = uploading ? (
     <Loader2 size={18} className="animate-spin" />
@@ -356,6 +443,7 @@ export function InputArea({
                       <ImagePlus size={18} />
                     </Button>
                   </Tooltip>
+                  {modelPickerButton}
                   {isProcessing && (
                     <Tooltip content="Cancel">
                       <button
@@ -381,7 +469,7 @@ export function InputArea({
             </>
           ) : (
             <>
-              {/* Desktop: single row — attach | textarea | cancel? | send */}
+              {/* Desktop: single row — attach | model | textarea | cancel? | send */}
               <div className="flex items-end gap-1 px-2 py-2">
                 <Tooltip content="Attach image">
                   <Button
@@ -393,6 +481,7 @@ export function InputArea({
                     <ImagePlus size={18} />
                   </Button>
                 </Tooltip>
+                {modelPickerButton}
                 <textarea
                   ref={textareaRef}
                   placeholder={isStopped ? "Send a message to resume..." : "Send a message..."}
