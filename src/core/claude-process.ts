@@ -24,6 +24,7 @@ import {
   extractInputDescription,
   extractToolResultText,
   isPermissionDenial,
+  buildToolResultActivity,
   estimateCost,
 } from "./tools.js";
 
@@ -527,30 +528,16 @@ export class ClaudeProcess extends EventEmitter {
               // Other task tool results: suppress
             } else {
               const content = extractToolResultText(event.content);
-              const denied = event.is_error && isPermissionDenial(content);
-              const deniedTool = denied
-                ? pendingTools.get(event.tool_use_id) || "Unknown"
-                : undefined;
+              const toolName = pendingTools.get(event.tool_use_id);
+              const activity = buildToolResultActivity(event.is_error, toolName, content);
 
               // Suppress duplicate denial emissions after cancel
-              if (deniedTool && this._cancelledForPermission) continue;
+              if (activity.permissionDenied && this._cancelledForPermission) continue;
 
-              const activity: ActivityMessage = {
-                type: "activity",
-                activity: "tool_result",
-                description: deniedTool
-                  ? "Permission denied"
-                  : event.is_error
-                    ? "Tool error"
-                    : "Tool completed",
-                tool: deniedTool,
-                detail: content.slice(0, 200) || undefined,
-                permissionDenied: deniedTool,
-              };
               this.emit("activity", activity);
 
               // Cancel process on first permission denial to stop retry loop
-              if (deniedTool) {
+              if (activity.permissionDenied) {
                 this.cancelForPermission();
               }
             }
@@ -580,30 +567,16 @@ export class ClaudeProcess extends EventEmitter {
                     }
                   } else {
                     const text = extractToolResultText(block.content);
-                    const denied = block.is_error && isPermissionDenial(text);
-                    const deniedTool = denied
-                      ? pendingTools.get(block.tool_use_id) || "Unknown"
-                      : undefined;
+                    const toolName = pendingTools.get(block.tool_use_id);
+                    const activity = buildToolResultActivity(block.is_error, toolName, text);
 
                     // Suppress duplicate denial emissions after cancel
-                    if (deniedTool && this._cancelledForPermission) continue;
+                    if (activity.permissionDenied && this._cancelledForPermission) continue;
 
-                    const activity: ActivityMessage = {
-                      type: "activity",
-                      activity: "tool_result",
-                      description: deniedTool
-                        ? "Permission denied"
-                        : block.is_error
-                          ? "Tool error"
-                          : "Tool completed",
-                      tool: deniedTool,
-                      detail: text.slice(0, 200) || undefined,
-                      permissionDenied: deniedTool,
-                    };
                     this.emit("activity", activity);
 
                     // Cancel process on first permission denial to stop retry loop
-                    if (deniedTool) {
+                    if (activity.permissionDenied) {
                       this.cancelForPermission();
                     }
                   }

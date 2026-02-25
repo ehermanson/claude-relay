@@ -236,6 +236,8 @@ export interface ActivityMessage {
   input?: Record<string, unknown>;
   instanceId?: string;
   permissionDenied?: string;
+  /** Resolution of an interactive tool (ExitPlanMode, AskUserQuestion) from the terminal. */
+  resolution?: "approved" | "dismissed" | "feedback";
   tasks?: TaskItem[];
   files?: FileChange[];
   team?: TeamInfo;

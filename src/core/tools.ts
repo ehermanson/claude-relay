@@ -5,6 +5,8 @@
  * to generate human-readable descriptions of Claude tool usage.
  */
 
+import type { ActivityMessage } from "./types.js";
+
 // =============================================================================
 // Cost estimation
 // =============================================================================
@@ -80,6 +82,56 @@ export const INTERACTIVE_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode", "En
  */
 export function isPermissionDenial(content: string): boolean {
   return content.includes("haven't granted it yet") || content.includes("requires approval");
+}
+
+/**
+ * Classify the resolution of an interactive tool result.
+ * Returns null for non-interactive tools or permission denials (handle normally).
+ * For interactive tools, returns the resolution type based on content:
+ *   - "approved": non-error result (user approved plan / answered question)
+ *   - "feedback": error with user feedback ("the user said: ...")
+ *   - "dismissed": error without feedback (user cleared context / rejected)
+ */
+export function classifyInteractiveResult(
+  isError: boolean | undefined,
+  toolName: string | undefined,
+  content: string,
+): "approved" | "dismissed" | "feedback" | null {
+  if (!INTERACTIVE_TOOLS.has(toolName || "")) return null;
+  if (isError && isPermissionDenial(content)) return null;
+  if (!isError) return "approved";
+  if (content.includes("the user said:")) return "feedback";
+  return "dismissed";
+}
+
+/**
+ * Build an ActivityMessage for a tool_result event.
+ * Shared by ClaudeProcess (live streaming, two code paths) and InstanceManager (JSONL replay).
+ */
+export function buildToolResultActivity(
+  isError: boolean | undefined,
+  toolName: string | undefined,
+  content: string,
+): ActivityMessage {
+  const denied = isError && isPermissionDenial(content);
+  const deniedTool = denied ? toolName || "Unknown" : undefined;
+  const resolution = classifyInteractiveResult(isError, toolName, content);
+
+  return {
+    type: "activity",
+    activity: "tool_result",
+    description: deniedTool
+      ? "Permission denied"
+      : resolution
+        ? "Tool completed"
+        : isError
+          ? "Tool error"
+          : "Tool completed",
+    tool: deniedTool,
+    detail: resolution ? undefined : content.slice(0, 200) || undefined,
+    permissionDenied: deniedTool,
+    resolution: resolution ?? undefined,
+  };
 }
 
 /**

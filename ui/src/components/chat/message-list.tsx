@@ -8,6 +8,7 @@ import { ActivityGroup } from "./activity-group";
 import { AgentTranscript } from "./agent-transcript";
 import { useAutoScroll } from "../../hooks/use-auto-scroll";
 import type { ChatItem } from "../../hooks/use-instance-messages";
+import { INTERACTIVE_TOOLS } from "@shared/tools";
 
 interface MessageListProps {
   items: ChatItem[];
@@ -19,6 +20,8 @@ interface MessageListProps {
   onApproveTool?: (tool: string) => void;
   approvedTools?: Set<string>;
   isExternal?: boolean;
+  planChildId?: string;
+  planChildName?: string;
 }
 
 export function MessageList({
@@ -31,6 +34,8 @@ export function MessageList({
   onApproveTool,
   approvedTools,
   isExternal,
+  planChildId,
+  planChildName,
 }: MessageListProps) {
   const { ref, scrollToBottom, onContentChange } = useAutoScroll<HTMLDivElement>();
 
@@ -58,6 +63,29 @@ export function MessageList({
       lastClaudeIndex = i;
     }
     if (lastActivityGroupIndex !== -1 && lastClaudeIndex !== -1) break;
+  }
+
+  // Detect cross-group interactive tool resolutions.
+  // When an interactive tool_use is the last entry in one group and its
+  // tool_result (with resolution) is in the next activity group, bridge them.
+  const crossGroupResolution = new Map<number, "approved" | "dismissed" | "feedback">();
+  const skipLeadingResultGroups = new Set<number>();
+  for (let i = 0; i < items.length; i++) {
+    const curr = items[i];
+    if (curr.kind !== "activity-group") continue;
+    const lastAct = curr.activities[curr.activities.length - 1];
+    if (lastAct?.activity !== "tool_use" || !INTERACTIVE_TOOLS.has(lastAct.tool || "")) continue;
+    // Look ahead for matching tool_result in the next activity group
+    for (let j = i + 1; j < items.length; j++) {
+      const next = items[j];
+      if (next.kind !== "activity-group") continue;
+      const firstAct = next.activities[0];
+      if (firstAct?.activity === "tool_result" && firstAct.resolution) {
+        crossGroupResolution.set(i, firstAct.resolution!);
+        skipLeadingResultGroups.add(j);
+      }
+      break;
+    }
   }
 
   // Show thinking dots whenever the instance is processing — either from
@@ -99,6 +127,10 @@ export function MessageList({
                   onApproveTool={isLast ? onApproveTool : undefined}
                   approvedTools={approvedTools}
                   isExternal={isLast ? isExternal : undefined}
+                  trailingResolution={crossGroupResolution.get(i)}
+                  skipLeadingResult={skipLeadingResultGroups.has(i)}
+                  planChildId={planChildId}
+                  planChildName={planChildName}
                 />
               );
             }

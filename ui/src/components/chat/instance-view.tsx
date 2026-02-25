@@ -92,6 +92,9 @@ export function InstanceView() {
   } = useInstanceMessages();
 
   const instance = instances.find((i) => i.id === id);
+  const planChild = instance?.sessionId
+    ? instances.find((i) => i.parentSessionId === instance.sessionId)
+    : undefined;
 
   // Track which instance we're viewing (independent of connection)
   useEffect(() => {
@@ -201,10 +204,12 @@ export function InstanceView() {
         showThinkingIndicator={showThinkingIndicator}
         instanceStatus={instance.status}
         onSendMessage={handleSend}
-        isInteractive={true}
+        isInteractive={!isStopped}
         onApproveTool={handleApproveTool}
         approvedTools={approvedTools}
         isExternal={!!instance.sessionId}
+        planChildId={planChild?.id}
+        planChildName={planChild?.name}
       />
       {showDebugPaste && (
         <DebugModal

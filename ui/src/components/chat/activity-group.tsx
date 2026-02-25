@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ActivityEntry } from "./activity-entry";
 import type { ActivityMessage } from "@shared/types";
+import { INTERACTIVE_TOOLS } from "@shared/tools";
 
 const VISIBLE_COUNT = 3;
 
@@ -12,9 +13,13 @@ interface ActivityGroupProps {
   onApproveTool?: (tool: string) => void;
   approvedTools?: Set<string>;
   isExternal?: boolean;
+  /** Resolution from a tool_result in the next activity group (cross-group). */
+  trailingResolution?: "approved" | "dismissed" | "feedback";
+  /** Hide the leading tool_result (consumed by the previous group's resolution). */
+  skipLeadingResult?: boolean;
+  planChildId?: string;
+  planChildName?: string;
 }
-
-const INTERACTIVE_TOOLS = ["AskUserQuestion", "ExitPlanMode", "EnterPlanMode"];
 
 export function ActivityGroup({
   activities,
@@ -23,6 +28,10 @@ export function ActivityGroup({
   onApproveTool,
   approvedTools,
   isExternal,
+  trailingResolution,
+  skipLeadingResult,
+  planChildId,
+  planChildName,
 }: ActivityGroupProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -47,10 +56,40 @@ export function ActivityGroup({
     });
   }
 
+  // Detect interactive tool_uses resolved from the terminal.
+  // The subsequent tool_result carries a `resolution` field set by the backend:
+  //   "approved" — user approved plan / answered question
+  //   "dismissed" — user cleared context or rejected without feedback
+  //   "feedback" — user rejected with change requests
+  const resolvedInteractive = new Map<number, "approved" | "dismissed" | "feedback">();
+  const hiddenResults = new Set<number>();
+  let lastInteractiveIdx = -1;
+  for (let i = 0; i < activities.length; i++) {
+    const act = activities[i];
+    if (act.activity === "tool_use" && INTERACTIVE_TOOLS.has(act.tool || "")) {
+      lastInteractiveIdx = i;
+    } else if (act.activity === "tool_result" && lastInteractiveIdx >= 0) {
+      resolvedInteractive.set(lastInteractiveIdx, act.resolution || "approved");
+      hiddenResults.add(i); // hide the redundant "Tool completed" line
+      lastInteractiveIdx = -1;
+    }
+  }
+
+  // Cross-group resolution: the tool_result landed in the NEXT activity group.
+  // MessageList passes trailingResolution for the unmatched interactive tool_use.
+  if (lastInteractiveIdx >= 0 && trailingResolution) {
+    resolvedInteractive.set(lastInteractiveIdx, trailingResolution);
+  }
+
+  // Hide a leading tool_result that was consumed by the previous group's resolution.
+  if (skipLeadingResult && activities[0]?.activity === "tool_result") {
+    hiddenResults.add(0);
+  }
+
   // Build visible list preserving original indices for key stability
   const visible = activities
     .map((act, i) => ({ act, origIndex: i }))
-    .filter(({ origIndex }) => !superseded.has(origIndex));
+    .filter(({ origIndex }) => !superseded.has(origIndex) && !hiddenResults.has(origIndex));
 
   const hiddenCount = visible.length - VISIBLE_COUNT;
   const rendered = hiddenCount > 0 && !expanded ? visible.slice(hiddenCount) : visible;
@@ -96,7 +135,7 @@ export function ActivityGroup({
             isExternal &&
             act.activity === "tool_use" &&
             vi === rendered.length - 1 &&
-            INTERACTIVE_TOOLS.includes(act.tool || "");
+            INTERACTIVE_TOOLS.has(act.tool || "");
           return (
             <motion.div
               key={`activity-${origIndex}`}
@@ -116,7 +155,12 @@ export function ActivityGroup({
                 inputDescription={act.inputDescription}
                 isExternalPending={isPendingInTerminal}
                 {...(act.tool === "AskUserQuestion" || act.tool === "ExitPlanMode"
-                  ? { onSendMessage, isInteractive }
+                  ? {
+                      onSendMessage,
+                      isInteractive: resolvedInteractive.has(origIndex) ? false : isInteractive,
+                      resolution: resolvedInteractive.get(origIndex),
+                      ...(act.tool === "ExitPlanMode" ? { planChildId, planChildName } : {}),
+                    }
                   : {})}
                 {...(act.permissionDenied
                   ? {

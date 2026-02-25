@@ -54,6 +54,7 @@ import {
   extractToolResultText,
   isPermissionDenial,
   INTERACTIVE_TOOLS,
+  buildToolResultActivity,
   estimateCost,
 } from "./tools.js";
 import {
@@ -2010,24 +2011,10 @@ export class InstanceManager extends EventEmitter {
       }
       // Other task tool results — skip
     } else {
-      const denied = block.is_error && isPermissionDenial(blockContent);
-      const deniedTool = denied
-        ? ctx.pendingTools?.get(block.tool_use_id || "") || "Unknown"
-        : undefined;
+      const toolName = ctx.pendingTools?.get(block.tool_use_id || "");
       results.push({
         timestamp,
-        message: {
-          type: "activity",
-          activity: "tool_result",
-          description: deniedTool
-            ? "Permission denied"
-            : block.is_error
-              ? "Tool error"
-              : "Tool completed",
-          tool: deniedTool,
-          detail: blockContent.slice(0, 200) || undefined,
-          permissionDenied: deniedTool,
-        } as ActivityMessage,
+        message: buildToolResultActivity(block.is_error, toolName, blockContent),
       });
     }
   }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link, useParams } from "@tanstack/react-router";
 import { escapeHtml, getCollapsedDetail } from "../../lib/utils";
 import hljs from "../../lib/markdown";
 import { MarkdownContent } from "./markdown-content";
@@ -74,6 +75,9 @@ interface ActivityEntryProps {
   onApproveTool?: (tool: string) => void;
   approvedTools?: Set<string>;
   isExternalPending?: boolean;
+  resolution?: "approved" | "dismissed" | "feedback";
+  planChildId?: string;
+  planChildName?: string;
 }
 
 function ActivityIcon({ type }: { type: ActivityEntryProps["activity"] }) {
@@ -366,12 +370,26 @@ function PlanApprovalContent({
   plan,
   onSendMessage,
   isInteractive,
+  resolution,
+  planChildId,
+  planChildName,
 }: {
   plan: string;
   onSendMessage?: (text: string) => void;
   isInteractive?: boolean;
+  resolution?: "approved" | "dismissed" | "feedback";
+  planChildId?: string;
+  planChildName?: string;
 }) {
-  const [state, setState] = useState<"pending" | "approved" | "editing" | "sent">("pending");
+  const { projectId } = useParams({ strict: false }) as { projectId?: string };
+  const initialState = planChildId
+    ? "approved"
+    : resolution === "approved"
+      ? "approved"
+      : resolution === "feedback" || resolution === "dismissed"
+        ? "sent"
+        : "pending";
+  const [state, setState] = useState<"pending" | "approved" | "editing" | "sent">(initialState);
   const [feedback, setFeedback] = useState("");
   const canAct = isInteractive && !!onSendMessage && state === "pending";
 
@@ -428,13 +446,24 @@ function PlanApprovalContent({
           </div>
         )}
         {state === "approved" && (
-          <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[0.75rem] font-medium text-accent w-fit">
-            Approved
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[0.75rem] font-medium text-accent w-fit">
+              {planChildId ? "Plan approved" : "Approved"}
+            </span>
+            {planChildId && projectId && (
+              <Link
+                to="/projects/$projectId/chats/$chatId"
+                params={{ projectId, chatId: planChildId }}
+                className="text-[0.75rem] font-medium text-accent hover:underline"
+              >
+                Continued in {planChildName || "child session"}
+              </Link>
+            )}
+          </div>
         )}
         {state === "sent" && (
           <span className="rounded-md bg-warning/15 px-2 py-0.5 text-[0.75rem] font-medium text-warning w-fit">
-            Changes requested
+            {resolution === "dismissed" ? "Dismissed" : "Changes requested"}
           </span>
         )}
       </div>
@@ -447,11 +476,17 @@ function ToolContent({
   input,
   onSendMessage,
   isInteractive,
+  resolution,
+  planChildId,
+  planChildName,
 }: {
   tool: string;
   input: Record<string, unknown>;
   onSendMessage?: (text: string) => void;
   isInteractive?: boolean;
+  resolution?: "approved" | "dismissed" | "feedback";
+  planChildId?: string;
+  planChildName?: string;
 }) {
   switch (tool) {
     case "Edit": {
@@ -535,6 +570,9 @@ function ToolContent({
             plan={plan}
             onSendMessage={onSendMessage}
             isInteractive={isInteractive}
+            resolution={resolution}
+            planChildId={planChildId}
+            planChildName={planChildName}
           />
         );
       }
@@ -567,6 +605,9 @@ export function ActivityEntry({
   onApproveTool,
   approvedTools,
   isExternalPending,
+  resolution,
+  planChildId,
+  planChildName,
 }: ActivityEntryProps) {
   const hasRichContent = !!input && !!tool;
   const isPermDenied = !!permissionDenied;
@@ -655,6 +696,9 @@ export function ActivityEntry({
             input={input!}
             onSendMessage={onSendMessage}
             isInteractive={isInteractive}
+            resolution={resolution}
+            planChildId={planChildId}
+            planChildName={planChildName}
           />
         </div>
       )}
