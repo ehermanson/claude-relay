@@ -42,6 +42,7 @@ import type {
   FileChange,
   SessionStats,
   TeamInfo,
+  AgentActivity,
   ProjectArtifacts,
   ProjectPlan,
   McpServerConfig,
@@ -113,6 +114,8 @@ interface Instance {
   files?: Map<string, FileChange>;
   /** Team orchestration state for team_info activity rendering */
   team?: TeamInfo;
+  /** Agent activity state from progress events */
+  agentActivities?: Map<string, AgentActivity>;
   /** Queued retry message when tool approval arrives while process is still running */
   pendingRetry?: string;
   /** Path to the git worktree (if this instance runs in isolation) */
@@ -591,11 +594,12 @@ export class InstanceManager extends EventEmitter {
 
       // Parse existing history so the UI shows the full conversation
       if (existsSync(jsonlPath)) {
-        const { history, tasks, files, team, stats } = this.parseJsonl(jsonlPath);
+        const { history, tasks, files, team, agentActivities, stats } = this.parseJsonl(jsonlPath);
         instance.history = history;
         if (tasks.size > 0) instance.tasks = tasks;
         if (files.size > 0) instance.files = files;
         if (team) instance.team = team;
+        if (agentActivities.size > 0) instance.agentActivities = agentActivities;
         if (stats.costUSD > 0) info.stats = stats;
 
         // Start JSONL watcher
@@ -1715,7 +1719,7 @@ export class InstanceManager extends EventEmitter {
     jsonlPath: string,
     parentSessionId?: string,
   ): void {
-    const { cwd, history, tasks, files, team, stats } = this.parseJsonl(jsonlPath);
+    const { cwd, history, tasks, files, team, agentActivities, stats } = this.parseJsonl(jsonlPath);
     if (!cwd) return; // Can't determine working directory
 
     // Detect relay worktree paths and resolve the original project directory
@@ -1782,6 +1786,7 @@ export class InstanceManager extends EventEmitter {
       tasks: tasks.size > 0 ? tasks : undefined,
       files: files.size > 0 ? files : undefined,
       team: team ?? undefined,
+      agentActivities: agentActivities.size > 0 ? agentActivities : undefined,
       worktreePath,
       gitBranch,
       originalDirectory,
@@ -1890,6 +1895,7 @@ export class InstanceManager extends EventEmitter {
     tasks: Map<string, TaskItem>;
     files: Map<string, FileChange>;
     team: TeamInfo | null;
+    agentActivities: Map<string, AgentActivity>;
     stats: SessionStats;
   } {
     let cwd = "";
@@ -1912,6 +1918,7 @@ export class InstanceManager extends EventEmitter {
         tasks: new Map(),
         files: new Map(),
         team: null,
+        agentActivities: new Map(),
         stats: zeroStats,
       };
     }
@@ -1922,6 +1929,7 @@ export class InstanceManager extends EventEmitter {
       tasks: new Map<string, TaskItem>(),
       files: new Map<string, FileChange>(),
       team: null as TeamInfo | null,
+      agentActivities: new Map<string, AgentActivity>(),
       stats: { ...zeroStats },
     };
     let lastCompactBoundaryIndex = -1;
@@ -1940,6 +1948,13 @@ export class InstanceManager extends EventEmitter {
 
         const converted = this.convertJsonlEntry(entry, ctx);
         for (const h of converted) {
+          // Agent activity is high-frequency — tracked in ctx.agentActivities, skip history
+          if (
+            h.message.type === "activity" &&
+            (h.message as ActivityMessage).activity === "agent_activity"
+          ) {
+            continue;
+          }
           history.push(h);
         }
       } catch {
@@ -1963,6 +1978,7 @@ export class InstanceManager extends EventEmitter {
       tasks: ctx.tasks,
       files: ctx.files,
       team: ctx.team,
+      agentActivities: ctx.agentActivities,
       stats: ctx.stats,
     };
   }
@@ -2053,6 +2069,7 @@ export class InstanceManager extends EventEmitter {
       tasks?: Map<string, TaskItem>;
       files?: Map<string, FileChange>;
       team?: TeamInfo | null;
+      agentActivities?: Map<string, AgentActivity>;
       stats?: SessionStats;
     },
   ): HistoryEntry[] {
@@ -2314,6 +2331,71 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
+    // Handle progress events (agent_progress, bash_progress)
+    const entryAny = entry as Record<string, unknown>;
+    if (entryAny.type === "progress" && entryAny.data && ctx) {
+      const data = entryAny.data as Record<string, unknown>;
+      const dataType = data.type as string | undefined;
+      if (dataType === "agent_progress" && entryAny.agentId && ctx.agentActivities) {
+        const agentId = entryAny.agentId as string;
+        const existing = ctx.agentActivities.get(agentId) || {
+          agentId,
+          updatedAt: timestamp,
+        };
+
+        // Extract info from data.message.message.content blocks
+        const msg = data.message as
+          | {
+              message?: {
+                content?: Array<{ type: string; name?: string; text?: string; input?: unknown }>;
+              };
+            }
+          | undefined;
+        const content = msg?.message?.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === "tool_use" && block.name) {
+              existing.tool = block.name;
+              existing.description = describeToolUse(
+                block.name,
+                block.input as Record<string, unknown> | undefined,
+              );
+            } else if (block.type === "text" && block.text) {
+              existing.lastOutput = block.text.length > 200 ? block.text.slice(-200) : block.text;
+            }
+          }
+        }
+
+        existing.updatedAt = timestamp;
+        ctx.agentActivities.set(agentId, existing);
+        results.push({
+          timestamp,
+          message: {
+            type: "activity",
+            activity: "agent_activity",
+            description: "Agent activity",
+            agentActivities: Array.from(ctx.agentActivities.values()).map((a) => ({ ...a })),
+          } as ActivityMessage,
+        });
+      } else if (dataType === "bash_progress") {
+        const elapsed = data.elapsed_seconds as number | undefined;
+        const output = data.output as string | undefined;
+        if (elapsed != null) {
+          results.push({
+            timestamp,
+            message: {
+              type: "activity",
+              activity: "tool_use",
+              tool: "Bash",
+              description: `Running... ${Math.round(elapsed)}s`,
+              detail: output ? (output.length > 300 ? output.slice(-300) : output) : undefined,
+            } as ActivityMessage,
+          });
+        }
+      }
+      // hook_progress: skip
+    }
+
     return results;
   }
 
@@ -2452,12 +2534,14 @@ export class InstanceManager extends EventEmitter {
             const entry = JSON.parse(line);
             if (!instance.tasks) instance.tasks = new Map();
             if (!instance.files) instance.files = new Map();
+            if (!instance.agentActivities) instance.agentActivities = new Map();
             const prevCost = instance.watchState.stats.costUSD;
             const converted = this.convertJsonlEntry(entry, {
               pendingTools: instance.watchState.pendingTools,
               pendingTaskCreates: instance.watchState.pendingTaskCreates,
               tasks: instance.tasks,
               files: instance.files,
+              agentActivities: instance.agentActivities,
               stats: instance.watchState.stats,
             });
             // If stats changed, update instance info and broadcast
@@ -2466,10 +2550,27 @@ export class InstanceManager extends EventEmitter {
               this.emit("instance:status", instanceId, { ...instance.info });
             }
             for (const histEntry of converted) {
-              this.pushHistory(instance, histEntry.message);
+              const msg = histEntry.message;
+
+              // Agent activity is high-frequency — skip history, just update state and emit
+              if (
+                msg.type === "activity" &&
+                (msg as ActivityMessage).activity === "agent_activity" &&
+                (msg as ActivityMessage).agentActivities
+              ) {
+                const activity = msg as ActivityMessage;
+                if (!instance.agentActivities) instance.agentActivities = new Map();
+                instance.agentActivities.clear();
+                for (const a of activity.agentActivities!) {
+                  instance.agentActivities.set(a.agentId, { ...a });
+                }
+                this.emit("instance:activity", instanceId, activity);
+                continue;
+              }
+
+              this.pushHistory(instance, msg);
               instance.info.lastActivityAt = Date.now();
 
-              const msg = histEntry.message;
               if (msg.type === "output") {
                 const output = msg as OutputMessage;
                 if (output.isWaiting) {
@@ -2888,7 +2989,9 @@ export class InstanceManager extends EventEmitter {
         continue;
       }
 
-      const { history, tasks, files, team, stats } = this.parseJsonl(entry.jsonl_path);
+      const { history, tasks, files, team, agentActivities, stats } = this.parseJsonl(
+        entry.jsonl_path,
+      );
       const parsedStats = stats.costUSD > 0 ? stats : undefined;
 
       const lastMessage = extractLastMessage(history);
@@ -2943,6 +3046,7 @@ export class InstanceManager extends EventEmitter {
           tasks: tasks.size > 0 ? tasks : undefined,
           files: files.size > 0 ? files : undefined,
           team: team ?? undefined,
+          agentActivities: agentActivities.size > 0 ? agentActivities : undefined,
           worktreePath: extWorktreePath,
           gitBranch: extGitBranch,
           originalDirectory: extOriginalDir,
@@ -3036,6 +3140,7 @@ export class InstanceManager extends EventEmitter {
           tasks: tasks.size > 0 ? tasks : undefined,
           files: files.size > 0 ? files : undefined,
           team: team ?? undefined,
+          agentActivities: agentActivities.size > 0 ? agentActivities : undefined,
           worktreePath: restoreWorktreePath,
           gitBranch: restoreGitBranch,
           originalDirectory: restoreOriginalDirectory,
@@ -3151,6 +3256,17 @@ export class InstanceManager extends EventEmitter {
       // Sync team state from process to instance
       if (message.activity === "team_info" && message.team) {
         instance.team = { ...message.team, members: message.team.members.map((m) => ({ ...m })) };
+      }
+      // Sync agent activity state from process to instance
+      if (message.activity === "agent_activity" && message.agentActivities) {
+        if (!instance.agentActivities) instance.agentActivities = new Map();
+        instance.agentActivities.clear();
+        for (const a of message.agentActivities) {
+          instance.agentActivities.set(a.agentId, { ...a });
+        }
+        // Agent activity is high-frequency — skip history, just emit to subscribers
+        this.emit("instance:activity", id, message);
+        return;
       }
       // Track permission denials for the banner
       if (message.permissionDenied) {

@@ -86,6 +86,7 @@ export function InstanceView() {
     currentTasks,
     currentFiles,
     currentTeam,
+    currentAgentActivities,
     handleMessage,
     setInstanceId,
     showThinking,
@@ -462,6 +463,7 @@ export function InstanceView() {
               tasks={currentTasks}
               files={currentFiles}
               team={currentTeam}
+              agentActivities={currentAgentActivities}
               workingDirectory={instance.workingDirectory}
               onClose={handleDismissSidecar}
             />
@@ -477,6 +479,7 @@ export function InstanceView() {
           tasks={currentTasks}
           files={currentFiles}
           team={currentTeam}
+          agentActivities={currentAgentActivities}
           workingDirectory={instance.workingDirectory}
           onClose={() => setSidecarMobileOpen(false)}
           isMobileOverlay

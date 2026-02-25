@@ -6,6 +6,7 @@ import type {
   TaskItem,
   FileChange,
   TeamInfo,
+  AgentActivity,
 } from "@shared/types";
 
 const IMAGE_ONLY_PATTERN = /^\s*(\[Image: source: [^\]]+\]\s*)+$/;
@@ -30,6 +31,7 @@ interface State {
   currentTasks: TaskItem[] | null;
   currentFiles: FileChange[] | null;
   currentTeam: TeamInfo | null;
+  currentAgentActivities: AgentActivity[] | null;
 }
 
 type Action =
@@ -53,6 +55,7 @@ function reducer(state: State, action: Action): State {
         currentTasks: null,
         currentFiles: null,
         currentTeam: null,
+        currentAgentActivities: null,
       };
 
     case "replay": {
@@ -64,6 +67,7 @@ function reducer(state: State, action: Action): State {
       let currentTasks: TaskItem[] | null = null;
       let currentFiles: FileChange[] | null = null;
       let currentTeam: TeamInfo | null = null;
+      let currentAgentActivities: AgentActivity[] | null = null;
 
       const flushActivities = () => {
         if (currentActivities.length > 0) {
@@ -123,6 +127,8 @@ function reducer(state: State, action: Action): State {
               currentFiles = msg.files;
             } else if (msg.activity === "team_info" && msg.team) {
               currentTeam = msg.team;
+            } else if (msg.activity === "agent_activity" && msg.agentActivities) {
+              currentAgentActivities = msg.agentActivities;
             } else {
               currentActivities.push(msg);
             }
@@ -161,6 +167,7 @@ function reducer(state: State, action: Action): State {
         currentTasks,
         currentFiles,
         currentTeam,
+        currentAgentActivities,
       };
     }
 
@@ -222,6 +229,11 @@ function reducer(state: State, action: Action): State {
           isProcessing: true,
           showThinkingIndicator: true,
           currentTeam: action.message.team,
+        };
+      } else if (action.message.activity === "agent_activity" && action.message.agentActivities) {
+        return {
+          ...state,
+          currentAgentActivities: action.message.agentActivities,
         };
       } else {
         const items = [...state.items];
@@ -315,6 +327,7 @@ export function useInstanceMessages() {
     currentTasks: null,
     currentFiles: null,
     currentTeam: null,
+    currentAgentActivities: null,
   });
   const instanceIdRef = useRef<string | null>(null);
 
@@ -390,6 +403,7 @@ export function useInstanceMessages() {
     currentTasks: state.currentTasks,
     currentFiles: state.currentFiles,
     currentTeam: state.currentTeam,
+    currentAgentActivities: state.currentAgentActivities,
     handleMessage,
     setInstanceId,
     showThinking,

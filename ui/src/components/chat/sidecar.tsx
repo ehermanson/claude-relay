@@ -4,7 +4,7 @@ import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
-import type { TaskItem, FileChange, TeamInfo, TeamMember } from "@shared/types";
+import type { TaskItem, FileChange, TeamInfo, TeamMember, AgentActivity } from "@shared/types";
 
 function StatusIcon({ status }: { status: TaskItem["status"] }) {
   switch (status) {
@@ -138,9 +138,31 @@ function relativePath(filePath: string, cwd: string): string {
   return filePath;
 }
 
-function TeamPanel({ team }: { team: TeamInfo }) {
+function TeamPanel({
+  team,
+  agentActivities,
+}: {
+  team: TeamInfo;
+  agentActivities?: AgentActivity[] | null;
+}) {
   const running = team.members.filter((m) => m.status === "running").length;
   const total = team.members.length;
+
+  // Build a lookup from agentActivities for matching to members.
+  // Agent IDs from progress events may not match member names directly,
+  // so we show unmatched activities as a separate section.
+  const activityByName = new Map<string, AgentActivity>();
+  const unmatchedActivities: AgentActivity[] = [];
+  if (agentActivities) {
+    const memberNames = new Set(team.members.map((m) => m.name));
+    for (const a of agentActivities) {
+      if (memberNames.has(a.agentId)) {
+        activityByName.set(a.agentId, a);
+      } else {
+        unmatchedActivities.push(a);
+      }
+    }
+  }
 
   return (
     <>
@@ -158,23 +180,48 @@ function TeamPanel({ team }: { team: TeamInfo }) {
       {/* Member list */}
       <div className="flex-1 overflow-y-auto px-2 py-1">
         <div className="flex flex-col gap-px">
-          {team.members.map((member) => (
+          {team.members.map((member) => {
+            const activity = activityByName.get(member.name);
+            return (
+              <div
+                key={member.name}
+                className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug"
+              >
+                <div className="mt-px">
+                  <MemberStatusIcon status={member.status} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div
+                    className={`truncate font-medium ${
+                      member.status === "shutdown" ? "text-muted line-through" : "text-text"
+                    }`}
+                  >
+                    {member.name}
+                  </div>
+                  <div className="truncate text-[0.75rem] text-muted">
+                    {activity?.description || member.subagentType}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Unmatched agent activities (agentId doesn't match any member name) */}
+          {unmatchedActivities.map((a) => (
             <div
-              key={member.name}
+              key={a.agentId}
               className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug"
             >
               <div className="mt-px">
-                <MemberStatusIcon status={member.status} />
+                <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
+                  <Spinner size={14} />
+                </div>
               </div>
               <div className="min-w-0 flex-1">
-                <div
-                  className={`truncate font-medium ${
-                    member.status === "shutdown" ? "text-muted line-through" : "text-text"
-                  }`}
-                >
-                  {member.name}
+                <div className="truncate font-medium text-text">{a.agentId}</div>
+                <div className="truncate text-[0.75rem] text-muted">
+                  {a.description || "Working..."}
                 </div>
-                <div className="truncate text-[0.75rem] text-muted">{member.subagentType}</div>
               </div>
             </div>
           ))}
@@ -279,6 +326,7 @@ interface SidecarProps {
   tasks: TaskItem[] | null;
   files: FileChange[] | null;
   team: TeamInfo | null;
+  agentActivities?: AgentActivity[] | null;
   workingDirectory: string;
   onClose: () => void;
   isMobileOverlay?: boolean;
@@ -288,6 +336,7 @@ export function Sidecar({
   tasks,
   files,
   team,
+  agentActivities,
   workingDirectory,
   onClose,
   isMobileOverlay,
@@ -353,7 +402,9 @@ export function Sidecar({
       </div>
 
       {/* Panel content */}
-      {effectiveTab === "team" && hasTeam && <TeamPanel team={team} />}
+      {effectiveTab === "team" && hasTeam && (
+        <TeamPanel team={team} agentActivities={agentActivities} />
+      )}
       {effectiveTab === "tasks" && hasTasks && <TasksPanel tasks={tasks} />}
       {effectiveTab === "files" && hasFiles && <FilesPanel files={files} cwd={workingDirectory} />}
     </div>

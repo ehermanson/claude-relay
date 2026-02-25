@@ -227,9 +227,28 @@ export interface TeamInfo {
   members: TeamMember[];
 }
 
+export interface AgentActivity {
+  agentId: string;
+  /** Latest activity description (e.g. "Reading auth.ts") */
+  description?: string;
+  /** Latest tool name */
+  tool?: string;
+  /** Latest output text (truncated) */
+  lastOutput?: string;
+  /** Timestamp of last progress event */
+  updatedAt: number;
+}
+
 export interface ActivityMessage {
   type: "activity";
-  activity: "tool_use" | "tool_result" | "thinking" | "task_list" | "file_list" | "team_info";
+  activity:
+    | "tool_use"
+    | "tool_result"
+    | "thinking"
+    | "task_list"
+    | "file_list"
+    | "team_info"
+    | "agent_activity";
   tool?: string;
   description: string;
   detail?: string;
@@ -241,6 +260,7 @@ export interface ActivityMessage {
   tasks?: TaskItem[];
   files?: FileChange[];
   team?: TeamInfo;
+  agentActivities?: AgentActivity[];
   inputDescription?: string;
 }
 

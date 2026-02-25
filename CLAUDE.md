@@ -136,6 +136,12 @@ ui/
 - Generalized N-tab support: available tabs built from content (Team > Tasks > Files priority order)
 - 0 tabs → hidden, 1 tab → no tab bar (just header), 2-3 tabs → tab bar with counts
 - Layout: `[Sidebar] [Chat | Sidecar]` — sidecar appears when tasks, files, or team exist; dismiss/un-dismiss based on combined content count
+- **Agent Progress:** Claude Code emits `progress` JSONL events (v2.1.42+) with subtypes `agent_progress`, `bash_progress`, `hook_progress`
+- `agent_progress`: Parsed by ClaudeProcess (`handleAgentProgress`) and `convertJsonlEntry`. Extracts tool descriptions and text output from `data.message.message.content` blocks. Stored in `agentActivityMap` (ClaudeProcess) / `instance.agentActivities` (InstanceManager). Emits `agent_activity` ActivityMessage with `AgentActivity[]`.
+- `bash_progress`: Emits a `tool_use` activity with elapsed time description (e.g. "Running... 15s")
+- `hook_progress`: Silently skipped — no user value
+- Agent activities are high-frequency — skipped from history storage but synced to instance state and emitted to WS subscribers
+- UI: `useInstanceMessages` exposes `currentAgentActivities`; `TeamPanel` in sidecar shows live descriptions under team members (matched by agentId), with unmatched agents shown as a separate list
 
 ### Resizable Panels
 

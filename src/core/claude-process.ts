@@ -16,6 +16,7 @@ import type {
   FileChange,
   SessionStats,
   TeamInfo,
+  AgentActivity,
 } from "./types.js";
 import type { CoreConfig } from "./config.js";
 import {
@@ -74,6 +75,7 @@ export class ClaudeProcess extends EventEmitter {
   private pendingTaskCreates = new Map<string, { subject: string; activeForm?: string }>();
   private fileMap = new Map<string, FileChange>();
   private teamState: TeamInfo | null = null;
+  private agentActivityMap = new Map<string, AgentActivity>();
   private _cancelledForPermission = false;
   private _preferredModel: string | null = null;
   private _stats: SessionStats = {
@@ -217,6 +219,65 @@ export class ClaudeProcess extends EventEmitter {
       activity: "team_info",
       description: "Team",
       team: { ...this.teamState, members: this.teamState.members.map((m) => ({ ...m })) },
+    };
+    this.emit("activity", activity);
+  }
+
+  private emitAgentActivity(): void {
+    const activity: ActivityMessage = {
+      type: "activity",
+      activity: "agent_activity",
+      description: "Agent activity",
+      agentActivities: Array.from(this.agentActivityMap.values()).map((a) => ({ ...a })),
+    };
+    this.emit("activity", activity);
+  }
+
+  private handleAgentProgress(agentId: string, data: Record<string, unknown>): void {
+    if (!agentId) return;
+    const existing = this.agentActivityMap.get(agentId) || {
+      agentId,
+      updatedAt: Date.now(),
+    };
+
+    // Extract info from data.message.message.content blocks (same structure as assistant messages)
+    const message = data.message as
+      | {
+          message?: {
+            content?: Array<{ type: string; name?: string; text?: string; input?: unknown }>;
+          };
+        }
+      | undefined;
+    const content = message?.message?.content;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === "tool_use" && block.name) {
+          existing.tool = block.name;
+          existing.description = describeToolUse(
+            block.name,
+            block.input as Record<string, unknown> | undefined,
+          );
+        } else if (block.type === "text" && block.text) {
+          existing.lastOutput = block.text.length > 200 ? block.text.slice(-200) : block.text;
+        }
+      }
+    }
+
+    existing.updatedAt = Date.now();
+    this.agentActivityMap.set(agentId, existing);
+    this.emitAgentActivity();
+  }
+
+  private handleBashProgress(data: Record<string, unknown>): void {
+    const elapsed = data.elapsed_seconds as number | undefined;
+    const output = data.output as string | undefined;
+    if (elapsed == null) return;
+    const activity: ActivityMessage = {
+      type: "activity",
+      activity: "tool_use",
+      tool: "Bash",
+      description: `Running... ${Math.round(elapsed)}s`,
+      detail: output ? (output.length > 300 ? output.slice(-300) : output) : undefined,
     };
     this.emit("activity", activity);
   }
@@ -597,6 +658,14 @@ export class ClaudeProcess extends EventEmitter {
             if (event.usage && event.model) {
               this.accumulateUsage(event.model, event.usage);
             }
+          } else if (event.type === "progress" && event.data) {
+            const dataType = (event.data as Record<string, unknown>).type;
+            if (dataType === "agent_progress") {
+              this.handleAgentProgress(event.agentId, event.data as Record<string, unknown>);
+            } else if (dataType === "bash_progress") {
+              this.handleBashProgress(event.data as Record<string, unknown>);
+            }
+            // hook_progress: skip
           } else {
             this.config.logger.debug(`[Claude] event: ${event.type}`);
           }
