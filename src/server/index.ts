@@ -73,7 +73,8 @@ export class ClaudeRelay {
   /**
    * Start listening for connections.
    */
-  start(): Promise<void> {
+  async start(): Promise<void> {
+    await this.instanceManager.initSdkProvider();
     this.instanceManager.restoreInstances();
     this.instanceManager.startDiscovery();
     return new Promise((resolve) => {

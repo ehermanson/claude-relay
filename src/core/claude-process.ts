@@ -19,6 +19,7 @@ import type {
   AgentActivity,
 } from "./types.js";
 import type { CoreConfig } from "./config.js";
+import type { ProviderSession } from "./provider.js";
 import {
   describeToolUse,
   describeToolDetail,
@@ -61,8 +62,10 @@ const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
 /**
  * Manages Claude Code using print mode for clean output.
+ * Implements ProviderSession so InstanceManager can treat it
+ * identically to the SDK-based provider.
  */
-export class ClaudeProcess extends EventEmitter {
+export class ClaudeProcess extends EventEmitter implements ProviderSession {
   private currentProcess: ChildProcess | null = null;
   private _isProcessing = false;
   private claudePath: string;
@@ -752,6 +755,11 @@ export class ClaudeProcess extends EventEmitter {
     }
   }
 
+  /** ProviderSession: interrupt the current turn (alias for cancel). */
+  interrupt(): void {
+    this.cancel();
+  }
+
   /**
    * Kill the process immediately (SIGKILL).
    */
@@ -761,5 +769,10 @@ export class ClaudeProcess extends EventEmitter {
       this.currentProcess = null;
       this._isProcessing = false;
     }
+  }
+
+  /** ProviderSession: close the session and release resources (alias for kill). */
+  close(): void {
+    this.kill();
   }
 }

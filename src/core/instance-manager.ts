@@ -2,7 +2,7 @@
  * Instance Manager for Claude Relay
  *
  * Manages multiple Claude Code instances, each with its own
- * ClaudeProcess, metadata, and conversation history.
+ * provider session (SDK or CLI), metadata, and conversation history.
  *
  * Also discovers and monitors externally-running Claude Code sessions
  * by watching ~/.claude/session-env/ and their JSONL transcript files.
@@ -24,6 +24,9 @@ import { join, resolve } from "path";
 import { homedir } from "os";
 import { execSync, execFileSync } from "child_process";
 import { ClaudeProcess } from "./claude-process.js";
+import type { ProviderSession } from "./provider.js";
+import { createSdkSessionSync, resolveQueryFn } from "./providers/claude-sdk.js";
+import type { ClaudeSdkSession } from "./providers/claude-sdk.js";
 import { SessionDB } from "./db.js";
 import type { SessionRow } from "./db.js";
 import type { CoreConfig } from "./config.js";
@@ -98,7 +101,7 @@ interface WatchState {
 
 interface Instance {
   info: InstanceInfo;
-  process: ClaudeProcess | null;
+  process: ProviderSession | null;
   history: HistoryEntry[];
   externalState?: ExternalState;
   /** JSONL file watching state — independent of external vs managed */
@@ -125,7 +128,7 @@ interface Instance {
   gitBranch?: string;
   /** Original project directory before worktree substitution */
   originalDirectory?: string;
-  /** Actual CWD passed to ClaudeProcess (worktree path or original) */
+  /** Actual CWD passed to the provider session (worktree path or original) */
   actualCwd?: string;
 }
 
@@ -480,12 +483,74 @@ export class InstanceManager extends EventEmitter {
   /** Tracks consecutive discovery misses per external instance (grace period before marking stopped) */
   private staleCounts = new Map<string, number>();
   private claudeDir: string;
+  /** Pre-resolved SDK query function — null if SDK not available (falls back to CLI) */
+  private _sdkQueryFn: ((params: { prompt: unknown; options?: unknown }) => unknown) | null = null;
 
   constructor(config: CoreConfig) {
     super();
     this.baseConfig = config;
     this.claudeDir = config.claudeDir ?? join(homedir(), ".claude");
     this.db = new SessionDB(config.dbPath, config.logger);
+  }
+
+  /**
+   * Eagerly resolve the Agent SDK's query function.
+   * Call this once at startup before creating instances.
+   * If the SDK is not installed, falls back to CLI provider silently.
+   */
+  async initSdkProvider(): Promise<void> {
+    try {
+      this._sdkQueryFn = (await resolveQueryFn()) as typeof this._sdkQueryFn;
+      this.baseConfig.logger.info("[InstanceManager] Agent SDK provider initialized");
+    } catch {
+      this.baseConfig.logger.info("[InstanceManager] Agent SDK not available, using CLI provider");
+    }
+  }
+
+  /**
+   * Create a ProviderSession — uses Agent SDK if available, falls back to CLI.
+   */
+  private createProviderSession(
+    config: CoreConfig,
+    options?: { resumeSessionId?: string; model?: string; allowedTools?: string[] },
+  ): ProviderSession {
+    if (this._sdkQueryFn) {
+      const session = createSdkSessionSync(
+        {
+          cwd: config.workingDirectory,
+          model: options?.model,
+          resumeSessionId: options?.resumeSessionId,
+          dangerouslySkipPermissions: config.dangerouslySkipPermissions,
+          logger: config.logger,
+          processTimeout: config.processTimeout,
+          allowedTools: options?.allowedTools,
+        },
+        this._sdkQueryFn as Parameters<typeof createSdkSessionSync>[1],
+      );
+      return session;
+    }
+
+    const proc = options?.resumeSessionId
+      ? new ClaudeProcess(config, {
+          resumeSessionId: options.resumeSessionId,
+          model: options?.model,
+        })
+      : new ClaudeProcess(config, { model: options?.model });
+
+    if (options?.allowedTools) {
+      for (const t of options.allowedTools) {
+        proc.addAllowedTool(t);
+      }
+    }
+
+    return proc;
+  }
+
+  /**
+   * Check if a provider session is an SDK session (has approvePermission method).
+   */
+  private isSdkSession(proc: ProviderSession): proc is ClaudeSdkSession & ProviderSession {
+    return typeof proc.approvePermission === "function";
   }
 
   // ===========================================================================
@@ -544,9 +609,10 @@ export class InstanceManager extends EventEmitter {
         options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
     };
 
-    const proc = resumeId
-      ? new ClaudeProcess(instanceConfig, { resumeSessionId: resumeId, model: options?.model })
-      : new ClaudeProcess(instanceConfig, { model: options?.model });
+    const proc = this.createProviderSession(instanceConfig, {
+      resumeSessionId: resumeId,
+      model: options?.model,
+    });
 
     // Resolve name: explicit > session summary > auto-title from first message
     let name = options?.name || "";
@@ -591,7 +657,7 @@ export class InstanceManager extends EventEmitter {
       instance.sessionId = resumeId;
       instance.jsonlPath = jsonlPath;
       info.sessionId = resumeId;
-      proc.setSessionId(resumeId);
+      proc.setSessionId?.(resumeId);
 
       // Parse existing history so the UI shows the full conversation
       if (existsSync(jsonlPath)) {
@@ -638,7 +704,7 @@ export class InstanceManager extends EventEmitter {
     if (!instance) return false;
 
     if (instance.process) {
-      instance.process.kill();
+      instance.process.close();
     }
 
     // Stop JSONL watcher
@@ -780,12 +846,15 @@ export class InstanceManager extends EventEmitter {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
     if (instance.info.external) throw new Error("Cannot cancel on external instances");
-    instance.process!.cancel();
+    instance.process!.interrupt();
   }
 
   /**
    * Approve a previously denied tool and retry. Adds the tool to the process's
    * allowed list, stores a user message, and sends a retry prompt.
+   *
+   * SDK path: resolves the deferred canUseTool promise directly — no retry needed.
+   * CLI path: queues a retry message with the tool approval context.
    */
   approveToolUse(id: string, tool: string): void {
     const instance = this.instances.get(id);
@@ -795,22 +864,14 @@ export class InstanceManager extends EventEmitter {
     // Group file-write tools: approving any one approves all three
     const isFileWrite = FILE_WRITE_GROUP.includes(tool);
     const toolsToAdd = isFileWrite ? FILE_WRITE_GROUP : [tool];
-    for (const t of toolsToAdd) {
-      instance.process!.addAllowedTool(t);
-    }
 
-    // Contextual retry message
-    const toolLabel = isFileWrite ? "file writes" : tool;
-    const retryText = `Permission granted for ${toolLabel}. Please continue.`;
     instance.info.pendingTool = undefined;
     instance.info.pendingPermission = undefined;
 
     // Persist allowed tools to DB so they survive restarts
     if (instance.sessionId) {
       try {
-        // Collect all currently allowed tools from the process
         const allTools = [...new Set(toolsToAdd)];
-        // Merge with any tools already in DB
         const row = this.db.getBySessionId(instance.sessionId);
         if (row) {
           try {
@@ -828,9 +889,25 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
+    // SDK path: resolve the deferred canUseTool promise directly
+    if (this.isSdkSession(instance.process!)) {
+      for (const t of toolsToAdd) {
+        instance.process!.addAllowedTool(t);
+      }
+      instance.process!.approvePermission!(tool);
+      this.setStatus(instance, "processing");
+      return;
+    }
+
+    // CLI path: add tools + send retry message
+    for (const t of toolsToAdd) {
+      instance.process!.addAllowedTool(t);
+    }
+
+    const toolLabel = isFileWrite ? "file writes" : tool;
+    const retryText = `Permission granted for ${toolLabel}. Please continue.`;
+
     if (instance.process!.isProcessing) {
-      // Process is still running (finishing its "I need permission..." response).
-      // Queue the retry — it will be drained when the process becomes idle.
       instance.pendingRetry = retryText;
     } else {
       const userMessage: UserMessage = { type: "user", text: retryText, instanceId: id };
@@ -843,7 +920,7 @@ export class InstanceManager extends EventEmitter {
 
   /**
    * Resume an external session — converts it from read-only monitoring
-   * to an interactive managed instance using `claude -p --resume <sessionId>`.
+   * to an interactive managed instance.
    */
   resumeInstance(id: string): InstanceInfo {
     const instance = this.instances.get(id);
@@ -857,16 +934,16 @@ export class InstanceManager extends EventEmitter {
     // The watcher suppresses emissions while the process is active (dedup),
     // and picks up terminal-side changes when the process is idle.
 
-    // Create a ClaudeProcess that resumes the session — do this BEFORE
+    // Create a provider session that resumes — do this BEFORE
     // mutating instance state so a failure leaves the instance unchanged.
     const instanceConfig: CoreConfig = {
       ...this.baseConfig,
       workingDirectory: cwd,
     };
 
-    let proc: ClaudeProcess;
+    let proc: ProviderSession;
     try {
-      proc = new ClaudeProcess(instanceConfig, { resumeSessionId: sessionId });
+      proc = this.createProviderSession(instanceConfig, { resumeSessionId: sessionId });
     } catch (err) {
       this.baseConfig.logger.error(`[InstanceManager] Failed to create process for resume: ${err}`);
       throw err;
@@ -894,7 +971,7 @@ export class InstanceManager extends EventEmitter {
       instance.process = prevProcess;
       instance.info.external = prevExternal;
       instance.externalState = prevExternalState;
-      proc.kill();
+      proc.close();
       this.baseConfig.logger.error(
         `[InstanceManager] Failed to wire resumed session, rolled back: ${err}`,
       );
@@ -911,7 +988,7 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Revive a stopped session — creates a new ClaudeProcess with --resume
+   * Revive a stopped session — creates a new provider session with resume
    * so the user can continue a previously ended conversation.
    */
   reviveInstance(id: string): InstanceInfo {
@@ -928,9 +1005,9 @@ export class InstanceManager extends EventEmitter {
       workingDirectory: cwd,
     };
 
-    let proc: ClaudeProcess;
+    let proc: ProviderSession;
     try {
-      proc = new ClaudeProcess(instanceConfig, { resumeSessionId: sessionId });
+      proc = this.createProviderSession(instanceConfig, { resumeSessionId: sessionId });
     } catch (err) {
       this.baseConfig.logger.error(`[InstanceManager] Failed to create process for revive: ${err}`);
       throw err;
@@ -943,7 +1020,7 @@ export class InstanceManager extends EventEmitter {
       this.wireProcessEvents(id, instance, proc);
     } catch (err) {
       instance.process = prevProcess;
-      proc.kill();
+      proc.close();
       this.baseConfig.logger.error(
         `[InstanceManager] Failed to wire revived session, rolled back: ${err}`,
       );
@@ -1469,7 +1546,7 @@ export class InstanceManager extends EventEmitter {
   stopAll(): void {
     for (const instance of this.instances.values()) {
       if (instance.process) {
-        instance.process.kill();
+        instance.process.close();
       }
       instance.info.status = "stopped";
       if (instance.sessionId) {
@@ -3146,17 +3223,10 @@ export class InstanceManager extends EventEmitter {
           workingDirectory: restoreActualCwd,
         };
 
-        const proc = new ClaudeProcess(instanceConfig, {
-          resumeSessionId: entry.session_id,
-          model: entry.preferred_model ?? undefined,
-        });
-
         // Restore previously approved tools from DB
+        let savedTools: string[] = [];
         try {
-          const savedTools = JSON.parse(entry.allowed_tools) as string[];
-          for (const t of savedTools) {
-            proc.addAllowedTool(t);
-          }
+          savedTools = JSON.parse(entry.allowed_tools) as string[];
           if (savedTools.length > 0) {
             this.baseConfig.logger.debug(
               `[InstanceManager] Restored ${savedTools.length} allowed tool(s) for session ${entry.session_id}`,
@@ -3165,6 +3235,12 @@ export class InstanceManager extends EventEmitter {
         } catch {
           // ignore parse errors
         }
+
+        const proc = this.createProviderSession(instanceConfig, {
+          resumeSessionId: entry.session_id,
+          model: entry.preferred_model ?? undefined,
+          allowedTools: savedTools.length > 0 ? savedTools : undefined,
+        });
 
         const info: InstanceInfo = {
           id: entry.instance_id,
@@ -3277,7 +3353,7 @@ export class InstanceManager extends EventEmitter {
   // Event wiring
   // ===========================================================================
 
-  private wireProcessEvents(id: string, instance: Instance, proc: ClaudeProcess): void {
+  private wireProcessEvents(id: string, instance: Instance, proc: ProviderSession): void {
     proc.on("output", (message) => {
       this.pushHistory(instance, message);
       instance.info.lastActivityAt = Date.now();
@@ -3382,12 +3458,20 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
-  private captureSessionId(id: string, instance: Instance, proc: ClaudeProcess): void {
+  private captureSessionId(id: string, instance: Instance, proc: ProviderSession): void {
+    const isSdk = this.isSdkSession(proc);
+
     const onOutput = (message: OutputMessage) => {
       if (!message.isWaiting) return;
 
       // One-shot: remove this listener after first capture
       proc.off("output", onOutput);
+
+      // For SDK sessions, try to get session ID from the session object first
+      let sessionId: string | undefined;
+      if (isSdk && (proc as ClaudeSdkSession).sessionId) {
+        sessionId = (proc as ClaudeSdkSession).sessionId;
+      }
 
       const cwd = instance.actualCwd || instance.info.workingDirectory;
       const encoded = cwd.replace(/\//g, "-");
@@ -3396,6 +3480,16 @@ export class InstanceManager extends EventEmitter {
       if (!existsSync(projectDir)) return;
 
       try {
+        // If we have an SDK session ID, look for that specific JSONL file
+        if (sessionId) {
+          const jsonlPath = join(projectDir, `${sessionId}.jsonl`);
+          if (existsSync(jsonlPath)) {
+            this.finalizeSessionCapture(id, instance, proc, sessionId, jsonlPath);
+            return;
+          }
+        }
+
+        // Fall back to scanning for the newest JSONL (CLI path or SDK JSONL not yet found)
         const files = readdirSync(projectDir)
           .filter((f) => f.endsWith(".jsonl"))
           .map((f) => {
@@ -3413,42 +3507,9 @@ export class InstanceManager extends EventEmitter {
 
         const newestJsonl = files[0];
         const fileName = newestJsonl.path.split("/").pop() || "";
-        const sessionId = fileName.replace(".jsonl", "");
+        const foundSessionId = fileName.replace(".jsonl", "");
 
-        instance.sessionId = sessionId;
-        instance.jsonlPath = newestJsonl.path;
-        instance.info.sessionId = sessionId;
-
-        // Feed session ID back to the process so subsequent sends use
-        // --resume <id> instead of --continue (which can pick up the wrong session).
-        proc.setSessionId(sessionId);
-
-        // Start JSONL watching so terminal-side changes are picked up.
-        // If a watcher exists on a different path (e.g. resumed session got a new JSONL),
-        // replace it. If already watching the same path, skip.
-        if (instance.watchState?.jsonlPath !== newestJsonl.path) {
-          const oldInterval = this.watchIntervals.get(id);
-          if (oldInterval) {
-            clearInterval(oldInterval);
-            this.watchIntervals.delete(id);
-          }
-          try {
-            instance.watchState = createWatchState(
-              newestJsonl.path,
-              statSync(newestJsonl.path).size,
-              instance.info.stats,
-            );
-            this.startWatching(id, instance);
-          } catch {
-            // ignore — file may have been removed between checks
-          }
-        }
-
-        this.dbSave(instance);
-
-        this.baseConfig.logger.debug(
-          `[InstanceManager] Captured session ID "${sessionId}" for instance "${instance.info.name}"`,
-        );
+        this.finalizeSessionCapture(id, instance, proc, foundSessionId, newestJsonl.path);
       } catch (err) {
         this.baseConfig.logger.debug(
           `[InstanceManager] Failed to capture session ID for "${instance.info.name}": ${err}`,
@@ -3457,6 +3518,47 @@ export class InstanceManager extends EventEmitter {
     };
 
     proc.on("output", onOutput);
+  }
+
+  private finalizeSessionCapture(
+    id: string,
+    instance: Instance,
+    proc: ProviderSession,
+    sessionId: string,
+    jsonlPath: string,
+  ): void {
+    instance.sessionId = sessionId;
+    instance.jsonlPath = jsonlPath;
+    instance.info.sessionId = sessionId;
+
+    // Feed session ID back to the CLI process so subsequent sends use
+    // --resume <id> instead of --continue (which can pick up the wrong session).
+    proc.setSessionId?.(sessionId);
+
+    // Start JSONL watching so terminal-side changes are picked up.
+    if (instance.watchState?.jsonlPath !== jsonlPath) {
+      const oldInterval = this.watchIntervals.get(id);
+      if (oldInterval) {
+        clearInterval(oldInterval);
+        this.watchIntervals.delete(id);
+      }
+      try {
+        instance.watchState = createWatchState(
+          jsonlPath,
+          statSync(jsonlPath).size,
+          instance.info.stats,
+        );
+        this.startWatching(id, instance);
+      } catch {
+        // ignore — file may have been removed between checks
+      }
+    }
+
+    this.dbSave(instance);
+
+    this.baseConfig.logger.debug(
+      `[InstanceManager] Captured session ID "${sessionId}" for instance "${instance.info.name}"`,
+    );
   }
 
   // ===========================================================================

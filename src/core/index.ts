@@ -14,6 +14,11 @@
  * ```
  */
 
+export type { ProviderSession, ProviderSessionEvents } from "./provider.js";
+
+export { createSdkSession, createSdkSessionSync, resolveQueryFn } from "./providers/index.js";
+export type { ClaudeSdkSession, ClaudeSdkSessionOptions } from "./providers/index.js";
+
 export { ClaudeProcess } from "./claude-process.js";
 export type { ClaudeProcessEvents } from "./claude-process.js";
 
