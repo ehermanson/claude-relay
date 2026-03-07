@@ -211,6 +211,10 @@ export interface FileChange {
   editCount: number;
   /** "added" when first operation was Write, "edited" for Edit/NotebookEdit */
   type: "added" | "edited";
+  /** Lines added (from git diff --numstat) */
+  additions?: number;
+  /** Lines deleted (from git diff --numstat) */
+  deletions?: number;
 }
 
 export interface TeamMember {

@@ -69,6 +69,7 @@ import {
   mergeWorktreeBranch,
   isRelayWorktreePath,
   resolveWorktreeOrigin,
+  enrichDiffStats,
 } from "./git.js";
 
 // =============================================================================
@@ -597,7 +598,17 @@ export class InstanceManager extends EventEmitter {
         const { history, tasks, files, team, agentActivities, stats } = this.parseJsonl(jsonlPath);
         instance.history = history;
         if (tasks.size > 0) instance.tasks = tasks;
-        if (files.size > 0) instance.files = files;
+        if (files.size > 0) {
+          instance.files = files;
+          const diffCwd = instance.actualCwd || instance.info.workingDirectory;
+          const origBranch = instance.originalDirectory
+            ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
+            : undefined;
+          enrichDiffStats(diffCwd, instance.files, {
+            originalBranch: origBranch,
+            sessionCreatedAt: instance.info.createdAt,
+          });
+        }
         if (team) instance.team = team;
         if (agentActivities.size > 0) instance.agentActivities = agentActivities;
         if (stats.costUSD > 0) info.stats = stats;
@@ -957,6 +968,25 @@ export class InstanceManager extends EventEmitter {
   getHistory(id: string): HistoryEntry[] {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
+
+    // If we have enriched file data on the instance, patch the last file_list
+    // activity in history so the UI gets diff stats on initial load.
+    if (instance.files && instance.files.size > 0) {
+      const enriched = Array.from(instance.files.values()).map((f) => ({ ...f }));
+      const history = [...instance.history];
+      for (let i = history.length - 1; i >= 0; i--) {
+        const msg = history[i].message;
+        if (msg.type === "activity" && (msg as ActivityMessage).activity === "file_list") {
+          history[i] = {
+            ...history[i],
+            message: { ...msg, files: enriched } as ActivityMessage,
+          };
+          break;
+        }
+      }
+      return history;
+    }
+
     return [...instance.history];
   }
 
@@ -1793,6 +1823,18 @@ export class InstanceManager extends EventEmitter {
       actualCwd: worktreePath ? cwd : undefined,
     };
 
+    // Enrich files with git diff stats
+    if (instance.files && instance.files.size > 0) {
+      const diffCwd = instance.actualCwd || workingDirectory;
+      const origBranch = originalDirectory
+        ? (getCurrentBranch(originalDirectory) ?? undefined)
+        : undefined;
+      enrichDiffStats(diffCwd, instance.files, {
+        originalBranch: origBranch,
+        sessionCreatedAt: instance.info.createdAt,
+      });
+    }
+
     this.instances.set(id, instance);
     this.startWatching(id, instance);
     this.emit("instance:created", id, { ...info });
@@ -2590,6 +2632,17 @@ export class InstanceManager extends EventEmitter {
                   instance.info.pendingTool = activity.tool;
                 } else if (activity.activity === "tool_result") {
                   instance.info.pendingTool = undefined;
+                } else if (activity.activity === "file_list" && activity.files && instance.files) {
+                  // Enrich with git diff stats for watcher path
+                  const diffCwd = instance.actualCwd || instance.info.workingDirectory;
+                  const origBranch = instance.originalDirectory
+                    ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
+                    : undefined;
+                  enrichDiffStats(diffCwd, instance.files, {
+                    originalBranch: origBranch,
+                    sessionCreatedAt: instance.info.createdAt,
+                  });
+                  activity.files = Array.from(instance.files.values()).map((f) => ({ ...f }));
                 } else if (activity.activity === "team_info" && activity.team) {
                   instance.team = {
                     ...activity.team,
@@ -3053,6 +3106,18 @@ export class InstanceManager extends EventEmitter {
           actualCwd: extWorktreePath ? extWorktreePath : undefined,
         };
 
+        // Enrich files with git diff stats
+        if (instance.files && instance.files.size > 0) {
+          const diffCwd = instance.actualCwd || entry.working_directory;
+          const origBranch = extOriginalDir
+            ? (getCurrentBranch(extOriginalDir) ?? undefined)
+            : undefined;
+          enrichDiffStats(diffCwd, instance.files, {
+            originalBranch: origBranch,
+            sessionCreatedAt: instance.info.createdAt,
+          });
+        }
+
         this.instances.set(entry.instance_id, instance);
         this.emit("instance:created", entry.instance_id, { ...info });
         restored++;
@@ -3146,6 +3211,18 @@ export class InstanceManager extends EventEmitter {
           originalDirectory: restoreOriginalDirectory,
           actualCwd: restoreWorktreePath ? restoreActualCwd : undefined,
         };
+
+        // Enrich files with git diff stats
+        if (instance.files && instance.files.size > 0) {
+          const diffCwd = instance.actualCwd || entry.working_directory;
+          const origBranch = restoreOriginalDirectory
+            ? (getCurrentBranch(restoreOriginalDirectory) ?? undefined)
+            : undefined;
+          enrichDiffStats(diffCwd, instance.files, {
+            originalBranch: origBranch,
+            sessionCreatedAt: instance.info.createdAt,
+          });
+        }
 
         this.instances.set(entry.instance_id, instance);
         this.wireProcessEvents(entry.instance_id, instance, proc);
@@ -3252,6 +3329,17 @@ export class InstanceManager extends EventEmitter {
         for (const f of message.files) {
           instance.files.set(f.path, { ...f });
         }
+        // Enrich with git diff stats
+        const diffCwd = instance.actualCwd || instance.info.workingDirectory;
+        const origBranch = instance.originalDirectory
+          ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
+          : undefined;
+        enrichDiffStats(diffCwd, instance.files, {
+          originalBranch: origBranch,
+          sessionCreatedAt: instance.info.createdAt,
+        });
+        // Update the activity message with enriched data
+        message.files = Array.from(instance.files.values()).map((f) => ({ ...f }));
       }
       // Sync team state from process to instance
       if (message.activity === "team_info" && message.team) {

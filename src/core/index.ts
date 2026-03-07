@@ -48,6 +48,7 @@ export {
   removeWorktree,
   isRelayWorktreePath,
   resolveWorktreeOrigin,
+  enrichDiffStats,
 } from "./git.js";
 
 export type {

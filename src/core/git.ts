@@ -10,6 +10,8 @@ import { existsSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { homedir } from "os";
 
+import type { FileChange } from "./types.js";
+
 const WORKTREE_BASE = join(homedir(), ".claude-relay", "worktrees");
 
 /** Pattern matching ~/.claude-relay/worktrees/<id> paths */
@@ -259,5 +261,86 @@ export function removeWorktree(repoRoot: string, worktreePath: string, branchNam
     });
   } catch {
     // Branch may already be gone — ignore
+  }
+}
+
+/**
+ * Find the commit hash that was HEAD at or before the given timestamp.
+ * Used to establish a diff baseline for a session's lifetime.
+ */
+function getBaseCommit(cwd: string, beforeTimestamp: number): string | null {
+  try {
+    const isoDate = new Date(beforeTimestamp).toISOString();
+    const hash = execFileSync("git", ["log", "--before=" + isoDate, "-1", "--format=%H"], {
+      cwd,
+      timeout: 3000,
+      encoding: "utf8" as const,
+    }).trim();
+    return hash || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get per-file diff stats (additions/deletions) for tracked files.
+ *
+ * Diffs the working tree against a base ref that captures all changes since
+ * the session started:
+ * - Worktree instances: merge-base with the original branch
+ * - Non-worktree: commit that was HEAD when the session was created
+ * - Fallback: HEAD (uncommitted changes only)
+ *
+ * Enriches the provided FileChange entries in-place with additions/deletions.
+ */
+export function enrichDiffStats(
+  cwd: string,
+  files: Map<string, FileChange>,
+  opts?: { originalBranch?: string; sessionCreatedAt?: number },
+): void {
+  try {
+    const repoRoot = getRepoRoot(cwd);
+    if (!repoRoot) return;
+
+    // Determine the base ref to diff against
+    let baseRef = "HEAD";
+    if (opts?.originalBranch) {
+      // Worktree: diff against merge-base with original branch
+      try {
+        baseRef = execFileSync("git", ["merge-base", opts.originalBranch, "HEAD"], {
+          cwd,
+          timeout: 3000,
+          encoding: "utf8" as const,
+        }).trim();
+      } catch {
+        // fall back
+      }
+    } else if (opts?.sessionCreatedAt) {
+      // Non-worktree: diff against the commit that was HEAD when session started
+      const base = getBaseCommit(cwd, opts.sessionCreatedAt);
+      if (base) baseRef = base;
+    }
+
+    const output = execFileSync("git", ["diff", baseRef, "--numstat"], {
+      cwd,
+      timeout: 5000,
+      encoding: "utf8" as const,
+    }).trim();
+
+    if (!output) return;
+
+    for (const line of output.split("\n")) {
+      if (!line) continue;
+      const parts = line.split("\t");
+      if (parts.length < 3 || parts[0] === "-") continue; // binary file
+      const absPath = join(repoRoot, parts[2]);
+      const file = files.get(absPath);
+      if (file) {
+        file.additions = parseInt(parts[0], 10);
+        file.deletions = parseInt(parts[1], 10);
+      }
+    }
+  } catch {
+    // git not available or not a repo — silently skip
   }
 }
