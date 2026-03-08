@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7;
 
 export interface SessionRow {
   session_id: string;
@@ -38,6 +38,7 @@ export interface SessionRow {
   parent_session_id: string | null;
   preferred_model: string | null;
   reasoning_budget: number | null;
+  skip_permissions: number;
 }
 
 export class SessionDB {
@@ -66,6 +67,7 @@ export class SessionDB {
   private stmtUpdateWorkingDirectory!: Database.Statement;
   private stmtUpdatePreferredModel!: Database.Statement;
   private stmtUpdateReasoningBudget!: Database.Statement;
+  private stmtUpdateSkipPermissions!: Database.Statement;
   private stmtGetProjectStats!: Database.Statement;
   private stmtGetGlobalStats!: Database.Statement;
 
@@ -187,6 +189,14 @@ export class SessionDB {
       }
     }
 
+    // v7: add skip_permissions column for persisting full-access mode
+    {
+      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === "skip_permissions")) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN skip_permissions INTEGER NOT NULL DEFAULT 0`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -202,13 +212,13 @@ export class SessionDB {
         created_at, last_activity_at, type, archived, custom_title,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_usd, summary, first_prompt, git_branch, message_count, allowed_tools,
-        worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget
+        worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, skip_permissions
       ) VALUES (
         @session_id, @instance_id, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @cost_usd, @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
-        @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget
+        @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @skip_permissions
       )
       ON CONFLICT(session_id) DO UPDATE SET
         instance_id = excluded.instance_id,
@@ -233,7 +243,8 @@ export class SessionDB {
         original_directory = excluded.original_directory,
         parent_session_id = excluded.parent_session_id,
         preferred_model = excluded.preferred_model,
-        reasoning_budget = excluded.reasoning_budget
+        reasoning_budget = excluded.reasoning_budget,
+        skip_permissions = excluded.skip_permissions
     `);
 
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
@@ -294,6 +305,10 @@ export class SessionDB {
 
     this.stmtUpdateReasoningBudget = this.db.prepare(
       "UPDATE sessions SET reasoning_budget = ? WHERE session_id = ?",
+    );
+
+    this.stmtUpdateSkipPermissions = this.db.prepare(
+      "UPDATE sessions SET skip_permissions = ? WHERE session_id = ?",
     );
 
     this.stmtGetProjectStats = this.db.prepare(`
@@ -411,6 +426,10 @@ export class SessionDB {
 
   updateReasoningBudget(sessionId: string, budget: number | null): void {
     this.stmtUpdateReasoningBudget.run(budget, sessionId);
+  }
+
+  updateSkipPermissions(sessionId: string, skip: boolean): void {
+    this.stmtUpdateSkipPermissions.run(skip ? 1 : 0, sessionId);
   }
 
   getProjectStats(workingDirectory: string): {

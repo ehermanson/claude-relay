@@ -24,6 +24,15 @@ export type ChatItem =
   | { kind: "activity-group"; activities: ActivityMessage[] }
   | { kind: "agent-transcript"; title: string; result: string; timestamp?: number };
 
+export interface LiveActivity {
+  /** Human-readable description of what's happening */
+  description: string;
+  /** Tool name if applicable */
+  tool?: string;
+  /** When this specific activity started */
+  startedAt: number;
+}
+
 interface State {
   items: ChatItem[];
   isProcessing: boolean;
@@ -32,6 +41,10 @@ interface State {
   currentFiles: FileChange[] | null;
   currentTeam: TeamInfo | null;
   currentAgentActivities: AgentActivity[] | null;
+  /** Most recent activity for the live status strip */
+  lastActivity: LiveActivity | null;
+  /** When the current processing turn started (user sent a message) */
+  processingStartedAt: number | null;
 }
 
 type Action =
@@ -56,6 +69,8 @@ function reducer(state: State, action: Action): State {
         currentFiles: null,
         currentTeam: null,
         currentAgentActivities: null,
+        lastActivity: null,
+        processingStartedAt: null,
       };
 
     case "replay": {
@@ -172,6 +187,8 @@ function reducer(state: State, action: Action): State {
         currentFiles,
         currentTeam,
         currentAgentActivities,
+        lastActivity: null,
+        processingStartedAt: null,
       };
     }
 
@@ -179,7 +196,19 @@ function reducer(state: State, action: Action): State {
       if (action.thinking) {
         const items = [...state.items];
         items.push({ kind: "thinking-block", text: action.thinking });
-        return { ...state, items, isProcessing: true, showThinkingIndicator: true };
+        return {
+          ...state,
+          items,
+          isProcessing: true,
+          showThinkingIndicator: true,
+          lastActivity: {
+            description: "Thinking...",
+            startedAt:
+              state.lastActivity?.description === "Thinking..."
+                ? state.lastActivity.startedAt
+                : Date.now(),
+          },
+        };
       }
 
       if (action.text && action.text.trim()) {
@@ -193,7 +222,14 @@ function reducer(state: State, action: Action): State {
           // (can happen when JSONL watcher re-emits content after the live stream)
           if (prev.text.endsWith(action.text)) {
             if (action.isWaiting) {
-              return { ...state, items, isProcessing: false, showThinkingIndicator: false };
+              return {
+                ...state,
+                items,
+                isProcessing: false,
+                showThinkingIndicator: false,
+                lastActivity: null,
+                processingStartedAt: null,
+              };
             }
             return state;
           }
@@ -207,26 +243,47 @@ function reducer(state: State, action: Action): State {
         }
 
         if (action.isWaiting) {
-          return { ...state, items, isProcessing: false, showThinkingIndicator: false };
+          return {
+            ...state,
+            items,
+            isProcessing: false,
+            showThinkingIndicator: false,
+            lastActivity: null,
+            processingStartedAt: null,
+          };
         }
 
-        return { ...state, items, isProcessing: true, showThinkingIndicator: false };
+        return {
+          ...state,
+          items,
+          isProcessing: true,
+          showThinkingIndicator: false,
+          lastActivity: { description: "Responding...", startedAt: Date.now() },
+        };
       }
 
       if (action.isWaiting) {
-        return { ...state, isProcessing: false, showThinkingIndicator: false };
+        return {
+          ...state,
+          isProcessing: false,
+          showThinkingIndicator: false,
+          lastActivity: null,
+          processingStartedAt: null,
+        };
       }
 
       return { ...state, isProcessing: true };
     }
 
     case "activity": {
+      const now = Date.now();
       if (action.message.activity === "task_list" && action.message.tasks) {
         return {
           ...state,
           isProcessing: true,
           showThinkingIndicator: true,
           currentTasks: action.message.tasks,
+          lastActivity: { description: "Updating tasks...", startedAt: now },
         };
       } else if (action.message.activity === "file_list" && action.message.files) {
         return {
@@ -234,6 +291,7 @@ function reducer(state: State, action: Action): State {
           isProcessing: true,
           showThinkingIndicator: true,
           currentFiles: action.message.files,
+          lastActivity: { description: "Writing files...", startedAt: now },
         };
       } else if (action.message.activity === "team_info" && action.message.team) {
         return {
@@ -241,11 +299,24 @@ function reducer(state: State, action: Action): State {
           isProcessing: true,
           showThinkingIndicator: true,
           currentTeam: action.message.team,
+          lastActivity: { description: "Managing team...", startedAt: now },
         };
       } else if (action.message.activity === "agent_activity" && action.message.agentActivities) {
+        // Pick the most recently updated agent for the status strip
+        const sorted = [...action.message.agentActivities].sort(
+          (a, b) => b.updatedAt - a.updatedAt,
+        );
+        const latest = sorted[0];
+        const agentDesc = latest?.description || latest?.tool || "Working...";
         return {
           ...state,
           currentAgentActivities: action.message.agentActivities,
+          lastActivity: {
+            description: agentDesc,
+            tool: latest?.tool,
+            startedAt:
+              state.lastActivity?.tool === latest?.tool ? state.lastActivity.startedAt : now,
+          },
         };
       } else {
         const items = [...state.items];
@@ -268,7 +339,15 @@ function reducer(state: State, action: Action): State {
           });
         }
 
-        return { ...state, items, isProcessing: true, showThinkingIndicator: true };
+        // Build a contextual description from the activity
+        const desc = action.message.description || action.message.tool || "Working...";
+        return {
+          ...state,
+          items,
+          isProcessing: true,
+          showThinkingIndicator: true,
+          lastActivity: { description: desc, tool: action.message.tool, startedAt: now },
+        };
       }
     }
 
@@ -300,7 +379,7 @@ function reducer(state: State, action: Action): State {
         return { ...state, items, showThinkingIndicator: false };
       }
       items.push({ kind: "user", text: action.text, timestamp: now });
-      return { ...state, items, showThinkingIndicator: false };
+      return { ...state, items, showThinkingIndicator: false, processingStartedAt: now };
     }
 
     case "exit": {
@@ -311,19 +390,46 @@ function reducer(state: State, action: Action): State {
           : `Claude process exited with code ${action.code}`;
         if (action.stderr) text += `\n${action.stderr}`;
         items.push({ kind: "system", text, isError: true });
-        return { ...state, items, isProcessing: false, showThinkingIndicator: false };
+        return {
+          ...state,
+          items,
+          isProcessing: false,
+          showThinkingIndicator: false,
+          lastActivity: null,
+          processingStartedAt: null,
+        };
       }
-      return { ...state, isProcessing: false, showThinkingIndicator: false };
+      return {
+        ...state,
+        isProcessing: false,
+        showThinkingIndicator: false,
+        lastActivity: null,
+        processingStartedAt: null,
+      };
     }
 
     case "error": {
       const items = [...state.items];
       items.push({ kind: "system", text: `Error: ${action.message}`, isError: true });
-      return { ...state, items, isProcessing: false, showThinkingIndicator: false };
+      return {
+        ...state,
+        items,
+        isProcessing: false,
+        showThinkingIndicator: false,
+        lastActivity: null,
+        processingStartedAt: null,
+      };
     }
 
     case "show_thinking": {
-      return { ...state, isProcessing: true, showThinkingIndicator: true };
+      const now = Date.now();
+      return {
+        ...state,
+        isProcessing: true,
+        showThinkingIndicator: true,
+        processingStartedAt: state.processingStartedAt ?? now,
+        lastActivity: state.lastActivity ?? { description: "Starting...", startedAt: now },
+      };
     }
 
     default:
@@ -340,6 +446,8 @@ export function useInstanceMessages() {
     currentFiles: null,
     currentTeam: null,
     currentAgentActivities: null,
+    lastActivity: null,
+    processingStartedAt: null,
   });
   const instanceIdRef = useRef<string | null>(null);
 
@@ -416,6 +524,8 @@ export function useInstanceMessages() {
     currentFiles: state.currentFiles,
     currentTeam: state.currentTeam,
     currentAgentActivities: state.currentAgentActivities,
+    lastActivity: state.lastActivity,
+    processingStartedAt: state.processingStartedAt,
     handleMessage,
     setInstanceId,
     showThinking,

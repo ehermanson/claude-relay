@@ -87,6 +87,8 @@ export function InstanceView() {
     currentFiles,
     currentTeam,
     currentAgentActivities,
+    lastActivity,
+    processingStartedAt,
     handleMessage,
     setInstanceId,
     showThinking,
@@ -215,6 +217,8 @@ export function InstanceView() {
         isProcessing={isProcessing}
         showThinkingIndicator={showThinkingIndicator}
         instanceStatus={instance.status}
+        lastActivity={lastActivity}
+        processingStartedAt={processingStartedAt}
         onSendMessage={handleSend}
         isInteractive={!isStopped}
         onApproveTool={handleApproveTool}

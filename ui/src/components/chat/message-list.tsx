@@ -3,11 +3,11 @@ import { UserMessage } from "./user-message";
 import { ClaudeMessage } from "./claude-message";
 import { SystemMessage } from "./system-message";
 import { ThinkingBlock } from "./thinking-block";
-import { ThinkingIndicator } from "./thinking-indicator";
+import { LiveStatusStrip } from "./live-status-strip";
 import { ActivityGroup } from "./activity-group";
 import { AgentTranscript } from "./agent-transcript";
 import { useAutoScroll } from "../../hooks/use-auto-scroll";
-import type { ChatItem } from "../../hooks/use-instance-messages";
+import type { ChatItem, LiveActivity } from "../../hooks/use-instance-messages";
 import { INTERACTIVE_TOOLS } from "@shared/tools";
 
 interface MessageListProps {
@@ -15,6 +15,8 @@ interface MessageListProps {
   isProcessing?: boolean;
   showThinkingIndicator?: boolean;
   instanceStatus?: string;
+  lastActivity?: LiveActivity | null;
+  processingStartedAt?: number | null;
   onSendMessage?: (text: string) => void;
   isInteractive?: boolean;
   onApproveTool?: (tool: string) => void;
@@ -29,6 +31,8 @@ export function MessageList({
   isProcessing,
   showThinkingIndicator,
   instanceStatus,
+  lastActivity,
+  processingStartedAt,
   onSendMessage,
   isInteractive,
   onApproveTool,
@@ -220,7 +224,14 @@ export function MessageList({
     <div ref={ref} className="flex-1 overflow-y-auto">
       <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
         {renderElements}
-        {showThinking && <ThinkingIndicator />}
+        {showThinking && (
+          <LiveStatusStrip
+            activity={lastActivity ?? null}
+            processingStartedAt={processingStartedAt ?? null}
+            isProcessing={!!isProcessing}
+            instanceStatus={instanceStatus}
+          />
+        )}
       </div>
     </div>
   );

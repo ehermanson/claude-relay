@@ -2841,6 +2841,7 @@ export class InstanceManager extends EventEmitter {
       parent_session_id: instance.info.parentSessionId ?? null,
       preferred_model: instance.info.preferredModel ?? null,
       reasoning_budget: instance.info.reasoningBudget ?? null,
+      skip_permissions: instance.info.skipPermissions ? 1 : 0,
     };
   }
 
@@ -2912,6 +2913,7 @@ export class InstanceManager extends EventEmitter {
           parent_session_id: null,
           preferred_model: null,
           reasoning_budget: null,
+          skip_permissions: 0,
         });
       }
 
@@ -3114,6 +3116,7 @@ export class InstanceManager extends EventEmitter {
             parent_session_id: null,
             preferred_model: null,
             reasoning_budget: null,
+            skip_permissions: 0,
           });
           discovered++;
         }
@@ -3226,6 +3229,7 @@ export class InstanceManager extends EventEmitter {
           parentSessionId: entry.parent_session_id ?? undefined,
           preferredModel: entry.preferred_model ?? undefined,
           reasoningBudget: entry.reasoning_budget ?? undefined,
+          skipPermissions: entry.skip_permissions === 1 ? true : undefined,
         };
 
         const instance: Instance = {
@@ -3325,6 +3329,7 @@ export class InstanceManager extends EventEmitter {
           parentSessionId: entry.parent_session_id ?? undefined,
           preferredModel: entry.preferred_model ?? undefined,
           reasoningBudget: entry.reasoning_budget ?? undefined,
+          skipPermissions: entry.skip_permissions === 1 ? true : undefined,
         };
 
         let watchState: WatchState | undefined;
@@ -3765,6 +3770,8 @@ export class InstanceManager extends EventEmitter {
     }
 
     this.emit("instance:status", instance.info.id, { ...instance.info });
+    const sid = instance.sessionId || instance.info.sessionId;
+    if (sid) this.db.updateSkipPermissions(sid, skipPermissions);
     return true;
   }
 
