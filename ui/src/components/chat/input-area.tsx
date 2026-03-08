@@ -9,8 +9,6 @@ import { siClaude } from "simple-icons";
 import { detectMentionTrigger, replacePromptRange } from "../../lib/composer-mentions";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Dialog } from "../ui/dialog";
-import { Input } from "../ui/input";
 import {
   Command,
   CommandEmpty,
@@ -338,14 +336,11 @@ export function InputArea({
   const mentionListRef = useRef<HTMLDivElement>(null);
   const slashListRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const customModelInputRef = useRef<HTMLInputElement>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
-  const [showModelDialog, setShowModelDialog] = useState(false);
-  const [customModelDraft, setCustomModelDraft] = useState("");
   const [availableProviderModels, setAvailableProviderModels] = useState<ProviderModelOption[]>([]);
   const [draftText, setDraftText] = useState("");
   const [composerSelectionOffset, setComposerSelectionOffset] = useState(0);
@@ -384,7 +379,6 @@ export function InputArea({
           provider,
           id: preferredModel,
           label: preferredModel,
-          description: "Custom model",
         }
       : null;
   const currentProviderModels = selectedCustomModel
@@ -408,7 +402,6 @@ export function InputArea({
   const activeReasoningLevel = REASONING_LEVELS.find((level) => level.budget === reasoningBudget);
   const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
   const supportsModelSelection = true;
-  const supportsCustomModelSelection = provider === "codex";
   const supportsReasoningSelection = provider === "claude";
   const providerLabel = getProviderDisplayName(provider);
 
@@ -465,10 +458,6 @@ export function InputArea({
   }, [sessionId]);
 
   useEffect(() => {
-    setCustomModelDraft(preferredModel ?? "");
-  }, [preferredModel, provider, instanceId]);
-
-  useEffect(() => {
     let cancelled = false;
 
     if (isExternal) {
@@ -492,12 +481,6 @@ export function InputArea({
       cancelled = true;
     };
   }, [isExternal, provider]);
-
-  useEffect(() => {
-    if (!showModelDialog) return;
-    const timer = setTimeout(() => customModelInputRef.current?.focus(), 0);
-    return () => clearTimeout(timer);
-  }, [showModelDialog]);
 
   const addImages = (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
@@ -980,7 +963,9 @@ export function InputArea({
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{option.label}</div>
                         <div className="text-[0.6875rem] text-muted">
-                          {isCurrent ? "Current session" : "Create a new session to switch"}
+                          {isCurrent
+                            ? "Active provider for this session"
+                            : `Start a new ${option.label} session to switch providers`}
                         </div>
                       </div>
                     </div>
@@ -998,11 +983,7 @@ export function InputArea({
                       >
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
-                    ) : (
-                      <span className="shrink-0 text-[0.625rem] uppercase tracking-[0.1em] text-muted">
-                        Fixed
-                      </span>
-                    )}
+                    ) : null}
                   </button>
                 );
               })}
@@ -1022,10 +1003,7 @@ export function InputArea({
                 }}
                 className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-surface-hover"
               >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate">{defaultMenuLabel}</div>
-                  <div className="text-[0.6875rem] text-muted">Use the provider default model</div>
-                </div>
+                <div className="min-w-0 flex-1 truncate">{defaultMenuLabel}</div>
                 {!preferredModel && (
                   <svg
                     width="14"
@@ -1053,15 +1031,7 @@ export function InputArea({
                   }}
                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-surface-hover"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate">{model.label}</div>
-                    <div className="truncate text-[0.6875rem] text-muted">
-                      {model.description ??
-                        (model.id === preferredModel && selectedCustomModel
-                          ? "Custom model"
-                          : model.id)}
-                    </div>
-                  </div>
+                  <div className="min-w-0 flex-1 truncate">{model.label}</div>
                   {preferredModel === model.id && (
                     <svg
                       width="14"
@@ -1079,27 +1049,6 @@ export function InputArea({
                   )}
                 </button>
               ))}
-
-              {supportsCustomModelSelection && (
-                <>
-                  <Menu.Separator className="mx-2" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowModelMenu(false);
-                      setShowModelDialog(true);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-surface-hover"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate">Custom model…</div>
-                      <div className="text-[0.6875rem] text-muted">
-                        Enter any Codex model id manually
-                      </div>
-                    </div>
-                  </button>
-                </>
-              )}
             </div>
           </div>
         </div>
@@ -1469,61 +1418,6 @@ export function InputArea({
   );
 
   const composerMenu = mentionTrigger ? mentionMenu : slashMenu;
-  const modelDialog = supportsCustomModelSelection && (
-    <Dialog.Root open={showModelDialog} onOpenChange={setShowModelDialog}>
-      <Dialog.Content maxWidth="max-w-md">
-        <Dialog.Header>
-          <Dialog.Title>Set Codex Model</Dialog.Title>
-          <Dialog.Close />
-        </Dialog.Header>
-        <div className="flex flex-col gap-3">
-          <p className="text-[0.75rem] text-muted">
-            Enter a Codex model id for this session, or clear it to use the default.
-          </p>
-          <Input
-            ref={customModelInputRef}
-            value={customModelDraft}
-            onChange={(e) => setCustomModelDraft(e.target.value)}
-            placeholder="e.g. o3"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const trimmed = customModelDraft.trim();
-                setModel(trimmed ? trimmed : null);
-                setShowModelDialog(false);
-              }
-            }}
-          />
-          <div className="flex justify-between gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setModel(null);
-                setCustomModelDraft("");
-                setShowModelDialog(false);
-              }}
-            >
-              Use Default
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={() => setShowModelDialog(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  const trimmed = customModelDraft.trim();
-                  setModel(trimmed ? trimmed : null);
-                  setShowModelDialog(false);
-                }}
-              >
-                Apply
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Dialog.Content>
-    </Dialog.Root>
-  );
 
   return (
     <div className="shrink-0 safe-area-bottom">
@@ -1604,7 +1498,6 @@ export function InputArea({
         )}
 
         {hiddenFileInput}
-        {modelDialog}
 
         <div
           ref={composerContainerRef}
