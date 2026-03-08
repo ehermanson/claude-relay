@@ -14,7 +14,7 @@ import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
-import { shortenPath, formatTokens, formatCost, formatModel } from "../../lib/utils";
+import { shortenPath, formatTokens, formatCost } from "../../lib/utils";
 import type { ServerMessage } from "@shared/types";
 
 import type { InstanceInfo } from "@shared/types";
@@ -290,6 +290,7 @@ export function InstanceView() {
         isExternal={!!instance.external}
         isPendingInTerminal={!!pendingTerminalTool}
         preferredModel={instance.preferredModel}
+        activeModel={instance.stats?.model}
         skipPermissions={instance.skipPermissions}
       />
     </>
@@ -394,12 +395,6 @@ export function InstanceView() {
             }
           >
             <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted sm:flex">
-              {instance.stats.model && (
-                <>
-                  <span className="text-text">{formatModel(instance.stats.model)}</span>
-                  <span className="text-muted/40">·</span>
-                </>
-              )}
               {formatTokens(instance.stats.inputTokens + instance.stats.outputTokens)} tokens · ~
               {formatCost(instance.stats.costUSD)}
             </span>

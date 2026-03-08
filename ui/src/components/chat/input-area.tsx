@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import { ArrowUp, ImagePlus, Loader2, Square } from "lucide-react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useWSMethods } from "../../context/websocket-context";
+import { formatModel } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { Menu } from "../ui/menu";
@@ -33,6 +34,7 @@ interface InputAreaProps {
   isExternal?: boolean;
   isPendingInTerminal?: boolean;
   preferredModel?: string;
+  activeModel?: string;
   skipPermissions?: boolean;
 }
 
@@ -47,6 +49,7 @@ export function InputArea({
   isExternal,
   isPendingInTerminal,
   preferredModel,
+  activeModel,
   skipPermissions,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -67,9 +70,13 @@ export function InputArea({
     send({ type: "set_permissions", instanceId, skipPermissions: !skipPermissions });
   };
 
+  const activeModelLabel = activeModel
+    ? (MODELS.find((m) => m.id === activeModel)?.label ?? formatModel(activeModel))
+    : null;
   const modelLabel = preferredModel
     ? (MODELS.find((m) => m.id === preferredModel)?.label ?? preferredModel)
-    : "Model";
+    : (activeModelLabel ?? "Default");
+  const defaultMenuLabel = activeModelLabel ? `Default (${activeModelLabel})` : "Default";
 
   const adjustTextareaHeight = () => {
     const el = textareaRef.current;
@@ -245,7 +252,7 @@ export function InputArea({
       </Tooltip>
       <Menu.Content side="top" align="start">
         <Menu.Item onClick={() => setModel(null)}>
-          <span className="flex-1">Default</span>
+          <span className="flex-1">{defaultMenuLabel}</span>
           {!preferredModel && (
             <svg
               width="13"
