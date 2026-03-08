@@ -172,6 +172,7 @@ export function createWebSocketServer(
           case "create_instance": {
             try {
               const info = instanceManager.createInstance({
+                provider: message.provider,
                 name: message.name,
                 workingDirectory: message.workingDirectory,
                 dangerouslySkipPermissions: message.dangerouslySkipPermissions ?? true,

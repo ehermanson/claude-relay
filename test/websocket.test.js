@@ -171,6 +171,19 @@ describe("WebSocket Server", () => {
       assert.equal(msg.instance.name, "WS Test");
       assert.ok(msg.instance.id);
     });
+
+    it("forwards provider selection from the websocket payload", async () => {
+      const session = auth.createSession();
+      const ws = await connect(session.id);
+      await ws.waitForHandshake();
+
+      ws.send(JSON.stringify({ type: "create_instance", name: "Codex Test", provider: "codex" }));
+
+      const msg = await ws.nextMessage();
+      assert.equal(msg.type, "instance_created");
+      assert.equal(msg.instance.name, "Codex Test");
+      assert.equal(msg.instance.provider, "codex");
+    });
   });
 
   describe("subscribe", () => {
