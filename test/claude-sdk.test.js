@@ -161,7 +161,7 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
-    it("sets bypassPermissions when dangerouslySkipPermissions is true", async () => {
+    it("always sets canUseTool for runtime toggle support", async () => {
       let capturedOptions;
       const fakeQuery = new FakeQuery();
       const session = await createSdkSession({
@@ -173,9 +173,10 @@ describe("ClaudeSdkSession", () => {
           return fakeQuery;
         },
       });
-      assert.equal(capturedOptions.permissionMode, "bypassPermissions");
-      assert.equal(capturedOptions.allowDangerouslySkipPermissions, true);
-      assert.equal(capturedOptions.canUseTool, undefined);
+      // canUseTool is always set (auto-approves when bypass is on)
+      assert.ok(typeof capturedOptions.canUseTool === "function");
+      // permissionMode/allowDangerouslySkipPermissions are no longer set
+      assert.equal(capturedOptions.permissionMode, undefined);
       session.close();
     });
 
@@ -518,7 +519,7 @@ describe("ClaudeSdkSession", () => {
       session2.close();
     });
 
-    it("emits permission denial and blocks on unapproved tools", async () => {
+    it("emits permissionRequest and blocks on unapproved tools", async () => {
       const fakeQuery = new FakeQuery();
       let canUseToolFn;
       const session = await createSdkSession({
@@ -530,7 +531,7 @@ describe("ClaudeSdkSession", () => {
         },
       });
 
-      const activities = collectEvents(session, "activity");
+      const requests = collectEvents(session, "permissionRequest");
 
       // Call canUseTool for an unapproved tool — should block
       const resultPromise = canUseToolFn(
@@ -544,10 +545,9 @@ describe("ClaudeSdkSession", () => {
 
       await tick();
 
-      // Should have emitted a permission denial activity
-      const denials = activities.filter(([a]) => a.permissionDenied);
-      assert.ok(denials.length >= 1);
-      assert.equal(denials[0][0].permissionDenied, "Bash");
+      // Should have emitted a permissionRequest event (not an activity)
+      assert.ok(requests.length >= 1);
+      assert.equal(requests[0][0].tool, "Bash");
 
       // Approve the permission
       const approved = session.approvePermission("Bash");

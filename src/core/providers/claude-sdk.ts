@@ -25,7 +25,7 @@ import type {
   AgentActivity,
 } from "../types.js";
 import type { CoreConfig } from "../config.js";
-import type { ProviderSession, ProviderSessionEvents } from "../provider.js";
+import type { ProviderSession, ProviderSessionEvents, PermissionRequestInfo } from "../provider.js";
 import {
   describeToolUse,
   describeToolDetail,
@@ -253,6 +253,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private query: QueryHandle;
   private pendingPermission: PendingPermission | null = null;
   private allowedToolSet: Set<string>;
+  private _bypassPermissions = false;
 
   // State tracking (mirrors ClaudeProcess)
   private taskMap = new Map<string, TaskItem>();
@@ -285,11 +286,12 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     }
 
     if (options.dangerouslySkipPermissions) {
-      sdkOptions.permissionMode = "bypassPermissions";
-      sdkOptions.allowDangerouslySkipPermissions = true;
-    } else {
-      sdkOptions.canUseTool = this.handleCanUseTool.bind(this);
+      this._bypassPermissions = true;
     }
+
+    // Always set canUseTool so we can toggle bypass at runtime.
+    // When bypass is on, the callback auto-approves everything.
+    sdkOptions.canUseTool = this.handleCanUseTool.bind(this);
 
     if (this.allowedToolSet.size > 0) {
       sdkOptions.allowedTools = [...this.allowedToolSet];
@@ -407,6 +409,19 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // This is kept for interface compatibility but the SDK path uses approvePermission().
   }
 
+  setBypassPermissions(bypass: boolean): void {
+    this._bypassPermissions = bypass;
+    this.logger.info(`[SdkSession] Bypass permissions: ${bypass}`);
+    // If switching to bypass and there's a pending permission, auto-approve it
+    if (bypass && this.pendingPermission) {
+      this.logger.info(
+        `[SdkSession] Auto-approving pending permission for ${this.pendingPermission.toolName}`,
+      );
+      this.pendingPermission.resolve({ behavior: "allow" });
+      this.pendingPermission = null;
+    }
+  }
+
   approvePermission(tool: string): boolean {
     if (!this.pendingPermission) return false;
     this.logger.info(`[SdkSession] Approving permission for ${tool}`);
@@ -429,6 +444,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       toolUseID: string;
     },
   ): Promise<{ behavior: "allow" } | { behavior: "deny"; message: string }> {
+    // If bypass mode is on, allow everything
+    if (this._bypassPermissions) {
+      return Promise.resolve({ behavior: "allow" as const });
+    }
+
     // If tool is pre-approved, allow immediately
     if (this.allowedToolSet.has(toolName)) {
       return Promise.resolve({ behavior: "allow" as const });
@@ -445,15 +465,13 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     this.logger.info(`[SdkSession] Permission requested for ${toolName}`);
 
-    // Emit a permission denial activity so the UI can show the banner
-    const activity: ActivityMessage = {
-      type: "activity",
-      activity: "tool_result",
-      description: "Permission denied",
+    // Emit a permission request event (not an activity — doesn't appear in chat).
+    // InstanceManager wires this to set pendingPermission on the instance info.
+    const request: PermissionRequestInfo = {
       tool: toolName,
-      permissionDenied: toolName,
+      description: describeToolUse(toolName, input),
     };
-    this.emit("activity", activity);
+    this.emit("permissionRequest", request);
 
     // Create a deferred promise that will be resolved by approvePermission()
     return new Promise((resolve) => {

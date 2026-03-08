@@ -38,8 +38,8 @@ export interface InstanceInfo {
   lastMessage?: LastMessagePreview;
   /** Tool name when an external/terminal session has a pending tool_use awaiting approval */
   pendingTool?: string;
-  /** Tool name when a managed instance has a pending permission denial awaiting approval */
-  pendingPermission?: string;
+  /** Pending permission request for a managed instance awaiting user approval */
+  pendingPermission?: string | { tool: string; description?: string };
   sessionId?: string;
   /** True when the user has manually set the title (prevents auto-refresh) */
   customTitle?: boolean;
@@ -57,6 +57,8 @@ export interface InstanceInfo {
   parentSessionId?: string;
   /** Preferred model override for this instance (e.g. "claude-opus-4-6") */
   preferredModel?: string;
+  /** Whether this instance bypasses permission prompts (full access mode) */
+  skipPermissions?: boolean;
 }
 
 export interface HistoryEntry {
@@ -146,6 +148,13 @@ export interface SetModelPayload {
   model: string | null;
 }
 
+export interface SetPermissionsPayload {
+  type: "set_permissions";
+  instanceId: string;
+  /** Whether to skip all permission prompts (full access mode) */
+  skipPermissions: boolean;
+}
+
 export type ClientMessage =
   | MessagePayload
   | CancelPayload
@@ -160,7 +169,8 @@ export type ClientMessage =
   | RefreshTitlePayload
   | RenameInstancePayload
   | MergeInstancePayload
-  | SetModelPayload;
+  | SetModelPayload
+  | SetPermissionsPayload;
 
 // =============================================================================
 // Server -> Client Messages

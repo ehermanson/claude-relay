@@ -14,11 +14,18 @@ import type { OutputMessage, ExitMessage, ActivityMessage, SessionStats } from "
 // Events
 // =============================================================================
 
+export interface PermissionRequestInfo {
+  tool: string;
+  description?: string;
+}
+
 export interface ProviderSessionEvents {
   output: [OutputMessage];
   exit: [ExitMessage];
   activity: [ActivityMessage];
   stats: [SessionStats];
+  /** Emitted when the SDK's canUseTool callback needs user approval (not a chat activity). */
+  permissionRequest: [PermissionRequestInfo];
 }
 
 // =============================================================================
@@ -56,6 +63,9 @@ export interface ProviderSession extends EventEmitter {
 
   /** Add a tool to the auto-allowed list (CLI: --allowedTools, SDK: updatedPermissions). */
   addAllowedTool(tool: string): void;
+
+  /** Toggle bypass-all-permissions mode at runtime. */
+  setBypassPermissions(bypass: boolean): void;
 
   /** Set the session ID (CLI provider discovers it post-hoc from JSONL). */
   setSessionId?(sessionId: string): void;

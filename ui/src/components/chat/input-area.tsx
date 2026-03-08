@@ -33,6 +33,7 @@ interface InputAreaProps {
   isExternal?: boolean;
   isPendingInTerminal?: boolean;
   preferredModel?: string;
+  skipPermissions?: boolean;
 }
 
 export function InputArea({
@@ -46,6 +47,7 @@ export function InputArea({
   isExternal,
   isPendingInTerminal,
   preferredModel,
+  skipPermissions,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -59,6 +61,10 @@ export function InputArea({
 
   const setModel = (model: string | null) => {
     send({ type: "set_model", instanceId, model });
+  };
+
+  const togglePermissions = () => {
+    send({ type: "set_permissions", instanceId, skipPermissions: !skipPermissions });
   };
 
   const modelLabel = preferredModel
@@ -279,6 +285,48 @@ export function InputArea({
     </Menu.Root>
   );
 
+  const permissionsButton = !isExternal && (
+    <Tooltip
+      content={
+        skipPermissions
+          ? "Full access — click to require approvals"
+          : "Limited — click for full access"
+      }
+    >
+      <button
+        onClick={togglePermissions}
+        disabled={isProcessing}
+        className={`flex shrink-0 items-center gap-1 rounded-full p-2 text-xs transition-colors ${
+          isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-surface-hover"
+        } ${skipPermissions ? "text-accent" : "text-muted"}`}
+      >
+        <svg
+          width="11"
+          height="11"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {skipPermissions ? (
+            <>
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+            </>
+          ) : (
+            <>
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </>
+          )}
+        </svg>
+        <span>{skipPermissions ? "Full access" : "Limited"}</span>
+      </button>
+    </Tooltip>
+  );
+
   const sendIcon = uploading ? (
     <Loader2 size={18} className="animate-spin" />
   ) : (
@@ -444,6 +492,7 @@ export function InputArea({
                     </Button>
                   </Tooltip>
                   {modelPickerButton}
+                  {permissionsButton}
                   {isProcessing && (
                     <Tooltip content="Cancel">
                       <button
@@ -469,8 +518,19 @@ export function InputArea({
             </>
           ) : (
             <>
-              {/* Desktop: single row — attach | model | textarea | cancel? | send */}
-              <div className="flex items-end gap-1 px-2 py-2">
+              {/* Desktop: textarea on top, toolbar row below */}
+              <textarea
+                ref={textareaRef}
+                placeholder={isStopped ? "Send a message to resume..." : "Send a message..."}
+                rows={2}
+                disabled={disabled}
+                onInput={adjustTextareaHeight}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                className={`w-full resize-none overflow-y-auto bg-transparent px-4 pt-3 pb-1 text-sm leading-normal text-text placeholder:text-muted focus:outline-none ${disabled ? "opacity-40" : ""}`}
+                style={{ minHeight: "52px", maxHeight: "140px" }}
+              />
+              <div className="flex items-center gap-0.5 px-2 pb-2">
                 <Tooltip content="Attach image">
                   <Button
                     variant="icon"
@@ -482,17 +542,8 @@ export function InputArea({
                   </Button>
                 </Tooltip>
                 {modelPickerButton}
-                <textarea
-                  ref={textareaRef}
-                  placeholder={isStopped ? "Send a message to resume..." : "Send a message..."}
-                  rows={1}
-                  disabled={disabled}
-                  onInput={adjustTextareaHeight}
-                  onKeyDown={handleKeyDown}
-                  onPaste={handlePaste}
-                  className={`flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1 text-sm leading-normal text-text placeholder:text-muted focus:outline-none ${disabled ? "opacity-40" : ""}`}
-                  style={{ minHeight: "32px", maxHeight: "140px" }}
-                />
+                {permissionsButton}
+                <div className="flex-1" />
                 {isProcessing && (
                   <Tooltip content="Cancel (Esc)">
                     <button

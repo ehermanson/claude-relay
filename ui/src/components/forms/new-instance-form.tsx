@@ -16,7 +16,7 @@ interface NewInstanceFormProps {
 export function NewInstanceForm({ onSubmit, onCancel }: NewInstanceFormProps) {
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState("");
-  const [skipPerms, setSkipPerms] = useState(false);
+  const [skipPerms, setSkipPerms] = useState(true);
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {

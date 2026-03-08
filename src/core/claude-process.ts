@@ -19,7 +19,7 @@ import type {
   AgentActivity,
 } from "./types.js";
 import type { CoreConfig } from "./config.js";
-import type { ProviderSession } from "./provider.js";
+import type { ProviderSession, PermissionRequestInfo } from "./provider.js";
 import {
   describeToolUse,
   describeToolDetail,
@@ -39,6 +39,8 @@ export interface ClaudeProcessEvents {
   exit: [ExitMessage];
   activity: [ActivityMessage];
   stats: [SessionStats];
+  /** CLI sessions never emit this — included for ProviderSession compatibility. */
+  permissionRequest: [PermissionRequestInfo];
 }
 
 export interface ClaudeProcess {
@@ -81,6 +83,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
   private agentActivityMap = new Map<string, AgentActivity>();
   private _cancelledForPermission = false;
   private _preferredModel: string | null = null;
+  private _bypassPermissions: boolean;
   private _stats: SessionStats = {
     inputTokens: 0,
     outputTokens: 0,
@@ -98,6 +101,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this.config = config;
     this.resumeSessionId = options?.resumeSessionId ?? null;
     this._preferredModel = options?.model ?? null;
+    this._bypassPermissions = config.dangerouslySkipPermissions;
     this.claudePath = this.findClaudeBinary();
     this.cwd = config.workingDirectory;
     config.logger.debug(`[Claude] Binary: ${this.claudePath}`);
@@ -133,6 +137,10 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     if (!this.allowedTools.includes(tool)) {
       this.allowedTools.push(tool);
     }
+  }
+
+  setBypassPermissions(bypass: boolean): void {
+    this._bypassPermissions = bypass;
   }
 
   /**
@@ -401,7 +409,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
     const args = ["-p", "--output-format", "stream-json", "--verbose"];
 
-    if (this.config.dangerouslySkipPermissions) {
+    if (this._bypassPermissions) {
       args.push("--dangerously-skip-permissions");
     }
 

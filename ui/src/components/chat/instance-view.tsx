@@ -195,7 +195,14 @@ export function InstanceView() {
 
   // Server tracks pendingTool on InstanceInfo — no client-side scanning needed
   const pendingTerminalTool = instance.pendingTool ?? null;
-  const pendingPermission = instance.pendingPermission ?? null;
+  const rawPermission = instance.pendingPermission ?? null;
+  const pendingPermissionTool = rawPermission
+    ? typeof rawPermission === "string"
+      ? rawPermission
+      : rawPermission.tool
+    : null;
+  const pendingPermissionDesc =
+    rawPermission && typeof rawPermission === "object" ? rawPermission.description : undefined;
 
   const chatContent = (
     <>
@@ -221,10 +228,11 @@ export function InstanceView() {
         />
       )}
 
-      {pendingPermission && !instance.external && (
+      {pendingPermissionTool && !instance.external && (
         <PermissionBanner
-          key={pendingPermission}
-          tool={pendingPermission}
+          key={pendingPermissionTool}
+          tool={pendingPermissionTool}
+          description={pendingPermissionDesc}
           onApprove={handleApproveTool}
         />
       )}
@@ -282,6 +290,7 @@ export function InstanceView() {
         isExternal={!!instance.external}
         isPendingInTerminal={!!pendingTerminalTool}
         preferredModel={instance.preferredModel}
+        skipPermissions={instance.skipPermissions}
       />
     </>
   );

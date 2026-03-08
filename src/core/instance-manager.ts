@@ -527,9 +527,11 @@ export class InstanceManager extends EventEmitter {
         },
         this._sdkQueryFn as Parameters<typeof createSdkSessionSync>[1],
       );
+      this.baseConfig.logger.info("[InstanceManager] Created SDK session");
       return session;
     }
 
+    this.baseConfig.logger.info("[InstanceManager] Created CLI session (SDK fallback)");
     const proc = options?.resumeSessionId
       ? new ClaudeProcess(config, {
           resumeSessionId: options.resumeSessionId,
@@ -621,6 +623,8 @@ export class InstanceManager extends EventEmitter {
     }
     if (!name) name = `Instance ${this.instanceCounter}`;
 
+    const skipPerms =
+      options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions;
     const info: InstanceInfo = {
       id,
       name,
@@ -632,6 +636,7 @@ export class InstanceManager extends EventEmitter {
       originalDirectory,
       gitInfo: getGitInfo(workingDirectory) ?? undefined,
       preferredModel: options?.model,
+      skipPermissions: skipPerms,
     };
 
     const dirBasename = workingDirectory.split("/").pop() || "";
@@ -3456,6 +3461,18 @@ export class InstanceManager extends EventEmitter {
       }
       this.emit("instance:exit", id, message);
     });
+
+    // SDK permission requests — set pending state without creating a chat activity
+    proc.on(
+      "permissionRequest" as keyof import("./provider.js").ProviderSessionEvents,
+      ((request: { tool: string; description?: string }) => {
+        instance.info.pendingPermission = {
+          tool: request.tool,
+          description: request.description,
+        };
+        this.emit("instance:status", id, { ...instance.info });
+      }) as (...args: unknown[]) => void,
+    );
   }
 
   private captureSessionId(id: string, instance: Instance, proc: ProviderSession): void {
@@ -3650,6 +3667,22 @@ export class InstanceManager extends EventEmitter {
     this.emit("instance:status", instance.info.id, { ...instance.info });
     const sid = instance.sessionId || instance.info.sessionId;
     if (sid) this.db.updatePreferredModel(sid, model);
+    return true;
+  }
+
+  setPermissions(id: string, skipPermissions: boolean): boolean {
+    const instance = this.instances.get(id);
+    if (!instance || instance.info.external) return false;
+
+    instance.info.skipPermissions = skipPermissions;
+    instance.process?.setBypassPermissions(skipPermissions);
+
+    // If switching to full access, clear any pending permission
+    if (skipPermissions && instance.info.pendingPermission) {
+      instance.info.pendingPermission = undefined;
+    }
+
+    this.emit("instance:status", instance.info.id, { ...instance.info });
     return true;
   }
 

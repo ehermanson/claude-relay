@@ -174,7 +174,7 @@ export function createWebSocketServer(
               const info = instanceManager.createInstance({
                 name: message.name,
                 workingDirectory: message.workingDirectory,
-                dangerouslySkipPermissions: message.dangerouslySkipPermissions,
+                dangerouslySkipPermissions: message.dangerouslySkipPermissions ?? true,
                 resumeSessionId: message.resumeSessionId,
               });
               broadcast({ type: "instance_created", instance: info });
@@ -289,15 +289,6 @@ export function createWebSocketServer(
 
           case "approve_tool": {
             try {
-              const FILE_WRITE_GROUP = ["Edit", "Write", "NotebookEdit"];
-              const isFileWrite = FILE_WRITE_GROUP.includes(message.tool);
-              const toolLabel = isFileWrite ? "file writes" : message.tool;
-              const retryText = `Permission granted for ${toolLabel}. Please continue.`;
-              sendToSubscribers(message.instanceId, {
-                type: "user",
-                text: retryText,
-                instanceId: message.instanceId,
-              });
               instanceManager.approveToolUse(message.instanceId, message.tool);
             } catch (err) {
               sendMessage(ws, {
@@ -321,6 +312,11 @@ export function createWebSocketServer(
 
           case "set_model": {
             instanceManager.setModel(message.instanceId, message.model);
+            break;
+          }
+
+          case "set_permissions": {
+            instanceManager.setPermissions(message.instanceId, message.skipPermissions);
             break;
           }
 
