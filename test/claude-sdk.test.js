@@ -334,6 +334,36 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
+    it("suppresses assistant text when the same message also contains tool use", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness);
+      const outputs = collectEvents(session, "output");
+      const activities = collectEvents(session, "activity");
+
+      harness.fakeQuery.emit({
+        type: "assistant",
+        session_id: "sess-1",
+        message: {
+          content: [
+            { type: "text", text: "Let me inspect that for you." },
+            {
+              type: "tool_use",
+              name: "Read",
+              id: "tu-1",
+              input: { file_path: "/test/file.ts" },
+            },
+          ],
+        },
+      });
+
+      await tick();
+      const textOutputs = outputs.filter(([o]) => o.text && !o.isWaiting);
+      const toolActs = activities.filter(([a]) => a.activity === "tool_use");
+      assert.equal(textOutputs.length, 0);
+      assert.equal(toolActs.length, 1);
+      session.close();
+    });
+
     it("tracks file changes from Edit/Write tools", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);
@@ -515,6 +545,7 @@ describe("ClaudeSdkSession", () => {
         },
       );
       assert.equal(result.behavior, "allow");
+      assert.deepEqual(result.updatedInput, { command: "ls" });
       session.close();
       session2.close();
     });
@@ -555,6 +586,7 @@ describe("ClaudeSdkSession", () => {
 
       const result = await resultPromise;
       assert.equal(result.behavior, "allow");
+      assert.deepEqual(result.updatedInput, { command: "rm -rf /" });
 
       session.close();
     });
@@ -613,6 +645,7 @@ describe("ClaudeSdkSession", () => {
         },
       );
       assert.equal(result.behavior, "allow");
+      assert.deepEqual(result.updatedInput, { file_path: "/test/f.ts" });
 
       session.close();
     });
@@ -750,7 +783,7 @@ describe("ClaudeSdkSession", () => {
   });
 
   describe("stream_event (partial messages)", () => {
-    it("emits text from content_block_delta", async () => {
+    it("buffers text deltas and emits them on message_stop for text-only messages", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);
       const outputs = collectEvents(session, "output");
@@ -759,7 +792,26 @@ describe("ClaudeSdkSession", () => {
         type: "stream_event",
         session_id: "sess-1",
         event: {
+          type: "message_start",
+        },
+      });
+
+      harness.fakeQuery.emit({
+        type: "stream_event",
+        session_id: "sess-1",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        },
+      });
+
+      harness.fakeQuery.emit({
+        type: "stream_event",
+        session_id: "sess-1",
+        event: {
           type: "content_block_delta",
+          index: 0,
           delta: { type: "text_delta", text: "Hello " },
         },
       });
@@ -769,15 +821,80 @@ describe("ClaudeSdkSession", () => {
         session_id: "sess-1",
         event: {
           type: "content_block_delta",
+          index: 0,
           delta: { type: "text_delta", text: "world!" },
         },
       });
 
+      harness.fakeQuery.emit({
+        type: "stream_event",
+        session_id: "sess-1",
+        event: {
+          type: "message_stop",
+        },
+      });
+
       await tick();
-      const textOutputs = outputs.filter(([o]) => !o.isWaiting);
-      assert.ok(textOutputs.length >= 2);
-      assert.equal(textOutputs[0][0].text, "Hello ");
-      assert.equal(textOutputs[1][0].text, "world!");
+      const textOutputs = outputs.filter(([o]) => o.text && !o.isWaiting);
+      assert.equal(textOutputs.length, 1);
+      assert.equal(textOutputs[0][0].text, "Hello world!");
+      session.close();
+    });
+
+    it("drops buffered text deltas when the assistant message becomes tool use", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness);
+      const outputs = collectEvents(session, "output");
+
+      harness.fakeQuery.emit({
+        type: "stream_event",
+        session_id: "sess-1",
+        event: {
+          type: "message_start",
+        },
+      });
+
+      harness.fakeQuery.emit({
+        type: "stream_event",
+        session_id: "sess-1",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        },
+      });
+
+      harness.fakeQuery.emit({
+        type: "stream_event",
+        session_id: "sess-1",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "Let me check that." },
+        },
+      });
+
+      harness.fakeQuery.emit({
+        type: "stream_event",
+        session_id: "sess-1",
+        event: {
+          type: "content_block_start",
+          index: 1,
+          content_block: { type: "tool_use", id: "tu-1", name: "Read", input: {} },
+        },
+      });
+
+      harness.fakeQuery.emit({
+        type: "stream_event",
+        session_id: "sess-1",
+        event: {
+          type: "message_stop",
+        },
+      });
+
+      await tick();
+      const textOutputs = outputs.filter(([o]) => o.text && !o.isWaiting);
+      assert.equal(textOutputs.length, 0);
       session.close();
     });
   });

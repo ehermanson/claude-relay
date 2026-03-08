@@ -72,8 +72,12 @@ type CanUseTool = (
     decisionReason?: string;
   },
 ) => Promise<
-  | { behavior: "allow"; updatedInput?: Record<string, unknown> }
-  | { behavior: "deny"; message: string }
+  | {
+      behavior: "allow";
+      updatedInput?: Record<string, unknown>;
+      updatedPermissions?: Array<{ type: string; [key: string]: unknown }>;
+    }
+  | { behavior: "deny"; message: string; interrupt?: boolean }
 >;
 
 interface SDKOptions {
@@ -152,7 +156,24 @@ class PromptQueue implements AsyncIterable<SDKUserMessage> {
 interface PendingPermission {
   toolName: string;
   toolUseId: string;
-  resolve: (result: { behavior: "allow" } | { behavior: "deny"; message: string }) => void;
+  input: Record<string, unknown>;
+  suggestions?: Array<{ type: string; [key: string]: unknown }>;
+  resolve: (
+    result:
+      | {
+          behavior: "allow";
+          updatedInput?: Record<string, unknown>;
+          updatedPermissions?: Array<{ type: string; [key: string]: unknown }>;
+        }
+      | { behavior: "deny"; message: string; interrupt?: boolean },
+  ) => void;
+}
+
+interface PendingStreamMessage {
+  textByIndex: Map<number, string>;
+  textOrder: number[];
+  hasToolUse: boolean;
+  hasThinking: boolean;
 }
 
 // =============================================================================
@@ -255,6 +276,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private pendingPermission: PendingPermission | null = null;
   private allowedToolSet: Set<string>;
   private _bypassPermissions = false;
+  private pendingStreamMessage: PendingStreamMessage | null = null;
 
   // State tracking (mirrors ClaudeProcess)
   private taskMap = new Map<string, TaskItem>();
@@ -419,7 +441,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       this.logger.info(
         `[SdkSession] Auto-approving pending permission for ${this.pendingPermission.toolName}`,
       );
-      this.pendingPermission.resolve({ behavior: "allow" });
+      this.pendingPermission.resolve({
+        behavior: "allow",
+        updatedInput: this.pendingPermission.input,
+        updatedPermissions: this.pendingPermission.suggestions,
+      });
       this.pendingPermission = null;
     }
   }
@@ -428,7 +454,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     if (!this.pendingPermission) return false;
     this.logger.info(`[SdkSession] Approving permission for ${tool}`);
     this.allowedToolSet.add(tool);
-    this.pendingPermission.resolve({ behavior: "allow" });
+    this.pendingPermission.resolve({
+      behavior: "allow",
+      updatedInput: this.pendingPermission.input,
+      updatedPermissions: this.pendingPermission.suggestions,
+    });
     this.pendingPermission = null;
     return true;
   }
@@ -445,15 +475,22 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       suggestions?: Array<{ type: string; [key: string]: unknown }>;
       toolUseID: string;
     },
-  ): Promise<{ behavior: "allow" } | { behavior: "deny"; message: string }> {
+  ): Promise<
+    | {
+        behavior: "allow";
+        updatedInput?: Record<string, unknown>;
+        updatedPermissions?: Array<{ type: string; [key: string]: unknown }>;
+      }
+    | { behavior: "deny"; message: string; interrupt?: boolean }
+  > {
     // If bypass mode is on, allow everything
     if (this._bypassPermissions) {
-      return Promise.resolve({ behavior: "allow" as const });
+      return Promise.resolve({ behavior: "allow" as const, updatedInput: input });
     }
 
     // If tool is pre-approved, allow immediately
     if (this.allowedToolSet.has(toolName)) {
-      return Promise.resolve({ behavior: "allow" as const });
+      return Promise.resolve({ behavior: "allow" as const, updatedInput: input });
     }
 
     // File-write group: if any file-write tool is approved, allow all
@@ -462,7 +499,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       [...FILE_WRITE_TOOLS].some((t) => this.allowedToolSet.has(t))
     ) {
       this.allowedToolSet.add(toolName);
-      return Promise.resolve({ behavior: "allow" as const });
+      return Promise.resolve({ behavior: "allow" as const, updatedInput: input });
     }
 
     this.logger.info(`[SdkSession] Permission requested for ${toolName}`);
@@ -480,6 +517,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       this.pendingPermission = {
         toolName,
         toolUseId: callbackOptions.toolUseID,
+        input,
+        suggestions: callbackOptions.suggestions,
         resolve,
       };
 
@@ -633,6 +672,10 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       this.accumulateUsage(message.model, message.usage);
     }
 
+    const hasNonChatBlocks = message.content.some(
+      (block) => block.type === "thinking" || block.type === "tool_use",
+    );
+
     for (const block of message.content) {
       if (block.type === "thinking" && block.thinking) {
         const activity: ActivityMessage = {
@@ -648,8 +691,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       } else if (block.type === "tool_result") {
         this.handleToolResult(block as unknown as Record<string, unknown>);
       } else if (block.type === "text" && block.text) {
-        // Skip if stream_event deltas already emitted this text (avoids duplication)
-        if (!this._hasStreamedText) {
+        // Assistant messages that include tool use / thinking often contain
+        // pre-tool narration ("Let me check..."), which should stay out of chat.
+        if (!this._hasStreamedText && !hasNonChatBlocks) {
           const output: OutputMessage = {
             type: "output",
             text: block.text,
@@ -668,26 +712,48 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     const eventType = event.type as string;
 
-    if (eventType === "content_block_delta") {
+    if (eventType === "content_block_start") {
+      const index = typeof event.index === "number" ? event.index : 0;
+      const block = event.content_block as { type?: string } | undefined;
+      const state = this.ensurePendingStreamMessage();
+      if (block?.type === "text") {
+        if (!state.textByIndex.has(index)) {
+          state.textByIndex.set(index, "");
+          state.textOrder.push(index);
+        }
+      } else if (block?.type === "tool_use") {
+        state.hasToolUse = true;
+      } else if (block?.type === "thinking") {
+        state.hasThinking = true;
+      }
+    } else if (eventType === "content_block_delta") {
+      const index = typeof event.index === "number" ? event.index : 0;
       const delta = event.delta as { type?: string; text?: string; thinking?: string } | undefined;
       if (!delta) return;
 
       if (delta.type === "text_delta" && delta.text) {
-        const output: OutputMessage = {
-          type: "output",
-          text: delta.text,
-          isWaiting: false,
-        };
-        this._hasStreamedText = true;
-        this.emit("output", output);
+        const state = this.ensurePendingStreamMessage();
+        if (!state.textByIndex.has(index)) {
+          state.textByIndex.set(index, "");
+          state.textOrder.push(index);
+        }
+        state.textByIndex.set(index, (state.textByIndex.get(index) || "") + delta.text);
       }
-      // thinking_delta: we emit thinking from the full assistant message, not deltas
+      if (delta.type === "thinking_delta" || delta.type === "signature_delta") {
+        this.ensurePendingStreamMessage().hasThinking = true;
+      }
+      if (delta.type === "input_json_delta") {
+        this.ensurePendingStreamMessage().hasToolUse = true;
+      }
     } else if (eventType === "message_start") {
       // Message started — ensure we're in processing state and reset stream flag
       this._hasStreamedText = false;
+      this.pendingStreamMessage = null;
       if (!this._isProcessing) {
         this._isProcessing = true;
       }
+    } else if (eventType === "message_stop") {
+      this.flushPendingStreamText();
     }
   }
 
@@ -744,6 +810,38 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     // Turn is complete — go idle
     this.finishTurn();
+  }
+
+  private ensurePendingStreamMessage(): PendingStreamMessage {
+    if (!this.pendingStreamMessage) {
+      this.pendingStreamMessage = {
+        textByIndex: new Map(),
+        textOrder: [],
+        hasToolUse: false,
+        hasThinking: false,
+      };
+    }
+    return this.pendingStreamMessage;
+  }
+
+  private flushPendingStreamText(): void {
+    const pending = this.pendingStreamMessage;
+    this.pendingStreamMessage = null;
+    if (!pending || pending.hasToolUse || pending.hasThinking) return;
+
+    const text = pending.textOrder
+      .sort((a, b) => a - b)
+      .map((index) => pending.textByIndex.get(index) || "")
+      .join("");
+    if (!text) return;
+
+    const output: OutputMessage = {
+      type: "output",
+      text,
+      isWaiting: false,
+    };
+    this._hasStreamedText = true;
+    this.emit("output", output);
   }
 
   private handleToolProgress(msg: Record<string, unknown>): void {

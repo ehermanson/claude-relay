@@ -596,7 +596,7 @@ export class InstanceManager extends EventEmitter {
     if (!name && resumeId) {
       name = this.getSessionSummary(resumeId, workingDirectory) || "";
     }
-    if (!name) name = `Instance ${this.instanceCounter}`;
+    if (!name) name = "New Session";
 
     const skipPerms =
       options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions;
