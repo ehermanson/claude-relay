@@ -13,6 +13,8 @@ function instanceReducer(state: InstanceInfo[], action: InstanceAction): Instanc
     case "set_list":
       return action.instances;
     case "created":
+      // Deduplicate — ignore if an instance with the same ID already exists
+      if (state.some((i) => i.id === action.instance.id)) return state;
       return [...state, action.instance];
     case "removed":
       return state.filter((i) => i.id !== action.instanceId);
