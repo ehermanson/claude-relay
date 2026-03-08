@@ -22,6 +22,91 @@ const REASONING_LEVELS = [
   { budget: 100000, label: "Max" },
 ] as const;
 
+const MODEL_COMMAND_OPTIONS = [
+  {
+    value: null,
+    label: "Default",
+    commandValue: "default",
+    aliases: ["default", "auto", "system"],
+  },
+  {
+    value: "claude-opus-4-6",
+    label: "Opus 4.6",
+    commandValue: "opus",
+    aliases: ["opus", "opus-4.6", "claude-opus-4-6"],
+  },
+  {
+    value: "claude-sonnet-4-6",
+    label: "Sonnet 4.6",
+    commandValue: "sonnet",
+    aliases: ["sonnet", "sonnet-4.6", "claude-sonnet-4-6"],
+  },
+  {
+    value: "claude-haiku-4-5-20251001",
+    label: "Haiku 4.5",
+    commandValue: "haiku",
+    aliases: ["haiku", "haiku-4.5", "claude-haiku-4-5-20251001"],
+  },
+] as const;
+
+const REASONING_COMMAND_OPTIONS = [
+  {
+    value: null,
+    label: "Default",
+    commandValue: "default",
+    aliases: ["default", "auto", "system"],
+  },
+  ...REASONING_LEVELS.map((level) => ({
+    value: level.budget,
+    label: level.label,
+    commandValue: level.label.toLowerCase(),
+    aliases: [level.label.toLowerCase(), String(level.budget)],
+  })),
+] as const;
+
+interface SlashContext {
+  commandQuery: string;
+  argQuery: string;
+  hasArgument: boolean;
+}
+
+interface SlashMenuItem {
+  key: string;
+  title: string;
+  description: string;
+  hint?: string;
+  onSelect: () => void;
+}
+
+function getSlashContext(text: string): SlashContext | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/") || trimmed.includes("\n")) return null;
+
+  const body = trimmed.slice(1);
+  const firstWhitespace = body.search(/\s/);
+  if (firstWhitespace === -1) {
+    return {
+      commandQuery: body.toLowerCase(),
+      argQuery: "",
+      hasArgument: false,
+    };
+  }
+
+  return {
+    commandQuery: body.slice(0, firstWhitespace).toLowerCase(),
+    argQuery: body
+      .slice(firstWhitespace + 1)
+      .trim()
+      .toLowerCase(),
+    hasArgument: true,
+  };
+}
+
+function matchesQuery(query: string, values: readonly string[]): boolean {
+  if (!query) return true;
+  return values.some((value) => value.includes(query));
+}
+
 // Persist draft text across instance switches (module-level, survives re-renders)
 const drafts = new Map<string, string>();
 
@@ -67,6 +152,8 @@ export function InputArea({
   const [copied, setCopied] = useState(false);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [draftText, setDraftText] = useState("");
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(-1);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const prevInstanceIdRef = useRef<string>(instanceId);
   const { send } = useWSMethods();
@@ -101,16 +188,34 @@ export function InputArea({
     el.style.height = Math.min(el.scrollHeight, max) + "px";
   };
 
+  const updateDraft = (value: string) => {
+    setDraftText(value);
+    if (value) {
+      drafts.set(instanceId, value);
+    } else {
+      drafts.delete(instanceId);
+    }
+  };
+
+  const setComposerValue = (value: string) => {
+    updateDraft(value);
+    textareaRef.current?.focus();
+  };
+
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [draftText, isMobile]);
 
   // Save/restore draft text when switching instances
   useEffect(() => {
     const prev = prevInstanceIdRef.current;
     if (prev !== instanceId) {
       // Save draft from previous instance
-      const val = textareaRef.current?.value || "";
+      const val = draftText;
       if (val) {
         drafts.set(prev, val);
       } else {
@@ -119,10 +224,8 @@ export function InputArea({
       prevInstanceIdRef.current = instanceId;
     }
     // Restore draft for current instance
-    if (textareaRef.current) {
-      textareaRef.current.value = drafts.get(instanceId) || "";
-      adjustTextareaHeight();
-    }
+    const restored = drafts.get(instanceId) || "";
+    setDraftText(restored);
     textareaRef.current?.focus();
   }, [instanceId]);
 
@@ -161,7 +264,7 @@ export function InputArea({
   const handleSend = async () => {
     if (!isConnected || uploading) return;
 
-    const text = textareaRef.current?.value.trim() || "";
+    const text = draftText.trim() || textareaRef.current?.value.trim() || "";
 
     if (!text && images.length === 0) return;
 
@@ -181,19 +284,148 @@ export function InputArea({
     onSend(text, imagePaths);
 
     // Clear input and draft
-    drafts.delete(instanceId);
+    updateDraft("");
     if (textareaRef.current) {
-      textareaRef.current.value = "";
       textareaRef.current.style.height = "auto";
     }
+    setSelectedSlashIndex(-1);
     // Clear image previews
     images.forEach((img) => URL.revokeObjectURL(img.preview));
     setImages([]);
   };
 
+  const applySlashAction = (action: () => void) => {
+    action();
+    drafts.delete(instanceId);
+    setComposerValue("");
+    setSelectedSlashIndex(-1);
+  };
+
+  const slashContext = !isExternal ? getSlashContext(draftText) : null;
+
+  const resolveSlashAction = (): (() => void) | null => {
+    if (!slashContext || !slashContext.hasArgument) return null;
+
+    if (slashContext.commandQuery === "model") {
+      const option = MODEL_COMMAND_OPTIONS.find((item) =>
+        item.aliases.some((alias) => alias === slashContext.argQuery),
+      );
+      return option ? () => setModel(option.value) : null;
+    }
+
+    if (slashContext.commandQuery === "reasoning") {
+      const option = REASONING_COMMAND_OPTIONS.find((item) =>
+        item.aliases.some((alias) => alias === slashContext.argQuery),
+      );
+      return option ? () => setReasoningBudget(option.value) : null;
+    }
+
+    return null;
+  };
+
+  const slashMenuItems: SlashMenuItem[] = (() => {
+    if (!slashContext) return [];
+
+    if (!slashContext.hasArgument) {
+      const commands = [
+        {
+          id: "model",
+          title: "/model",
+          description: "Switch the model used for the next turn",
+        },
+        {
+          id: "reasoning",
+          title: "/reasoning",
+          description: "Set the reasoning budget for the next turn",
+        },
+      ].filter((command) =>
+        matchesQuery(slashContext.commandQuery, [command.id, command.title.slice(1)]),
+      );
+
+      return commands.map((command) => ({
+        key: command.id,
+        title: command.title,
+        description: command.description,
+        onSelect: () => setComposerValue(`${command.title} `),
+      }));
+    }
+
+    if (slashContext.commandQuery === "model") {
+      return MODEL_COMMAND_OPTIONS.filter((option) =>
+        matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
+      ).map((option) => ({
+        key: `model-${option.commandValue}`,
+        title: option.label,
+        description: `Run ${option.value ? `/model ${option.commandValue}` : "/model default"}`,
+        hint: preferredModel === option.value ? "Current" : undefined,
+        onSelect: () => applySlashAction(() => setModel(option.value)),
+      }));
+    }
+
+    if (slashContext.commandQuery === "reasoning") {
+      return REASONING_COMMAND_OPTIONS.filter((option) =>
+        matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
+      ).map((option) => ({
+        key: `reasoning-${option.commandValue}`,
+        title: option.label,
+        description: option.value
+          ? `Run /reasoning ${option.commandValue} (${option.value.toLocaleString()} tokens)`
+          : "Run /reasoning default",
+        hint: reasoningBudget === option.value ? "Current" : undefined,
+        onSelect: () => applySlashAction(() => setReasoningBudget(option.value)),
+      }));
+    }
+
+    return [];
+  })();
+
+  useEffect(() => {
+    if (slashMenuItems.length === 0) {
+      setSelectedSlashIndex(-1);
+      return;
+    }
+
+    if (slashContext?.hasArgument && !slashContext.argQuery) {
+      setSelectedSlashIndex(-1);
+      return;
+    }
+
+    setSelectedSlashIndex((prev) => {
+      if (prev < 0 || prev >= slashMenuItems.length) return 0;
+      return prev;
+    });
+  }, [slashContext?.argQuery, slashContext?.hasArgument, slashMenuItems.length]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (slashMenuItems.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedSlashIndex((prev) => (prev < 0 ? 0 : (prev + 1) % slashMenuItems.length));
+        return;
+      }
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedSlashIndex((prev) =>
+          prev < 0
+            ? slashMenuItems.length - 1
+            : (prev - 1 + slashMenuItems.length) % slashMenuItems.length,
+        );
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      const slashAction = resolveSlashAction();
+      if (slashAction) {
+        applySlashAction(slashAction);
+        return;
+      }
+      if (selectedSlashIndex >= 0 && slashMenuItems[selectedSlashIndex]) {
+        slashMenuItems[selectedSlashIndex].onSelect();
+        return;
+      }
       handleSend();
     }
     if (e.key === "Escape") {
@@ -477,6 +709,31 @@ export function InputArea({
     />
   );
 
+  const slashMenu = slashMenuItems.length > 0 && (
+    <div className="mx-2 mb-1 rounded-xl border border-border bg-surface-raised p-1">
+      {slashMenuItems.map((item, index) => (
+        <button
+          key={item.key}
+          type="button"
+          onMouseEnter={() => setSelectedSlashIndex(index)}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={item.onSelect}
+          className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+            index === selectedSlashIndex ? "bg-surface-hover" : "hover:bg-surface-hover"
+          }`}
+        >
+          <div className="min-w-0">
+            <div className="text-[0.8125rem] font-medium text-text">{item.title}</div>
+            <div className="truncate text-[0.75rem] text-muted">{item.description}</div>
+          </div>
+          {item.hint ? (
+            <span className="shrink-0 text-[0.6875rem] font-medium text-accent">{item.hint}</span>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className="shrink-0 safe-area-bottom">
       <div
@@ -565,15 +822,17 @@ export function InputArea({
               {/* Mobile: textarea on top, toolbar row below */}
               <textarea
                 ref={textareaRef}
+                value={draftText}
                 placeholder={isStopped ? "Send a message to resume..." : "Send a message..."}
                 rows={1}
                 disabled={disabled}
-                onInput={adjustTextareaHeight}
+                onChange={(e) => updateDraft(e.currentTarget.value)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 className={`w-full resize-none overflow-y-auto bg-transparent px-3.5 pt-3 pb-1 text-[16px] leading-normal text-text placeholder:text-muted focus:outline-none ${disabled ? "opacity-40" : ""}`}
                 style={{ minHeight: "36px", maxHeight: "100px" }}
               />
+              {slashMenu}
               <div className="flex items-center justify-between px-2 pb-2">
                 <div className="flex items-center gap-0.5">
                   <Tooltip content="Attach image">
@@ -617,15 +876,17 @@ export function InputArea({
               {/* Desktop: textarea on top, toolbar row below */}
               <textarea
                 ref={textareaRef}
+                value={draftText}
                 placeholder={isStopped ? "Send a message to resume..." : "Send a message..."}
                 rows={2}
                 disabled={disabled}
-                onInput={adjustTextareaHeight}
+                onChange={(e) => updateDraft(e.currentTarget.value)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 className={`w-full resize-none overflow-y-auto bg-transparent px-4 pt-3 pb-1 text-sm leading-normal text-text placeholder:text-muted focus:outline-none ${disabled ? "opacity-40" : ""}`}
                 style={{ minHeight: "52px", maxHeight: "140px" }}
               />
+              {slashMenu}
               <div className="flex items-center gap-0.5 px-2 pb-2">
                 <Tooltip content="Attach image">
                   <Button

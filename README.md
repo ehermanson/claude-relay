@@ -62,6 +62,7 @@ New managed sessions run directly in the directory you choose. If Relay discover
 - **External session discovery** — automatically detects Claude Code sessions started from your terminal and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
 - **Per-session controls** — choose a model override and reasoning budget from the chat input for managed sessions
+- **Slash commands in the composer** — use `/model ...` and `/reasoning ...` to adjust those settings without sending a chat message
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
 - **Mobile-friendly web UI** — React SPA with markdown rendering, syntax highlighting, activity indicators, directory browsing, and VSCode-style file icons in the sidecar
 - **Remote access** — built-in Cloudflare Tunnel support for secure access from anywhere

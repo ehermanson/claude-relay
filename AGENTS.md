@@ -169,6 +169,7 @@ ui/
 
 - `InstanceInfo` carries both `preferredModel?: string` and `reasoningBudget?: number`
 - UI: `InputArea` shows two per-session controls for managed instances: model selection and reasoning budget selection
+- UI: the plain textarea composer also supports slash commands: `/model <default|opus|sonnet|haiku>` and `/reasoning <default|low|medium|high|max>`
 - Reasoning presets are low/medium/high/max, mapped to token budgets and sent over WS as `set_reasoning_budget`
 - `InstanceManager.setModel()` and `InstanceManager.setReasoningBudget()` persist both preferences to SQLite and rebroadcast `instance:status`
 - CLI provider: `ClaudeProcess.send()` applies `--model <id>` and `--max-thinking-tokens <budget>` on each turn
