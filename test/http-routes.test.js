@@ -50,9 +50,11 @@ describe("HTTP Routes — Additional Coverage", () => {
   let auth;
   let manager;
   let tempDir;
+  let getProviderModels;
 
   beforeEach((_, done) => {
     tempDir = mkdtempSync(join(tmpdir(), "relay-http-test-"));
+    getProviderModels = undefined;
     const config = resolveConfig({
       password: "testpass",
       logger: noopLogger,
@@ -64,7 +66,9 @@ describe("HTTP Routes — Additional Coverage", () => {
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
-    const handler = createRequestHandler(config, auth, manager);
+    const handler = createRequestHandler(config, auth, manager, undefined, {
+      getProviderModels,
+    });
     server = http.createServer(handler);
     server.listen(0, done);
   });
@@ -167,6 +171,55 @@ describe("HTTP Routes — Additional Coverage", () => {
       );
       assert.equal(res.status, 400);
       assert.ok(res.body.error.includes("home directory"));
+    });
+  });
+
+  describe("GET /api/provider-models", () => {
+    it("requires authentication", async () => {
+      const res = await request(server, "GET", "/api/provider-models?provider=codex");
+      assert.equal(res.status, 401);
+    });
+
+    it("returns provider-scoped model metadata", async () => {
+      getProviderModels = async (provider) => [
+        {
+          provider,
+          id: "gpt-5.4",
+          label: "GPT-5.4",
+          isDefault: true,
+        },
+      ];
+      await new Promise((resolve) => server.close(resolve));
+
+      const config = resolveConfig({
+        password: "testpass",
+        logger: noopLogger,
+        maxProcesses: 5,
+        serveUI: false,
+        rateLimitMax: 10,
+        rateLimitWindow: 60_000,
+        sessionFile: join(tempDir, "sessions.json"),
+      });
+      const handler = createRequestHandler(config, auth, manager, undefined, {
+        getProviderModels,
+      });
+      server = http.createServer(handler);
+      await new Promise((resolve) => server.listen(0, resolve));
+
+      const session = auth.createSession();
+      const res = await request(server, "GET", "/api/provider-models?provider=codex", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.provider, "codex");
+      assert.deepEqual(res.body.models, [
+        {
+          provider: "codex",
+          id: "gpt-5.4",
+          label: "GPT-5.4",
+          isDefault: true,
+        },
+      ]);
     });
   });
 

@@ -45,6 +45,15 @@ export async function fetchWorkspaceEntries(
   return res.json();
 }
 
+export async function fetchProviderModels(
+  provider: import("@shared/types").ProviderKind,
+): Promise<import("@shared/types").ProviderModelOption[]> {
+  const res = await fetch(`/api/provider-models?provider=${encodeURIComponent(provider)}`);
+  if (!res.ok) throw new Error("Failed to fetch provider models");
+  const data = (await res.json()) as { models?: import("@shared/types").ProviderModelOption[] };
+  return data.models ?? [];
+}
+
 export async function uploadImage(file: File): Promise<string> {
   const res = await fetch("/api/upload", {
     method: "POST",

@@ -13,6 +13,9 @@ import { homedir } from "node:os";
 import type { AuthManager } from "./auth.js";
 import type { InstanceManager } from "../core/instance-manager.js";
 import type { RelayConfig } from "./config.js";
+import { discoverCodexModels } from "../core/providers/codex-models.js";
+import { getBuiltinProviderModels, getProviderDisplayName } from "../core/provider-catalog.js";
+import type { ProviderKind, ProviderModelOption } from "../core/types.js";
 
 const uiDistDir = path.join(import.meta.dirname, "..", "..", "ui", "dist");
 const indexHtmlPath = path.join(uiDistDir, "index.html");
@@ -141,6 +144,10 @@ const instanceByIdPattern = /^\/api\/instances\/([a-f0-9-]+)$/;
 const instanceHistoryPattern = /^\/api\/instances\/([a-f0-9-]+)\/history$/;
 const instanceMergePattern = /^\/api\/instances\/([a-f0-9-]+)\/merge$/;
 
+interface RequestHandlerOverrides {
+  getProviderModels?: (provider: ProviderKind) => Promise<ProviderModelOption[]>;
+}
+
 /**
  * Create the HTTP request handler.
  */
@@ -149,9 +156,74 @@ export function createRequestHandler(
   auth: AuthManager,
   instanceManager: InstanceManager,
   getConnectionCount?: () => number,
+  overrides: RequestHandlerOverrides = {},
 ): (req: http.IncomingMessage, res: http.ServerResponse) => void {
   const log = config.logger;
   const startedAt = Date.now();
+  const providerModelCache = new Map<
+    ProviderKind,
+    { expiresAt: number; pending?: Promise<ProviderModelOption[]>; value?: ProviderModelOption[] }
+  >();
+  const getProviderModels =
+    overrides.getProviderModels ??
+    (async (provider: ProviderKind): Promise<ProviderModelOption[]> => {
+      if (provider !== "codex") {
+        return getBuiltinProviderModels(provider);
+      }
+
+      const cached = providerModelCache.get(provider);
+      const now = Date.now();
+      if (cached?.value && cached.expiresAt > now) {
+        return cached.value.map((model) => ({ ...model }));
+      }
+      if (cached?.pending) {
+        return cached.pending;
+      }
+
+      const pending = discoverCodexModels({ logger: log })
+        .then((discovered) => {
+          const discoveredById = new Map(discovered.map((model) => [model.id, model]));
+          const merged = getBuiltinProviderModels("codex")
+            .filter((model) => discoveredById.has(model.id))
+            .map((model) => {
+              const discoveredModel = discoveredById.get(model.id);
+              return {
+                ...model,
+                description: discoveredModel?.description ?? model.description,
+                hidden: discoveredModel?.hidden ?? model.hidden,
+                isDefault: discoveredModel?.isDefault ?? model.isDefault,
+                availabilityNote: discoveredModel?.availabilityNote ?? model.availabilityNote,
+                upgradeTo: discoveredModel?.upgradeTo ?? model.upgradeTo,
+              };
+            });
+
+          const value = merged.length > 0 ? merged : getBuiltinProviderModels("codex");
+          providerModelCache.set(provider, {
+            expiresAt: Date.now() + 60_000,
+            value,
+          });
+          return value.map((model) => ({ ...model }));
+        })
+        .catch((err) => {
+          log.warn(
+            `Failed to discover ${getProviderDisplayName(provider)} models; falling back to built-in list: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          const value = getBuiltinProviderModels(provider);
+          providerModelCache.set(provider, {
+            expiresAt: Date.now() + 15_000,
+            value,
+          });
+          return value.map((model) => ({ ...model }));
+        });
+
+      providerModelCache.set(provider, {
+        expiresAt: now + 5_000,
+        pending,
+      });
+      return pending;
+    });
 
   return async function handleRequest(
     req: http.IncomingMessage,
@@ -485,6 +557,30 @@ export function createRequestHandler(
         }
 
         sendJson(res, 200, { entries });
+        return;
+      }
+
+      // GET /api/provider-models?provider=... — provider-scoped model metadata for the chat picker
+      if (method === "GET" && pathname === "/api/provider-models") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+
+        const provider = parsedUrl.searchParams.get("provider");
+        if (provider !== "claude" && provider !== "codex" && provider !== "gemini") {
+          sendJson(res, 400, { error: "Invalid provider" });
+          return;
+        }
+
+        try {
+          const models = await getProviderModels(provider);
+          sendJson(res, 200, { provider, models });
+        } catch (err) {
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : "Failed to load provider models",
+          });
+        }
         return;
       }
 

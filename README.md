@@ -63,9 +63,10 @@ If Relay discovers or restores a session that already lives in a Relay-managed g
 - **Multi-session management** — run multiple Claude Code instances side-by-side, each with its own working directory and conversation history
 - **External session discovery** — automatically detects Claude Code sessions started from your terminal and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
-- **Per-session controls** — managed sessions show a fixed provider badge in the chat input and provider-appropriate model/reasoning controls
+- **Per-session controls** — managed sessions show a combined provider/model picker in the chat input; provider stays fixed per session while the model remains switchable
 - **Provider-aware managed sessions** — managed instances persist their provider identity and runtime binding, so future adapters can restore without going through Claude-specific transcript indexing
 - **Managed Codex adapter** — core/API-managed sessions can now run through `codex exec --json` with provider-isolated turn/resume handling
+- **Codex model filtering** — Relay asks `codex app-server` for `model/list` when available and filters the Codex picker to models the local runtime actually reports
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
 - **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
@@ -140,8 +141,10 @@ src/
   core/                 ← "claude-relay" (no server deps)
     claude-process.ts      Spawns claude -p processes, parses stream-json
     provider.ts            Provider session contract used by managed adapters
+    provider-catalog.ts    Shared provider labels + built-in model catalogs
     providers/claude-sdk.ts Long-lived SDK-backed provider session
     providers/codex-cli.ts Managed Codex CLI provider session
+    providers/codex-models.ts Best-effort Codex app-server model discovery
     instance-manager.ts    Manages multiple instances + discovers external sessions
     workspace-entries.ts   Workspace file/folder indexing for `@` mention search
     config.ts              CoreConfig type + resolveCoreConfig()

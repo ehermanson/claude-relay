@@ -3,7 +3,8 @@ import { ArrowUp, ImagePlus, Loader2, Square } from "lucide-react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useWSMethods } from "../../context/websocket-context";
 import { formatModel, formatTokens } from "../../lib/utils";
-import type { ProviderKind, SessionStats } from "@shared/types";
+import { BUILTIN_PROVIDER_MODELS, getProviderDisplayName } from "@shared/provider-catalog";
+import type { ProviderKind, ProviderModelOption, SessionStats } from "@shared/types";
 import { detectMentionTrigger, replacePromptRange } from "../../lib/composer-mentions";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -21,15 +22,11 @@ import {
 import { FileIcon } from "../ui/file-icon";
 import { Tooltip } from "../ui/tooltip";
 import { Menu } from "../ui/menu";
-import { fetchWorkspaceEntries, uploadImage } from "../../lib/api";
+import { fetchProviderModels, fetchWorkspaceEntries, uploadImage } from "../../lib/api";
 import { ComposerEditor, type ComposerEditorHandle } from "./composer-editor";
 
-// TODO: Use
-const MODELS = [
-  { id: "claude-opus-4-6", label: "Opus 4.6" },
-  { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
-] as const;
+const MODELS = BUILTIN_PROVIDER_MODELS.claude;
+const CODEX_MODELS = BUILTIN_PROVIDER_MODELS.codex;
 
 const REASONING_LEVELS = [
   {
@@ -96,6 +93,21 @@ const MODEL_COMMAND_OPTIONS = [
   },
 ] as const;
 
+const CODEX_MODEL_COMMAND_OPTIONS = [
+  {
+    value: null,
+    label: "Default",
+    commandValue: "default",
+    aliases: ["default", "auto", "system"],
+  },
+  ...CODEX_MODELS.map((model) => ({
+    value: model.id,
+    label: model.label,
+    commandValue: model.id,
+    aliases: [model.id, model.label.toLowerCase().replace(/\s+/g, "-")],
+  })),
+] as const;
+
 const REASONING_COMMAND_OPTIONS = [
   {
     value: null,
@@ -109,6 +121,19 @@ const REASONING_COMMAND_OPTIONS = [
     commandValue: level.label.toLowerCase(),
     aliases: [level.label.toLowerCase(), String(level.budget)],
   })),
+] as const;
+
+const SESSION_PROVIDER_OPTIONS = [
+  {
+    provider: "codex" as const,
+    label: getProviderDisplayName("codex"),
+    note: "Managed sessions",
+  },
+  {
+    provider: "claude" as const,
+    label: getProviderDisplayName("claude"),
+    note: "Managed sessions",
+  },
 ] as const;
 
 interface SlashContext {
@@ -223,6 +248,10 @@ function matchesQuery(query: string, values: readonly string[]): boolean {
   return values.some((value) => value.includes(query));
 }
 
+function buildModelLabelLookup(models: readonly ProviderModelOption[]): Map<string, string> {
+  return new Map(models.map((model) => [model.id, model.label]));
+}
+
 // Persist draft text across instance switches (module-level, survives re-renders)
 const drafts = new Map<string, string>();
 
@@ -281,8 +310,10 @@ export function InputArea({
   const [copied, setCopied] = useState(false);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [showModelMenu, setShowModelMenu] = useState(false);
   const [showModelDialog, setShowModelDialog] = useState(false);
   const [customModelDraft, setCustomModelDraft] = useState("");
+  const [availableProviderModels, setAvailableProviderModels] = useState<ProviderModelOption[]>([]);
   const [draftText, setDraftText] = useState("");
   const [composerSelectionOffset, setComposerSelectionOffset] = useState(0);
   const [pendingSelectionOffset, setPendingSelectionOffset] = useState<number | null>(null);
@@ -311,19 +342,42 @@ export function InputArea({
     });
   };
 
+  const builtInProviderModels = provider === "codex" ? CODEX_MODELS : MODELS;
+  const discoveredProviderModels =
+    availableProviderModels.length > 0 ? availableProviderModels : builtInProviderModels;
+  const selectedCustomModel =
+    preferredModel && !discoveredProviderModels.some((model) => model.id === preferredModel)
+      ? {
+          provider,
+          id: preferredModel,
+          label: preferredModel,
+          description: "Custom model",
+        }
+      : null;
+  const currentProviderModels = selectedCustomModel
+    ? [...discoveredProviderModels, selectedCustomModel]
+    : discoveredProviderModels;
+  const currentProviderModelIds = new Set(currentProviderModels.map((model) => model.id));
+  const currentModelOptions =
+    provider === "codex"
+      ? CODEX_MODEL_COMMAND_OPTIONS.filter(
+          (option) => option.value === null || currentProviderModelIds.has(option.value),
+        )
+      : MODEL_COMMAND_OPTIONS;
+  const currentProviderModelLabels = buildModelLabelLookup(currentProviderModels);
   const activeModelLabel = activeModel
-    ? (MODELS.find((m) => m.id === activeModel)?.label ?? formatModel(activeModel))
+    ? (currentProviderModelLabels.get(activeModel) ?? formatModel(activeModel))
     : null;
   const modelLabel = preferredModel
-    ? (MODELS.find((m) => m.id === preferredModel)?.label ?? preferredModel)
+    ? (currentProviderModelLabels.get(preferredModel) ?? preferredModel)
     : (activeModelLabel ?? "Default");
   const defaultMenuLabel = activeModelLabel ? `Default (${activeModelLabel})` : "Default";
   const activeReasoningLevel = REASONING_LEVELS.find((level) => level.budget === reasoningBudget);
   const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
-  const supportsModelSelection = provider === "claude";
+  const supportsModelSelection = true;
   const supportsCustomModelSelection = provider === "codex";
   const supportsReasoningSelection = provider === "claude";
-  const providerLabel = provider === "codex" ? "Codex" : "Claude";
+  const providerLabel = getProviderDisplayName(provider);
 
   const updateDraft = (value: string) => {
     setDraftText(value);
@@ -380,6 +434,31 @@ export function InputArea({
   useEffect(() => {
     setCustomModelDraft(preferredModel ?? "");
   }, [preferredModel, provider, instanceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (isExternal) {
+      setAvailableProviderModels([]);
+      return;
+    }
+
+    fetchProviderModels(provider)
+      .then((models) => {
+        if (!cancelled) {
+          setAvailableProviderModels(models.filter((model) => !model.hidden));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAvailableProviderModels([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isExternal, provider]);
 
   useEffect(() => {
     if (!showModelDialog) return;
@@ -527,18 +606,20 @@ export function InputArea({
     }
 
     if (slashContext.commandQuery === "model" && supportsModelSelection) {
-      return MODEL_COMMAND_OPTIONS.filter((option) =>
-        matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
-      ).map((option) => ({
-        key: `model-${option.commandValue}`,
-        category: "Model",
-        title: option.label,
-        description: option.value ? option.value : "Uses the active model",
-        hint: preferredModel === option.value ? "Current" : undefined,
-        actionHint: "Enter",
-        accent: preferredModel === option.value,
-        onSelect: () => applySlashAction(() => setModel(option.value)),
-      }));
+      return currentModelOptions
+        .filter((option) =>
+          matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
+        )
+        .map((option) => ({
+          key: `model-${option.commandValue}`,
+          category: "Model",
+          title: option.label,
+          description: option.value ? option.value : "Uses the active model",
+          hint: preferredModel === option.value ? "Current" : undefined,
+          actionHint: "Enter",
+          accent: preferredModel === option.value,
+          onSelect: () => applySlashAction(() => setModel(option.value)),
+        }));
     }
 
     if (slashContext.commandQuery === "reasoning" && supportsReasoningSelection) {
@@ -812,113 +893,187 @@ export function InputArea({
   // Round icon button overrides for circular input-area buttons
   const roundIcon = "h-8 w-8 shrink-0 !rounded-full";
   const roundPrimary = "h-8 w-8 shrink-0 !rounded-full !p-0";
-  const providerBadge = !isExternal && (
-    <Tooltip content="Provider is fixed for this session">
-      <Badge
-        variant={provider === "codex" ? "accent" : "claude"}
-        className="shrink-0 px-2.5 py-1 text-[0.6875rem]"
-      >
-        {providerLabel}
-      </Badge>
-    </Tooltip>
-  );
-
-  const modelPickerButton = !isExternal ? (
-    supportsModelSelection ? (
-      <Menu.Root>
-        <Tooltip content="Select model">
-          <Menu.Trigger
-            disabled={isProcessing}
-            className={`flex shrink-0 items-center gap-1 rounded-full p-2 text-xs transition-colors ${
-              isProcessing
-                ? "cursor-not-allowed opacity-40"
-                : "cursor-pointer hover:bg-surface-hover"
-            } ${preferredModel ? "text-accent" : "text-muted"}`}
-          >
-            <svg
-              width="11"
-              height="11"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
-            </svg>
-            <span>{modelLabel}</span>
-          </Menu.Trigger>
-        </Tooltip>
-        <Menu.Content side="top" align="start">
-          <Menu.Item onClick={() => setModel(null)}>
-            <span className="flex-1">{defaultMenuLabel}</span>
-            {!preferredModel && (
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
-          </Menu.Item>
-          <Menu.Separator />
-          {MODELS.map((m) => (
-            <Menu.Item key={m.id} onClick={() => setModel(m.id)}>
-              <span className="flex-1">{m.label}</span>
-              {preferredModel === m.id && (
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </Menu.Item>
-          ))}
-        </Menu.Content>
-      </Menu.Root>
-    ) : supportsCustomModelSelection ? (
-      <Tooltip content="Set model">
-        <button
-          type="button"
+  const providerModelPickerButton = !isExternal && supportsModelSelection && (
+    <Menu.Root open={showModelMenu} onOpenChange={setShowModelMenu}>
+      <Tooltip content="Provider is fixed for this session; model stays switchable">
+        <Menu.Trigger
           disabled={isProcessing}
-          onClick={() => setShowModelDialog(true)}
-          className={`flex shrink-0 items-center gap-1 rounded-full p-2 text-xs transition-colors ${
-            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-surface-hover"
+          className={`flex shrink-0 items-center gap-2 rounded-full border border-border/80 px-3 py-1.5 text-xs transition-colors ${
+            isProcessing
+              ? "cursor-not-allowed opacity-40"
+              : "cursor-pointer bg-surface hover:bg-surface-hover"
           } ${preferredModel ? "text-accent" : "text-muted"}`}
         >
+          <Badge
+            variant={provider === "codex" ? "accent" : "claude"}
+            className="pointer-events-none px-2 py-0.5 text-[0.625rem]"
+          >
+            {providerLabel}
+          </Badge>
+          <span className="max-w-[10rem] truncate text-text">{modelLabel}</span>
           <svg
-            width="11"
-            height="11"
+            width="12"
+            height="12"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             strokeWidth={2}
             strokeLinecap="round"
             strokeLinejoin="round"
+            className="opacity-70"
           >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+            <polyline points="6 9 12 15 18 9" />
           </svg>
-          <span>{modelLabel}</span>
-        </button>
+        </Menu.Trigger>
       </Tooltip>
-    ) : null
-  ) : null;
+      <Menu.Content side="top" align="start" className="w-[min(92vw,40rem)] p-0">
+        <div className="grid min-w-0 overflow-hidden md:grid-cols-[15rem_minmax(0,1fr)]">
+          <div className="border-b border-border bg-surface/60 p-2 md:border-r md:border-b-0">
+            <div className="px-2 pb-2 text-[0.6875rem] font-medium uppercase tracking-[0.12em] text-muted">
+              Provider
+            </div>
+            <div className="space-y-1">
+              {SESSION_PROVIDER_OPTIONS.map((option) => {
+                const isCurrent = option.provider === provider;
+                return (
+                  <button
+                    key={option.provider}
+                    type="button"
+                    disabled
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-colors ${
+                      isCurrent
+                        ? "bg-surface-raised text-text shadow-sm ring-1 ring-border"
+                        : "cursor-not-allowed text-muted opacity-80"
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{option.label}</div>
+                      <div className="text-[0.6875rem] text-muted">
+                        {isCurrent ? "Current session" : "Create a new session to switch"}
+                      </div>
+                    </div>
+                    {isCurrent ? (
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="shrink-0"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <span className="shrink-0 text-[0.625rem] uppercase tracking-[0.1em] text-muted">
+                        Fixed
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-2">
+            <div className="px-2 pb-2 text-[0.6875rem] font-medium uppercase tracking-[0.12em] text-muted">
+              Models
+            </div>
+            <div className="space-y-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setModel(null);
+                  setShowModelMenu(false);
+                }}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-surface-hover"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate">{defaultMenuLabel}</div>
+                  <div className="text-[0.6875rem] text-muted">Use the provider default model</div>
+                </div>
+                {!preferredModel && (
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="shrink-0"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </button>
+
+              {currentProviderModels.map((model) => (
+                <button
+                  key={model.id}
+                  type="button"
+                  onClick={() => {
+                    setModel(model.id);
+                    setShowModelMenu(false);
+                  }}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-surface-hover"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">{model.label}</div>
+                    <div className="truncate text-[0.6875rem] text-muted">
+                      {model.description ??
+                        (model.id === preferredModel && selectedCustomModel
+                          ? "Custom model"
+                          : model.id)}
+                    </div>
+                  </div>
+                  {preferredModel === model.id && (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="shrink-0"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+
+              {supportsCustomModelSelection && (
+                <>
+                  <Menu.Separator className="mx-2" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowModelMenu(false);
+                      setShowModelDialog(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-surface-hover"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate">Custom model…</div>
+                      <div className="text-[0.6875rem] text-muted">
+                        Enter any Codex model id manually
+                      </div>
+                    </div>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </Menu.Content>
+    </Menu.Root>
+  );
 
   const reasoningPickerButton = !isExternal && supportsReasoningSelection && (
     <Menu.Root>
@@ -1446,7 +1601,6 @@ export function InputArea({
               {composerMenu}
               <div className="flex items-center justify-between px-2 pb-2">
                 <div className="flex items-center gap-0.5">
-                  {providerBadge}
                   <Tooltip content="Attach image">
                     <Button
                       variant="icon"
@@ -1457,7 +1611,7 @@ export function InputArea({
                       <ImagePlus size={18} />
                     </Button>
                   </Tooltip>
-                  {modelPickerButton}
+                  {providerModelPickerButton}
                   {reasoningPickerButton}
                   {permissionsButton}
                   {isProcessing && (
@@ -1503,7 +1657,6 @@ export function InputArea({
               />
               {composerMenu}
               <div className="flex items-center gap-0.5 px-2 pb-2">
-                {providerBadge}
                 <Tooltip content="Attach image">
                   <Button
                     variant="icon"
@@ -1514,7 +1667,7 @@ export function InputArea({
                     <ImagePlus size={18} />
                   </Button>
                 </Tooltip>
-                {modelPickerButton}
+                {providerModelPickerButton}
                 {reasoningPickerButton}
                 {permissionsButton}
                 <div className="flex-1" />

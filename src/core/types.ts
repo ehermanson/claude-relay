@@ -29,6 +29,17 @@ export interface ProviderRuntimeBinding {
   runtimeMode?: ProviderRuntimeMode;
 }
 
+export interface ProviderModelOption {
+  provider: ProviderKind;
+  id: string;
+  label: string;
+  description?: string;
+  hidden?: boolean;
+  isDefault?: boolean;
+  availabilityNote?: string;
+  upgradeTo?: string;
+}
+
 export interface SessionStats {
   inputTokens: number;
   outputTokens: number;

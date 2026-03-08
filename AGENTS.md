@@ -68,11 +68,13 @@ src/
     db.ts                    SessionDB class — SQLite-backed transcript index + managed-session runtime bindings
     claude-process.ts        ClaudeProcess class — spawns `Codex -p`, parses stream-json, setSessionId()
     provider.ts              ProviderSession contract for managed adapters
+    provider-catalog.ts      Shared provider labels + built-in model catalogs
     instance-manager.ts      InstanceManager — multi-instance + external session discovery
     workspace-entries.ts     Workspace indexing/search for composer `@` file mentions
     providers/
       claude-sdk.ts          Claude SDK provider session implementation
       codex-cli.ts           Managed Codex CLI provider session implementation (`codex exec --json`)
+      codex-models.ts        Best-effort Codex app-server model discovery (`initialize` + `model/list`)
     index.ts                 Barrel: exports all core API
   server/
     config.ts                RelayConfig extends CoreConfig, RelayOptions, resolveConfig()
@@ -179,11 +181,12 @@ ui/
 ### Composer Controls
 
 - `InstanceInfo` carries both `preferredModel?: string` and `reasoningBudget?: number`
-- UI: `InputArea` shows a fixed provider badge for managed instances plus provider-appropriate controls
+- UI: `InputArea` shows a combined provider/model picker for managed instances; provider stays fixed for the session while the model remains switchable
 - Claude sessions expose preset model selection and reasoning effort controls
-- Codex sessions expose model switching through a custom model dialog; reasoning effort controls remain hidden until Codex support exists
+- Codex sessions expose curated model selection plus a custom model dialog; reasoning effort controls remain hidden until Codex support exists
+- `GET /api/provider-models?provider=...` returns provider-scoped model metadata for the picker. Codex uses a built-in catalog filtered by best-effort `codex app-server` discovery when available, and falls back to the built-in list on discovery failure
 - UI: `InputArea` now uses a Lexical-based `ComposerEditor` so inline path mentions can render as atomic chips without giving up plain-text message semantics
-- UI: the composer supports slash commands: `/model <default|opus|sonnet|haiku>` and `/reasoning <default|low|medium|high|max>` for Claude sessions
+- UI: the composer supports slash commands: `/model ...` for provider-appropriate model choices and `/reasoning <default|low|medium|high|max>` for Claude sessions
 - UI: typing `@` opens a workspace search palette backed by `GET /api/workspace-entries`; selecting a result inserts an inline mention chip but still sends plain `@path/to/file` text to Codex
 - Reasoning presets are shown as effort levels (low/medium/high/max), mapped to underlying token budgets and sent over WS as `set_reasoning_budget`
 - `InstanceManager.setModel()` and `InstanceManager.setReasoningBudget()` persist both preferences to SQLite and rebroadcast `instance:status`
@@ -375,6 +378,7 @@ All routes except `/health` and `/auth` require authentication (session cookie).
 | GET    | `/api/directories`           | Known Codex project directories                                             |
 | GET    | `/api/browse?prefix=...`     | Directory autocomplete                                                      |
 | GET    | `/api/workspace-entries`     | File/folder search for composer `@` mentions (`instanceId`, optional `q`)   |
+| GET    | `/api/provider-models`       | Provider-scoped model picker metadata (`provider`)                          |
 | GET    | `/api/projects/:id`          | Project artifacts (accepts basename slug or full encoded path)              |
 | POST   | `/api/upload`                | Upload image file for attachment (raw binary body, returns `{ path }`)      |
 | GET    | `/api/file?path=...`         | Serve local image file (images only, under `$HOME`, 10MB limit)             |

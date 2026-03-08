@@ -21,8 +21,16 @@ export type {
   ClaudeSdkSession,
   ClaudeSdkSessionOptions,
   CodexCliSessionOptions,
+  DiscoverCodexModelsOptions,
 } from "./providers/index.js";
-export { CodexCliSession, findCodexBinary } from "./providers/index.js";
+export { CodexCliSession, discoverCodexModels, findCodexBinary } from "./providers/index.js";
+export {
+  BUILTIN_PROVIDER_MODELS,
+  PROVIDER_DISPLAY_NAMES,
+  findProviderModelLabel,
+  getBuiltinProviderModels,
+  getProviderDisplayName,
+} from "./provider-catalog.js";
 
 export { ClaudeProcess } from "./claude-process.js";
 export type { ClaudeProcessEvents } from "./claude-process.js";
@@ -67,6 +75,7 @@ export type {
   ProviderRequest,
   ProviderRuntimeBinding,
   ProviderRuntimeMode,
+  ProviderModelOption,
   InstanceStatus,
   LastMessagePreview,
   InstanceInfo,
