@@ -250,6 +250,7 @@ export function InstanceView() {
       {pendingPermissionTool && pendingPermissionRequestId && !instance.external && (
         <PermissionBanner
           key={pendingPermissionRequestId}
+          provider={instance.provider}
           requestId={pendingPermissionRequestId}
           tool={pendingPermissionTool}
           description={pendingPermissionDesc}
@@ -281,8 +282,8 @@ export function InstanceView() {
                 Waiting for your response in the terminal
               </p>
               <p className="text-[0.75rem] text-muted">
-                Claude is waiting for approval to use {pendingTerminalTool}. Switch to your terminal
-                to respond.
+                {instance.provider === "codex" ? "Codex" : "Claude"} is waiting for approval to use{" "}
+                {pendingTerminalTool}. Switch to your terminal to respond.
               </p>
             </div>
             <span className="relative flex h-2.5 w-2.5 shrink-0">
@@ -309,6 +310,7 @@ export function InstanceView() {
         isStopped={isStopped}
         isExternal={!!instance.external}
         isPendingInTerminal={!!pendingTerminalTool}
+        provider={instance.provider}
         preferredModel={instance.preferredModel}
         reasoningBudget={instance.reasoningBudget}
         activeModel={instance.stats?.model}

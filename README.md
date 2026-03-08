@@ -42,7 +42,7 @@ Claude Relay also automatically discovers other Claude Code sessions running on 
 ```
 
 1. **Claude Relay** runs on your dev machine alongside Claude Code
-2. **InstanceManager** spawns and manages provider-backed sessions (currently Claude CLI and Claude Agent SDK)
+2. **InstanceManager** spawns and manages provider-backed sessions (currently Claude CLI, Claude Agent SDK, and managed Codex CLI)
 3. **Session discovery** finds Claude Code instances you started in the terminal and streams their JSONL transcripts
 4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
 5. **Tailscale** (optional) makes the relay reachable from any device on your private tailnet
@@ -65,6 +65,7 @@ If Relay discovers or restores a session that already lives in a Relay-managed g
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
 - **Per-session controls** — choose a model override and reasoning effort from the chat input for managed sessions
 - **Provider-aware managed sessions** — managed instances persist their provider identity and runtime binding, so future adapters can restore without going through Claude-specific transcript indexing
+- **Managed Codex adapter** — core/API-managed sessions can now run through `codex exec --json` with provider-isolated turn/resume handling
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
 - **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
@@ -140,6 +141,7 @@ src/
     claude-process.ts      Spawns claude -p processes, parses stream-json
     provider.ts            Provider session contract used by managed adapters
     providers/claude-sdk.ts Long-lived SDK-backed provider session
+    providers/codex-cli.ts Managed Codex CLI provider session
     instance-manager.ts    Manages multiple instances + discovers external sessions
     workspace-entries.ts   Workspace file/folder indexing for `@` mention search
     config.ts              CoreConfig type + resolveCoreConfig()
@@ -262,6 +264,13 @@ For Claude specifically:
 - new sessions may still capture a transcript path after the first turn
 - transcript paths are used for history replay and external-session discovery
 - approval prompts are routed as provider requests with stable request IDs over WebSocket
+
+For Codex specifically:
+
+- relay-managed Codex turns run through `codex exec --json` and `codex exec resume --json`
+- provider selection is available in the new-session UI as well as the core/API contract
+- Claude-only reasoning controls are hidden for Codex sessions, and the permission toggle is presented as sandbox/full-access mode
+- external Codex session discovery, transcript/history replay parity, and approval-request parity are still follow-up work
 
 ## Security
 

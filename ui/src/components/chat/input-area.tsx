@@ -3,7 +3,7 @@ import { ArrowUp, ImagePlus, Loader2, Square } from "lucide-react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useWSMethods } from "../../context/websocket-context";
 import { formatModel, formatTokens } from "../../lib/utils";
-import type { SessionStats } from "@shared/types";
+import type { ProviderKind, SessionStats } from "@shared/types";
 import { detectMentionTrigger, replacePromptRange } from "../../lib/composer-mentions";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -244,6 +244,7 @@ interface InputAreaProps {
   isStopped?: boolean;
   isExternal?: boolean;
   isPendingInTerminal?: boolean;
+  provider: ProviderKind;
   preferredModel?: string;
   reasoningBudget?: number;
   activeModel?: string;
@@ -261,6 +262,7 @@ export function InputArea({
   isStopped,
   isExternal,
   isPendingInTerminal,
+  provider,
   preferredModel,
   reasoningBudget,
   activeModel,
@@ -313,6 +315,8 @@ export function InputArea({
   const defaultMenuLabel = activeModelLabel ? `Default (${activeModelLabel})` : "Default";
   const activeReasoningLevel = REASONING_LEVELS.find((level) => level.budget === reasoningBudget);
   const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
+  const supportsModelSelection = provider === "claude";
+  const supportsReasoningSelection = provider === "claude";
 
   const updateDraft = (value: string) => {
     setDraftText(value);
@@ -487,9 +491,11 @@ export function InputArea({
     if (!slashContext) return [];
 
     if (!slashContext.hasArgument) {
-      const commands = SLASH_COMMANDS.filter((command) =>
-        matchesQuery(slashContext.commandQuery, [command.id, command.title.slice(1)]),
-      );
+      const commands = SLASH_COMMANDS.filter((command) => {
+        if (command.id === "model" && !supportsModelSelection) return false;
+        if (command.id === "reasoning" && !supportsReasoningSelection) return false;
+        return matchesQuery(slashContext.commandQuery, [command.id, command.title.slice(1)]);
+      });
 
       return commands.map((command) => ({
         key: command.id,
@@ -503,7 +509,7 @@ export function InputArea({
       }));
     }
 
-    if (slashContext.commandQuery === "model") {
+    if (slashContext.commandQuery === "model" && supportsModelSelection) {
       return MODEL_COMMAND_OPTIONS.filter((option) =>
         matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
       ).map((option) => ({
@@ -518,7 +524,7 @@ export function InputArea({
       }));
     }
 
-    if (slashContext.commandQuery === "reasoning") {
+    if (slashContext.commandQuery === "reasoning" && supportsReasoningSelection) {
       return REASONING_COMMAND_OPTIONS.filter((option) =>
         matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
       ).map((option) => ({
@@ -790,7 +796,7 @@ export function InputArea({
   const roundIcon = "h-8 w-8 shrink-0 !rounded-full";
   const roundPrimary = "h-8 w-8 shrink-0 !rounded-full !p-0";
 
-  const modelPickerButton = !isExternal && (
+  const modelPickerButton = !isExternal && supportsModelSelection && (
     <Menu.Root>
       <Tooltip content="Select model">
         <Menu.Trigger
@@ -857,7 +863,7 @@ export function InputArea({
     </Menu.Root>
   );
 
-  const reasoningPickerButton = !isExternal && (
+  const reasoningPickerButton = !isExternal && supportsReasoningSelection && (
     <Menu.Root>
       <Tooltip content="Set reasoning effort">
         <Menu.Trigger
@@ -936,9 +942,13 @@ export function InputArea({
   const permissionsButton = !isExternal && (
     <Tooltip
       content={
-        skipPermissions
-          ? "Full access — click to require approvals"
-          : "Limited — click for full access"
+        provider === "codex"
+          ? skipPermissions
+            ? "Full access — click to use the workspace sandbox"
+            : "Workspace sandbox — click for full access"
+          : skipPermissions
+            ? "Full access — click to require approvals"
+            : "Limited — click for full access"
       }
     >
       <button
@@ -970,7 +980,15 @@ export function InputArea({
             </>
           )}
         </svg>
-        <span>{skipPermissions ? "Full access" : "Limited"}</span>
+        <span>
+          {provider === "codex"
+            ? skipPermissions
+              ? "Full access"
+              : "Sandboxed"
+            : skipPermissions
+              ? "Full access"
+              : "Limited"}
+        </span>
       </button>
     </Tooltip>
   );

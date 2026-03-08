@@ -72,6 +72,7 @@ src/
     workspace-entries.ts     Workspace indexing/search for composer `@` file mentions
     providers/
       claude-sdk.ts          Claude SDK provider session implementation
+      codex-cli.ts           Managed Codex CLI provider session implementation (`codex exec --json`)
     index.ts                 Barrel: exports all core API
   server/
     config.ts                RelayConfig extends CoreConfig, RelayOptions, resolveConfig()
@@ -121,6 +122,9 @@ ui/
 - `InstanceInfo.provider` is first-class and persisted for managed sessions
 - Managed restore uses provider runtime bindings from SQLite, not the current default provider
 - Claude JSONL remains a Claude-specific read model for history replay, transcript capture, and external-session discovery
+- Current managed providers:
+  - Claude via Agent SDK or Claude CLI fallback
+  - Codex via `codex exec --json` / `codex exec resume --json`
 
 ### import.meta.dirname
 
@@ -230,6 +234,7 @@ ui/
 - **`allowedTools` persists in SQLite** (`allowed_tools` TEXT column, JSON array) — survives relay restarts including dev-mode hot reloads. DB schema v2 migration adds the column. Restored on managed instance startup.
 - Retry message: "Permission granted for {file writes|tool}. Please continue."
 - WS message: `{ type: "respond_to_request", instanceId, requestId, decision }`
+- **Managed Codex limitation:** `codex exec --json` does not currently expose a reliable approval-request event that maps onto `ProviderRequest`. The current Codex adapter therefore runs with `-a never -s workspace-write` by default, or `--dangerously-bypass-approvals-and-sandbox` when `skipPermissions` is enabled. Provider-neutral approval plumbing is in place, but Codex approval parity is not yet implemented.
 - **Known limitation (external sessions):** When a terminal-side Codex session prompts the user to approve a tool (e.g., "Allow Bash?"), nothing is written to the JSONL until the user responds. The relay sees the `tool_use` activity but cannot distinguish "waiting for permission" from "tool is running." This means **no banner, toast, or visual indicator** appears in the UI for permission prompts on external sessions. Only `INTERACTIVE_TOOLS` (AskUserQuestion, ExitPlanMode, EnterPlanMode) are detected because those tools _always_ block for input. Fixing this would require either an upstream JSONL event for permission prompts, or a timeout-based heuristic (tool_use without tool_result for N seconds).
 
 ### Instance Renaming

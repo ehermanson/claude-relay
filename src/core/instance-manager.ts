@@ -27,6 +27,7 @@ import { ClaudeProcess } from "./claude-process.js";
 import type { ProviderSession } from "./provider.js";
 import { createSdkSessionSync, resolveQueryFn } from "./providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "./providers/claude-sdk.js";
+import { CodexCliSession } from "./providers/codex-cli.js";
 import { SessionDB } from "./db.js";
 import type { SessionRow, ManagedInstanceRow } from "./db.js";
 import type { CoreConfig } from "./config.js";
@@ -533,6 +534,17 @@ export class InstanceManager extends EventEmitter {
     },
   ): ProviderSession {
     const provider = options?.provider ?? "claude";
+    if (provider === "codex") {
+      return new CodexCliSession({
+        cwd: config.workingDirectory,
+        model: options?.model,
+        resumeSessionId: options?.resumeSessionId,
+        dangerouslySkipPermissions: config.dangerouslySkipPermissions,
+        logger: config.logger,
+        processTimeout: config.processTimeout,
+      });
+    }
+
     if (provider !== "claude") {
       throw new Error(`Provider '${provider}' is not implemented`);
     }

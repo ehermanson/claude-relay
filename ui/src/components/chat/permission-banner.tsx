@@ -1,21 +1,29 @@
 import { useState } from "react";
+import type { ProviderKind } from "@shared/types";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 
 const FILE_WRITE_GROUP = ["Edit", "Write", "NotebookEdit"];
 
-function getPermissionLabel(tool: string): string {
-  if (FILE_WRITE_GROUP.includes(tool)) return "Claude needs permission to edit files";
-  if (tool === "Bash") return "Claude needs permission to run commands";
-  return `Claude needs permission to use ${tool}`;
+function getProviderLabel(provider: ProviderKind): string {
+  return provider === "codex" ? "Codex" : "Claude";
+}
+
+function getPermissionLabel(provider: ProviderKind, tool: string): string {
+  const label = getProviderLabel(provider);
+  if (FILE_WRITE_GROUP.includes(tool)) return `${label} needs permission to edit files`;
+  if (tool === "Bash") return `${label} needs permission to run commands`;
+  return `${label} needs permission to use ${tool}`;
 }
 
 export function PermissionBanner({
+  provider,
   requestId,
   tool,
   description,
   onApprove,
 }: {
+  provider: ProviderKind;
   requestId: string;
   tool: string;
   description?: string;
@@ -46,7 +54,7 @@ export function PermissionBanner({
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[0.8125rem] font-medium text-text-bright">
-            {getPermissionLabel(tool)}
+            {getPermissionLabel(provider, tool)}
           </p>
           {description && <p className="truncate text-[0.75rem] text-muted">{description}</p>}
         </div>

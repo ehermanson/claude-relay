@@ -109,6 +109,7 @@ export function Sidebar() {
   }
 
   const handleCreate = (options: {
+    provider?: import("@shared/types").ProviderKind;
     name?: string;
     workingDirectory?: string;
     dangerouslySkipPermissions?: boolean;
