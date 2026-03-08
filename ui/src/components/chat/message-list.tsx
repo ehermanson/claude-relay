@@ -94,48 +94,132 @@ export function MessageList({
   // even during text streaming to avoid flicker between tool calls.
   const showThinking = !!showThinkingIndicator || !!isProcessing || instanceStatus === "processing";
 
-  return (
-    <div ref={ref} className="flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
-        {items.map((item, i) => {
-          switch (item.kind) {
-            case "user":
-              return <UserMessage key={i} text={item.text} timestamp={item.timestamp} />;
-            case "claude":
-              return (
-                <ClaudeMessage
-                  key={i}
-                  text={item.text}
-                  timestamp={item.timestamp}
-                  isLast={i === lastClaudeIndex}
-                />
-              );
-            case "system":
-              return <SystemMessage key={i} text={item.text} isError={item.isError} />;
-            case "thinking-block":
-              return <ThinkingBlock key={i} text={item.text} />;
-            case "agent-transcript":
-              return <AgentTranscript key={i} title={item.title} result={item.result} />;
-            case "activity-group": {
-              const isLast = i === lastActivityGroupIndex;
+  // Pre-process items into render elements, merging consecutive activity-groups
+  // into a single visual container with a shared "Tool calls" label.
+  // Also inserts "Response" dividers when claude text follows tool calls.
+  const renderElements: React.ReactNode[] = [];
+  let lastRenderedKind: string | null = null; // "tool-container" | item.kind
+  let i = 0;
+  while (i < items.length) {
+    const item = items[i];
+
+    if (item.kind === "activity-group") {
+      // Collect consecutive activity-groups into one run
+      const runStart = i;
+      const runGroups: Array<{ item: ChatItem & { kind: "activity-group" }; index: number }> = [];
+      while (i < items.length && items[i].kind === "activity-group") {
+        runGroups.push({
+          item: items[i] as ChatItem & { kind: "activity-group" },
+          index: i,
+        });
+        i++;
+      }
+
+      // Count total tool_use entries across all groups in this run
+      const totalToolUses = runGroups.reduce(
+        (sum, { item: g }) => sum + g.activities.filter((a) => a.activity === "tool_use").length,
+        0,
+      );
+
+      renderElements.push(
+        <div
+          key={`tool-container-${runStart}`}
+          className="rounded-lg border border-border/60 bg-surface/40"
+        >
+          {totalToolUses > 0 && (
+            <div className="px-3 pt-2.5 pb-1">
+              <span className="text-[10px] uppercase tracking-[0.12em] text-muted/50">
+                Tool call{totalToolUses > 1 ? `s (${totalToolUses})` : ""}
+              </span>
+            </div>
+          )}
+          <div className="flex flex-col px-1 pb-1.5">
+            {runGroups.map(({ item: g, index: idx }) => {
+              const isLast = idx === lastActivityGroupIndex;
               return (
                 <ActivityGroup
-                  key={i}
-                  activities={item.activities}
+                  key={idx}
+                  activities={g.activities}
                   onSendMessage={isLast ? onSendMessage : undefined}
                   isInteractive={isLast ? isInteractive : undefined}
                   onApproveTool={isLast ? onApproveTool : undefined}
                   approvedTools={approvedTools}
                   isExternal={isLast ? isExternal : undefined}
-                  trailingResolution={crossGroupResolution.get(i)}
-                  skipLeadingResult={skipLeadingResultGroups.has(i)}
+                  trailingResolution={crossGroupResolution.get(idx)}
+                  skipLeadingResult={skipLeadingResultGroups.has(idx)}
                   planChildId={planChildId}
                   planChildName={planChildName}
                 />
               );
+            })}
+          </div>
+        </div>,
+      );
+      lastRenderedKind = "tool-container";
+    } else {
+      // Insert a "Response" divider when a claude message follows tool calls
+      if (item.kind === "claude" && lastRenderedKind === "tool-container") {
+        // Compute duration from the most recent user message in this turn
+        let durationLabel = "";
+        for (let j = i - 1; j >= 0; j--) {
+          if (items[j].kind === "user") {
+            const userTs = (items[j] as ChatItem & { kind: "user" }).timestamp;
+            if (userTs && item.timestamp) {
+              const seconds = Math.round((item.timestamp - userTs) / 1000);
+              if (seconds >= 1) {
+                durationLabel =
+                  seconds >= 60
+                    ? ` · ${Math.floor(seconds / 60)}m ${seconds % 60}s`
+                    : ` · ${seconds}s`;
+              }
             }
+            break;
           }
-        })}
+        }
+        renderElements.push(
+          <div key={`response-divider-${i}`} className="my-1 flex items-center gap-3">
+            <span className="h-px flex-1 bg-border/50" />
+            <span className="rounded-full border border-border/60 bg-bg px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted/60">
+              Response{durationLabel}
+            </span>
+            <span className="h-px flex-1 bg-border/50" />
+          </div>,
+        );
+      }
+
+      switch (item.kind) {
+        case "user":
+          renderElements.push(<UserMessage key={i} text={item.text} timestamp={item.timestamp} />);
+          break;
+        case "claude":
+          renderElements.push(
+            <ClaudeMessage
+              key={i}
+              text={item.text}
+              timestamp={item.timestamp}
+              isLast={i === lastClaudeIndex}
+            />,
+          );
+          break;
+        case "system":
+          renderElements.push(<SystemMessage key={i} text={item.text} isError={item.isError} />);
+          break;
+        case "thinking-block":
+          renderElements.push(<ThinkingBlock key={i} text={item.text} />);
+          break;
+        case "agent-transcript":
+          renderElements.push(<AgentTranscript key={i} title={item.title} result={item.result} />);
+          break;
+      }
+      lastRenderedKind = item.kind;
+      i++;
+    }
+  }
+
+  return (
+    <div ref={ref} className="flex-1 overflow-y-auto">
+      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
+        {renderElements}
         {showThinking && <ThinkingIndicator />}
       </div>
     </div>

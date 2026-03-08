@@ -8,7 +8,7 @@ interface ClaudeMessageProps {
   isLast?: boolean;
 }
 
-const COLLAPSED_HEIGHT = 96; // ~4 lines
+const COLLAPSED_HEIGHT = 400; // ~20 lines — only collapse truly massive intermediate messages
 
 export function ClaudeMessage({ text, timestamp, isLast }: ClaudeMessageProps) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -28,8 +28,8 @@ export function ClaudeMessage({ text, timestamp, isLast }: ClaudeMessageProps) {
   const collapsed = isOverflowing && !expanded && !isLast;
 
   return (
-    <div className="animate-fade-in flex min-w-0 flex-col gap-1">
-      <div className="min-w-0 overflow-hidden border-l-2 border-l-claude/30 pl-4 text-[0.875rem] leading-relaxed">
+    <div className="animate-fade-in flex min-w-0 flex-col gap-1.5">
+      <div className="min-w-0 overflow-hidden px-1 py-0.5 text-sm leading-relaxed text-text/80">
         <div
           ref={contentRef}
           className="relative min-w-0 overflow-hidden transition-[max-height] duration-200"
@@ -43,14 +43,14 @@ export function ClaudeMessage({ text, timestamp, isLast }: ClaudeMessageProps) {
         {isOverflowing && !isLast && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="mt-1 text-[0.8125rem] font-medium text-muted transition-colors hover:text-accent"
+            className="mt-1.5 text-[0.8125rem] font-medium text-muted/70 transition-colors hover:text-accent"
           >
             {expanded ? "Show less" : "Show more"}
           </button>
         )}
       </div>
       {timestamp && (
-        <span className="pl-4 text-[0.6875rem] text-muted">{formatTimestamp(timestamp)}</span>
+        <span className="px-1 text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
       )}
     </div>
   );

@@ -1,11 +1,9 @@
 export function ThinkingIndicator() {
   return (
-    <div className="flex items-start">
-      <div className="flex items-center gap-[5px] rounded-2xl border border-claude/10 bg-claude-dim px-4 py-3">
-        <span className="h-[7px] w-[7px] animate-bounce-dot rounded-full bg-claude/50 [animation-delay:-0.32s]" />
-        <span className="h-[7px] w-[7px] animate-bounce-dot rounded-full bg-claude/50 [animation-delay:-0.16s]" />
-        <span className="h-[7px] w-[7px] animate-bounce-dot rounded-full bg-claude/50" />
-      </div>
+    <div className="flex items-center gap-1.5 px-1 py-2">
+      <span className="h-1 w-1 animate-pulse rounded-full bg-muted/30" />
+      <span className="h-1 w-1 animate-pulse rounded-full bg-muted/30 [animation-delay:200ms]" />
+      <span className="h-1 w-1 animate-pulse rounded-full bg-muted/30 [animation-delay:400ms]" />
     </div>
   );
 }

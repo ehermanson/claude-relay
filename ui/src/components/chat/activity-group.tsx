@@ -108,11 +108,11 @@ export function ActivityGroup({
           >
             <button
               onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-1.5 border-none bg-transparent px-2.5 py-1 text-[0.6875rem] text-muted transition-colors hover:text-accent"
+              className="flex items-center gap-1.5 border-none bg-transparent px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted/55 transition-colors duration-150 hover:text-muted/80"
             >
               <svg
-                width="10"
-                height="10"
+                width="8"
+                height="8"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"

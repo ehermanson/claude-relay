@@ -91,9 +91,12 @@ function reducer(state: State, action: Action): State {
             if (msg.thinking) {
               items.push({ kind: "thinking-block", text: msg.thinking });
             } else if (msg.text && msg.text.trim()) {
-              flushActivities();
-              if (!claudeText) claudeTimestamp = entry.timestamp;
-              claudeText += msg.text;
+              // Dedup: skip if text is already at the end of accumulated claude text
+              if (!claudeText.endsWith(msg.text)) {
+                flushActivities();
+                if (!claudeText) claudeTimestamp = entry.timestamp;
+                claudeText += msg.text;
+              }
             }
             if (msg.isWaiting) {
               flushActivities();
@@ -130,6 +133,7 @@ function reducer(state: State, action: Action): State {
             } else if (msg.activity === "agent_activity" && msg.agentActivities) {
               currentAgentActivities = msg.agentActivities;
             } else {
+              flushClaude();
               currentActivities.push(msg);
             }
             break;
@@ -185,6 +189,14 @@ function reducer(state: State, action: Action): State {
         const lastIdx = items.length - 1;
         if (lastIdx >= 0 && items[lastIdx].kind === "claude") {
           const prev = items[lastIdx] as { kind: "claude"; text: string; timestamp?: number };
+          // Dedup: skip if the incoming text is already at the end of the current message
+          // (can happen when JSONL watcher re-emits content after the live stream)
+          if (prev.text.endsWith(action.text)) {
+            if (action.isWaiting) {
+              return { ...state, items, isProcessing: false, showThinkingIndicator: false };
+            }
+            return state;
+          }
           items[lastIdx] = {
             kind: "claude",
             text: prev.text + action.text,

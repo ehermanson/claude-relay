@@ -80,84 +80,20 @@ interface ActivityEntryProps {
   planChildName?: string;
 }
 
-function ActivityIcon({ type }: { type: ActivityEntryProps["activity"] }) {
-  switch (type) {
-    case "tool_use":
-      return (
-        <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-tool-use-bg text-tool-use-text">
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-          </svg>
-        </div>
-      );
-    case "tool_result":
-      return (
-        <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-accent-dim text-accent">
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </div>
-      );
-    case "thinking":
-      return (
-        <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-claude-dim text-claude">
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="1" />
-            <circle cx="19" cy="12" r="1" />
-            <circle cx="5" cy="12" r="1" />
-          </svg>
-        </div>
-      );
-    default:
-      return null;
-  }
+function ActivityDot({ type }: { type: ActivityEntryProps["activity"] }) {
+  const color =
+    type === "tool_use"
+      ? "bg-muted/30"
+      : type === "tool_result"
+        ? "bg-accent/40"
+        : type === "thinking"
+          ? "bg-claude/40"
+          : "bg-muted/20";
+  return <span className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full ${color}`} />;
 }
 
-function PermissionIcon() {
-  return (
-    <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-warning/10 text-warning">
-      <svg
-        width="10"
-        height="10"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg>
-    </div>
-  );
+function PermissionDot() {
+  return <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-warning/50" />;
 }
 
 function DiffView({
@@ -177,9 +113,9 @@ function DiffView({
   const newLines = (newHighlighted ?? escapeHtml(newStr)).split("\n");
 
   return (
-    <div className="mt-2 overflow-hidden rounded-lg border border-border text-[0.75rem] leading-relaxed">
+    <div className="mt-1.5 overflow-hidden rounded-md border border-border/70 text-[11px] leading-relaxed">
       {filePath && (
-        <div className="border-b border-border bg-panel-header px-3 py-1.5 font-mono text-[0.6875rem] text-muted">
+        <div className="border-b border-border/70 bg-panel-header px-2.5 py-1 font-mono text-[10px] text-muted/70">
           {filePath}
         </div>
       )}
@@ -187,18 +123,18 @@ function DiffView({
         {oldLines.map((line, i) => (
           <div
             key={`old-${i}`}
-            className="whitespace-pre bg-diff-remove-bg px-3 py-px font-mono text-[0.75rem]"
+            className="whitespace-pre bg-diff-remove-bg px-2.5 py-px font-mono text-[11px]"
           >
-            <span className="mr-2 inline-block w-3 select-none text-error/70">-</span>
+            <span className="mr-2 inline-block w-3 select-none text-error/60">-</span>
             <span dangerouslySetInnerHTML={{ __html: line || " " }} />
           </div>
         ))}
         {newLines.map((line, i) => (
           <div
             key={`new-${i}`}
-            className="whitespace-pre bg-diff-add-bg px-3 py-px font-mono text-[0.75rem]"
+            className="whitespace-pre bg-diff-add-bg px-2.5 py-px font-mono text-[11px]"
           >
-            <span className="mr-2 inline-block w-3 select-none text-accent/70">+</span>
+            <span className="mr-2 inline-block w-3 select-none text-accent/60">+</span>
             <span dangerouslySetInnerHTML={{ __html: line || " " }} />
           </div>
         ))}
@@ -218,19 +154,19 @@ function ActivityCodeBlock({
 }) {
   const highlighted = highlightCode(content, lang);
   return (
-    <div className="mt-2 overflow-hidden rounded-lg border border-border text-[0.75rem] leading-relaxed">
+    <div className="mt-1.5 overflow-hidden rounded-md border border-border/70 text-[11px] leading-relaxed">
       {label && (
-        <div className="border-b border-border bg-panel-header px-3 py-1.5 font-mono text-[0.6875rem] text-muted">
+        <div className="border-b border-border/70 bg-panel-header px-2.5 py-1 font-mono text-[10px] text-muted/70">
           {label}
         </div>
       )}
       {highlighted ? (
         <pre
-          className="hljs m-0 overflow-x-auto bg-panel-content px-3 py-2 font-mono text-[0.75rem] leading-relaxed"
+          className="hljs m-0 overflow-x-auto bg-bg/80 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed"
           dangerouslySetInnerHTML={{ __html: highlighted }}
         />
       ) : (
-        <pre className="m-0 overflow-x-auto bg-panel-content px-3 py-2 font-mono text-[0.75rem] leading-relaxed text-text">
+        <pre className="m-0 overflow-x-auto bg-bg/80 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-text/80">
           {content}
         </pre>
       )}
@@ -627,36 +563,40 @@ export function ActivityEntry({
   return (
     <div className={`flex flex-col ${collapsed ? "hidden" : ""}`}>
       <div
-        className={`flex items-start gap-2 rounded-md px-2.5 py-1 text-[0.8125rem] leading-snug text-muted ${
+        className={`flex items-start gap-2.5 rounded-md px-2 py-1 text-[11px] leading-relaxed text-muted ${
           isError ? "bg-error-dim" : ""
-        } ${isExpandable ? "cursor-pointer transition-colors hover:bg-hover-highlight" : ""}`}
+        } ${isExpandable ? "cursor-pointer transition-colors duration-150 hover:bg-hover-highlight" : ""}`}
         onClick={isExpandable ? () => setExpanded(!expanded) : undefined}
       >
-        {isPermDenied ? <PermissionIcon /> : <ActivityIcon type={activity} />}
+        {isPermDenied ? <PermissionDot /> : <ActivityDot type={activity} />}
         <div
           className={`flex min-w-0 flex-1 items-baseline gap-1.5 ${
             expanded && !hasRichContent ? "flex-wrap" : ""
           }`}
         >
           <span
-            className={`whitespace-nowrap text-[0.8125rem] font-medium ${
-              isError ? "text-error" : "text-text"
+            className={`whitespace-nowrap text-[11px] ${
+              isError
+                ? "font-medium text-error"
+                : activity === "tool_result"
+                  ? "text-muted/70"
+                  : "text-muted"
             }`}
           >
             {description}
           </span>
-          {tool && <span className="text-[0.8125rem] font-normal text-muted/50">{tool}</span>}
+          {tool && <span className="text-[11px] font-normal text-muted/35">{tool}</span>}
           {isExternalPending && (
-            <span className="whitespace-nowrap rounded-md bg-claude-dim px-1.5 py-0.5 text-[0.6875rem] font-medium text-claude">
+            <span className="whitespace-nowrap rounded-md bg-claude-dim px-1.5 py-0.5 text-[10px] font-medium text-claude">
               Pending in terminal
             </span>
           )}
           {inputDescription && (
-            <span className="truncate text-[0.75rem] text-muted/60">{inputDescription}</span>
+            <span className="truncate text-[11px] text-muted/50">{inputDescription}</span>
           )}
           {detail && !expanded && (
             <div
-              className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[0.75rem] text-muted"
+              className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-muted/50"
               dangerouslySetInnerHTML={{
                 __html: escapeHtml(collapsedText),
               }}
@@ -664,7 +604,7 @@ export function ActivityEntry({
           )}
           {detail && expanded && !hasRichContent && (
             <div
-              className="basis-full whitespace-pre-wrap break-words pt-0.5 pb-0.5 font-mono text-[0.75rem] text-muted/70"
+              className="basis-full whitespace-pre-wrap break-words pt-0.5 pb-0.5 font-mono text-[11px] text-muted/60"
               dangerouslySetInnerHTML={{
                 __html: escapeHtml(detail),
               }}
@@ -673,16 +613,16 @@ export function ActivityEntry({
         </div>
         {isExpandable && (
           <svg
-            width="12"
-            height="12"
+            width="10"
+            height="10"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             strokeWidth={2}
             strokeLinecap="round"
             strokeLinejoin="round"
-            className={`shrink-0 text-muted transition-transform ${
-              expanded ? "rotate-90 opacity-50" : "opacity-0"
+            className={`mt-[5px] shrink-0 text-muted/40 transition-transform ${
+              expanded ? "rotate-90" : "opacity-0"
             }`}
           >
             <polyline points="9 18 15 12 9 6" />
@@ -690,7 +630,7 @@ export function ActivityEntry({
         )}
       </div>
       {expanded && hasRichContent && (
-        <div className="pl-[34px] pr-2.5 pb-2">
+        <div className="pl-[18px] pr-2 pb-1.5">
           <ToolContent
             tool={tool!}
             input={input!}
@@ -703,7 +643,7 @@ export function ActivityEntry({
         </div>
       )}
       {expanded && isPermDenied && (
-        <div className="pl-[34px] pr-2.5 pb-2">
+        <div className="pl-[18px] pr-2 pb-1.5">
           <PermissionDeniedContent
             tool={permissionDenied!}
             onApproveTool={onApproveTool}

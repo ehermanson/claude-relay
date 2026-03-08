@@ -37,15 +37,15 @@ export function UserMessage({ text, timestamp }: UserMessageProps) {
   const hasImages = images.length > 0;
 
   return (
-    <div className="animate-fade-in flex max-w-[85%] flex-col items-end gap-1 self-end">
+    <div className="animate-fade-in flex max-w-[80%] flex-col items-end gap-1.5 self-end">
       {hasText && (
-        <div className="rounded-2xl rounded-br-md bg-user-bg px-4 py-2.5 text-[0.875rem] leading-relaxed text-user-text">
+        <div className="rounded-2xl rounded-br-sm border border-border/50 bg-user-bg px-4 py-3 text-sm leading-relaxed text-user-text">
           <MarkdownContent text={textPart} />
         </div>
       )}
       {hasImages && <ImageRow images={images} />}
       {timestamp && (
-        <span className="px-1 text-[0.6875rem] text-muted">{formatTimestamp(timestamp)}</span>
+        <span className="px-1 text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
       )}
     </div>
   );
