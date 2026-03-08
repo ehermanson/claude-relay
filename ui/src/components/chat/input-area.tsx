@@ -811,7 +811,7 @@ export function InputArea({
 
   const slashMenu = slashContext && (
     <div
-      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-12" : "bottom-[3.25rem]"}`}
+      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[7rem]"}`}
     >
       <div className="pointer-events-auto overflow-hidden rounded-2xl border border-border/80 bg-surface-raised/95 shadow-lg backdrop-blur">
         <div className="flex items-center justify-between border-b border-border/70 px-3 py-1.5">
