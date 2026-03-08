@@ -34,6 +34,17 @@ export async function browsePath(prefix: string): Promise<{ home: string; direct
   return res.json();
 }
 
+export async function fetchWorkspaceEntries(
+  instanceId: string,
+  query: string,
+): Promise<{ entries: Array<{ path: string; kind: "file" | "directory" }> }> {
+  const res = await fetch(
+    `/api/workspace-entries?instanceId=${encodeURIComponent(instanceId)}&q=${encodeURIComponent(query)}`,
+  );
+  if (!res.ok) return { entries: [] };
+  return res.json();
+}
+
 export async function uploadImage(file: File): Promise<string> {
   const res = await fetch("/api/upload", {
     method: "POST",

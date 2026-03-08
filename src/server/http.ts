@@ -462,6 +462,30 @@ export function createRequestHandler(
         return;
       }
 
+      // GET /api/workspace-entries?instanceId=...&q=...  — search files/directories for composer mentions
+      if (method === "GET" && pathname === "/api/workspace-entries") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+
+        const instanceId = parsedUrl.searchParams.get("instanceId") || "";
+        const query = parsedUrl.searchParams.get("q") || "";
+        if (!instanceId) {
+          sendJson(res, 400, { error: "instanceId is required" });
+          return;
+        }
+
+        const entries = instanceManager.getWorkspaceEntries(instanceId, query);
+        if (!entries) {
+          sendJson(res, 404, { error: "Instance not found" });
+          return;
+        }
+
+        sendJson(res, 200, { entries });
+        return;
+      }
+
       // GET /api/projects/:id — project artifacts (accepts basename slug or full encoded path)
       const projectMatch = pathname.match(/^\/api\/projects\/([-a-zA-Z0-9_.]+)$/);
       if (method === "GET" && projectMatch) {

@@ -73,6 +73,7 @@ import {
   resolveWorktreeOrigin,
   enrichDiffStats,
 } from "./git.js";
+import { searchWorkspaceEntries, type WorkspaceEntry } from "./workspace-entries.js";
 
 // =============================================================================
 // Re-exports
@@ -783,6 +784,13 @@ export class InstanceManager extends EventEmitter {
   getInstance(id: string): InstanceInfo | undefined {
     const instance = this.instances.get(id);
     return instance ? { ...instance.info } : undefined;
+  }
+
+  getWorkspaceEntries(id: string, query: string): WorkspaceEntry[] | null {
+    const instance = this.instances.get(id);
+    if (!instance) return null;
+    const root = instance.actualCwd || instance.info.workingDirectory;
+    return searchWorkspaceEntries(root, query);
   }
 
   /**

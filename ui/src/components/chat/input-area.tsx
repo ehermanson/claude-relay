@@ -3,6 +3,7 @@ import { ArrowUp, ImagePlus, Loader2, Square } from "lucide-react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useWSMethods } from "../../context/websocket-context";
 import { formatModel } from "../../lib/utils";
+import { detectMentionTrigger, replacePromptRange } from "../../lib/composer-mentions";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
@@ -14,9 +15,11 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "../ui/command";
+import { FileIcon } from "../ui/file-icon";
 import { Tooltip } from "../ui/tooltip";
 import { Menu } from "../ui/menu";
-import { uploadImage } from "../../lib/api";
+import { fetchWorkspaceEntries, uploadImage } from "../../lib/api";
+import { ComposerEditor, type ComposerEditorHandle } from "./composer-editor";
 
 // TODO: Use
 const MODELS = [
@@ -144,6 +147,11 @@ interface ImageAttachment {
   preview: string;
 }
 
+interface MentionEntry {
+  path: string;
+  kind: "file" | "directory";
+}
+
 interface InputAreaProps {
   onSend: (text: string, images?: string[]) => void;
   onCancel: () => void;
@@ -175,13 +183,18 @@ export function InputArea({
   activeModel,
   skipPermissions,
 }: InputAreaProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<ComposerEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [draftText, setDraftText] = useState("");
+  const [composerSelectionOffset, setComposerSelectionOffset] = useState(0);
+  const [pendingSelectionOffset, setPendingSelectionOffset] = useState<number | null>(null);
+  const [mentionEntries, setMentionEntries] = useState<MentionEntry[]>([]);
+  const [selectedMentionKey, setSelectedMentionKey] = useState<string | null>(null);
+  const [mentionMenuDismissed, setMentionMenuDismissed] = useState(false);
   const [selectedSlashKey, setSelectedSlashKey] = useState<string | null>(null);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -214,16 +227,9 @@ export function InputArea({
   const activeReasoningLevel = REASONING_LEVELS.find((level) => level.budget === reasoningBudget);
   const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
 
-  const adjustTextareaHeight = () => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    const max = isMobile ? 100 : 140;
-    el.style.height = Math.min(el.scrollHeight, max) + "px";
-  };
-
   const updateDraft = (value: string) => {
     setDraftText(value);
+    setMentionMenuDismissed(false);
     setSlashMenuDismissed(false);
     if (value) {
       drafts.set(instanceId, value);
@@ -232,18 +238,16 @@ export function InputArea({
     }
   };
 
-  const setComposerValue = (value: string) => {
+  const setComposerValue = (value: string, selectionOffset = value.length) => {
     updateDraft(value);
-    textareaRef.current?.focus();
+    setComposerSelectionOffset(selectionOffset);
+    setPendingSelectionOffset(selectionOffset);
+    composerRef.current?.focus();
   };
 
   useEffect(() => {
-    textareaRef.current?.focus();
+    composerRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    adjustTextareaHeight();
-  }, [draftText, isMobile]);
 
   // Save/restore draft text when switching instances
   useEffect(() => {
@@ -261,8 +265,14 @@ export function InputArea({
     // Restore draft for current instance
     const restored = drafts.get(instanceId) || "";
     setDraftText(restored);
+    setComposerSelectionOffset(restored.length);
+    setPendingSelectionOffset(restored.length);
+    setMentionEntries([]);
+    setSelectedMentionKey(null);
+    setMentionMenuDismissed(false);
     setSlashMenuDismissed(false);
-    textareaRef.current?.focus();
+    setSelectedSlashKey(null);
+    composerRef.current?.focus();
   }, [instanceId]);
 
   useEffect(() => {
@@ -300,7 +310,7 @@ export function InputArea({
   const handleSend = async () => {
     if (!isConnected || uploading) return;
 
-    const text = draftText.trim() || textareaRef.current?.value.trim() || "";
+    const text = draftText.trim();
 
     if (!text && images.length === 0) return;
 
@@ -320,10 +330,10 @@ export function InputArea({
     onSend(text, imagePaths);
 
     // Clear input and draft
-    updateDraft("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
+    setComposerValue("", 0);
+    setMentionEntries([]);
+    setSelectedMentionKey(null);
+    setMentionMenuDismissed(false);
     setSelectedSlashKey(null);
     setSlashMenuDismissed(false);
     // Clear image previews
@@ -334,9 +344,54 @@ export function InputArea({
   const applySlashAction = (action: () => void) => {
     action();
     drafts.delete(instanceId);
-    setComposerValue("");
+    setComposerValue("", 0);
+    setMentionEntries([]);
+    setSelectedMentionKey(null);
+    setMentionMenuDismissed(false);
     setSelectedSlashKey(null);
     setSlashMenuDismissed(false);
+  };
+
+  const mentionTrigger = !mentionMenuDismissed
+    ? detectMentionTrigger(draftText, composerSelectionOffset)
+    : null;
+
+  useEffect(() => {
+    if (!mentionTrigger) {
+      setMentionEntries([]);
+      setSelectedMentionKey(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(async () => {
+      const result = await fetchWorkspaceEntries(instanceId, mentionTrigger.query);
+      if (cancelled) return;
+      setMentionEntries(result.entries);
+      setSelectedMentionKey((prev) => {
+        if (prev && result.entries.some((entry) => entry.path === prev)) return prev;
+        return result.entries[0]?.path ?? null;
+      });
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [instanceId, mentionTrigger?.query, mentionTrigger?.rangeEnd, mentionTrigger?.rangeStart]);
+
+  const applyMentionEntry = (entry: MentionEntry) => {
+    if (!mentionTrigger) return;
+    const next = replacePromptRange(
+      draftText,
+      mentionTrigger.rangeStart,
+      mentionTrigger.rangeEnd,
+      `@${entry.path} `,
+    );
+    setComposerValue(next.value, next.cursor);
+    setMentionEntries([]);
+    setSelectedMentionKey(null);
+    setMentionMenuDismissed(false);
   };
 
   const slashContext = !isExternal && !slashMenuDismissed ? getSlashContext(draftText) : null;
@@ -421,6 +476,13 @@ export function InputArea({
     slashMenuItems[0] ??
     null;
 
+  const selectedMentionItem =
+    (selectedMentionKey
+      ? mentionEntries.find((entry) => entry.path === selectedMentionKey)
+      : null) ??
+    mentionEntries[0] ??
+    null;
+
   useEffect(() => {
     if (slashMenuItems.length === 0) {
       setSelectedSlashKey(null);
@@ -434,21 +496,68 @@ export function InputArea({
   }, [slashContext?.argQuery, slashContext?.hasArgument, slashMenuItems]);
 
   useEffect(() => {
-    if (!slashContext) return;
+    if (!mentionTrigger && !slashContext) return;
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
+      if (mentionTrigger) {
+        setMentionEntries([]);
+        setSelectedMentionKey(null);
+        setMentionMenuDismissed(true);
+        return;
+      }
       setSelectedSlashKey(null);
       setSlashMenuDismissed(true);
     };
 
     window.addEventListener("keydown", handleWindowKeyDown, true);
     return () => window.removeEventListener("keydown", handleWindowKeyDown, true);
-  }, [slashContext]);
+  }, [mentionTrigger, slashContext]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (mentionEntries.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const currentIndex = selectedMentionItem
+          ? mentionEntries.findIndex((entry) => entry.path === selectedMentionItem.path)
+          : -1;
+        const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % mentionEntries.length;
+        setSelectedMentionKey(mentionEntries[nextIndex]?.path ?? null);
+        return;
+      }
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const currentIndex = selectedMentionItem
+          ? mentionEntries.findIndex((entry) => entry.path === selectedMentionItem.path)
+          : -1;
+        const nextIndex =
+          currentIndex < 0
+            ? mentionEntries.length - 1
+            : (currentIndex - 1 + mentionEntries.length) % mentionEntries.length;
+        setSelectedMentionKey(mentionEntries[nextIndex]?.path ?? null);
+        return;
+      }
+
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        if (selectedMentionItem) {
+          applyMentionEntry(selectedMentionItem);
+        }
+        return;
+      }
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionEntries([]);
+        setSelectedMentionKey(null);
+        setMentionMenuDismissed(true);
+        return;
+      }
+    }
+
     if (slashMenuItems.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -494,6 +603,13 @@ export function InputArea({
       handleSend();
     }
     if (e.key === "Escape") {
+      if (mentionTrigger) {
+        e.preventDefault();
+        setMentionEntries([]);
+        setSelectedMentionKey(null);
+        setMentionMenuDismissed(true);
+        return;
+      }
       if (slashMenuItems.length > 0) {
         e.preventDefault();
         setSelectedSlashKey(null);
@@ -730,6 +846,9 @@ export function InputArea({
   ) : (
     <ArrowUp size={18} strokeWidth={2.5} />
   );
+  const composerPlaceholder = isStopped
+    ? "Send a message to resume... Use @ for files and / for commands"
+    : "Send a message... Use @ for files and / for commands";
 
   // Image preview strip (shared)
   const imageStrip = images.length > 0 && (
@@ -809,6 +928,73 @@ export function InputArea({
     [],
   );
 
+  const mentionMenu = mentionTrigger && (
+    <div
+      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[7rem]"}`}
+    >
+      <div className="pointer-events-auto overflow-hidden rounded-2xl border border-border/80 bg-surface-raised/95 shadow-lg backdrop-blur">
+        <div className="flex items-center justify-between border-b border-border/70 px-3 py-1.5">
+          <div className="min-w-0">
+            <div className="text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-muted">
+              Workspace
+            </div>
+            <div className="truncate pt-0.5 text-[0.6875rem] text-muted">
+              Tag a file or folder for the next turn.
+            </div>
+          </div>
+          <div className="ml-3 flex shrink-0 items-center gap-1.5">
+            <Badge variant="default" className="px-2 py-0.5 text-[0.6875rem]">
+              Esc
+            </Badge>
+            <span className="text-[0.6875rem] text-muted">dismiss</span>
+          </div>
+        </div>
+        <Command
+          shouldFilter={false}
+          value={selectedMentionKey ?? undefined}
+          onValueChange={setSelectedMentionKey}
+          className="bg-transparent p-0"
+        >
+          <CommandList className="max-h-72 p-1">
+            <CommandEmpty>No matching files or folders.</CommandEmpty>
+            <CommandGroup heading="Workspace">
+              {mentionEntries.map((entry) => {
+                const basename = entry.path.split("/").pop() || entry.path;
+                const parentPath = entry.path.slice(
+                  0,
+                  Math.max(0, entry.path.length - basename.length - 1),
+                );
+                return (
+                  <CommandItem
+                    key={entry.path}
+                    value={entry.path}
+                    onMouseEnter={() => setSelectedMentionKey(entry.path)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onSelect={() => applyMentionEntry(entry)}
+                    className="justify-between gap-2.5 py-2"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                      <FileIcon path={entry.path} kind={entry.kind} className="h-4 w-4 shrink-0" />
+                      <div className="min-w-0 flex flex-1 items-baseline gap-2">
+                        <div className="truncate text-[0.8125rem] font-medium text-text">
+                          {basename}
+                        </div>
+                        {parentPath ? (
+                          <div className="truncate text-[0.75rem] text-muted">{parentPath}</div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <CommandShortcut>{entry.kind === "directory" ? "dir" : "file"}</CommandShortcut>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </div>
+    </div>
+  );
+
   const slashMenu = slashContext && (
     <div
       className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[7rem]"}`}
@@ -880,6 +1066,8 @@ export function InputArea({
       </div>
     </div>
   );
+
+  const composerMenu = mentionTrigger ? mentionMenu : slashMenu;
 
   return (
     <div className="shrink-0 safe-area-bottom">
@@ -966,20 +1154,23 @@ export function InputArea({
 
           {isMobile ? (
             <>
-              {/* Mobile: textarea on top, toolbar row below */}
-              <textarea
-                ref={textareaRef}
+              <ComposerEditor
+                ref={composerRef}
                 value={draftText}
-                placeholder={isStopped ? "Send a message to resume..." : "Send a message..."}
-                rows={1}
+                placeholder={composerPlaceholder}
+                placeholderClassName="px-3.5 pt-3 pb-1 text-[15px] leading-normal"
                 disabled={disabled}
-                onChange={(e) => updateDraft(e.currentTarget.value)}
+                selectionOffset={pendingSelectionOffset}
+                onSelectionApplied={() => setPendingSelectionOffset(null)}
+                onChange={(value, selectionOffset) => {
+                  updateDraft(value);
+                  setComposerSelectionOffset(selectionOffset);
+                }}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                className={`w-full resize-none overflow-y-auto bg-transparent px-3.5 pt-3 pb-1 text-[16px] leading-normal text-text placeholder:text-muted focus:outline-none ${disabled ? "opacity-40" : ""}`}
-                style={{ minHeight: "36px", maxHeight: "100px" }}
+                className={`min-h-[36px] max-h-[100px] overflow-y-auto bg-transparent px-3.5 pt-3 pb-1 text-[16px] leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`}
               />
-              {slashMenu}
+              {composerMenu}
               <div className="flex items-center justify-between px-2 pb-2">
                 <div className="flex items-center gap-0.5">
                   <Tooltip content="Attach image">
@@ -1020,20 +1211,23 @@ export function InputArea({
             </>
           ) : (
             <>
-              {/* Desktop: textarea on top, toolbar row below */}
-              <textarea
-                ref={textareaRef}
+              <ComposerEditor
+                ref={composerRef}
                 value={draftText}
-                placeholder={isStopped ? "Send a message to resume..." : "Send a message..."}
-                rows={2}
+                placeholder={composerPlaceholder}
+                placeholderClassName="px-4 pt-3 pb-1 text-[13px] leading-normal"
                 disabled={disabled}
-                onChange={(e) => updateDraft(e.currentTarget.value)}
+                selectionOffset={pendingSelectionOffset}
+                onSelectionApplied={() => setPendingSelectionOffset(null)}
+                onChange={(value, selectionOffset) => {
+                  updateDraft(value);
+                  setComposerSelectionOffset(selectionOffset);
+                }}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                className={`w-full resize-none overflow-y-auto bg-transparent px-4 pt-3 pb-1 text-sm leading-normal text-text placeholder:text-muted focus:outline-none ${disabled ? "opacity-40" : ""}`}
-                style={{ minHeight: "52px", maxHeight: "140px" }}
+                className={`min-h-[52px] max-h-[140px] overflow-y-auto bg-transparent px-4 pt-3 pb-1 text-sm leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`}
               />
-              {slashMenu}
+              {composerMenu}
               <div className="flex items-center gap-0.5 px-2 pb-2">
                 <Tooltip content="Attach image">
                   <Button

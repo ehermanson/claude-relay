@@ -63,6 +63,7 @@ New managed sessions run directly in the directory you choose. If Relay discover
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
 - **Per-session controls** — choose a model override and reasoning budget from the chat input for managed sessions
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
+- **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
 - **Mobile-friendly web UI** — React SPA with markdown rendering, syntax highlighting, activity indicators, directory browsing, and VSCode-style file icons in the sidecar
 - **Remote access** — built-in Cloudflare Tunnel support for secure access from anywhere
@@ -136,6 +137,7 @@ src/
     claude-process.ts      Spawns claude -p processes, parses stream-json
     providers/claude-sdk.ts Long-lived SDK-backed provider session
     instance-manager.ts    Manages multiple instances + discovers external sessions
+    workspace-entries.ts   Workspace file/folder indexing for `@` mention search
     config.ts              CoreConfig type + resolveCoreConfig()
     types.ts               All shared type definitions
     logger.ts              Logger interface
@@ -152,7 +154,9 @@ src/
 scripts/
   sync-vscode-icons.mjs ← Regenerates the trimmed vscode-icons manifest used by the UI
 ui/                     ← React app
+  src/components/chat/composer-editor.tsx
   src/components/ui/file-icon.tsx
+  src/lib/composer-mentions.ts
   src/lib/vscode-icons.ts
   src/lib/vscode-icons-manifest.json
 ```

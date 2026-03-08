@@ -40,7 +40,7 @@ Codex Relay is a bridge between remote devices and a local Codex CLI. It manages
 - **Server**: Raw `node:http` + `ws` library. No Express/Fastify/etc.
 - **UI**: React 19 + Vite + Tailwind CSS v4 + React Router
 - **Tests**: Node.js built-in test runner (`node --test`)
-- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI), `cmdk` (UI command palette)
+- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI), `cmdk` (UI command palette), `lexical` + `@lexical/react` (UI composer)
 
 ## Build & Test
 
@@ -68,6 +68,7 @@ src/
     db.ts                    SessionDB class — SQLite-backed session persistence (better-sqlite3)
     claude-process.ts        ClaudeProcess class — spawns `Codex -p`, parses stream-json, setSessionId()
     instance-manager.ts      InstanceManager — multi-instance + external session discovery
+    workspace-entries.ts     Workspace indexing/search for composer `@` file mentions
     providers/
       claude-sdk.ts          Claude SDK provider session implementation
     index.ts                 Barrel: exports all core API
@@ -88,11 +89,11 @@ ui/
     context/                 auth-context, websocket-context, theme-context, project-context
     hooks/                   use-auth, use-web-socket, use-instance-messages, use-auto-scroll, use-directory-browser, use-media-query, use-terminal-pending-toasts
     pages/                   chat-page, login-page, project-page, plans-page, plan-page, issues-page
-    components/chat/         instance-view, message-list, Codex-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
+    components/chat/         instance-view, message-list, composer-editor, Codex-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
     components/ui/           command, file-icon, resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react + cmdk)
     components/layout/       app-layout, sidebar, sidebar-item
     components/forms/        new-instance-form, directory-picker
-    lib/                     api.ts, markdown.ts, utils.ts, vscode-icons.ts, vscode-icons-manifest.json
+    lib/                     api.ts, composer-mentions.ts, markdown.ts, utils.ts, vscode-icons.ts, vscode-icons-manifest.json
   vite.config.ts             @shared alias → ../src/core
   tsconfig.json              paths: @shared/* → ../src/core/*
 ```
@@ -165,16 +166,19 @@ ui/
 - **InstanceManager**: Wires `proc.on("stats")` → `instance.info.stats`, broadcasts via `instance:status`. JSONL `parseJsonl` and `convertJsonlEntry` extract usage from assistant entries into `ctx.stats`. JSONL watcher also accumulates incrementally.
 - **UI header**: `{tokens} tokens · ~${cost}` displayed between status badge and debug button (hidden on mobile). Hover tooltip shows breakdown by category.
 
-### Model & Reasoning Controls
+### Composer Controls
 
 - `InstanceInfo` carries both `preferredModel?: string` and `reasoningBudget?: number`
 - UI: `InputArea` shows two per-session controls for managed instances: model selection and reasoning budget selection
-- UI: the plain textarea composer also supports slash commands: `/model <default|opus|sonnet|haiku>` and `/reasoning <default|low|medium|high|max>`
+- UI: `InputArea` now uses a Lexical-based `ComposerEditor` so inline path mentions can render as atomic chips without giving up plain-text message semantics
+- UI: the composer supports slash commands: `/model <default|opus|sonnet|haiku>` and `/reasoning <default|low|medium|high|max>`
+- UI: typing `@` opens a workspace search palette backed by `GET /api/workspace-entries`; selecting a result inserts an inline mention chip but still sends plain `@path/to/file` text to Codex
 - Reasoning presets are low/medium/high/max, mapped to token budgets and sent over WS as `set_reasoning_budget`
 - `InstanceManager.setModel()` and `InstanceManager.setReasoningBudget()` persist both preferences to SQLite and rebroadcast `instance:status`
 - CLI provider: `ClaudeProcess.send()` applies `--model <id>` and `--max-thinking-tokens <budget>` on each turn
 - SDK provider: `ClaudeSdkSession` forwards changes with `query.setModel(...)` and `query.setMaxThinkingTokens(...)`
 - SQLite persistence: schema v6 adds `reasoning_budget` alongside `preferred_model`
+- Workspace search: `workspace-entries.ts` indexes the active instance CWD via `git ls-files` when possible, falls back to a bounded recursive walk, caches results for 15 seconds, and returns scored file/folder matches
 
 ### Image Attachment
 
@@ -352,6 +356,7 @@ All routes except `/health` and `/auth` require authentication (session cookie).
 | GET    | `/api/beads-projects`        | List of directory paths that have a beads (bd) issue tracker                |
 | GET    | `/api/directories`           | Known Codex project directories                                             |
 | GET    | `/api/browse?prefix=...`     | Directory autocomplete                                                      |
+| GET    | `/api/workspace-entries`     | File/folder search for composer `@` mentions (`instanceId`, optional `q`)   |
 | GET    | `/api/projects/:id`          | Project artifacts (accepts basename slug or full encoded path)              |
 | POST   | `/api/upload`                | Upload image file for attachment (raw binary body, returns `{ path }`)      |
 | GET    | `/api/file?path=...`         | Serve local image file (images only, under `$HOME`, 10MB limit)             |
