@@ -158,4 +158,110 @@ describe("InstanceManager", () => {
       done();
     });
   });
+
+  describe("watcher dedup", () => {
+    it("skips watcher entries already handled by the managed process", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      const now = Date.now();
+      instance.processHandledUntil = now + 2_000;
+      instance.watchState = {
+        jsonlPath: "/tmp/test.jsonl",
+        fileOffset: 0,
+        pendingTools: new Map(),
+        pendingTaskCreates: new Map(),
+        stats: {
+          inputTokens: 1,
+          outputTokens: 2,
+          cacheCreationTokens: 3,
+          cacheReadTokens: 4,
+          costUSD: 5,
+        },
+      };
+      instance.info.stats = { ...instance.watchState.stats };
+
+      manager.applyWatcherEntry(info.id, instance, {
+        type: "assistant",
+        timestamp: new Date(now + 1_000).toISOString(),
+        message: {
+          model: "claude-opus-4-6",
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_creation_input_tokens: 30,
+            cache_read_input_tokens: 40,
+          },
+          content: [{ type: "text", text: "duplicate output" }],
+        },
+      });
+
+      assert.equal(instance.history.length, 0);
+      assert.deepEqual(instance.watchState.stats, {
+        inputTokens: 1,
+        outputTokens: 2,
+        cacheCreationTokens: 3,
+        cacheReadTokens: 4,
+        costUSD: 5,
+      });
+      assert.deepEqual(instance.info.stats, {
+        inputTokens: 1,
+        outputTokens: 2,
+        cacheCreationTokens: 3,
+        cacheReadTokens: 4,
+        costUSD: 5,
+      });
+    });
+
+    it("applies watcher entries newer than the managed-process watermark", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      const now = Date.now();
+      instance.processHandledUntil = now + 500;
+      instance.watchState = {
+        jsonlPath: "/tmp/test.jsonl",
+        fileOffset: 0,
+        pendingTools: new Map(),
+        pendingTaskCreates: new Map(),
+        stats: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          costUSD: 0,
+        },
+      };
+      instance.info.stats = { ...instance.watchState.stats };
+
+      manager.applyWatcherEntry(info.id, instance, {
+        type: "assistant",
+        timestamp: new Date(now + 5_000).toISOString(),
+        message: {
+          model: "claude-opus-4-6",
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_creation_input_tokens: 30,
+            cache_read_input_tokens: 40,
+          },
+          content: [{ type: "text", text: "fresh external output" }],
+        },
+      });
+
+      assert.equal(instance.history.length, 2);
+      assert.equal(instance.history[0].message.type, "output");
+      assert.equal(instance.history[1].message.type, "output");
+      assert.equal(instance.history[0].message.text, "fresh external output");
+      assert.equal(instance.history[1].message.isWaiting, true);
+      assert.equal(instance.watchState.stats.inputTokens, 10);
+      assert.equal(instance.watchState.stats.outputTokens, 20);
+      assert.equal(instance.watchState.stats.cacheCreationTokens, 30);
+      assert.equal(instance.watchState.stats.cacheReadTokens, 40);
+      assert.equal(instance.info.stats.inputTokens, 10);
+      assert.equal(instance.info.stats.outputTokens, 20);
+    });
+  });
 });

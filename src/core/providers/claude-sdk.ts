@@ -239,6 +239,7 @@ export async function createSdkSession(
 
 class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private _isProcessing = false;
+  private _hasStreamedText = false;
   private _sessionId: string | undefined;
   private _stopped = false;
   private _stats: SessionStats = {
@@ -344,6 +345,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     }
 
     this._isProcessing = true;
+    this._hasStreamedText = false;
     this.logger.info(`[SdkSession] Sending: "${message.slice(0, 50)}..."`);
 
     const userMessage: SDKUserMessage = {
@@ -646,12 +648,15 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       } else if (block.type === "tool_result") {
         this.handleToolResult(block as unknown as Record<string, unknown>);
       } else if (block.type === "text" && block.text) {
-        const output: OutputMessage = {
-          type: "output",
-          text: block.text,
-          isWaiting: false,
-        };
-        this.emit("output", output);
+        // Skip if stream_event deltas already emitted this text (avoids duplication)
+        if (!this._hasStreamedText) {
+          const output: OutputMessage = {
+            type: "output",
+            text: block.text,
+            isWaiting: false,
+          };
+          this.emit("output", output);
+        }
       }
     }
   }
@@ -673,11 +678,13 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
           text: delta.text,
           isWaiting: false,
         };
+        this._hasStreamedText = true;
         this.emit("output", output);
       }
       // thinking_delta: we emit thinking from the full assistant message, not deltas
     } else if (eventType === "message_start") {
-      // Message started — ensure we're in processing state
+      // Message started — ensure we're in processing state and reset stream flag
+      this._hasStreamedText = false;
       if (!this._isProcessing) {
         this._isProcessing = true;
       }

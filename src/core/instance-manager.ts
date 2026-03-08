@@ -102,6 +102,8 @@ interface Instance {
   info: InstanceInfo;
   process: ProviderSession | null;
   history: HistoryEntry[];
+  /** JSONL entries at or before this timestamp were already handled by the managed process */
+  processHandledUntil?: number;
   externalState?: ExternalState;
   /** JSONL file watching state — independent of external vs managed */
   watchState?: WatchState;
@@ -161,6 +163,7 @@ export interface InstanceManager {
 const MAX_HISTORY = 1000;
 const DISCOVERY_INTERVAL = 10_000; // 10s
 const WATCH_POLL_INTERVAL = 2_000; // 2s
+const WATCH_DEDUP_GRACE_MS = 2_000; // Allow JSONL writes to catch up to managed process output
 /** Number of consecutive discovery misses before marking an external session as ended */
 const STALE_THRESHOLD = 3; // 3 × 10s = 30s grace period
 const MAX_TITLE_LENGTH = 50;
@@ -801,6 +804,7 @@ export class InstanceManager extends EventEmitter {
 
     // Store user message in history so replay works across devices
     const userMessage: UserMessage = { type: "user", text: messageText, images, instanceId: id };
+    this.noteManagedProcessActivity(instance);
     this.pushHistory(instance, userMessage);
 
     // Immediately reflect processing status
@@ -882,6 +886,7 @@ export class InstanceManager extends EventEmitter {
       instance.pendingRetry = retryText;
     } else {
       const userMessage: UserMessage = { type: "user", text: retryText, instanceId: id };
+      this.noteManagedProcessActivity(instance);
       this.pushHistory(instance, userMessage);
       instance.info.lastActivityAt = Date.now();
       this.setStatus(instance, "processing");
@@ -2637,90 +2642,7 @@ export class InstanceManager extends EventEmitter {
           if (!line.trim()) continue;
           try {
             const entry = JSON.parse(line);
-            if (!instance.tasks) instance.tasks = new Map();
-            if (!instance.files) instance.files = new Map();
-            if (!instance.agentActivities) instance.agentActivities = new Map();
-            const prevCost = instance.watchState.stats.costUSD;
-            const converted = this.convertJsonlEntry(entry, {
-              pendingTools: instance.watchState.pendingTools,
-              pendingTaskCreates: instance.watchState.pendingTaskCreates,
-              tasks: instance.tasks,
-              files: instance.files,
-              agentActivities: instance.agentActivities,
-              stats: instance.watchState.stats,
-            });
-            // If stats changed, update instance info and broadcast
-            if (instance.watchState.stats.costUSD !== prevCost) {
-              instance.info.stats = { ...instance.watchState.stats };
-              this.emit("instance:status", instanceId, { ...instance.info });
-            }
-            for (const histEntry of converted) {
-              const msg = histEntry.message;
-
-              // Agent activity is high-frequency — skip history, just update state and emit
-              if (
-                msg.type === "activity" &&
-                (msg as ActivityMessage).activity === "agent_activity" &&
-                (msg as ActivityMessage).agentActivities
-              ) {
-                const activity = msg as ActivityMessage;
-                if (!instance.agentActivities) instance.agentActivities = new Map();
-                instance.agentActivities.clear();
-                for (const a of activity.agentActivities!) {
-                  instance.agentActivities.set(a.agentId, { ...a });
-                }
-                this.emit("instance:activity", instanceId, activity);
-                continue;
-              }
-
-              this.pushHistory(instance, msg);
-              instance.info.lastActivityAt = Date.now();
-
-              if (msg.type === "output") {
-                const output = msg as OutputMessage;
-                if (output.isWaiting) {
-                  this.checkWorktreeChanges(instance);
-                  this.setStatus(instance, "idle");
-                  this.doRefreshTitle(instance);
-                } else {
-                  this.setStatus(instance, "processing");
-                }
-                this.emit("instance:output", instanceId, output);
-              } else if (msg.type === "activity") {
-                const activity = msg as ActivityMessage;
-                if (
-                  activity.activity === "tool_use" &&
-                  INTERACTIVE_TOOLS.has(activity.tool || "")
-                ) {
-                  instance.info.pendingTool = activity.tool;
-                } else if (activity.activity === "tool_result") {
-                  instance.info.pendingTool = undefined;
-                } else if (activity.activity === "file_list" && activity.files && instance.files) {
-                  // Enrich with git diff stats for watcher path
-                  const diffCwd = instance.actualCwd || instance.info.workingDirectory;
-                  const origBranch = instance.originalDirectory
-                    ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
-                    : undefined;
-                  enrichDiffStats(diffCwd, instance.files, {
-                    originalBranch: origBranch,
-                    sessionCreatedAt: instance.info.createdAt,
-                  });
-                  activity.files = Array.from(instance.files.values()).map((f) => ({ ...f }));
-                } else if (activity.activity === "team_info" && activity.team) {
-                  instance.team = {
-                    ...activity.team,
-                    members: activity.team.members.map((m) => ({ ...m })),
-                  };
-                }
-                this.setStatus(instance, "processing");
-                this.emit("instance:activity", instanceId, activity);
-              } else if (msg.type === "transcript") {
-                this.emit("instance:transcript", instanceId, msg as TranscriptMessage);
-              } else if (msg.type === "user") {
-                instance.info.pendingTool = undefined;
-                this.emit("instance:user", instanceId, msg as UserMessage);
-              }
-            }
+            this.applyWatcherEntry(instanceId, instance, entry);
           } catch {
             // skip malformed lines
           }
@@ -2731,6 +2653,138 @@ export class InstanceManager extends EventEmitter {
     }, WATCH_POLL_INTERVAL);
 
     this.watchIntervals.set(instanceId, interval);
+  }
+
+  private noteManagedProcessActivity(instance: Instance): void {
+    instance.processHandledUntil = Math.max(
+      instance.processHandledUntil ?? 0,
+      Date.now() + WATCH_DEDUP_GRACE_MS,
+    );
+  }
+
+  private shouldSkipWatcherEntry(instance: Instance, entry: { timestamp?: string }): boolean {
+    if (!instance.processHandledUntil || !entry.timestamp) return false;
+    const entryTime = new Date(entry.timestamp).getTime();
+    if (Number.isNaN(entryTime)) return false;
+    return entryTime <= instance.processHandledUntil;
+  }
+
+  private applyWatcherEntry(
+    instanceId: string,
+    instance: Instance,
+    entry: {
+      type?: string;
+      timestamp?: string;
+      message?: {
+        role?: string;
+        model?: string;
+        usage?: {
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_creation_input_tokens?: number;
+          cache_read_input_tokens?: number;
+        };
+        content?:
+          | string
+          | Array<{
+              type: string;
+              text?: string;
+              thinking?: string;
+              name?: string;
+              id?: string;
+              input?: Record<string, unknown>;
+              is_error?: boolean;
+              content?: string;
+              tool_use_id?: string;
+            }>;
+      };
+    },
+  ): void {
+    if (!instance.watchState) return;
+    if (this.shouldSkipWatcherEntry(instance, entry)) return;
+
+    if (!instance.tasks) instance.tasks = new Map();
+    if (!instance.files) instance.files = new Map();
+    if (!instance.agentActivities) instance.agentActivities = new Map();
+
+    const prevCost = instance.watchState.stats.costUSD;
+    const converted = this.convertJsonlEntry(entry, {
+      pendingTools: instance.watchState.pendingTools,
+      pendingTaskCreates: instance.watchState.pendingTaskCreates,
+      tasks: instance.tasks,
+      files: instance.files,
+      agentActivities: instance.agentActivities,
+      stats: instance.watchState.stats,
+    });
+    if (instance.watchState.stats.costUSD !== prevCost) {
+      instance.info.stats = { ...instance.watchState.stats };
+      this.emit("instance:status", instanceId, { ...instance.info });
+    }
+
+    for (const histEntry of converted) {
+      const msg = histEntry.message;
+
+      // Agent activity is high-frequency — skip history, just update state and emit
+      if (
+        msg.type === "activity" &&
+        (msg as ActivityMessage).activity === "agent_activity" &&
+        (msg as ActivityMessage).agentActivities
+      ) {
+        const activity = msg as ActivityMessage;
+        if (!instance.agentActivities) instance.agentActivities = new Map();
+        instance.agentActivities.clear();
+        for (const a of activity.agentActivities!) {
+          instance.agentActivities.set(a.agentId, { ...a });
+        }
+        this.emit("instance:activity", instanceId, activity);
+        continue;
+      }
+
+      this.pushHistory(instance, msg);
+      instance.info.lastActivityAt = Date.now();
+
+      if (msg.type === "output") {
+        const output = msg as OutputMessage;
+        if (output.isWaiting) {
+          this.checkWorktreeChanges(instance);
+          this.setStatus(instance, "idle");
+          this.doRefreshTitle(instance);
+        } else {
+          this.setStatus(instance, "processing");
+        }
+        this.emit("instance:output", instanceId, output);
+      } else if (msg.type === "activity") {
+        const activity = msg as ActivityMessage;
+        if (activity.activity === "tool_use" && INTERACTIVE_TOOLS.has(activity.tool || "")) {
+          instance.info.pendingTool = activity.tool;
+        } else if (activity.activity === "tool_result") {
+          instance.info.pendingTool = undefined;
+        } else if (activity.activity === "file_list" && activity.files && instance.files) {
+          // Enrich with git diff stats for watcher path
+          const diffCwd = instance.actualCwd || instance.info.workingDirectory;
+          const origBranch = instance.originalDirectory
+            ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
+            : undefined;
+          enrichDiffStats(diffCwd, instance.files, {
+            originalBranch: origBranch,
+            sessionCreatedAt: instance.info.createdAt,
+          });
+          activity.files = Array.from(instance.files.values()).map((f) => ({ ...f }));
+        } else if (activity.activity === "team_info" && activity.team) {
+          instance.team = {
+            ...activity.team,
+            members: activity.team.members.map((m) => ({ ...m })),
+          };
+        }
+        this.setStatus(instance, "processing");
+        this.emit("instance:activity", instanceId, activity);
+      } else if (msg.type === "transcript") {
+        this.emit("instance:transcript", instanceId, msg as TranscriptMessage);
+      } else if (msg.type === "user") {
+        instance.info.pendingTool = undefined;
+        this.emit("instance:user", instanceId, msg as UserMessage);
+      }
+    }
   }
 
   // ===========================================================================
@@ -3341,6 +3395,7 @@ export class InstanceManager extends EventEmitter {
 
   private wireProcessEvents(id: string, instance: Instance, proc: ProviderSession): void {
     proc.on("output", (message) => {
+      this.noteManagedProcessActivity(instance);
       this.pushHistory(instance, message);
       instance.info.lastActivityAt = Date.now();
 
@@ -3359,6 +3414,7 @@ export class InstanceManager extends EventEmitter {
           const retryText = instance.pendingRetry;
           instance.pendingRetry = undefined;
           const userMessage: UserMessage = { type: "user", text: retryText, instanceId: id };
+          this.noteManagedProcessActivity(instance);
           this.pushHistory(instance, userMessage);
           instance.info.lastActivityAt = Date.now();
           this.setStatus(instance, "processing");
@@ -3376,6 +3432,7 @@ export class InstanceManager extends EventEmitter {
     });
 
     proc.on("activity", (message) => {
+      this.noteManagedProcessActivity(instance);
       // Sync task state from process to instance
       if (message.activity === "task_list" && message.tasks) {
         if (!instance.tasks) instance.tasks = new Map();
