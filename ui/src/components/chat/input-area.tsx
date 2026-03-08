@@ -7,6 +7,8 @@ import type { ProviderKind, SessionStats } from "@shared/types";
 import { detectMentionTrigger, replacePromptRange } from "../../lib/composer-mentions";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Dialog } from "../ui/dialog";
+import { Input } from "../ui/input";
 import {
   Command,
   CommandEmpty,
@@ -274,10 +276,13 @@ export function InputArea({
   const mentionListRef = useRef<HTMLDivElement>(null);
   const slashListRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const customModelInputRef = useRef<HTMLInputElement>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [showModelDialog, setShowModelDialog] = useState(false);
+  const [customModelDraft, setCustomModelDraft] = useState("");
   const [draftText, setDraftText] = useState("");
   const [composerSelectionOffset, setComposerSelectionOffset] = useState(0);
   const [pendingSelectionOffset, setPendingSelectionOffset] = useState<number | null>(null);
@@ -316,7 +321,9 @@ export function InputArea({
   const activeReasoningLevel = REASONING_LEVELS.find((level) => level.budget === reasoningBudget);
   const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
   const supportsModelSelection = provider === "claude";
+  const supportsCustomModelSelection = provider === "codex";
   const supportsReasoningSelection = provider === "claude";
+  const providerLabel = provider === "codex" ? "Codex" : "Claude";
 
   const updateDraft = (value: string) => {
     setDraftText(value);
@@ -369,6 +376,16 @@ export function InputArea({
   useEffect(() => {
     setBannerDismissed(false);
   }, [sessionId]);
+
+  useEffect(() => {
+    setCustomModelDraft(preferredModel ?? "");
+  }, [preferredModel, provider, instanceId]);
+
+  useEffect(() => {
+    if (!showModelDialog) return;
+    const timer = setTimeout(() => customModelInputRef.current?.focus(), 0);
+    return () => clearTimeout(timer);
+  }, [showModelDialog]);
 
   const addImages = (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
@@ -795,12 +812,91 @@ export function InputArea({
   // Round icon button overrides for circular input-area buttons
   const roundIcon = "h-8 w-8 shrink-0 !rounded-full";
   const roundPrimary = "h-8 w-8 shrink-0 !rounded-full !p-0";
+  const providerBadge = !isExternal && (
+    <Tooltip content="Provider is fixed for this session">
+      <Badge
+        variant={provider === "codex" ? "accent" : "claude"}
+        className="shrink-0 px-2.5 py-1 text-[0.6875rem]"
+      >
+        {providerLabel}
+      </Badge>
+    </Tooltip>
+  );
 
-  const modelPickerButton = !isExternal && supportsModelSelection && (
-    <Menu.Root>
-      <Tooltip content="Select model">
-        <Menu.Trigger
+  const modelPickerButton = !isExternal ? (
+    supportsModelSelection ? (
+      <Menu.Root>
+        <Tooltip content="Select model">
+          <Menu.Trigger
+            disabled={isProcessing}
+            className={`flex shrink-0 items-center gap-1 rounded-full p-2 text-xs transition-colors ${
+              isProcessing
+                ? "cursor-not-allowed opacity-40"
+                : "cursor-pointer hover:bg-surface-hover"
+            } ${preferredModel ? "text-accent" : "text-muted"}`}
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+            </svg>
+            <span>{modelLabel}</span>
+          </Menu.Trigger>
+        </Tooltip>
+        <Menu.Content side="top" align="start">
+          <Menu.Item onClick={() => setModel(null)}>
+            <span className="flex-1">{defaultMenuLabel}</span>
+            {!preferredModel && (
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </Menu.Item>
+          <Menu.Separator />
+          {MODELS.map((m) => (
+            <Menu.Item key={m.id} onClick={() => setModel(m.id)}>
+              <span className="flex-1">{m.label}</span>
+              {preferredModel === m.id && (
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </Menu.Item>
+          ))}
+        </Menu.Content>
+      </Menu.Root>
+    ) : supportsCustomModelSelection ? (
+      <Tooltip content="Set model">
+        <button
+          type="button"
           disabled={isProcessing}
+          onClick={() => setShowModelDialog(true)}
           className={`flex shrink-0 items-center gap-1 rounded-full p-2 text-xs transition-colors ${
             isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-surface-hover"
           } ${preferredModel ? "text-accent" : "text-muted"}`}
@@ -819,49 +915,10 @@ export function InputArea({
             <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
           </svg>
           <span>{modelLabel}</span>
-        </Menu.Trigger>
+        </button>
       </Tooltip>
-      <Menu.Content side="top" align="start">
-        <Menu.Item onClick={() => setModel(null)}>
-          <span className="flex-1">{defaultMenuLabel}</span>
-          {!preferredModel && (
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          )}
-        </Menu.Item>
-        <Menu.Separator />
-        {MODELS.map((m) => (
-          <Menu.Item key={m.id} onClick={() => setModel(m.id)}>
-            <span className="flex-1">{m.label}</span>
-            {preferredModel === m.id && (
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
-          </Menu.Item>
-        ))}
-      </Menu.Content>
-    </Menu.Root>
-  );
+    ) : null
+  ) : null;
 
   const reasoningPickerButton = !isExternal && supportsReasoningSelection && (
     <Menu.Root>
@@ -1225,6 +1282,61 @@ export function InputArea({
   );
 
   const composerMenu = mentionTrigger ? mentionMenu : slashMenu;
+  const modelDialog = supportsCustomModelSelection && (
+    <Dialog.Root open={showModelDialog} onOpenChange={setShowModelDialog}>
+      <Dialog.Content maxWidth="max-w-md">
+        <Dialog.Header>
+          <Dialog.Title>Set Codex Model</Dialog.Title>
+          <Dialog.Close />
+        </Dialog.Header>
+        <div className="flex flex-col gap-3">
+          <p className="text-[0.75rem] text-muted">
+            Enter a Codex model id for this session, or clear it to use the default.
+          </p>
+          <Input
+            ref={customModelInputRef}
+            value={customModelDraft}
+            onChange={(e) => setCustomModelDraft(e.target.value)}
+            placeholder="e.g. o3"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const trimmed = customModelDraft.trim();
+                setModel(trimmed ? trimmed : null);
+                setShowModelDialog(false);
+              }
+            }}
+          />
+          <div className="flex justify-between gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setModel(null);
+                setCustomModelDraft("");
+                setShowModelDialog(false);
+              }}
+            >
+              Use Default
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => setShowModelDialog(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  const trimmed = customModelDraft.trim();
+                  setModel(trimmed ? trimmed : null);
+                  setShowModelDialog(false);
+                }}
+              >
+                Apply
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Dialog.Content>
+    </Dialog.Root>
+  );
 
   return (
     <div className="shrink-0 safe-area-bottom">
@@ -1305,6 +1417,7 @@ export function InputArea({
         )}
 
         {hiddenFileInput}
+        {modelDialog}
 
         <div
           ref={composerContainerRef}
@@ -1333,6 +1446,7 @@ export function InputArea({
               {composerMenu}
               <div className="flex items-center justify-between px-2 pb-2">
                 <div className="flex items-center gap-0.5">
+                  {providerBadge}
                   <Tooltip content="Attach image">
                     <Button
                       variant="icon"
@@ -1389,6 +1503,7 @@ export function InputArea({
               />
               {composerMenu}
               <div className="flex items-center gap-0.5 px-2 pb-2">
+                {providerBadge}
                 <Tooltip content="Attach image">
                   <Button
                     variant="icon"

@@ -63,7 +63,7 @@ If Relay discovers or restores a session that already lives in a Relay-managed g
 - **Multi-session management** — run multiple Claude Code instances side-by-side, each with its own working directory and conversation history
 - **External session discovery** — automatically detects Claude Code sessions started from your terminal and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
-- **Per-session controls** — choose a model override and reasoning effort from the chat input for managed sessions
+- **Per-session controls** — managed sessions show a fixed provider badge in the chat input and provider-appropriate model/reasoning controls
 - **Provider-aware managed sessions** — managed instances persist their provider identity and runtime binding, so future adapters can restore without going through Claude-specific transcript indexing
 - **Managed Codex adapter** — core/API-managed sessions can now run through `codex exec --json` with provider-isolated turn/resume handling
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
@@ -269,6 +269,7 @@ For Codex specifically:
 
 - relay-managed Codex turns run through `codex exec --json` and `codex exec resume --json`
 - provider selection is available in the new-session UI as well as the core/API contract
+- Codex sessions keep model switching via a custom model entry dialog in the chat input
 - Claude-only reasoning controls are hidden for Codex sessions, and the permission toggle is presented as sandbox/full-access mode
 - external Codex session discovery, transcript/history replay parity, and approval-request parity are still follow-up work
 
