@@ -268,6 +268,9 @@ export function InputArea({
   stats,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
+  const composerContainerRef = useRef<HTMLDivElement>(null);
+  const mentionListRef = useRef<HTMLDivElement>(null);
+  const slashListRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -480,26 +483,6 @@ export function InputArea({
 
   const slashContext = !isExternal && !slashMenuDismissed ? getSlashContext(draftText) : null;
 
-  const resolveSlashAction = (): (() => void) | null => {
-    if (!slashContext || !slashContext.hasArgument) return null;
-
-    if (slashContext.commandQuery === "model") {
-      const option = MODEL_COMMAND_OPTIONS.find((item) =>
-        item.aliases.some((alias) => alias === slashContext.argQuery),
-      );
-      return option ? () => setModel(option.value) : null;
-    }
-
-    if (slashContext.commandQuery === "reasoning") {
-      const option = REASONING_COMMAND_OPTIONS.find((item) =>
-        item.aliases.some((alias) => alias === slashContext.argQuery),
-      );
-      return option ? () => setReasoningBudget(option.value) : null;
-    }
-
-    return null;
-  };
-
   const slashMenuItems: SlashMenuItem[] = (() => {
     if (!slashContext) return [];
 
@@ -567,6 +550,8 @@ export function InputArea({
       : null) ??
     mentionEntries[0] ??
     null;
+  const isMentionMenuOpen = !!mentionTrigger;
+  const isSlashMenuOpen = !!slashContext;
 
   useEffect(() => {
     if (slashMenuItems.length === 0) {
@@ -581,9 +566,67 @@ export function InputArea({
   }, [slashContext?.argQuery, slashContext?.hasArgument, slashMenuItems]);
 
   useEffect(() => {
+    if (!selectedMentionKey) return;
+    const list = mentionListRef.current;
+    if (!list) return;
+
+    const frame = requestAnimationFrame(() => {
+      const item = list.querySelector<HTMLElement>(
+        `[data-menu-item-id="${CSS.escape(selectedMentionKey)}"]`,
+      );
+      item?.scrollIntoView({ block: "nearest" });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [mentionEntries, selectedMentionKey]);
+
+  useEffect(() => {
+    if (!selectedSlashKey) return;
+    const list = slashListRef.current;
+    if (!list) return;
+
+    const frame = requestAnimationFrame(() => {
+      const item = list.querySelector<HTMLElement>(
+        `[data-menu-item-id="${CSS.escape(selectedSlashKey)}"]`,
+      );
+      item?.scrollIntoView({ block: "nearest" });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [selectedSlashKey, slashMenuItems]);
+
+  useEffect(() => {
     if (!mentionTrigger && !slashContext) return;
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
+      const composerContainer = composerContainerRef.current;
+      const target = event.target;
+      if (composerContainer && target instanceof Node && !composerContainer.contains(target)) {
+        return;
+      }
+
+      if (mentionTrigger) {
+        if (event.key === "Tab" || event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (selectedMentionItem) {
+            applyMentionEntry(selectedMentionItem);
+          }
+          return;
+        }
+      }
+
+      if (slashContext) {
+        if (event.key === "Tab" || event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (selectedSlashItem) {
+            selectedSlashItem.onSelect();
+          }
+          return;
+        }
+      }
+
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
@@ -599,12 +642,13 @@ export function InputArea({
 
     window.addEventListener("keydown", handleWindowKeyDown, true);
     return () => window.removeEventListener("keydown", handleWindowKeyDown, true);
-  }, [mentionTrigger, slashContext]);
+  }, [mentionTrigger, selectedMentionItem, selectedSlashItem, slashContext]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (mentionEntries.length > 0) {
+    if (isMentionMenuOpen) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
+        if (mentionEntries.length === 0) return;
         const currentIndex = selectedMentionItem
           ? mentionEntries.findIndex((entry) => entry.path === selectedMentionItem.path)
           : -1;
@@ -615,6 +659,7 @@ export function InputArea({
 
       if (e.key === "ArrowUp") {
         e.preventDefault();
+        if (mentionEntries.length === 0) return;
         const currentIndex = selectedMentionItem
           ? mentionEntries.findIndex((entry) => entry.path === selectedMentionItem.path)
           : -1;
@@ -643,9 +688,10 @@ export function InputArea({
       }
     }
 
-    if (slashMenuItems.length > 0) {
+    if (isSlashMenuOpen) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
+        if (slashMenuItems.length === 0) return;
         const currentIndex = selectedSlashItem
           ? slashMenuItems.findIndex((item) => item.key === selectedSlashItem.key)
           : -1;
@@ -656,6 +702,7 @@ export function InputArea({
 
       if (e.key === "ArrowUp") {
         e.preventDefault();
+        if (slashMenuItems.length === 0) return;
         const currentIndex = selectedSlashItem
           ? slashMenuItems.findIndex((item) => item.key === selectedSlashItem.key)
           : -1;
@@ -672,19 +719,18 @@ export function InputArea({
         selectedSlashItem?.onSelect();
         return;
       }
+
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (selectedSlashItem) {
+          selectedSlashItem.onSelect();
+        }
+        return;
+      }
     }
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      const slashAction = resolveSlashAction();
-      if (slashAction) {
-        applySlashAction(slashAction);
-        return;
-      }
-      if (selectedSlashItem) {
-        selectedSlashItem.onSelect();
-        return;
-      }
       handleSend();
     }
     if (e.key === "Escape") {
@@ -695,7 +741,7 @@ export function InputArea({
         setMentionMenuDismissed(true);
         return;
       }
-      if (slashMenuItems.length > 0) {
+      if (isSlashMenuOpen) {
         e.preventDefault();
         setSelectedSlashKey(null);
         setSlashMenuDismissed(true);
@@ -1043,7 +1089,7 @@ export function InputArea({
           onValueChange={setSelectedMentionKey}
           className="bg-transparent p-0"
         >
-          <CommandList className="max-h-72 p-1">
+          <CommandList ref={mentionListRef} className="max-h-72 p-1">
             <CommandEmpty>No matching files or folders.</CommandEmpty>
             <CommandGroup heading="Workspace">
               {mentionEntries.map((entry) => {
@@ -1056,6 +1102,7 @@ export function InputArea({
                   <CommandItem
                     key={entry.path}
                     value={entry.path}
+                    data-menu-item-id={entry.path}
                     onMouseEnter={() => setSelectedMentionKey(entry.path)}
                     onMouseDown={(e) => e.preventDefault()}
                     onSelect={() => applyMentionEntry(entry)}
@@ -1076,7 +1123,6 @@ export function InputArea({
                         ) : null}
                       </div>
                     </div>
-                    <CommandShortcut>{entry.kind === "directory" ? "dir" : "file"}</CommandShortcut>
                   </CommandItem>
                 );
               })}
@@ -1112,7 +1158,7 @@ export function InputArea({
           onValueChange={setSelectedSlashKey}
           className="bg-transparent p-0"
         >
-          <CommandList className="max-h-72 p-1">
+          <CommandList ref={slashListRef} className="max-h-72 p-1">
             <CommandEmpty>No matching slash commands.</CommandEmpty>
             {slashGroups.map((group, groupIndex) => (
               <div key={group.heading}>
@@ -1122,6 +1168,7 @@ export function InputArea({
                     <CommandItem
                       key={item.key}
                       value={item.key}
+                      data-menu-item-id={item.key}
                       onMouseEnter={() => setSelectedSlashKey(item.key)}
                       onMouseDown={(e) => e.preventDefault()}
                       onSelect={item.onSelect}
@@ -1241,7 +1288,10 @@ export function InputArea({
 
         {hiddenFileInput}
 
-        <div className="relative rounded-2xl border border-border bg-surface">
+        <div
+          ref={composerContainerRef}
+          className="relative rounded-2xl border border-border bg-surface"
+        >
           {imageStrip}
 
           {isMobile ? (

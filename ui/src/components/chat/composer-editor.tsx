@@ -334,16 +334,18 @@ function SyncEffect({
       if (currentValue !== value) {
         $setComposerText(value);
       }
-
-      if (selectionOffset != null) {
-        $setSelectionAtOffset(selectionOffset);
-      }
     });
+  }, [editorRef, value]);
 
-    if (selectionOffset != null) {
-      onSelectionApplied?.();
-    }
-  }, [editorRef, onSelectionApplied, selectionOffset, value]);
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || selectionOffset == null) return;
+
+    editor.update(() => {
+      $setSelectionAtOffset(selectionOffset);
+    });
+    onSelectionApplied?.();
+  }, [editorRef, onSelectionApplied, selectionOffset]);
 
   return null;
 }
