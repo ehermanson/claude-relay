@@ -514,13 +514,19 @@ export class InstanceManager extends EventEmitter {
    */
   private createProviderSession(
     config: CoreConfig,
-    options?: { resumeSessionId?: string; model?: string; allowedTools?: string[] },
+    options?: {
+      resumeSessionId?: string;
+      model?: string;
+      reasoningBudget?: number;
+      allowedTools?: string[];
+    },
   ): ProviderSession {
     if (this._sdkQueryFn) {
       const session = createSdkSessionSync(
         {
           cwd: config.workingDirectory,
           model: options?.model,
+          maxThinkingTokens: options?.reasoningBudget,
           resumeSessionId: options?.resumeSessionId,
           dangerouslySkipPermissions: config.dangerouslySkipPermissions,
           logger: config.logger,
@@ -538,8 +544,12 @@ export class InstanceManager extends EventEmitter {
       ? new ClaudeProcess(config, {
           resumeSessionId: options.resumeSessionId,
           model: options?.model,
+          reasoningBudget: options?.reasoningBudget,
         })
-      : new ClaudeProcess(config, { model: options?.model });
+      : new ClaudeProcess(config, {
+          model: options?.model,
+          reasoningBudget: options?.reasoningBudget,
+        });
 
     if (options?.allowedTools) {
       for (const t of options.allowedTools) {
@@ -567,6 +577,7 @@ export class InstanceManager extends EventEmitter {
     dangerouslySkipPermissions?: boolean;
     resumeSessionId?: string;
     model?: string;
+    reasoningBudget?: number;
   }): InstanceInfo {
     const managedCount = [...this.instances.values()].filter((i) => !i.info.external).length;
     if (managedCount >= this.baseConfig.maxProcesses) {
@@ -589,6 +600,7 @@ export class InstanceManager extends EventEmitter {
     const proc = this.createProviderSession(instanceConfig, {
       resumeSessionId: resumeId,
       model: options?.model,
+      reasoningBudget: options?.reasoningBudget,
     });
 
     // Resolve name: explicit > session summary > auto-title from first message
@@ -609,6 +621,7 @@ export class InstanceManager extends EventEmitter {
       lastActivityAt: now,
       gitInfo: getGitInfo(workingDirectory) ?? undefined,
       preferredModel: options?.model,
+      reasoningBudget: options?.reasoningBudget,
       skipPermissions: skipPerms,
     };
 
@@ -2819,6 +2832,7 @@ export class InstanceManager extends EventEmitter {
       original_directory: instance.originalDirectory ?? null,
       parent_session_id: instance.info.parentSessionId ?? null,
       preferred_model: instance.info.preferredModel ?? null,
+      reasoning_budget: instance.info.reasoningBudget ?? null,
     };
   }
 
@@ -2889,6 +2903,7 @@ export class InstanceManager extends EventEmitter {
           original_directory: null,
           parent_session_id: null,
           preferred_model: null,
+          reasoning_budget: null,
         });
       }
 
@@ -3090,6 +3105,7 @@ export class InstanceManager extends EventEmitter {
             original_directory: scanOriginalDir,
             parent_session_id: null,
             preferred_model: null,
+            reasoning_budget: null,
           });
           discovered++;
         }
@@ -3201,6 +3217,7 @@ export class InstanceManager extends EventEmitter {
             : (getGitInfo(entry.working_directory) ?? undefined),
           parentSessionId: entry.parent_session_id ?? undefined,
           preferredModel: entry.preferred_model ?? undefined,
+          reasoningBudget: entry.reasoning_budget ?? undefined,
         };
 
         const instance: Instance = {
@@ -3279,6 +3296,7 @@ export class InstanceManager extends EventEmitter {
         const proc = this.createProviderSession(instanceConfig, {
           resumeSessionId: entry.session_id,
           model: entry.preferred_model ?? undefined,
+          reasoningBudget: entry.reasoning_budget ?? undefined,
           allowedTools: savedTools.length > 0 ? savedTools : undefined,
         });
 
@@ -3298,6 +3316,7 @@ export class InstanceManager extends EventEmitter {
           gitInfo: getGitInfo(entry.working_directory) ?? undefined,
           parentSessionId: entry.parent_session_id ?? undefined,
           preferredModel: entry.preferred_model ?? undefined,
+          reasoningBudget: entry.reasoning_budget ?? undefined,
         };
 
         let watchState: WatchState | undefined;
@@ -3705,6 +3724,23 @@ export class InstanceManager extends EventEmitter {
     this.emit("instance:status", instance.info.id, { ...instance.info });
     const sid = instance.sessionId || instance.info.sessionId;
     if (sid) this.db.updatePreferredModel(sid, model);
+    return true;
+  }
+
+  /**
+   * Set the reasoning budget for a managed instance.
+   * The budget is applied on the next turn (CLI) or immediately (SDK).
+   * Pass null to clear the preference.
+   */
+  setReasoningBudget(id: string, budget: number | null): boolean {
+    const instance = this.instances.get(id);
+    if (!instance || instance.info.external) return false;
+
+    instance.info.reasoningBudget = budget ?? undefined;
+    instance.process?.setReasoningBudget(budget);
+    this.emit("instance:status", instance.info.id, { ...instance.info });
+    const sid = instance.sessionId || instance.info.sessionId;
+    if (sid) this.db.updateReasoningBudget(sid, budget);
     return true;
   }
 

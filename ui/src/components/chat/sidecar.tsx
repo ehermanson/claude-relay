@@ -5,6 +5,7 @@ import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { Collapsible } from "../ui/collapsible";
+import { FileIcon } from "../ui/file-icon";
 import type { TaskItem, FileChange, TeamInfo, TeamMember, AgentActivity } from "@shared/types";
 
 function StatusIcon({ status }: { status: TaskItem["status"] }) {
@@ -88,47 +89,6 @@ function MemberStatusIcon({ status }: { status: TeamMember["status"] }) {
   }
 }
 
-function FileIcon({ type }: { type: FileChange["type"] }) {
-  if (type === "added") {
-    // Plus icon
-    return (
-      <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-accent">
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </div>
-    );
-  }
-  // Pencil icon for edited
-  return (
-    <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-muted">
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-        <path d="m15 5 4 4" />
-      </svg>
-    </div>
-  );
-}
-
 /** Strip the working directory prefix to show project-relative paths. */
 function relativePath(filePath: string, cwd: string): string {
   if (cwd && filePath.startsWith(cwd)) {
@@ -143,11 +103,12 @@ function TeamPanel({
   team,
   agentActivities,
 }: {
-  team: TeamInfo;
+  team: TeamInfo | null;
   agentActivities?: AgentActivity[] | null;
 }) {
-  const running = team.members.filter((m) => m.status === "running").length;
-  const total = team.members.length;
+  const members = team?.members ?? [];
+  const running = members.filter((m) => m.status === "running").length;
+  const total = members.length;
 
   // Build a lookup from agentActivities for matching to members.
   // Agent IDs from progress events may not match member names directly,
@@ -155,7 +116,7 @@ function TeamPanel({
   const activityByName = new Map<string, AgentActivity>();
   const unmatchedActivities: AgentActivity[] = [];
   if (agentActivities) {
-    const memberNames = new Set(team.members.map((m) => m.name));
+    const memberNames = new Set(members.map((m) => m.name));
     for (const a of agentActivities) {
       if (memberNames.has(a.agentId)) {
         activityByName.set(a.agentId, a);
@@ -169,19 +130,21 @@ function TeamPanel({
     <>
       {/* Team header */}
       <div className="shrink-0 px-4 py-3">
-        <div className="text-[0.8125rem] font-semibold text-text-bright">{team.name}</div>
-        {team.description && (
+        <div className="text-[0.8125rem] font-semibold text-text-bright">
+          {team?.name ?? "Agents"}
+        </div>
+        {team?.description && (
           <div className="mt-0.5 text-[0.75rem] text-muted">{team.description}</div>
         )}
         <div className="mt-1.5 text-[0.75rem] font-medium text-muted">
-          {running}/{total} active
+          {total > 0 ? `${running}/${total} active` : `${unmatchedActivities.length} active`}
         </div>
       </div>
 
       {/* Member list */}
       <div className="flex-1 overflow-y-auto px-2 py-1">
         <div className="flex flex-col gap-px">
-          {team.members.map((member) => {
+          {members.map((member) => {
             const activity = activityByName.get(member.name);
             return (
               <div
@@ -276,93 +239,6 @@ function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
   );
 }
 
-/** Get a colored file-type badge based on extension. */
-function FileTypeBadge({ filename }: { filename: string }) {
-  const ext = filename.split(".").pop()?.toLowerCase() || "";
-
-  // TSX/JSX get a React atom icon
-  if (ext === "tsx" || ext === "jsx") {
-    return (
-      <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-sky-400">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="12" cy="12" r="2.5" />
-          <ellipse
-            cx="12"
-            cy="12"
-            rx="10"
-            ry="4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          />
-          <ellipse
-            cx="12"
-            cy="12"
-            rx="10"
-            ry="4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            transform="rotate(60 12 12)"
-          />
-          <ellipse
-            cx="12"
-            cy="12"
-            rx="10"
-            ry="4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            transform="rotate(120 12 12)"
-          />
-        </svg>
-      </div>
-    );
-  }
-
-  const badgeMap: Record<string, { label: string; color: string }> = {
-    ts: { label: "TS", color: "text-sky-400" },
-    js: { label: "JS", color: "text-yellow-400" },
-    mjs: { label: "JS", color: "text-yellow-400" },
-    json: { label: "{}", color: "text-yellow-300" },
-    jsonl: { label: "{}", color: "text-yellow-300" },
-    md: { label: "M", color: "text-blue-300" },
-    css: { label: "#", color: "text-purple-400" },
-    html: { label: "<>", color: "text-orange-400" },
-    py: { label: "Py", color: "text-green-400" },
-  };
-
-  const badge = badgeMap[ext];
-  if (badge) {
-    return (
-      <span
-        className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[0.5625rem] font-bold ${badge.color}`}
-      >
-        {badge.label}
-      </span>
-    );
-  }
-
-  // Generic file icon
-  return (
-    <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-muted">
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-      </svg>
-    </div>
-  );
-}
-
 /** Chevron icon that rotates when open. */
 function ChevronIcon({ open }: { open: boolean }) {
   return (
@@ -379,26 +255,6 @@ function ChevronIcon({ open }: { open: boolean }) {
     >
       <polyline points="9 18 15 12 9 6" />
     </svg>
-  );
-}
-
-/** Folder icon. */
-function FolderIcon() {
-  return (
-    <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-muted">
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-      </svg>
-    </div>
   );
 }
 
@@ -513,7 +369,7 @@ function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
                 {showDir && (
                   <Collapsible.Trigger className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug hover:bg-hover transition-colors">
                     <ChevronIcon open={isOpen} />
-                    <FolderIcon />
+                    <FileIcon path={group.dir} kind="directory" size={16} />
                     <span className="min-w-0 flex-1 truncate font-medium text-text-bright text-left">
                       {group.dir}
                     </span>
@@ -533,7 +389,7 @@ function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
                     {group.files.map(({ basename, file }) => (
                       <Tooltip key={file.path} content={relativePath(file.path, cwd)} side="left">
                         <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.8125rem] leading-snug hover:bg-hover transition-colors">
-                          <FileTypeBadge filename={basename} />
+                          <FileIcon path={file.path} size={16} />
                           <span className="min-w-0 flex-1 truncate text-text">{basename}</span>
                           {file.additions != null || file.deletions != null ? (
                             <DiffStats additions={file.additions} deletions={file.deletions} />
@@ -577,13 +433,20 @@ export function Sidecar({
   onClose,
   isMobileOverlay,
 }: SidecarProps) {
-  const hasTeam = team && team.members.length > 0;
+  const hasTeam = !!team && team.members.length > 0;
+  const hasAgentActivities = (agentActivities?.length ?? 0) > 0;
   const hasTasks = tasks && tasks.length > 0;
   const hasFiles = files && files.length > 0;
 
-  // Build available tabs in priority order: Team > Tasks > Files
+  // Build available tabs in priority order: Team/Agents > Tasks > Files
   const availableTabs: { key: SidecarTab; label: string; count: number }[] = [];
-  if (hasTeam) availableTabs.push({ key: "team", label: "Team", count: team.members.length });
+  if (hasTeam || hasAgentActivities) {
+    availableTabs.push({
+      key: "team",
+      label: hasTeam ? "Team" : "Agents",
+      count: hasTeam ? team!.members.length : agentActivities!.length,
+    });
+  }
   if (hasTasks) availableTabs.push({ key: "tasks", label: "Tasks", count: tasks.length });
   if (hasFiles) availableTabs.push({ key: "files", label: "Files", count: files.length });
 
@@ -638,7 +501,7 @@ export function Sidecar({
       </div>
 
       {/* Panel content */}
-      {effectiveTab === "team" && hasTeam && (
+      {effectiveTab === "team" && (hasTeam || hasAgentActivities) && (
         <TeamPanel team={team} agentActivities={agentActivities} />
       )}
       {effectiveTab === "tasks" && hasTasks && <TasksPanel tasks={tasks} />}

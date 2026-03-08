@@ -63,6 +63,7 @@ function seedDB(tempDir, entries) {
       original_directory: null,
       parent_session_id: null,
       preferred_model: null,
+      reasoning_budget: null,
     });
   }
   db.close();

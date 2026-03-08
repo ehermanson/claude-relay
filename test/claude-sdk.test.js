@@ -13,6 +13,7 @@ class FakeQuery {
     this.done = false;
     this.interruptCalls = 0;
     this.setModelCalls = [];
+    this.setMaxThinkingTokensCalls = [];
     this.closeCalls = 0;
   }
 
@@ -40,6 +41,10 @@ class FakeQuery {
 
   async setModel(model) {
     this.setModelCalls.push(model);
+  }
+
+  async setMaxThinkingTokens(maxThinkingTokens) {
+    this.setMaxThinkingTokensCalls.push(maxThinkingTokens);
   }
 
   close() {
@@ -142,6 +147,22 @@ describe("ClaudeSdkSession", () => {
       assert.equal(capturedOptions.cwd, "/my/project");
       assert.equal(capturedOptions.model, "claude-opus-4-6");
       assert.equal(capturedOptions.includePartialMessages, true);
+      session.close();
+    });
+
+    it("passes maxThinkingTokens to SDK options", async () => {
+      let capturedOptions;
+      const fakeQuery = new FakeQuery();
+      const session = await createSdkSession({
+        cwd: "/my/project",
+        maxThinkingTokens: 10000,
+        logger: noopLogger,
+        queryFn: ({ prompt, options }) => {
+          capturedOptions = options;
+          return fakeQuery;
+        },
+      });
+      assert.equal(capturedOptions.maxThinkingTokens, 10000);
       session.close();
     });
 
@@ -673,6 +694,19 @@ describe("ClaudeSdkSession", () => {
       session.setModel(null);
       await tick();
       assert.deepEqual(harness.fakeQuery.setModelCalls, ["claude-opus-4-6", undefined]);
+      session.close();
+    });
+
+    it("setReasoningBudget() calls query.setMaxThinkingTokens()", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness);
+
+      session.setReasoningBudget(30000);
+      await tick();
+      session.setReasoningBudget(null);
+      await tick();
+
+      assert.deepEqual(harness.fakeQuery.setMaxThinkingTokensCalls, [30000, null]);
       session.close();
     });
 

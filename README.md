@@ -61,8 +61,9 @@ New managed sessions run directly in the directory you choose. If Relay discover
 - **Multi-session management** — run multiple Claude Code instances side-by-side, each with its own working directory and conversation history
 - **External session discovery** — automatically detects Claude Code sessions started from your terminal and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
+- **Per-session controls** — choose a model override and reasoning budget from the chat input for managed sessions
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
-- **Mobile-friendly web UI** — React SPA with markdown rendering, syntax highlighting, activity indicators, and directory browsing
+- **Mobile-friendly web UI** — React SPA with markdown rendering, syntax highlighting, activity indicators, directory browsing, and VSCode-style file icons in the sidecar
 - **Remote access** — built-in Cloudflare Tunnel support for secure access from anywhere
 - **Embeddable** — use as a standalone server or import the core library into your own app
 
@@ -132,6 +133,7 @@ This gives you a public `https://*.trycloudflare.com` URL you can open on any de
 src/
   core/                 ← "claude-relay" (no server deps)
     claude-process.ts      Spawns claude -p processes, parses stream-json
+    providers/claude-sdk.ts Long-lived SDK-backed provider session
     instance-manager.ts    Manages multiple instances + discovers external sessions
     config.ts              CoreConfig type + resolveCoreConfig()
     types.ts               All shared type definitions
@@ -146,7 +148,12 @@ src/
     config.ts              RelayConfig extends CoreConfig
     index.ts               ClaudeRelay class, createRelay(), re-exports core
   bin.ts                ← CLI entry point
+scripts/
+  sync-vscode-icons.mjs ← Regenerates the trimmed vscode-icons manifest used by the UI
 ui/                     ← React app
+  src/components/ui/file-icon.tsx
+  src/lib/vscode-icons.ts
+  src/lib/vscode-icons-manifest.json
 ```
 
 The package exposes two entry points:

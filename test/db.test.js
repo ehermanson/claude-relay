@@ -33,6 +33,7 @@ function makeRow(overrides = {}) {
     original_directory: null,
     parent_session_id: null,
     preferred_model: null,
+    reasoning_budget: null,
     ...overrides,
   };
 }

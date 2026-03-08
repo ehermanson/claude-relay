@@ -58,6 +58,7 @@ interface SDKMessageBase {
 interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   interrupt(): Promise<void>;
   setModel(model?: string): Promise<void>;
+  setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
   close(): void;
 }
 
@@ -192,6 +193,8 @@ export interface ClaudeSdkSessionOptions {
   cwd: string;
   /** Model to use (e.g. "claude-opus-4-6") */
   model?: string;
+  /** Maximum extended-thinking token budget */
+  maxThinkingTokens?: number;
   /** Session ID to resume */
   resumeSessionId?: string;
   /** Whether to bypass all permissions */
@@ -300,6 +303,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     const sdkOptions: SDKOptions = {
       cwd: options.cwd,
       model: options.model,
+      maxThinkingTokens: options.maxThinkingTokens,
       includePartialMessages: true,
       env: process.env as Record<string, string | undefined>,
     };
@@ -425,6 +429,13 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         this.logger.warn(`[SdkSession] setModel(clear) error: ${err}`);
       });
     }
+  }
+
+  setReasoningBudget(budget: number | null): void {
+    if (this._stopped) return;
+    this.query.setMaxThinkingTokens(budget).catch((err) => {
+      this.logger.warn(`[SdkSession] setMaxThinkingTokens error: ${err}`);
+    });
   }
 
   addAllowedTool(tool: string): void {

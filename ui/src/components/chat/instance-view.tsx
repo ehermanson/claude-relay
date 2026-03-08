@@ -155,7 +155,10 @@ export function InstanceView() {
 
   // Un-dismiss if new content is added after dismissal
   const sidecarContentCount =
-    (currentTasks?.length ?? 0) + (currentFiles?.length ?? 0) + (currentTeam?.members?.length ?? 0);
+    (currentTasks?.length ?? 0) +
+    (currentFiles?.length ?? 0) +
+    (currentTeam?.members?.length ?? 0) +
+    (currentAgentActivities?.length ?? 0);
   useEffect(() => {
     if (sidecarDismissed && sidecarContentCount > dismissedContentCountRef.current) {
       setSidecarDismissed(false);
@@ -166,7 +169,8 @@ export function InstanceView() {
     dismissedContentCountRef.current =
       (currentTasks?.length ?? 0) +
       (currentFiles?.length ?? 0) +
-      (currentTeam?.members?.length ?? 0);
+      (currentTeam?.members?.length ?? 0) +
+      (currentAgentActivities?.length ?? 0);
     setSidecarDismissed(true);
   };
 
@@ -290,6 +294,7 @@ export function InstanceView() {
         isExternal={!!instance.external}
         isPendingInTerminal={!!pendingTerminalTool}
         preferredModel={instance.preferredModel}
+        reasoningBudget={instance.reasoningBudget}
         activeModel={instance.stats?.model}
         skipPermissions={instance.skipPermissions}
       />
@@ -401,7 +406,7 @@ export function InstanceView() {
           </Tooltip>
         )}
         {isMobile && sidecarContentCount > 0 && (
-          <Tooltip content="Tasks & files">
+          <Tooltip content="Sidecar">
             <Button
               variant="icon"
               onClick={() => setSidecarMobileOpen(true)}

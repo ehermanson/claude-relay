@@ -15,6 +15,13 @@ const MODELS = [
   { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
 ] as const;
 
+const REASONING_LEVELS = [
+  { budget: 5000, label: "Low" },
+  { budget: 10000, label: "Medium" },
+  { budget: 30000, label: "High" },
+  { budget: 100000, label: "Max" },
+] as const;
+
 // Persist draft text across instance switches (module-level, survives re-renders)
 const drafts = new Map<string, string>();
 
@@ -34,6 +41,7 @@ interface InputAreaProps {
   isExternal?: boolean;
   isPendingInTerminal?: boolean;
   preferredModel?: string;
+  reasoningBudget?: number;
   activeModel?: string;
   skipPermissions?: boolean;
 }
@@ -49,6 +57,7 @@ export function InputArea({
   isExternal,
   isPendingInTerminal,
   preferredModel,
+  reasoningBudget,
   activeModel,
   skipPermissions,
 }: InputAreaProps) {
@@ -66,6 +75,10 @@ export function InputArea({
     send({ type: "set_model", instanceId, model });
   };
 
+  const setReasoningBudget = (budget: number | null) => {
+    send({ type: "set_reasoning_budget", instanceId, budget });
+  };
+
   const togglePermissions = () => {
     send({ type: "set_permissions", instanceId, skipPermissions: !skipPermissions });
   };
@@ -77,6 +90,8 @@ export function InputArea({
     ? (MODELS.find((m) => m.id === preferredModel)?.label ?? preferredModel)
     : (activeModelLabel ?? "Default");
   const defaultMenuLabel = activeModelLabel ? `Default (${activeModelLabel})` : "Default";
+  const activeReasoningLevel = REASONING_LEVELS.find((level) => level.budget === reasoningBudget);
+  const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
 
   const adjustTextareaHeight = () => {
     const el = textareaRef.current;
@@ -273,6 +288,79 @@ export function InputArea({
           <Menu.Item key={m.id} onClick={() => setModel(m.id)}>
             <span className="flex-1">{m.label}</span>
             {preferredModel === m.id && (
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </Menu.Item>
+        ))}
+      </Menu.Content>
+    </Menu.Root>
+  );
+
+  const reasoningPickerButton = !isExternal && (
+    <Menu.Root>
+      <Tooltip content="Set reasoning budget">
+        <Menu.Trigger
+          disabled={isProcessing}
+          className={`flex shrink-0 items-center gap-1 rounded-full p-2 text-xs transition-colors ${
+            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-surface-hover"
+          } ${reasoningBudget != null ? "text-accent" : "text-muted"}`}
+        >
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M9.5 3.5A5.5 5.5 0 0 0 7 14v1a2 2 0 0 0 2 2h.5" />
+            <path d="M14.5 3.5A5.5 5.5 0 0 1 17 14v1a2 2 0 0 1-2 2h-.5" />
+            <path d="M9 18h6" />
+            <path d="M10 21h4" />
+            <path d="M12 3v8" />
+          </svg>
+          <span>{reasoningLabel}</span>
+        </Menu.Trigger>
+      </Tooltip>
+      <Menu.Content side="top" align="start">
+        <Menu.Item onClick={() => setReasoningBudget(null)}>
+          <span className="flex-1">Default</span>
+          {reasoningBudget == null && (
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          )}
+        </Menu.Item>
+        <Menu.Separator />
+        {REASONING_LEVELS.map((level) => (
+          <Menu.Item key={level.budget} onClick={() => setReasoningBudget(level.budget)}>
+            <span className="flex-1">{level.label}</span>
+            <span className="mr-2 text-[0.6875rem] text-muted">
+              {level.budget.toLocaleString()}
+            </span>
+            {reasoningBudget === level.budget && (
               <svg
                 width="13"
                 height="13"
@@ -499,6 +587,7 @@ export function InputArea({
                     </Button>
                   </Tooltip>
                   {modelPickerButton}
+                  {reasoningPickerButton}
                   {permissionsButton}
                   {isProcessing && (
                     <Tooltip content="Cancel">
@@ -549,6 +638,7 @@ export function InputArea({
                   </Button>
                 </Tooltip>
                 {modelPickerButton}
+                {reasoningPickerButton}
                 {permissionsButton}
                 <div className="flex-1" />
                 {isProcessing && (

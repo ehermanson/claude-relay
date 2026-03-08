@@ -61,6 +61,9 @@ export interface ProviderSession extends EventEmitter {
   /** Change the model for subsequent turns. Pass null to clear. */
   setModel(model: string | null): void;
 
+  /** Change the reasoning budget for subsequent turns. Pass null to clear. */
+  setReasoningBudget(budget: number | null): void;
+
   /** Add a tool to the auto-allowed list (CLI: --allowedTools, SDK: updatedPermissions). */
   addAllowedTool(tool: string): void;
 

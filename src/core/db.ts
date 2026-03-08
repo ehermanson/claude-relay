@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 5;
+const CURRENT_SCHEMA_VERSION = 6;
 
 export interface SessionRow {
   session_id: string;
@@ -37,6 +37,7 @@ export interface SessionRow {
   original_directory: string | null;
   parent_session_id: string | null;
   preferred_model: string | null;
+  reasoning_budget: number | null;
 }
 
 export class SessionDB {
@@ -64,6 +65,7 @@ export class SessionDB {
   private stmtUpdateAllowedTools!: Database.Statement;
   private stmtUpdateWorkingDirectory!: Database.Statement;
   private stmtUpdatePreferredModel!: Database.Statement;
+  private stmtUpdateReasoningBudget!: Database.Statement;
   private stmtGetProjectStats!: Database.Statement;
   private stmtGetGlobalStats!: Database.Statement;
 
@@ -177,6 +179,14 @@ export class SessionDB {
       }
     }
 
+    // v6: add reasoning_budget column for per-instance thinking limits
+    {
+      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === "reasoning_budget")) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN reasoning_budget INTEGER`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -192,13 +202,13 @@ export class SessionDB {
         created_at, last_activity_at, type, archived, custom_title,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_usd, summary, first_prompt, git_branch, message_count, allowed_tools,
-        worktree_path, original_directory, parent_session_id, preferred_model
+        worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget
       ) VALUES (
         @session_id, @instance_id, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @cost_usd, @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
-        @worktree_path, @original_directory, @parent_session_id, @preferred_model
+        @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget
       )
       ON CONFLICT(session_id) DO UPDATE SET
         instance_id = excluded.instance_id,
@@ -222,7 +232,8 @@ export class SessionDB {
         worktree_path = excluded.worktree_path,
         original_directory = excluded.original_directory,
         parent_session_id = excluded.parent_session_id,
-        preferred_model = excluded.preferred_model
+        preferred_model = excluded.preferred_model,
+        reasoning_budget = excluded.reasoning_budget
     `);
 
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
@@ -279,6 +290,10 @@ export class SessionDB {
 
     this.stmtUpdatePreferredModel = this.db.prepare(
       "UPDATE sessions SET preferred_model = ? WHERE session_id = ?",
+    );
+
+    this.stmtUpdateReasoningBudget = this.db.prepare(
+      "UPDATE sessions SET reasoning_budget = ? WHERE session_id = ?",
     );
 
     this.stmtGetProjectStats = this.db.prepare(`
@@ -392,6 +407,10 @@ export class SessionDB {
 
   updatePreferredModel(sessionId: string, model: string | null): void {
     this.stmtUpdatePreferredModel.run(model, sessionId);
+  }
+
+  updateReasoningBudget(sessionId: string, budget: number | null): void {
+    this.stmtUpdateReasoningBudget.run(budget, sessionId);
   }
 
   getProjectStats(workingDirectory: string): {

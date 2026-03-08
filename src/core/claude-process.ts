@@ -83,6 +83,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
   private agentActivityMap = new Map<string, AgentActivity>();
   private _cancelledForPermission = false;
   private _preferredModel: string | null = null;
+  private _reasoningBudget: number | null = null;
   private _bypassPermissions: boolean;
   private _stats: SessionStats = {
     inputTokens: 0,
@@ -96,11 +97,15 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     return { ...this._stats };
   }
 
-  constructor(config: CoreConfig, options?: { resumeSessionId?: string; model?: string }) {
+  constructor(
+    config: CoreConfig,
+    options?: { resumeSessionId?: string; model?: string; reasoningBudget?: number },
+  ) {
     super();
     this.config = config;
     this.resumeSessionId = options?.resumeSessionId ?? null;
     this._preferredModel = options?.model ?? null;
+    this._reasoningBudget = options?.reasoningBudget ?? null;
     this._bypassPermissions = config.dangerouslySkipPermissions;
     this.claudePath = this.findClaudeBinary();
     this.cwd = config.workingDirectory;
@@ -148,6 +153,13 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
    */
   setModel(model: string | null): void {
     this._preferredModel = model;
+  }
+
+  /**
+   * Set the reasoning budget for subsequent sends. Pass null to clear.
+   */
+  setReasoningBudget(budget: number | null): void {
+    this._reasoningBudget = budget;
   }
 
   /**
@@ -419,6 +431,10 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
     if (this._preferredModel) {
       args.push("--model", this._preferredModel);
+    }
+
+    if (this._reasoningBudget != null) {
+      args.push("--max-thinking-tokens", String(this._reasoningBudget));
     }
 
     if (this.resumeSessionId) {

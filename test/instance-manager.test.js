@@ -37,7 +37,7 @@ describe("InstanceManager", () => {
     it("creates an instance with defaults", () => {
       const info = manager.createInstance();
       assert.ok(info.id);
-      assert.equal(info.name, "Instance 1");
+      assert.equal(info.name, "New Session");
       assert.equal(info.status, "idle");
       assert.equal(info.external, undefined);
     });
@@ -51,11 +51,11 @@ describe("InstanceManager", () => {
       assert.equal(info.workingDirectory, "/tmp/test");
     });
 
-    it("auto-increments names", () => {
+    it("uses the default session title when no name is provided", () => {
       const a = manager.createInstance();
       const b = manager.createInstance();
-      assert.equal(a.name, "Instance 1");
-      assert.equal(b.name, "Instance 2");
+      assert.equal(a.name, "New Session");
+      assert.equal(b.name, "New Session");
     });
 
     it("enforces maxProcesses limit", () => {

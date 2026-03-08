@@ -38,7 +38,7 @@ Codex Relay is a bridge between remote devices and a local Codex CLI. It manages
 - **Runtime**: Node.js 20+, ESM only (`"type": "module"`)
 - **Language**: TypeScript (strict mode)
 - **Server**: Raw `node:http` + `ws` library. No Express/Fastify/etc.
-- **UI**: React 18 + Vite + Tailwind CSS v4 + React Router
+- **UI**: React 19 + Vite + Tailwind CSS v4 + React Router
 - **Tests**: Node.js built-in test runner (`node --test`)
 - **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI)
 
@@ -66,8 +66,10 @@ src/
     tools.ts                 describeToolUse(), describeToolDetail(), estimateCost()
     git.ts                   isGitRepo(), getRepoRoot(), createWorktree(), removeWorktree()
     db.ts                    SessionDB class — SQLite-backed session persistence (better-sqlite3)
-    Codex-process.ts        ClaudeProcess class — spawns `Codex -p`, parses stream-json, setSessionId()
+    claude-process.ts        ClaudeProcess class — spawns `Codex -p`, parses stream-json, setSessionId()
     instance-manager.ts      InstanceManager — multi-instance + external session discovery
+    providers/
+      claude-sdk.ts          Claude SDK provider session implementation
     index.ts                 Barrel: exports all core API
   server/
     config.ts                RelayConfig extends CoreConfig, RelayOptions, resolveConfig()
@@ -76,6 +78,8 @@ src/
     websocket.ts             createWebSocketServer() — subscription-based real-time relay
     tunnel.ts                startTunnel(), stopTunnel() — cloudflared lifecycle
     index.ts                 ClaudeRelay class, createRelay(), re-exports core + server
+scripts/
+  sync-vscode-icons.mjs      Downloads the vscode-icons VSIX and generates a trimmed manifest for the UI
 test/
   *.test.js                  Tests import from dist/core/ and dist/server/
   fixtures/                  JSONL session fixtures for history-parsing tests
@@ -85,10 +89,10 @@ ui/
     hooks/                   use-auth, use-web-socket, use-instance-messages, use-auto-scroll, use-directory-browser, use-media-query, use-terminal-pending-toasts
     pages/                   chat-page, login-page, project-page, plans-page, plan-page, issues-page
     components/chat/         instance-view, message-list, Codex-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
-    components/ui/           resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react)
+    components/ui/           file-icon, resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react)
     components/layout/       app-layout, sidebar, sidebar-item
     components/forms/        new-instance-form, directory-picker
-    lib/                     api.ts, markdown.ts, utils.ts
+    lib/                     api.ts, markdown.ts, utils.ts, vscode-icons.ts, vscode-icons-manifest.json
   vite.config.ts             @shared alias → ../src/core
   tsconfig.json              paths: @shared/* → ../src/core/*
 ```
@@ -115,7 +119,7 @@ ui/
 
 `server/http.ts` uses `import.meta.dirname` to locate `ui/dist/` and `package.json`. The compiled output lives at `dist/server/http.js`, so the path to project root is `../..`. If this file ever moves, update those paths.
 
-### Sidecar Panel (Tasks + Files + Team)
+### Sidecar Panel (Tasks + Files + Team/Agents)
 
 - **Tasks:** ClaudeProcess accumulates task state: `taskMap` + `pendingTaskCreates` intercept TaskCreate/TaskUpdate/TaskList/TaskGet tool events
 - TaskCreate tool_use stores pending info; tool_result extracts ID via `Task #(\d+)` and creates TaskItem
@@ -124,6 +128,7 @@ ui/
 - InstanceManager syncs `task_list` activities from process onto `instance.tasks`; JSONL parser handles `"deleted"` status
 - **Files:** ClaudeProcess tracks `fileMap` — intercepts Edit/Write/NotebookEdit `tool_use` events, extracts `file_path`/`path`/`notebook_path`, emits consolidated `file_list` activity
 - InstanceManager syncs `file_list` activities from process onto `instance.files`; JSONL `convertJsonlEntry` also tracks file changes
+- UI: `Sidecar` renders changed files and directories with VSCode icon-theme SVGs via `FileIcon` + `vscode-icons.ts`; the generated manifest is committed at `ui/src/lib/vscode-icons-manifest.json`
 - **Team:** ClaudeProcess tracks `teamState` — intercepts TeamCreate, Task (with `team_name`), SendMessage (shutdown_request), TeamDelete tool events
 - `TeamCreate` → initializes `TeamInfo` with name/description, emits consolidated `team_info` activity, suppressed from chat
 - `Task` with `team_name` → adds `TeamMember` (status: "running"), emits `team_info`, suppressed from chat
@@ -133,15 +138,15 @@ ui/
 - JSONL watcher also syncs `team_info` activities back to `instance.team`
 - UI: `useInstanceMessages` exposes `currentTasks`, `currentFiles`, and `currentTeam` (separate from chat items); all persist across turns
 - UI: `Sidecar` component renders as a `w-72` panel to the right of the chat, hidden on mobile
-- Generalized N-tab support: available tabs built from content (Team > Tasks > Files priority order)
+- Generalized N-tab support: available tabs built from content (Team/Agents > Tasks > Files priority order)
 - 0 tabs → hidden, 1 tab → no tab bar (just header), 2-3 tabs → tab bar with counts
-- Layout: `[Sidebar] [Chat | Sidecar]` — sidecar appears when tasks, files, or team exist; dismiss/un-dismiss based on combined content count
+- Layout: `[Sidebar] [Chat | Sidecar]` — sidecar appears when tasks, files, team, or standalone agent activity exist; dismiss/un-dismiss based on combined content count
 - **Agent Progress:** Codex emits `progress` JSONL events (v2.1.42+) with subtypes `agent_progress`, `bash_progress`, `hook_progress`
 - `agent_progress`: Parsed by ClaudeProcess (`handleAgentProgress`) and `convertJsonlEntry`. Extracts tool descriptions and text output from `data.message.message.content` blocks. Stored in `agentActivityMap` (ClaudeProcess) / `instance.agentActivities` (InstanceManager). Emits `agent_activity` ActivityMessage with `AgentActivity[]`.
 - `bash_progress`: Emits a `tool_use` activity with elapsed time description (e.g. "Running... 15s")
 - `hook_progress`: Silently skipped — no user value
 - Agent activities are high-frequency — skipped from history storage but synced to instance state and emitted to WS subscribers
-- UI: `useInstanceMessages` exposes `currentAgentActivities`; `TeamPanel` in sidecar shows live descriptions under team members (matched by agentId), with unmatched agents shown as a separate list
+- UI: `useInstanceMessages` exposes `currentAgentActivities`; the sidecar opens for live agent activity even without `team_info`. `TeamPanel` shows descriptions under matched team members and falls back to an "Agents" view for unmatched standalone agent activity
 
 ### Resizable Panels
 
@@ -159,6 +164,16 @@ ui/
 - **ClaudeProcess**: Accumulates usage from `assistant` events (`event.message.usage/model`) and `result` events (`event.usage/model`). Emits `"stats"` event.
 - **InstanceManager**: Wires `proc.on("stats")` → `instance.info.stats`, broadcasts via `instance:status`. JSONL `parseJsonl` and `convertJsonlEntry` extract usage from assistant entries into `ctx.stats`. JSONL watcher also accumulates incrementally.
 - **UI header**: `{tokens} tokens · ~${cost}` displayed between status badge and debug button (hidden on mobile). Hover tooltip shows breakdown by category.
+
+### Model & Reasoning Controls
+
+- `InstanceInfo` carries both `preferredModel?: string` and `reasoningBudget?: number`
+- UI: `InputArea` shows two per-session controls for managed instances: model selection and reasoning budget selection
+- Reasoning presets are low/medium/high/max, mapped to token budgets and sent over WS as `set_reasoning_budget`
+- `InstanceManager.setModel()` and `InstanceManager.setReasoningBudget()` persist both preferences to SQLite and rebroadcast `instance:status`
+- CLI provider: `ClaudeProcess.send()` applies `--model <id>` and `--max-thinking-tokens <budget>` on each turn
+- SDK provider: `ClaudeSdkSession` forwards changes with `query.setModel(...)` and `query.setMaxThinkingTokens(...)`
+- SQLite persistence: schema v6 adds `reasoning_budget` alongside `preferred_model`
 
 ### Image Attachment
 
@@ -305,7 +320,7 @@ ui/
 
 - **SQLite is a rebuildable cache/index** — JSONL files on disk are the canonical source of truth. If the DB is lost or corrupted, it is rebuilt by scanning `~/.Codex/projects/`.
 - `SessionDB` (in `src/core/db.ts`) wraps `better-sqlite3` with prepared statements for synchronous access. WAL journal mode, 3s busy timeout.
-- **Schema versioning**: `schema_version` table tracks migrations. Current version: 4.
+- **Schema versioning**: `schema_version` table tracks migrations. Current version: 6.
 - **Startup sequence**: `migrateFromManifest()` (one-time import from legacy `instances.json`) → `scanAllSessions()` (discover JSONL files on disk, upsert new ones, archive missing ones) → restore active sessions.
 - **`scanAllSessions()`**: Walks `~/.Codex/projects/` directories, reads `sessions-index.json` for fast metadata, compares with DB via `getJsonlPaths()`, upserts new sessions, repairs corrupted `working_directory` values, archives DB entries whose JSONL files no longer exist on disk. Also archives sessions from deleted directories (no longer exist on disk) and temp directories (`/tmp`, `/private/tmp`).
 - **Archive model** replaces pruning: `removeInstance()` archives (sets `archived = 1`) instead of deleting. Discovery auto-unarchives if the JSONL reappears. Archived sessions are excluded from `getAllActive()` but retained in the DB.

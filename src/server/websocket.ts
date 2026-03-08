@@ -315,6 +315,11 @@ export function createWebSocketServer(
             break;
           }
 
+          case "set_reasoning_budget": {
+            instanceManager.setReasoningBudget(message.instanceId, message.budget);
+            break;
+          }
+
           case "set_permissions": {
             instanceManager.setPermissions(message.instanceId, message.skipPermissions);
             break;
