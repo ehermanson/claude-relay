@@ -1626,13 +1626,14 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Collect CWDs of managed instances that haven't captured their JSONL yet.
-    // This prevents the race where discovery finds the JSONL before captureSessionId()
-    // sets jsonlPath, creating a duplicate external instance.
-    const pendingManagedCwds = new Set<string>();
+    // Collect CWDs of ALL managed instances (not just pending ones).
+    // SDK sessions don't expose a PID, so discovery can't exclude their subprocess.
+    // By tracking managed CWDs, we prevent discovery from creating duplicate external
+    // instances for any managed session — regardless of whether captureSessionId has run.
+    const managedCwds = new Set<string>();
     for (const [, instance] of this.instances) {
-      if (!instance.info.external && instance.process && !instance.jsonlPath) {
-        pendingManagedCwds.add(instance.actualCwd || instance.info.workingDirectory);
+      if (!instance.info.external && instance.process) {
+        managedCwds.add(instance.actualCwd || instance.info.workingDirectory);
       }
     }
 
@@ -1641,8 +1642,9 @@ export class InstanceManager extends EventEmitter {
 
     // Discover new sessions (and upgrade restored stopped externals)
     for (const [jsonlPath, cwd] of activeJsonls) {
-      // Skip JSONLs whose CWD matches a managed instance still awaiting session capture
-      if (pendingManagedCwds.has(cwd)) continue;
+      // Skip JSONLs whose CWD matches any managed instance (SDK sessions have no PID
+      // to exclude, so CWD matching is the only way to prevent duplicates)
+      if (managedCwds.has(cwd)) continue;
 
       if (knownJsonls.has(jsonlPath)) {
         // Check if this is a restored stopped external that should be upgraded to active
