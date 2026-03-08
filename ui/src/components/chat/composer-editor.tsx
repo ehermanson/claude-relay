@@ -40,7 +40,7 @@ import {
   useRef,
 } from "react";
 import { splitPromptIntoComposerSegments } from "../../lib/composer-mentions";
-import { basenameOfPath, getVscodeIconUrl } from "../../lib/vscode-icons";
+import { basenameOfPath, getFileIconUrl } from "../../lib/file-icons";
 
 export interface ComposerEditorHandle {
   focus: () => void;
@@ -153,8 +153,8 @@ function renderMentionChip(container: HTMLElement, pathValue: string): void {
   icon.alt = "";
   icon.ariaHidden = "true";
   icon.loading = "lazy";
-  icon.className = "h-3.5 w-3.5 shrink-0 opacity-90";
-  icon.src = getVscodeIconUrl(pathValue, inferEntryKind(pathValue), resolveTheme());
+  icon.className = "h-3 w-3 shrink-0 opacity-75";
+  icon.src = getFileIconUrl(pathValue, inferEntryKind(pathValue), resolveTheme());
 
   const label = document.createElement("span");
   label.className = "truncate";

@@ -974,7 +974,11 @@ export function InputArea({
                     className="justify-between gap-2.5 py-2"
                   >
                     <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                      <FileIcon path={entry.path} kind={entry.kind} className="h-4 w-4 shrink-0" />
+                      <FileIcon
+                        path={entry.path}
+                        kind={entry.kind}
+                        className="h-3.5 w-3.5 shrink-0"
+                      />
                       <div className="min-w-0 flex flex-1 items-baseline gap-2">
                         <div className="truncate text-[0.8125rem] font-medium text-text">
                           {basename}

@@ -65,7 +65,7 @@ New managed sessions run directly in the directory you choose. If Relay discover
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
 - **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
-- **Mobile-friendly web UI** — React SPA with markdown rendering, syntax highlighting, activity indicators, directory browsing, and VSCode-style file icons in the sidecar
+- **Mobile-friendly web UI** — React SPA with markdown rendering, syntax highlighting, activity indicators, directory browsing, and modern framework-aware file icons in the sidecar
 - **Remote access** — built-in Cloudflare Tunnel support for secure access from anywhere
 - **Embeddable** — use as a standalone server or import the core library into your own app
 
@@ -151,14 +151,11 @@ src/
     config.ts              RelayConfig extends CoreConfig
     index.ts               ClaudeRelay class, createRelay(), re-exports core
   bin.ts                ← CLI entry point
-scripts/
-  sync-vscode-icons.mjs ← Regenerates the trimmed vscode-icons manifest used by the UI
 ui/                     ← React app
   src/components/chat/composer-editor.tsx
   src/components/ui/file-icon.tsx
   src/lib/composer-mentions.ts
-  src/lib/vscode-icons.ts
-  src/lib/vscode-icons-manifest.json
+  src/lib/file-icons.ts
 ```
 
 The package exposes two entry points:

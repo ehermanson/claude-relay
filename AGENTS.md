@@ -40,7 +40,7 @@ Codex Relay is a bridge between remote devices and a local Codex CLI. It manages
 - **Server**: Raw `node:http` + `ws` library. No Express/Fastify/etc.
 - **UI**: React 19 + Vite + Tailwind CSS v4 + React Router
 - **Tests**: Node.js built-in test runner (`node --test`)
-- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI), `cmdk` (UI command palette), `lexical` + `@lexical/react` (UI composer)
+- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI), `cmdk` (UI command palette), `lexical` + `@lexical/react` (UI composer), `simple-icons` (UI brand/framework file icons)
 
 ## Build & Test
 
@@ -79,8 +79,6 @@ src/
     websocket.ts             createWebSocketServer() — subscription-based real-time relay
     tunnel.ts                startTunnel(), stopTunnel() — cloudflared lifecycle
     index.ts                 ClaudeRelay class, createRelay(), re-exports core + server
-scripts/
-  sync-vscode-icons.mjs      Downloads the vscode-icons VSIX and generates a trimmed manifest for the UI
 test/
   *.test.js                  Tests import from dist/core/ and dist/server/
   fixtures/                  JSONL session fixtures for history-parsing tests
@@ -93,7 +91,7 @@ ui/
     components/ui/           command, file-icon, resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react + cmdk)
     components/layout/       app-layout, sidebar, sidebar-item
     components/forms/        new-instance-form, directory-picker
-    lib/                     api.ts, composer-mentions.ts, markdown.ts, utils.ts, vscode-icons.ts, vscode-icons-manifest.json
+    lib/                     api.ts, composer-mentions.ts, file-icons.ts, markdown.ts, utils.ts
   vite.config.ts             @shared alias → ../src/core
   tsconfig.json              paths: @shared/* → ../src/core/*
 ```
@@ -129,7 +127,7 @@ ui/
 - InstanceManager syncs `task_list` activities from process onto `instance.tasks`; JSONL parser handles `"deleted"` status
 - **Files:** ClaudeProcess tracks `fileMap` — intercepts Edit/Write/NotebookEdit `tool_use` events, extracts `file_path`/`path`/`notebook_path`, emits consolidated `file_list` activity
 - InstanceManager syncs `file_list` activities from process onto `instance.files`; JSONL `convertJsonlEntry` also tracks file changes
-- UI: `Sidecar` renders changed files and directories with VSCode icon-theme SVGs via `FileIcon` + `vscode-icons.ts`; the generated manifest is committed at `ui/src/lib/vscode-icons-manifest.json`
+- UI: `Sidecar` renders changed files and directories with `FileIcon` + `file-icons.ts`; generic file/folder glyphs use the app's neutral style while framework/language files use `simple-icons` brand marks (React, Svelte, Vue, Astro, HTML, CSS, etc.)
 - **Team:** ClaudeProcess tracks `teamState` — intercepts TeamCreate, Task (with `team_name`), SendMessage (shutdown_request), TeamDelete tool events
 - `TeamCreate` → initializes `TeamInfo` with name/description, emits consolidated `team_info` activity, suppressed from chat
 - `Task` with `team_name` → adds `TeamMember` (status: "running"), emits `team_info`, suppressed from chat

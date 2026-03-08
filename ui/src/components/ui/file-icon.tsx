@@ -1,4 +1,4 @@
-import { getVscodeIconUrl } from "../../lib/vscode-icons";
+import { getFileIconUrl } from "../../lib/file-icons";
 import { useTheme } from "../../context/theme-context";
 
 interface FileIconProps {
@@ -8,15 +8,15 @@ interface FileIconProps {
   className?: string;
 }
 
-export function FileIcon({ path, kind = "file", size = 18, className }: FileIconProps) {
+export function FileIcon({ path, kind = "file", size = 16, className }: FileIconProps) {
   const { theme } = useTheme();
   return (
     <img
-      src={getVscodeIconUrl(path, kind, theme)}
+      src={getFileIconUrl(path, kind, theme)}
       alt=""
       width={size}
       height={size}
-      className={className ?? "shrink-0"}
+      className={`shrink-0 opacity-80 [filter:saturate(0.88)] ${className ?? ""}`}
       loading="lazy"
     />
   );

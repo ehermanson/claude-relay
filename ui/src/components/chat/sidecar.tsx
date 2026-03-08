@@ -367,9 +367,9 @@ function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
                 onOpenChange={() => toggleDir(group.dir)}
               >
                 {showDir && (
-                  <Collapsible.Trigger className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug hover:bg-hover transition-colors">
+                  <Collapsible.Trigger className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-hover">
                     <ChevronIcon open={isOpen} />
-                    <FileIcon path={group.dir} kind="directory" size={16} />
+                    <FileIcon path={group.dir} kind="directory" size={15} />
                     <span className="min-w-0 flex-1 truncate font-medium text-text-bright text-left">
                       {group.dir}
                     </span>
@@ -388,8 +388,8 @@ function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
                   <div className={showDir ? "ml-3" : ""}>
                     {group.files.map(({ basename, file }) => (
                       <Tooltip key={file.path} content={relativePath(file.path, cwd)} side="left">
-                        <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.8125rem] leading-snug hover:bg-hover transition-colors">
-                          <FileIcon path={file.path} size={16} />
+                        <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.8125rem] leading-snug transition-colors hover:bg-hover">
+                          <FileIcon path={file.path} size={15} />
                           <span className="min-w-0 flex-1 truncate text-text">{basename}</span>
                           {file.additions != null || file.deletions != null ? (
                             <DiffStats additions={file.additions} deletions={file.deletions} />
