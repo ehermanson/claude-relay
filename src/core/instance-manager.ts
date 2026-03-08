@@ -64,7 +64,6 @@ import {
 import {
   getRepoRoot,
   getCurrentBranch,
-  createWorktree,
   removeWorktree,
   isWorktreeDirty,
   hasWorktreeChanges,
@@ -577,36 +576,9 @@ export class InstanceManager extends EventEmitter {
     const now = Date.now();
     const resumeId = options?.resumeSessionId;
 
-    // Git worktree isolation — only for new instances (not resumes)
-    let actualCwd = workingDirectory;
-    let worktreePath: string | undefined;
-    let gitBranch: string | undefined;
-    let originalDirectory: string | undefined;
-
-    if (!resumeId) {
-      const repoRoot = getRepoRoot(workingDirectory);
-      if (repoRoot) {
-        const shortId = id.substring(0, 8);
-        const result = createWorktree(repoRoot, shortId);
-        if (result) {
-          worktreePath = result.worktreePath;
-          gitBranch = result.branchName;
-          originalDirectory = workingDirectory;
-          actualCwd = result.worktreePath;
-          this.baseConfig.logger.info(
-            `[InstanceManager] Created worktree at ${worktreePath} on branch ${gitBranch}`,
-          );
-        } else {
-          this.baseConfig.logger.warn(
-            `[InstanceManager] Failed to create worktree for ${workingDirectory}, using original directory`,
-          );
-        }
-      }
-    }
-
     const instanceConfig: CoreConfig = {
       ...this.baseConfig,
-      workingDirectory: actualCwd,
+      workingDirectory,
       dangerouslySkipPermissions:
         options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
     };
@@ -632,8 +604,6 @@ export class InstanceManager extends EventEmitter {
       status: "idle",
       createdAt: now,
       lastActivityAt: now,
-      gitBranch,
-      originalDirectory,
       gitInfo: getGitInfo(workingDirectory) ?? undefined,
       preferredModel: options?.model,
       skipPermissions: skipPerms,
@@ -646,10 +616,6 @@ export class InstanceManager extends EventEmitter {
       process: proc,
       history: [],
       autoTitle: !hasCustomName && !resumeId,
-      worktreePath,
-      gitBranch,
-      originalDirectory,
-      actualCwd: actualCwd !== workingDirectory ? actualCwd : undefined,
     };
     this.instances.set(id, instance);
 

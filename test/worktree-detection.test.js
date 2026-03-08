@@ -175,6 +175,13 @@ describe("getGitInfo worktree detection", () => {
     assert.ok(info.gitInfo, "gitInfo should be present");
     assert.equal(info.gitInfo.isWorktree, false);
     assert.equal(info.gitInfo.branch, "main");
+    assert.equal(info.gitBranch, undefined);
+    assert.equal(info.originalDirectory, undefined);
+
+    const instance = manager.instances.get(info.id);
+    assert.ok(instance, "internal instance should exist");
+    assert.equal(instance.worktreePath, undefined);
+    assert.equal(instance.actualCwd, undefined);
 
     manager.stopAll();
     rmSync(tempDir, { recursive: true, force: true });

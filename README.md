@@ -54,6 +54,8 @@ Claude Relay inherits Claude Code's project model: **the directory you launch `c
 
 This is a convention, not a constraint. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar` or running commands elsewhere. The working directory is a "home base," not a sandbox — the same way a git repo doesn't stop you from touching files outside it. In practice the heuristic is correct the vast majority of the time, since people launch `claude` from the repo they're working on.
 
+New managed sessions run directly in the directory you choose. If Relay discovers or restores a session that already lives in a Relay-managed git worktree, it preserves that worktree metadata so the session can still be resumed, displayed, and merged correctly.
+
 ## What It Does
 
 - **Multi-session management** — run multiple Claude Code instances side-by-side, each with its own working directory and conversation history
