@@ -1626,11 +1626,24 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
+    // Collect CWDs of managed instances that haven't captured their JSONL yet.
+    // This prevents the race where discovery finds the JSONL before captureSessionId()
+    // sets jsonlPath, creating a duplicate external instance.
+    const pendingManagedCwds = new Set<string>();
+    for (const [, instance] of this.instances) {
+      if (!instance.info.external && instance.process && !instance.jsonlPath) {
+        pendingManagedCwds.add(instance.actualCwd || instance.info.workingDirectory);
+      }
+    }
+
     // Remove external instances that are no longer active
     this.removeStaleExternals(new Set(activeJsonls.keys()));
 
     // Discover new sessions (and upgrade restored stopped externals)
     for (const [jsonlPath, cwd] of activeJsonls) {
+      // Skip JSONLs whose CWD matches a managed instance still awaiting session capture
+      if (pendingManagedCwds.has(cwd)) continue;
+
       if (knownJsonls.has(jsonlPath)) {
         // Check if this is a restored stopped external that should be upgraded to active
         const existingId = knownJsonls.get(jsonlPath)!;
