@@ -30,10 +30,26 @@ const MODELS = [
 ] as const;
 
 const REASONING_LEVELS = [
-  { budget: 5000, label: "Low" },
-  { budget: 10000, label: "Medium" },
-  { budget: 30000, label: "High" },
-  { budget: 100000, label: "Max" },
+  {
+    budget: 5000,
+    label: "Low",
+    description: "Fastest responses with light reasoning",
+  },
+  {
+    budget: 10000,
+    label: "Medium",
+    description: "Balanced depth and speed",
+  },
+  {
+    budget: 30000,
+    label: "High",
+    description: "More reasoning for harder tasks",
+  },
+  {
+    budget: 100000,
+    label: "Max",
+    description: "Deepest reasoning, usually slower",
+  },
 ] as const;
 
 const SLASH_COMMANDS = [
@@ -46,7 +62,7 @@ const SLASH_COMMANDS = [
   {
     id: "reasoning",
     title: "/reasoning",
-    description: "Set the reasoning budget for the next turn",
+    description: "Set the reasoning effort for the next turn",
     category: "Command",
   },
 ] as const;
@@ -527,8 +543,9 @@ export function InputArea({
         category: "Reasoning",
         title: option.label,
         description: option.value
-          ? `${option.value.toLocaleString()} tokens`
-          : "Uses the default budget",
+          ? (REASONING_LEVELS.find((level) => level.budget === option.value)?.description ??
+            "Custom reasoning effort")
+          : "Uses the model default reasoning effort",
         hint: reasoningBudget === option.value ? "Current" : undefined,
         actionHint: "Enter",
         accent: reasoningBudget === option.value,
@@ -796,7 +813,7 @@ export function InputArea({
 
   const reasoningPickerButton = !isExternal && (
     <Menu.Root>
-      <Tooltip content="Set reasoning budget">
+      <Tooltip content="Set reasoning effort">
         <Menu.Trigger
           disabled={isProcessing}
           className={`flex shrink-0 items-center gap-1 rounded-full p-2 text-xs transition-colors ${
@@ -824,7 +841,10 @@ export function InputArea({
       </Tooltip>
       <Menu.Content side="top" align="start">
         <Menu.Item onClick={() => setReasoningBudget(null)}>
-          <span className="flex-1">Default</span>
+          <span className="flex flex-1 flex-col">
+            <span>Default</span>
+            <span className="text-[0.6875rem] text-muted">Uses the model default effort</span>
+          </span>
           {reasoningBudget == null && (
             <svg
               width="13"
@@ -843,9 +863,9 @@ export function InputArea({
         <Menu.Separator />
         {REASONING_LEVELS.map((level) => (
           <Menu.Item key={level.budget} onClick={() => setReasoningBudget(level.budget)}>
-            <span className="flex-1">{level.label}</span>
-            <span className="mr-2 text-[0.6875rem] text-muted">
-              {level.budget.toLocaleString()}
+            <span className="flex flex-1 flex-col">
+              <span>{level.label}</span>
+              <span className="text-[0.6875rem] text-muted">{level.description}</span>
             </span>
             {reasoningBudget === level.budget && (
               <svg

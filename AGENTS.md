@@ -167,11 +167,11 @@ ui/
 ### Composer Controls
 
 - `InstanceInfo` carries both `preferredModel?: string` and `reasoningBudget?: number`
-- UI: `InputArea` shows two per-session controls for managed instances: model selection and reasoning budget selection
+- UI: `InputArea` shows two per-session controls for managed instances: model selection and reasoning effort selection
 - UI: `InputArea` now uses a Lexical-based `ComposerEditor` so inline path mentions can render as atomic chips without giving up plain-text message semantics
 - UI: the composer supports slash commands: `/model <default|opus|sonnet|haiku>` and `/reasoning <default|low|medium|high|max>`
 - UI: typing `@` opens a workspace search palette backed by `GET /api/workspace-entries`; selecting a result inserts an inline mention chip but still sends plain `@path/to/file` text to Codex
-- Reasoning presets are low/medium/high/max, mapped to token budgets and sent over WS as `set_reasoning_budget`
+- Reasoning presets are shown as effort levels (low/medium/high/max), mapped to underlying token budgets and sent over WS as `set_reasoning_budget`
 - `InstanceManager.setModel()` and `InstanceManager.setReasoningBudget()` persist both preferences to SQLite and rebroadcast `instance:status`
 - CLI provider: `ClaudeProcess.send()` applies `--model <id>` and `--max-thinking-tokens <budget>` on each turn
 - SDK provider: `ClaudeSdkSession` forwards changes with `query.setModel(...)` and `query.setMaxThinkingTokens(...)`

@@ -61,7 +61,7 @@ New managed sessions run directly in the directory you choose. If Relay discover
 - **Multi-session management** — run multiple Claude Code instances side-by-side, each with its own working directory and conversation history
 - **External session discovery** — automatically detects Claude Code sessions started from your terminal and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
-- **Per-session controls** — choose a model override and reasoning budget from the chat input for managed sessions
+- **Per-session controls** — choose a model override and reasoning effort from the chat input for managed sessions
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
 - **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
