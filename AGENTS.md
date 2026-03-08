@@ -40,7 +40,7 @@ Codex Relay is a bridge between remote devices and a local Codex CLI. It manages
 - **Server**: Raw `node:http` + `ws` library. No Express/Fastify/etc.
 - **UI**: React 19 + Vite + Tailwind CSS v4 + React Router
 - **Tests**: Node.js built-in test runner (`node --test`)
-- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI)
+- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI), `cmdk` (UI command palette)
 
 ## Build & Test
 
@@ -89,7 +89,7 @@ ui/
     hooks/                   use-auth, use-web-socket, use-instance-messages, use-auto-scroll, use-directory-browser, use-media-query, use-terminal-pending-toasts
     pages/                   chat-page, login-page, project-page, plans-page, plan-page, issues-page
     components/chat/         instance-view, message-list, Codex-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
-    components/ui/           file-icon, resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react)
+    components/ui/           command, file-icon, resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react + cmdk)
     components/layout/       app-layout, sidebar, sidebar-item
     components/forms/        new-instance-form, directory-picker
     lib/                     api.ts, markdown.ts, utils.ts, vscode-icons.ts, vscode-icons-manifest.json

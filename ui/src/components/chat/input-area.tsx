@@ -3,7 +3,17 @@ import { ArrowUp, ImagePlus, Loader2, Square } from "lucide-react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useWSMethods } from "../../context/websocket-context";
 import { formatModel } from "../../lib/utils";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+  CommandShortcut,
+} from "../ui/command";
 import { Tooltip } from "../ui/tooltip";
 import { Menu } from "../ui/menu";
 import { uploadImage } from "../../lib/api";
@@ -20,6 +30,21 @@ const REASONING_LEVELS = [
   { budget: 10000, label: "Medium" },
   { budget: 30000, label: "High" },
   { budget: 100000, label: "Max" },
+] as const;
+
+const SLASH_COMMANDS = [
+  {
+    id: "model",
+    title: "/model",
+    description: "Switch the model used for the next turn",
+    category: "Command",
+  },
+  {
+    id: "reasoning",
+    title: "/reasoning",
+    description: "Set the reasoning budget for the next turn",
+    category: "Command",
+  },
 ] as const;
 
 const MODEL_COMMAND_OPTIONS = [
@@ -72,17 +97,21 @@ interface SlashContext {
 
 interface SlashMenuItem {
   key: string;
+  category: string;
   title: string;
   description: string;
+  commandText?: string;
   hint?: string;
+  actionHint?: string;
+  accent?: boolean;
   onSelect: () => void;
 }
 
 function getSlashContext(text: string): SlashContext | null {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("/") || trimmed.includes("\n")) return null;
+  const normalized = text.trimStart();
+  if (!normalized.startsWith("/") || normalized.includes("\n")) return null;
 
-  const body = trimmed.slice(1);
+  const body = normalized.slice(1);
   const firstWhitespace = body.search(/\s/);
   if (firstWhitespace === -1) {
     return {
@@ -96,7 +125,7 @@ function getSlashContext(text: string): SlashContext | null {
     commandQuery: body.slice(0, firstWhitespace).toLowerCase(),
     argQuery: body
       .slice(firstWhitespace + 1)
-      .trim()
+      .trimStart()
       .toLowerCase(),
     hasArgument: true,
   };
@@ -153,7 +182,8 @@ export function InputArea({
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [draftText, setDraftText] = useState("");
-  const [selectedSlashIndex, setSelectedSlashIndex] = useState(-1);
+  const [selectedSlashKey, setSelectedSlashKey] = useState<string | null>(null);
+  const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const prevInstanceIdRef = useRef<string>(instanceId);
   const { send } = useWSMethods();
@@ -167,7 +197,11 @@ export function InputArea({
   };
 
   const togglePermissions = () => {
-    send({ type: "set_permissions", instanceId, skipPermissions: !skipPermissions });
+    send({
+      type: "set_permissions",
+      instanceId,
+      skipPermissions: !skipPermissions,
+    });
   };
 
   const activeModelLabel = activeModel
@@ -190,6 +224,7 @@ export function InputArea({
 
   const updateDraft = (value: string) => {
     setDraftText(value);
+    setSlashMenuDismissed(false);
     if (value) {
       drafts.set(instanceId, value);
     } else {
@@ -226,6 +261,7 @@ export function InputArea({
     // Restore draft for current instance
     const restored = drafts.get(instanceId) || "";
     setDraftText(restored);
+    setSlashMenuDismissed(false);
     textareaRef.current?.focus();
   }, [instanceId]);
 
@@ -288,7 +324,8 @@ export function InputArea({
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-    setSelectedSlashIndex(-1);
+    setSelectedSlashKey(null);
+    setSlashMenuDismissed(false);
     // Clear image previews
     images.forEach((img) => URL.revokeObjectURL(img.preview));
     setImages([]);
@@ -298,10 +335,11 @@ export function InputArea({
     action();
     drafts.delete(instanceId);
     setComposerValue("");
-    setSelectedSlashIndex(-1);
+    setSelectedSlashKey(null);
+    setSlashMenuDismissed(false);
   };
 
-  const slashContext = !isExternal ? getSlashContext(draftText) : null;
+  const slashContext = !isExternal && !slashMenuDismissed ? getSlashContext(draftText) : null;
 
   const resolveSlashAction = (): (() => void) | null => {
     if (!slashContext || !slashContext.hasArgument) return null;
@@ -327,25 +365,18 @@ export function InputArea({
     if (!slashContext) return [];
 
     if (!slashContext.hasArgument) {
-      const commands = [
-        {
-          id: "model",
-          title: "/model",
-          description: "Switch the model used for the next turn",
-        },
-        {
-          id: "reasoning",
-          title: "/reasoning",
-          description: "Set the reasoning budget for the next turn",
-        },
-      ].filter((command) =>
+      const commands = SLASH_COMMANDS.filter((command) =>
         matchesQuery(slashContext.commandQuery, [command.id, command.title.slice(1)]),
       );
 
       return commands.map((command) => ({
         key: command.id,
+        category: command.category,
         title: command.title,
         description: command.description,
+        commandText: command.title,
+        hint: command.id === "model" ? modelLabel : reasoningLabel,
+        actionHint: "Tab",
         onSelect: () => setComposerValue(`${command.title} `),
       }));
     }
@@ -355,9 +386,12 @@ export function InputArea({
         matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
       ).map((option) => ({
         key: `model-${option.commandValue}`,
+        category: "Model",
         title: option.label,
-        description: `Run ${option.value ? `/model ${option.commandValue}` : "/model default"}`,
+        description: option.value ? option.value : "Uses the active model",
         hint: preferredModel === option.value ? "Current" : undefined,
+        actionHint: "Enter",
+        accent: preferredModel === option.value,
         onSelect: () => applySlashAction(() => setModel(option.value)),
       }));
     }
@@ -367,11 +401,14 @@ export function InputArea({
         matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
       ).map((option) => ({
         key: `reasoning-${option.commandValue}`,
+        category: "Reasoning",
         title: option.label,
         description: option.value
-          ? `Run /reasoning ${option.commandValue} (${option.value.toLocaleString()} tokens)`
-          : "Run /reasoning default",
+          ? `${option.value.toLocaleString()} tokens`
+          : "Uses the default budget",
         hint: reasoningBudget === option.value ? "Current" : undefined,
+        actionHint: "Enter",
+        accent: reasoningBudget === option.value,
         onSelect: () => applySlashAction(() => setReasoningBudget(option.value)),
       }));
     }
@@ -379,38 +416,66 @@ export function InputArea({
     return [];
   })();
 
+  const selectedSlashItem =
+    (selectedSlashKey ? slashMenuItems.find((item) => item.key === selectedSlashKey) : null) ??
+    slashMenuItems[0] ??
+    null;
+
   useEffect(() => {
     if (slashMenuItems.length === 0) {
-      setSelectedSlashIndex(-1);
+      setSelectedSlashKey(null);
       return;
     }
 
-    if (slashContext?.hasArgument && !slashContext.argQuery) {
-      setSelectedSlashIndex(-1);
-      return;
-    }
-
-    setSelectedSlashIndex((prev) => {
-      if (prev < 0 || prev >= slashMenuItems.length) return 0;
-      return prev;
+    setSelectedSlashKey((prev) => {
+      if (prev && slashMenuItems.some((item) => item.key === prev)) return prev;
+      return slashMenuItems[0]?.key ?? null;
     });
-  }, [slashContext?.argQuery, slashContext?.hasArgument, slashMenuItems.length]);
+  }, [slashContext?.argQuery, slashContext?.hasArgument, slashMenuItems]);
+
+  useEffect(() => {
+    if (!slashContext) return;
+
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setSelectedSlashKey(null);
+      setSlashMenuDismissed(true);
+    };
+
+    window.addEventListener("keydown", handleWindowKeyDown, true);
+    return () => window.removeEventListener("keydown", handleWindowKeyDown, true);
+  }, [slashContext]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (slashMenuItems.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedSlashIndex((prev) => (prev < 0 ? 0 : (prev + 1) % slashMenuItems.length));
+        const currentIndex = selectedSlashItem
+          ? slashMenuItems.findIndex((item) => item.key === selectedSlashItem.key)
+          : -1;
+        const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % slashMenuItems.length;
+        setSelectedSlashKey(slashMenuItems[nextIndex]?.key ?? null);
         return;
       }
 
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedSlashIndex((prev) =>
-          prev < 0
+        const currentIndex = selectedSlashItem
+          ? slashMenuItems.findIndex((item) => item.key === selectedSlashItem.key)
+          : -1;
+        const nextIndex =
+          currentIndex < 0
             ? slashMenuItems.length - 1
-            : (prev - 1 + slashMenuItems.length) % slashMenuItems.length,
-        );
+            : (currentIndex - 1 + slashMenuItems.length) % slashMenuItems.length;
+        setSelectedSlashKey(slashMenuItems[nextIndex]?.key ?? null);
+        return;
+      }
+
+      if (e.key === "Tab") {
+        e.preventDefault();
+        selectedSlashItem?.onSelect();
         return;
       }
     }
@@ -422,13 +487,19 @@ export function InputArea({
         applySlashAction(slashAction);
         return;
       }
-      if (selectedSlashIndex >= 0 && slashMenuItems[selectedSlashIndex]) {
-        slashMenuItems[selectedSlashIndex].onSelect();
+      if (selectedSlashItem) {
+        selectedSlashItem.onSelect();
         return;
       }
       handleSend();
     }
     if (e.key === "Escape") {
+      if (slashMenuItems.length > 0) {
+        e.preventDefault();
+        setSelectedSlashKey(null);
+        setSlashMenuDismissed(true);
+        return;
+      }
       onCancel();
     }
   };
@@ -709,28 +780,104 @@ export function InputArea({
     />
   );
 
-  const slashMenu = slashMenuItems.length > 0 && (
-    <div className="mx-2 mb-1 rounded-xl border border-border bg-surface-raised p-1">
-      {slashMenuItems.map((item, index) => (
-        <button
-          key={item.key}
-          type="button"
-          onMouseEnter={() => setSelectedSlashIndex(index)}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={item.onSelect}
-          className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
-            index === selectedSlashIndex ? "bg-surface-hover" : "hover:bg-surface-hover"
-          }`}
-        >
+  const slashMenuTitle = !slashContext
+    ? ""
+    : !slashContext.hasArgument
+      ? "Slash commands"
+      : slashContext.commandQuery === "model"
+        ? "Choose a model"
+        : slashContext.commandQuery === "reasoning"
+          ? "Choose a reasoning level"
+          : "Slash commands";
+
+  const slashMenuSubtitle = !slashContext
+    ? ""
+    : !slashContext.hasArgument
+      ? "Type to filter commands, then press Tab or Enter."
+      : "Applies immediately without sending a chat message.";
+
+  const slashGroups = slashMenuItems.reduce<Array<{ heading: string; items: SlashMenuItem[] }>>(
+    (groups, item) => {
+      const group = groups.find((entry) => entry.heading === item.category);
+      if (group) {
+        group.items.push(item);
+        return groups;
+      }
+      groups.push({ heading: item.category, items: [item] });
+      return groups;
+    },
+    [],
+  );
+
+  const slashMenu = slashContext && (
+    <div
+      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-12" : "bottom-[3.25rem]"}`}
+    >
+      <div className="pointer-events-auto overflow-hidden rounded-2xl border border-border/80 bg-surface-raised/95 shadow-lg backdrop-blur">
+        <div className="flex items-center justify-between border-b border-border/70 px-3 py-1.5">
           <div className="min-w-0">
-            <div className="text-[0.8125rem] font-medium text-text">{item.title}</div>
-            <div className="truncate text-[0.75rem] text-muted">{item.description}</div>
+            <div className="text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-muted">
+              {slashMenuTitle}
+            </div>
+            <div className="truncate pt-0.5 text-[0.6875rem] text-muted">{slashMenuSubtitle}</div>
           </div>
-          {item.hint ? (
-            <span className="shrink-0 text-[0.6875rem] font-medium text-accent">{item.hint}</span>
-          ) : null}
-        </button>
-      ))}
+          <div className="ml-3 flex shrink-0 items-center gap-1.5">
+            <Badge variant="default" className="px-2 py-0.5 text-[0.6875rem]">
+              Esc
+            </Badge>
+            <span className="text-[0.6875rem] text-muted">dismiss</span>
+          </div>
+        </div>
+        <Command
+          shouldFilter={false}
+          value={selectedSlashKey ?? undefined}
+          onValueChange={setSelectedSlashKey}
+          className="bg-transparent p-0"
+        >
+          <CommandList className="max-h-72 p-1">
+            <CommandEmpty>No matching slash commands.</CommandEmpty>
+            {slashGroups.map((group, groupIndex) => (
+              <div key={group.heading}>
+                {groupIndex > 0 ? <CommandSeparator /> : null}
+                <CommandGroup heading={group.heading}>
+                  {group.items.map((item) => (
+                    <CommandItem
+                      key={item.key}
+                      value={item.key}
+                      onMouseEnter={() => setSelectedSlashKey(item.key)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onSelect={item.onSelect}
+                      className="justify-between gap-2.5 py-1.5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-[0.8125rem] font-medium text-text">
+                            {item.title}
+                          </span>
+                          {item.hint ? (
+                            <Badge
+                              variant={item.accent ? "accent" : "default"}
+                              className="px-2 py-0.5 text-[0.6875rem]"
+                            >
+                              {item.hint}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="truncate pt-0.5 text-[0.6875rem] text-muted">
+                          {item.description}
+                        </div>
+                      </div>
+                      {item.actionHint ? (
+                        <CommandShortcut>{item.actionHint}</CommandShortcut>
+                      ) : null}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </div>
+            ))}
+          </CommandList>
+        </Command>
+      </div>
     </div>
   );
 
@@ -814,7 +961,7 @@ export function InputArea({
 
         {hiddenFileInput}
 
-        <div className="rounded-2xl border border-border bg-surface">
+        <div className="relative rounded-2xl border border-border bg-surface">
           {imageStrip}
 
           {isMobile ? (
