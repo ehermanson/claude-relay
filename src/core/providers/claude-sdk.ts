@@ -23,9 +23,11 @@ import type {
   SessionStats,
   TeamInfo,
   AgentActivity,
+  ProviderRequest,
+  ProviderRuntimeBinding,
 } from "../types.js";
 import type { CoreConfig } from "../config.js";
-import type { ProviderSession, ProviderSessionEvents, PermissionRequestInfo } from "../provider.js";
+import type { ProviderSession, ProviderSessionEvents } from "../provider.js";
 import {
   describeToolUse,
   describeToolDetail,
@@ -292,10 +294,14 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
   private logger: CoreConfig["logger"];
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  private cwd: string;
+  private currentModel: string | null;
 
   constructor(options: ClaudeSdkSessionOptions, queryFn: QueryFn) {
     super();
     this.logger = options.logger;
+    this.cwd = options.cwd;
+    this.currentModel = options.model ?? null;
     this.allowedToolSet = new Set(options.allowedTools || []);
     this.promptQueue = new PromptQueue();
 
@@ -346,6 +352,10 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     return this._isProcessing;
   }
 
+  get provider(): "claude" {
+    return "claude";
+  }
+
   get pid(): number | undefined {
     // SDK manages the subprocess internally — we don't have direct PID access.
     // Discovery exclusion will need to match by other means (CWD, timing).
@@ -358,6 +368,19 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
   get sessionId(): string | undefined {
     return this._sessionId;
+  }
+
+  getRuntimeBinding(): ProviderRuntimeBinding {
+    return {
+      provider: "claude",
+      providerSessionId: this._sessionId,
+      resumeCursor: this._sessionId ? { sessionId: this._sessionId } : undefined,
+      runtimePayload: {
+        cwd: this.cwd,
+        model: this.currentModel ?? undefined,
+      },
+      runtimeMode: this._bypassPermissions ? "full-access" : "approval-required",
+    };
   }
 
   send(message: string): void {
@@ -420,6 +443,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
   setModel(model: string | null): void {
     if (this._stopped) return;
+    this.currentModel = model;
     if (model) {
       this.query.setModel(model).catch((err) => {
         this.logger.warn(`[SdkSession] setModel error: ${err}`);
@@ -441,7 +465,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   addAllowedTool(tool: string): void {
     this.allowedToolSet.add(tool);
     // Note: SDK manages allowed tools via canUseTool callback + updatedPermissions.
-    // This is kept for interface compatibility but the SDK path uses approvePermission().
   }
 
   setBypassPermissions(bypass: boolean): void {
@@ -461,10 +484,15 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     }
   }
 
-  approvePermission(tool: string): boolean {
-    if (!this.pendingPermission) return false;
-    this.logger.info(`[SdkSession] Approving permission for ${tool}`);
-    this.allowedToolSet.add(tool);
+  respondToRequest(requestId: string, decision: "accept" | "decline"): boolean {
+    if (!this.pendingPermission || this.pendingPermission.toolUseId !== requestId) return false;
+    if (decision !== "accept") {
+      this.pendingPermission.resolve({ behavior: "deny", message: "Request declined" });
+      this.pendingPermission = null;
+      return true;
+    }
+    this.logger.info(`[SdkSession] Approving permission for ${this.pendingPermission.toolName}`);
+    this.allowedToolSet.add(this.pendingPermission.toolName);
     this.pendingPermission.resolve({
       behavior: "allow",
       updatedInput: this.pendingPermission.input,
@@ -472,6 +500,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     });
     this.pendingPermission = null;
     return true;
+  }
+
+  approvePermission(tool: string): boolean {
+    if (!this.pendingPermission || this.pendingPermission.toolName !== tool) return false;
+    return this.respondToRequest(this.pendingPermission.toolUseId, "accept");
   }
 
   // ===========================================================================
@@ -517,7 +550,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     // Emit a permission request event (not an activity — doesn't appear in chat).
     // InstanceManager wires this to set pendingPermission on the instance info.
-    const request: PermissionRequestInfo = {
+    const request: ProviderRequest = {
+      requestId: callbackOptions.toolUseID,
+      kind: "approval",
       tool: toolName,
       description: describeToolUse(toolName, input),
     };

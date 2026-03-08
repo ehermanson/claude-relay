@@ -17,9 +17,11 @@ import type {
   SessionStats,
   TeamInfo,
   AgentActivity,
+  ProviderRequest,
+  ProviderRuntimeBinding,
 } from "./types.js";
 import type { CoreConfig } from "./config.js";
-import type { ProviderSession, PermissionRequestInfo } from "./provider.js";
+import type { ProviderSession } from "./provider.js";
 import {
   describeToolUse,
   describeToolDetail,
@@ -40,7 +42,7 @@ export interface ClaudeProcessEvents {
   activity: [ActivityMessage];
   stats: [SessionStats];
   /** CLI sessions never emit this — included for ProviderSession compatibility. */
-  permissionRequest: [PermissionRequestInfo];
+  permissionRequest: [ProviderRequest];
 }
 
 export interface ClaudeProcess {
@@ -97,6 +99,10 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     return { ...this._stats };
   }
 
+  get provider(): "claude" {
+    return "claude";
+  }
+
   constructor(
     config: CoreConfig,
     options?: { resumeSessionId?: string; model?: string; reasoningBudget?: number },
@@ -123,6 +129,19 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
   /** PID of the currently running child process, or undefined if idle */
   get pid(): number | undefined {
     return this.currentProcess?.pid;
+  }
+
+  getRuntimeBinding(): ProviderRuntimeBinding {
+    return {
+      provider: "claude",
+      providerSessionId: this.resumeSessionId ?? undefined,
+      resumeCursor: this.resumeSessionId ? { sessionId: this.resumeSessionId } : undefined,
+      runtimePayload: {
+        cwd: this.cwd,
+        model: this._preferredModel ?? undefined,
+      },
+      runtimeMode: this._bypassPermissions ? "full-access" : "approval-required",
+    };
   }
 
   /**

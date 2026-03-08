@@ -28,7 +28,7 @@ import type { ProviderSession } from "./provider.js";
 import { createSdkSessionSync, resolveQueryFn } from "./providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "./providers/claude-sdk.js";
 import { SessionDB } from "./db.js";
-import type { SessionRow } from "./db.js";
+import type { SessionRow, ManagedInstanceRow } from "./db.js";
 import type { CoreConfig } from "./config.js";
 import type {
   ServerMessage,
@@ -50,6 +50,10 @@ import type {
   ProjectPlan,
   McpServerConfig,
   BeadIssue,
+  ProviderKind,
+  ProviderRequest,
+  ProviderRuntimeBinding,
+  ProviderRuntimeMode,
 } from "./types.js";
 import {
   describeToolUse,
@@ -102,6 +106,7 @@ interface WatchState {
 interface Instance {
   info: InstanceInfo;
   process: ProviderSession | null;
+  providerBinding?: ProviderRuntimeBinding;
   history: HistoryEntry[];
   /** JSONL entries at or before this timestamp were already handled by the managed process */
   processHandledUntil?: number;
@@ -476,6 +481,10 @@ function createWatchState(
   };
 }
 
+function normalizeRuntimeMode(skipPermissions: boolean | undefined): ProviderRuntimeMode {
+  return skipPermissions ? "full-access" : "approval-required";
+}
+
 export class InstanceManager extends EventEmitter {
   private instances = new Map<string, Instance>();
   private baseConfig: CoreConfig;
@@ -516,12 +525,18 @@ export class InstanceManager extends EventEmitter {
   private createProviderSession(
     config: CoreConfig,
     options?: {
+      provider?: ProviderKind;
       resumeSessionId?: string;
       model?: string;
       reasoningBudget?: number;
       allowedTools?: string[];
     },
   ): ProviderSession {
+    const provider = options?.provider ?? "claude";
+    if (provider !== "claude") {
+      throw new Error(`Provider '${provider}' is not implemented`);
+    }
+
     if (this._sdkQueryFn) {
       const session = createSdkSessionSync(
         {
@@ -562,10 +577,10 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Check if a provider session is an SDK session (has approvePermission method).
+   * Check if a provider session is a Claude SDK session (exposes sessionId eagerly).
    */
   private isSdkSession(proc: ProviderSession): proc is ClaudeSdkSession & ProviderSession {
-    return typeof proc.approvePermission === "function";
+    return proc.provider === "claude" && "sessionId" in proc;
   }
 
   // ===========================================================================
@@ -573,6 +588,7 @@ export class InstanceManager extends EventEmitter {
   // ===========================================================================
 
   createInstance(options?: {
+    provider?: ProviderKind;
     name?: string;
     workingDirectory?: string;
     dangerouslySkipPermissions?: boolean;
@@ -587,6 +603,7 @@ export class InstanceManager extends EventEmitter {
 
     const id = randomUUID();
     this.instanceCounter++;
+    const provider = options?.provider ?? "claude";
     const workingDirectory = options?.workingDirectory || this.baseConfig.workingDirectory;
     const now = Date.now();
     const resumeId = options?.resumeSessionId;
@@ -599,6 +616,7 @@ export class InstanceManager extends EventEmitter {
     };
 
     const proc = this.createProviderSession(instanceConfig, {
+      provider,
       resumeSessionId: resumeId,
       model: options?.model,
       reasoningBudget: options?.reasoningBudget,
@@ -615,6 +633,7 @@ export class InstanceManager extends EventEmitter {
       options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions;
     const info: InstanceInfo = {
       id,
+      provider,
       name,
       workingDirectory,
       status: "idle",
@@ -631,6 +650,7 @@ export class InstanceManager extends EventEmitter {
     const instance: Instance = {
       info,
       process: proc,
+      providerBinding: proc.getRuntimeBinding(),
       history: [],
       autoTitle: !hasCustomName && !resumeId,
     };
@@ -645,6 +665,14 @@ export class InstanceManager extends EventEmitter {
       instance.sessionId = resumeId;
       instance.jsonlPath = jsonlPath;
       info.sessionId = resumeId;
+      instance.providerBinding = {
+        ...(instance.providerBinding ?? proc.getRuntimeBinding()),
+        provider,
+        providerSessionId: resumeId,
+        resumeCursor: { sessionId: resumeId },
+        transcriptPath: jsonlPath,
+        runtimeMode: normalizeRuntimeMode(skipPerms),
+      };
       proc.setSessionId?.(resumeId);
 
       // Parse existing history so the UI shows the full conversation
@@ -678,6 +706,7 @@ export class InstanceManager extends EventEmitter {
 
       this.dbSave(instance);
     } else {
+      this.dbSave(instance);
       this.captureSessionId(id, instance, proc);
     }
 
@@ -706,6 +735,7 @@ export class InstanceManager extends EventEmitter {
     instance.info.status = "stopped";
     this.instances.delete(id);
     if (instance.sessionId) this.db.archive(instance.sessionId);
+    this.db.archiveManaged(instance.info.id);
 
     // Clean up git worktree if this instance used one
     if (instance.worktreePath && instance.gitBranch && instance.originalDirectory) {
@@ -845,27 +875,21 @@ export class InstanceManager extends EventEmitter {
     instance.process!.interrupt();
   }
 
-  /**
-   * Approve a previously denied tool and retry. Adds the tool to the process's
-   * allowed list, stores a user message, and sends a retry prompt.
-   *
-   * SDK path: resolves the deferred canUseTool promise directly — no retry needed.
-   * CLI path: queues a retry message with the tool approval context.
-   */
-  approveToolUse(id: string, tool: string): void {
+  respondToRequest(id: string, requestId: string, decision: "accept" | "decline"): void {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
     if (instance.info.external) throw new Error("Cannot approve tools on external instances");
+    const pendingRequest = instance.info.pendingPermission;
+    if (!pendingRequest) throw new Error("Instance has no pending request");
 
-    // Group file-write tools: approving any one approves all three
+    const tool = pendingRequest.tool ?? requestId;
     const isFileWrite = FILE_WRITE_GROUP.includes(tool);
-    const toolsToAdd = isFileWrite ? FILE_WRITE_GROUP : [tool];
+    const toolsToAdd = decision === "accept" ? (isFileWrite ? FILE_WRITE_GROUP : [tool]) : [];
 
     instance.info.pendingTool = undefined;
     instance.info.pendingPermission = undefined;
 
-    // Persist allowed tools to DB so they survive restarts
-    if (instance.sessionId) {
+    if (decision === "accept" && instance.sessionId) {
       try {
         const allTools = [...new Set(toolsToAdd)];
         const row = this.db.getBySessionId(instance.sessionId);
@@ -885,13 +909,21 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // SDK path: resolve the deferred canUseTool promise directly
-    if (this.isSdkSession(instance.process!)) {
+    if (instance.process?.respondToRequest) {
       for (const t of toolsToAdd) {
         instance.process!.addAllowedTool(t);
       }
-      instance.process!.approvePermission!(tool);
-      this.setStatus(instance, "processing");
+      instance.process.respondToRequest(requestId, decision);
+      if (decision === "accept") {
+        this.setStatus(instance, "processing");
+      } else {
+        this.setStatus(instance, "idle");
+      }
+      return;
+    }
+
+    if (decision !== "accept") {
+      this.setStatus(instance, "idle");
       return;
     }
 
@@ -913,6 +945,17 @@ export class InstanceManager extends EventEmitter {
       this.setStatus(instance, "processing");
       instance.process!.send(retryText);
     }
+  }
+
+  approveToolUse(id: string, tool: string): void {
+    const instance = this.instances.get(id);
+    if (!instance) throw new Error(`Instance ${id} not found`);
+    const requestId =
+      typeof instance.info.pendingPermission === "object" &&
+      instance.info.pendingPermission.tool === tool
+        ? instance.info.pendingPermission.requestId
+        : tool;
+    this.respondToRequest(id, requestId, "accept");
   }
 
   /**
@@ -940,7 +983,10 @@ export class InstanceManager extends EventEmitter {
 
     let proc: ProviderSession;
     try {
-      proc = this.createProviderSession(instanceConfig, { resumeSessionId: sessionId });
+      proc = this.createProviderSession(instanceConfig, {
+        provider: instance.info.provider,
+        resumeSessionId: sessionId,
+      });
     } catch (err) {
       this.baseConfig.logger.error(`[InstanceManager] Failed to create process for resume: ${err}`);
       throw err;
@@ -957,6 +1003,7 @@ export class InstanceManager extends EventEmitter {
     const prevProcess = instance.process;
 
     instance.process = proc;
+    instance.providerBinding = proc.getRuntimeBinding();
     instance.info.external = false;
     delete instance.externalState;
 
@@ -1004,7 +1051,10 @@ export class InstanceManager extends EventEmitter {
 
     let proc: ProviderSession;
     try {
-      proc = this.createProviderSession(instanceConfig, { resumeSessionId: sessionId });
+      proc = this.createProviderSession(instanceConfig, {
+        provider: instance.info.provider,
+        resumeSessionId: sessionId,
+      });
     } catch (err) {
       this.baseConfig.logger.error(`[InstanceManager] Failed to create process for revive: ${err}`);
       throw err;
@@ -1012,6 +1062,7 @@ export class InstanceManager extends EventEmitter {
 
     const prevProcess = instance.process;
     instance.process = proc;
+    instance.providerBinding = proc.getRuntimeBinding();
 
     try {
       this.wireProcessEvents(id, instance, proc);
@@ -1618,13 +1669,12 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Collect CWDs of ALL managed instances (not just pending ones).
-    // SDK sessions don't expose a PID, so discovery can't exclude their subprocess.
-    // By tracking managed CWDs, we prevent discovery from creating duplicate external
-    // instances for any managed session — regardless of whether captureSessionId has run.
+    // Collect CWDs of SDK-based managed instances (which don't expose a PID).
+    // CLI sessions are already excluded via PID matching above, so we only need
+    // CWD matching for SDK sessions to prevent duplicate external instances.
     const managedCwds = new Set<string>();
     for (const [, instance] of this.instances) {
-      if (!instance.info.external && instance.process) {
+      if (!instance.info.external && instance.process && instance.process.pid === undefined) {
         managedCwds.add(instance.actualCwd || instance.info.workingDirectory);
       }
     }
@@ -1869,6 +1919,7 @@ export class InstanceManager extends EventEmitter {
 
     const info: InstanceInfo = {
       id,
+      provider: "claude",
       name,
       workingDirectory,
       status: "idle",
@@ -1894,6 +1945,13 @@ export class InstanceManager extends EventEmitter {
     const instance: Instance = {
       info,
       process: null,
+      providerBinding: {
+        provider: "claude",
+        providerSessionId: sessionId,
+        resumeCursor: { sessionId },
+        runtimePayload: { cwd },
+        transcriptPath: jsonlPath,
+      },
       history,
       sessionId,
       jsonlPath,
@@ -2821,6 +2879,7 @@ export class InstanceManager extends EventEmitter {
     return {
       session_id: instance.sessionId!,
       instance_id: instance.info.id,
+      provider_name: instance.info.provider,
       name: instance.info.name,
       working_directory: instance.info.workingDirectory,
       jsonl_path: instance.jsonlPath!,
@@ -2848,11 +2907,49 @@ export class InstanceManager extends EventEmitter {
     };
   }
 
-  /** Persist an instance to the DB (only if it has a sessionId and jsonlPath) */
+  private toManagedInstanceRow(instance: Instance): ManagedInstanceRow {
+    const stats = instance.info.stats;
+    const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
+    return {
+      instance_id: instance.info.id,
+      provider_name: instance.info.provider,
+      provider_session_id:
+        binding?.providerSessionId ?? instance.sessionId ?? instance.info.sessionId ?? null,
+      name: instance.info.name,
+      working_directory: instance.info.workingDirectory,
+      created_at: instance.info.createdAt,
+      last_activity_at: instance.info.lastActivityAt,
+      archived: 0,
+      custom_title: instance.info.customTitle ? 1 : 0,
+      input_tokens: stats?.inputTokens ?? 0,
+      output_tokens: stats?.outputTokens ?? 0,
+      cache_creation_tokens: stats?.cacheCreationTokens ?? 0,
+      cache_read_tokens: stats?.cacheReadTokens ?? 0,
+      cost_usd: stats?.costUSD ?? 0,
+      git_branch: instance.gitBranch ?? null,
+      worktree_path: instance.worktreePath ?? null,
+      original_directory: instance.originalDirectory ?? null,
+      parent_session_id: instance.info.parentSessionId ?? null,
+      preferred_model: instance.info.preferredModel ?? null,
+      reasoning_budget: instance.info.reasoningBudget ?? null,
+      skip_permissions: instance.info.skipPermissions ? 1 : 0,
+      runtime_mode: normalizeRuntimeMode(instance.info.skipPermissions),
+      resume_cursor_json: binding?.resumeCursor ? JSON.stringify(binding.resumeCursor) : null,
+      runtime_payload_json: binding?.runtimePayload ? JSON.stringify(binding.runtimePayload) : null,
+      transcript_path: binding?.transcriptPath ?? instance.jsonlPath ?? null,
+    };
+  }
+
   private dbSave(instance: Instance): void {
-    if (!instance.sessionId || !instance.jsonlPath) return;
     try {
-      this.db.upsert(this.toSessionRow(instance));
+      if (!instance.info.external) {
+        instance.providerBinding =
+          instance.process?.getRuntimeBinding() ?? instance.providerBinding;
+        this.db.upsertManaged(this.toManagedInstanceRow(instance));
+      }
+      if (instance.sessionId && instance.jsonlPath) {
+        this.db.upsert(this.toSessionRow(instance));
+      }
     } catch (err) {
       this.baseConfig.logger.warn(`[InstanceManager] Failed to persist session: ${err}`);
     }
@@ -2893,6 +2990,7 @@ export class InstanceManager extends EventEmitter {
         rows.push({
           session_id: entry.sessionId,
           instance_id: entry.id,
+          provider_name: "claude",
           name: entry.name,
           working_directory: entry.workingDirectory,
           jsonl_path: entry.jsonlPath,
@@ -3096,6 +3194,7 @@ export class InstanceManager extends EventEmitter {
           rows.push({
             session_id: sessionId,
             instance_id: randomUUID(),
+            provider_name: "claude",
             name,
             working_directory: cwd,
             jsonl_path: jsonlPath,
@@ -3171,19 +3270,58 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
+  private migrateLegacyManagedSessions(): void {
+    for (const row of this.db.getAll(true)) {
+      if (row.type !== "managed") continue;
+      if (this.db.getManagedByInstanceId(row.instance_id)) continue;
+      try {
+        this.db.upsertManaged({
+          instance_id: row.instance_id,
+          provider_name: row.provider_name || "claude",
+          provider_session_id: row.session_id,
+          name: row.name,
+          working_directory: row.working_directory,
+          created_at: row.created_at,
+          last_activity_at: row.last_activity_at,
+          archived: row.archived,
+          custom_title: row.custom_title,
+          input_tokens: row.input_tokens,
+          output_tokens: row.output_tokens,
+          cache_creation_tokens: row.cache_creation_tokens,
+          cache_read_tokens: row.cache_read_tokens,
+          cost_usd: row.cost_usd,
+          git_branch: row.git_branch,
+          worktree_path: row.worktree_path,
+          original_directory: row.original_directory,
+          parent_session_id: row.parent_session_id,
+          preferred_model: row.preferred_model,
+          reasoning_budget: row.reasoning_budget,
+          skip_permissions: row.skip_permissions,
+          runtime_mode: normalizeRuntimeMode(row.skip_permissions === 1),
+          resume_cursor_json: JSON.stringify({ sessionId: row.session_id }),
+          runtime_payload_json: JSON.stringify({ cwd: row.working_directory }),
+          transcript_path: row.jsonl_path,
+        });
+      } catch (err) {
+        this.baseConfig.logger.warn(
+          `[InstanceManager] Failed to migrate legacy managed session ${row.instance_id}: ${err}`,
+        );
+      }
+    }
+  }
+
   restoreInstances(): void {
     this.migrateFromManifest();
     this.scanAllSessions();
+    this.migrateLegacyManagedSessions();
 
     if (this.db.needsRebuild) {
       this.baseConfig.logger.info("[InstanceManager] DB was rebuilt from JSONL scan");
     }
 
-    const entries = this.db.getAllActive();
-    if (entries.length === 0) return;
-
     let restored = 0;
-    for (const entry of entries) {
+    for (const entry of this.db.getAllActive()) {
+      if (entry.type !== "external") continue;
       if (!existsSync(entry.jsonl_path)) {
         this.db.archive(entry.session_id);
         continue;
@@ -3214,6 +3352,7 @@ export class InstanceManager extends EventEmitter {
 
         const info: InstanceInfo = {
           id: entry.instance_id,
+          provider: (entry.provider_name as ProviderKind) || "claude",
           name: entry.name,
           workingDirectory: entry.working_directory,
           status: "stopped",
@@ -3238,6 +3377,14 @@ export class InstanceManager extends EventEmitter {
         const instance: Instance = {
           info,
           process: null,
+          providerBinding: {
+            provider: (entry.provider_name as ProviderKind) || "claude",
+            providerSessionId: entry.session_id,
+            resumeCursor: { sessionId: entry.session_id },
+            runtimePayload: { cwd: entry.working_directory },
+            transcriptPath: entry.jsonl_path,
+            runtimeMode: normalizeRuntimeMode(entry.skip_permissions === 1),
+          },
           history,
           sessionId: entry.session_id,
           jsonlPath: entry.jsonl_path,
@@ -3270,118 +3417,153 @@ export class InstanceManager extends EventEmitter {
         this.instances.set(entry.instance_id, instance);
         this.emit("instance:created", entry.instance_id, { ...info });
         restored++;
-      } else {
-        // Determine the actual CWD — use worktree if it still exists on disk
-        let restoreActualCwd = entry.working_directory;
-        let restoreWorktreePath: string | undefined;
-        let restoreGitBranch: string | undefined;
-        let restoreOriginalDirectory: string | undefined;
-
-        if (entry.worktree_path && entry.original_directory) {
-          if (existsSync(entry.worktree_path)) {
-            restoreActualCwd = entry.worktree_path;
-            restoreWorktreePath = entry.worktree_path;
-            restoreGitBranch = entry.git_branch ?? undefined;
-            restoreOriginalDirectory = entry.original_directory;
-          } else {
-            this.baseConfig.logger.warn(
-              `[InstanceManager] Worktree ${entry.worktree_path} no longer exists, using original directory`,
-            );
-          }
-        }
-
-        const instanceConfig: CoreConfig = {
-          ...this.baseConfig,
-          workingDirectory: restoreActualCwd,
-        };
-
-        // Restore previously approved tools from DB
-        let savedTools: string[] = [];
-        try {
-          savedTools = JSON.parse(entry.allowed_tools) as string[];
-          if (savedTools.length > 0) {
-            this.baseConfig.logger.debug(
-              `[InstanceManager] Restored ${savedTools.length} allowed tool(s) for session ${entry.session_id}`,
-            );
-          }
-        } catch {
-          // ignore parse errors
-        }
-
-        const proc = this.createProviderSession(instanceConfig, {
-          resumeSessionId: entry.session_id,
-          model: entry.preferred_model ?? undefined,
-          reasoningBudget: entry.reasoning_budget ?? undefined,
-          allowedTools: savedTools.length > 0 ? savedTools : undefined,
-        });
-
-        const info: InstanceInfo = {
-          id: entry.instance_id,
-          name: entry.name,
-          workingDirectory: entry.working_directory,
-          status: "idle",
-          createdAt: entry.created_at,
-          lastActivityAt: entry.last_activity_at,
-          lastMessage,
-          sessionId: entry.session_id,
-          customTitle: entry.custom_title === 1,
-          stats: parsedStats,
-          gitBranch: restoreGitBranch,
-          originalDirectory: restoreOriginalDirectory,
-          gitInfo: getGitInfo(entry.working_directory) ?? undefined,
-          parentSessionId: entry.parent_session_id ?? undefined,
-          preferredModel: entry.preferred_model ?? undefined,
-          reasoningBudget: entry.reasoning_budget ?? undefined,
-          skipPermissions: entry.skip_permissions === 1 ? true : undefined,
-        };
-
-        let watchState: WatchState | undefined;
-        try {
-          watchState = createWatchState(
-            entry.jsonl_path,
-            statSync(entry.jsonl_path).size,
-            parsedStats,
-          );
-        } catch {
-          // ignore — file stat failure handled by startWatching guard
-        }
-
-        const instance: Instance = {
-          info,
-          process: proc,
-          history,
-          sessionId: entry.session_id,
-          jsonlPath: entry.jsonl_path,
-          watchState,
-          tasks: tasks.size > 0 ? tasks : undefined,
-          files: files.size > 0 ? files : undefined,
-          team: team ?? undefined,
-          agentActivities: agentActivities.size > 0 ? agentActivities : undefined,
-          worktreePath: restoreWorktreePath,
-          gitBranch: restoreGitBranch,
-          originalDirectory: restoreOriginalDirectory,
-          actualCwd: restoreWorktreePath ? restoreActualCwd : undefined,
-        };
-
-        // Enrich files with git diff stats
-        if (instance.files && instance.files.size > 0) {
-          const diffCwd = instance.actualCwd || entry.working_directory;
-          const origBranch = restoreOriginalDirectory
-            ? (getCurrentBranch(restoreOriginalDirectory) ?? undefined)
-            : undefined;
-          enrichDiffStats(diffCwd, instance.files, {
-            originalBranch: origBranch,
-            sessionCreatedAt: instance.info.createdAt,
-          });
-        }
-
-        this.instances.set(entry.instance_id, instance);
-        this.wireProcessEvents(entry.instance_id, instance, proc);
-        this.startWatching(entry.instance_id, instance);
-
-        this.emit("instance:created", entry.instance_id, { ...info });
-        restored++;
       }
+    }
+
+    for (const entry of this.db.getAllManagedActive()) {
+      let restoreActualCwd = entry.working_directory;
+      let restoreWorktreePath: string | undefined;
+      let restoreGitBranch: string | undefined;
+      let restoreOriginalDirectory: string | undefined;
+
+      if (entry.worktree_path && entry.original_directory) {
+        if (existsSync(entry.worktree_path)) {
+          restoreActualCwd = entry.worktree_path;
+          restoreWorktreePath = entry.worktree_path;
+          restoreGitBranch = entry.git_branch ?? undefined;
+          restoreOriginalDirectory = entry.original_directory;
+        } else {
+          this.baseConfig.logger.warn(
+            `[InstanceManager] Worktree ${entry.worktree_path} no longer exists, using original directory`,
+          );
+        }
+      }
+
+      let resumeCursor: unknown;
+      let runtimePayload: Record<string, unknown> | undefined;
+      try {
+        resumeCursor = entry.resume_cursor_json ? JSON.parse(entry.resume_cursor_json) : undefined;
+      } catch {
+        resumeCursor = undefined;
+      }
+      try {
+        runtimePayload = entry.runtime_payload_json
+          ? (JSON.parse(entry.runtime_payload_json) as Record<string, unknown>)
+          : undefined;
+      } catch {
+        runtimePayload = undefined;
+      }
+
+      const resumeSessionId =
+        entry.provider_session_id ??
+        (resumeCursor &&
+        typeof resumeCursor === "object" &&
+        "sessionId" in (resumeCursor as Record<string, unknown>) &&
+        typeof (resumeCursor as Record<string, unknown>).sessionId === "string"
+          ? ((resumeCursor as Record<string, unknown>).sessionId as string)
+          : undefined);
+
+      let history: HistoryEntry[] = [];
+      let tasks = new Map<string, TaskItem>();
+      let files = new Map<string, FileChange>();
+      let team: TeamInfo | null = null;
+      let agentActivities = new Map<string, AgentActivity>();
+      let parsedStats: SessionStats | undefined;
+      const transcriptPath = entry.transcript_path ?? undefined;
+      if (transcriptPath && existsSync(transcriptPath)) {
+        const parsed = this.parseJsonl(transcriptPath);
+        history = parsed.history;
+        tasks = parsed.tasks;
+        files = parsed.files;
+        team = parsed.team;
+        agentActivities = parsed.agentActivities;
+        parsedStats = parsed.stats.costUSD > 0 ? parsed.stats : undefined;
+      }
+
+      const instanceConfig: CoreConfig = {
+        ...this.baseConfig,
+        workingDirectory: restoreActualCwd,
+        dangerouslySkipPermissions: entry.skip_permissions === 1,
+      };
+
+      const proc = this.createProviderSession(instanceConfig, {
+        provider: entry.provider_name as ProviderKind,
+        resumeSessionId,
+        model: entry.preferred_model ?? undefined,
+        reasoningBudget: entry.reasoning_budget ?? undefined,
+      });
+
+      const info: InstanceInfo = {
+        id: entry.instance_id,
+        provider: entry.provider_name as ProviderKind,
+        name: entry.name,
+        workingDirectory: entry.working_directory,
+        status: "idle",
+        createdAt: entry.created_at,
+        lastActivityAt: entry.last_activity_at,
+        lastMessage: extractLastMessage(history),
+        sessionId: resumeSessionId,
+        customTitle: entry.custom_title === 1,
+        stats: parsedStats,
+        gitBranch: restoreGitBranch,
+        originalDirectory: restoreOriginalDirectory,
+        gitInfo: getGitInfo(entry.working_directory) ?? undefined,
+        parentSessionId: entry.parent_session_id ?? undefined,
+        preferredModel: entry.preferred_model ?? undefined,
+        reasoningBudget: entry.reasoning_budget ?? undefined,
+        skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      };
+
+      let watchState: WatchState | undefined;
+      if (transcriptPath && existsSync(transcriptPath)) {
+        try {
+          watchState = createWatchState(transcriptPath, statSync(transcriptPath).size, parsedStats);
+        } catch {
+          watchState = undefined;
+        }
+      }
+
+      const instance: Instance = {
+        info,
+        process: proc,
+        providerBinding: {
+          provider: entry.provider_name as ProviderKind,
+          providerSessionId: resumeSessionId,
+          resumeCursor,
+          runtimePayload,
+          transcriptPath,
+          runtimeMode: entry.runtime_mode as ProviderRuntimeMode,
+        },
+        history,
+        sessionId: resumeSessionId,
+        jsonlPath: transcriptPath,
+        watchState,
+        tasks: tasks.size > 0 ? tasks : undefined,
+        files: files.size > 0 ? files : undefined,
+        team: team ?? undefined,
+        agentActivities: agentActivities.size > 0 ? agentActivities : undefined,
+        worktreePath: restoreWorktreePath,
+        gitBranch: restoreGitBranch,
+        originalDirectory: restoreOriginalDirectory,
+        actualCwd: restoreWorktreePath ? restoreActualCwd : undefined,
+      };
+
+      if (instance.files && instance.files.size > 0) {
+        const diffCwd = instance.actualCwd || entry.working_directory;
+        const origBranch = restoreOriginalDirectory
+          ? (getCurrentBranch(restoreOriginalDirectory) ?? undefined)
+          : undefined;
+        enrichDiffStats(diffCwd, instance.files, {
+          originalBranch: origBranch,
+          sessionCreatedAt: instance.info.createdAt,
+        });
+      }
+
+      this.instances.set(entry.instance_id, instance);
+      this.wireProcessEvents(entry.instance_id, instance, proc);
+      if (watchState) this.startWatching(entry.instance_id, instance);
+      this.emit("instance:created", entry.instance_id, { ...info });
+      restored++;
     }
 
     if (restored > 0) {
@@ -3431,6 +3613,7 @@ export class InstanceManager extends EventEmitter {
   private wireProcessEvents(id: string, instance: Instance, proc: ProviderSession): void {
     proc.on("output", (message) => {
       this.noteManagedProcessActivity(instance);
+      instance.providerBinding = proc.getRuntimeBinding();
       this.pushHistory(instance, message);
       instance.info.lastActivityAt = Date.now();
 
@@ -3463,11 +3646,13 @@ export class InstanceManager extends EventEmitter {
         this.setStatus(instance, "processing");
       }
 
+      this.dbSave(instance);
       this.emit("instance:output", id, message);
     });
 
     proc.on("activity", (message) => {
       this.noteManagedProcessActivity(instance);
+      instance.providerBinding = proc.getRuntimeBinding();
       // Sync task state from process to instance
       if (message.activity === "task_list" && message.tasks) {
         if (!instance.tasks) instance.tasks = new Map();
@@ -3512,37 +3697,44 @@ export class InstanceManager extends EventEmitter {
       }
       // Track permission denials for the banner
       if (message.permissionDenied) {
-        instance.info.pendingPermission = message.permissionDenied;
+        instance.info.pendingPermission = {
+          requestId: message.permissionDenied,
+          kind: "approval",
+          tool: message.permissionDenied,
+          description: message.description,
+        };
         this.emit("instance:status", id, { ...instance.info });
       }
       this.pushHistory(instance, message);
       instance.info.lastActivityAt = Date.now();
       this.setStatus(instance, "processing");
+      this.dbSave(instance);
       this.emit("instance:activity", id, message);
     });
 
     proc.on("stats", (stats) => {
       instance.info.stats = stats;
+      instance.providerBinding = proc.getRuntimeBinding();
+      this.dbSave(instance);
       this.emit("instance:status", id, { ...instance.info });
     });
 
     proc.on("exit", (message) => {
+      instance.providerBinding = proc.getRuntimeBinding();
       this.pushHistory(instance, message);
       instance.info.lastActivityAt = Date.now();
       if (message.code !== 0) {
         this.setStatus(instance, "error");
       }
+      this.dbSave(instance);
       this.emit("instance:exit", id, message);
     });
 
     // SDK permission requests — set pending state without creating a chat activity
     proc.on(
       "permissionRequest" as keyof import("./provider.js").ProviderSessionEvents,
-      ((request: { tool: string; description?: string }) => {
-        instance.info.pendingPermission = {
-          tool: request.tool,
-          description: request.description,
-        };
+      ((request: ProviderRequest) => {
+        instance.info.pendingPermission = request;
         this.emit("instance:status", id, { ...instance.info });
       }) as (...args: unknown[]) => void,
     );
@@ -3620,6 +3812,14 @@ export class InstanceManager extends EventEmitter {
     instance.sessionId = sessionId;
     instance.jsonlPath = jsonlPath;
     instance.info.sessionId = sessionId;
+    instance.providerBinding = {
+      ...(instance.providerBinding ?? proc.getRuntimeBinding()),
+      provider: instance.info.provider,
+      providerSessionId: sessionId,
+      resumeCursor: { sessionId },
+      transcriptPath: jsonlPath,
+      runtimeMode: normalizeRuntimeMode(instance.info.skipPermissions),
+    };
 
     // Feed session ID back to the CLI process so subsequent sends use
     // --resume <id> instead of --continue (which can pick up the wrong session).
@@ -3721,6 +3921,7 @@ export class InstanceManager extends EventEmitter {
     instance.info.name = trimmed;
     instance.info.customTitle = true;
     this.emit("instance:status", instance.info.id, { ...instance.info });
+    this.dbSave(instance);
     const sid = instance.sessionId || instance.info.sessionId;
     if (sid) this.db.updateName(sid, trimmed, true);
     return true;
@@ -3738,6 +3939,7 @@ export class InstanceManager extends EventEmitter {
     instance.info.preferredModel = model ?? undefined;
     instance.process?.setModel(model);
     this.emit("instance:status", instance.info.id, { ...instance.info });
+    this.dbSave(instance);
     const sid = instance.sessionId || instance.info.sessionId;
     if (sid) this.db.updatePreferredModel(sid, model);
     return true;
@@ -3755,6 +3957,7 @@ export class InstanceManager extends EventEmitter {
     instance.info.reasoningBudget = budget ?? undefined;
     instance.process?.setReasoningBudget(budget);
     this.emit("instance:status", instance.info.id, { ...instance.info });
+    this.dbSave(instance);
     const sid = instance.sessionId || instance.info.sessionId;
     if (sid) this.db.updateReasoningBudget(sid, budget);
     return true;
@@ -3773,6 +3976,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     this.emit("instance:status", instance.info.id, { ...instance.info });
+    this.dbSave(instance);
     const sid = instance.sessionId || instance.info.sessionId;
     if (sid) this.db.updateSkipPermissions(sid, skipPermissions);
     return true;
@@ -3789,6 +3993,7 @@ export class InstanceManager extends EventEmitter {
     if (summary && summary !== instance.info.name) {
       instance.info.name = summary;
       this.emit("instance:status", instance.info.id, { ...instance.info });
+      this.dbSave(instance);
       if (sessionId) this.db.updateName(sessionId, summary, false);
       return true;
     }
@@ -3805,6 +4010,7 @@ export class InstanceManager extends EventEmitter {
         if (title && title !== instance.info.name) {
           instance.info.name = title;
           this.emit("instance:status", instance.info.id, { ...instance.info });
+          this.dbSave(instance);
           const sid = instance.sessionId || instance.info.sessionId;
           if (sid) this.db.updateName(sid, title, false);
           return true;

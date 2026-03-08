@@ -237,12 +237,14 @@ export function createRequestHandler(
         }
         try {
           const body = (await parseJsonBody(req)) as {
+            provider?: import("../core/types.js").ProviderKind;
             name?: string;
             workingDirectory?: string;
             dangerouslySkipPermissions?: boolean;
             resumeSessionId?: string;
           };
           const info = instanceManager.createInstance({
+            provider: body.provider,
             name: body.name,
             workingDirectory: body.workingDirectory,
             dangerouslySkipPermissions: body.dangerouslySkipPermissions,

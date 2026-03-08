@@ -58,6 +58,10 @@ export {
 
 export type {
   SessionStats,
+  ProviderKind,
+  ProviderRequest,
+  ProviderRuntimeBinding,
+  ProviderRuntimeMode,
   InstanceStatus,
   LastMessagePreview,
   InstanceInfo,
@@ -71,7 +75,7 @@ export type {
   UnsubscribePayload,
   InstanceMessagePayload,
   InstanceCancelPayload,
-  ApproveToolPayload,
+  RespondToRequestPayload,
   ClientMessage,
   ConnectedMessage,
   OutputMessage,

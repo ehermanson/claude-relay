@@ -181,16 +181,25 @@ export function InstanceView() {
     send({ type: "merge_instance", instanceId: id });
   };
 
-  const handleApproveTool = (tool: string) => {
+  const handleRespondToRequest = (requestId: string, tool: string) => {
     if (!id) return;
     setApprovedTools((prev) => {
       if (prev.has(tool)) return prev;
-      send({ type: "approve_tool", instanceId: id, tool });
+      send({ type: "respond_to_request", instanceId: id, requestId, decision: "accept" });
       showThinking();
       const next = new Set(prev);
       next.add(tool);
       return next;
     });
+  };
+
+  const handleApproveTool = (tool: string) => {
+    if (!id) return;
+    const pendingRequest =
+      instance?.pendingPermission && instance.pendingPermission.tool === tool
+        ? instance.pendingPermission
+        : null;
+    handleRespondToRequest(pendingRequest?.requestId ?? tool, tool);
   };
 
   if (!instance) {
@@ -207,6 +216,8 @@ export function InstanceView() {
       ? rawPermission
       : rawPermission.tool
     : null;
+  const pendingPermissionRequestId =
+    rawPermission && typeof rawPermission === "object" ? rawPermission.requestId : null;
   const pendingPermissionDesc =
     rawPermission && typeof rawPermission === "object" ? rawPermission.description : undefined;
 
@@ -236,12 +247,13 @@ export function InstanceView() {
         />
       )}
 
-      {pendingPermissionTool && !instance.external && (
+      {pendingPermissionTool && pendingPermissionRequestId && !instance.external && (
         <PermissionBanner
-          key={pendingPermissionTool}
+          key={pendingPermissionRequestId}
+          requestId={pendingPermissionRequestId}
           tool={pendingPermissionTool}
           description={pendingPermissionDesc}
-          onApprove={handleApproveTool}
+          onApprove={handleRespondToRequest}
         />
       )}
 

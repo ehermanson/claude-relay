@@ -11,6 +11,7 @@ function makeRow(overrides = {}) {
   return {
     session_id: "sess-1",
     instance_id: "inst-1",
+    provider_name: "claude",
     name: "Test Session",
     working_directory: "/tmp/test",
     jsonl_path: "/tmp/test.jsonl",
@@ -34,6 +35,7 @@ function makeRow(overrides = {}) {
     parent_session_id: null,
     preferred_model: null,
     reasoning_budget: null,
+    skip_permissions: 0,
     ...overrides,
   };
 }

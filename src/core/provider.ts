@@ -8,16 +8,19 @@
  */
 
 import { EventEmitter } from "events";
-import type { OutputMessage, ExitMessage, ActivityMessage, SessionStats } from "./types.js";
+import type {
+  OutputMessage,
+  ExitMessage,
+  ActivityMessage,
+  SessionStats,
+  ProviderKind,
+  ProviderRequest,
+  ProviderRuntimeBinding,
+} from "./types.js";
 
 // =============================================================================
 // Events
 // =============================================================================
-
-export interface PermissionRequestInfo {
-  tool: string;
-  description?: string;
-}
 
 export interface ProviderSessionEvents {
   output: [OutputMessage];
@@ -25,7 +28,7 @@ export interface ProviderSessionEvents {
   activity: [ActivityMessage];
   stats: [SessionStats];
   /** Emitted when the SDK's canUseTool callback needs user approval (not a chat activity). */
-  permissionRequest: [PermissionRequestInfo];
+  permissionRequest: [ProviderRequest];
 }
 
 // =============================================================================
@@ -55,6 +58,9 @@ export interface ProviderSession extends EventEmitter {
   /** Whether a turn is currently active. */
   readonly isProcessing: boolean;
 
+  /** Provider kind implemented by this session. */
+  readonly provider: ProviderKind;
+
   /** PID of the underlying process, if any. Used for discovery exclusion. */
   readonly pid: number | undefined;
 
@@ -70,17 +76,18 @@ export interface ProviderSession extends EventEmitter {
   /** Toggle bypass-all-permissions mode at runtime. */
   setBypassPermissions(bypass: boolean): void;
 
-  /** Set the session ID (CLI provider discovers it post-hoc from JSONL). */
+  /** Set the provider session ID (CLI provider discovers it post-hoc from transcripts). */
   setSessionId?(sessionId: string): void;
 
   /** Current accumulated token/cost stats. */
   readonly stats: SessionStats;
 
+  /** Provider-owned runtime state used to restore a managed session. */
+  getRuntimeBinding(): ProviderRuntimeBinding;
+
   /**
-   * Approve a pending permission request (SDK only).
-   * Resolves the deferred created by the canUseTool callback.
-   * CLI provider does not use this — it uses addAllowedTool + retry.
-   * Returns true if there was a pending request to approve.
+   * Resolve a pending provider request (SDK only for now).
+   * Returns true if the request was found and handled.
    */
-  approvePermission?(tool: string): boolean;
+  respondToRequest?(requestId: string, decision: "accept" | "decline"): boolean;
 }

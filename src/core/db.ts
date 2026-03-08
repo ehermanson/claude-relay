@@ -10,11 +10,12 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 7;
+const CURRENT_SCHEMA_VERSION = 8;
 
 export interface SessionRow {
   session_id: string;
   instance_id: string;
+  provider_name: string;
   name: string;
   working_directory: string;
   jsonl_path: string;
@@ -41,6 +42,34 @@ export interface SessionRow {
   skip_permissions: number;
 }
 
+export interface ManagedInstanceRow {
+  instance_id: string;
+  provider_name: string;
+  provider_session_id: string | null;
+  name: string;
+  working_directory: string;
+  created_at: number;
+  last_activity_at: number;
+  archived: number;
+  custom_title: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  cost_usd: number;
+  git_branch: string | null;
+  worktree_path: string | null;
+  original_directory: string | null;
+  parent_session_id: string | null;
+  preferred_model: string | null;
+  reasoning_budget: number | null;
+  skip_permissions: number;
+  runtime_mode: string;
+  resume_cursor_json: string | null;
+  runtime_payload_json: string | null;
+  transcript_path: string | null;
+}
+
 export class SessionDB {
   private db: Database.Database;
   private logger: Logger;
@@ -56,6 +85,10 @@ export class SessionDB {
   private stmtGetAllActive!: Database.Statement;
   private stmtGetAll!: Database.Statement;
   private stmtGetAllIncludeArchived!: Database.Statement;
+  private stmtUpsertManaged!: Database.Statement;
+  private stmtGetManagedByInstanceId!: Database.Statement;
+  private stmtGetAllManagedActive!: Database.Statement;
+  private stmtArchiveManaged!: Database.Statement;
   private stmtArchive!: Database.Statement;
   private stmtUnarchive!: Database.Statement;
   private stmtUpdateStats!: Database.Statement;
@@ -117,6 +150,7 @@ export class SessionDB {
         CREATE TABLE IF NOT EXISTS sessions (
           session_id TEXT PRIMARY KEY,
           instance_id TEXT NOT NULL UNIQUE,
+          provider_name TEXT NOT NULL DEFAULT 'claude',
           name TEXT NOT NULL,
           working_directory TEXT NOT NULL,
           jsonl_path TEXT NOT NULL UNIQUE,
@@ -141,6 +175,15 @@ export class SessionDB {
         CREATE INDEX IF NOT EXISTS idx_sessions_last_activity_at ON sessions(last_activity_at);
         CREATE INDEX IF NOT EXISTS idx_sessions_jsonl_path ON sessions(jsonl_path);
       `);
+    }
+
+    {
+      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === "provider_name")) {
+        this.db.exec(
+          `ALTER TABLE sessions ADD COLUMN provider_name TEXT NOT NULL DEFAULT 'claude'`,
+        );
+      }
     }
 
     // v2: add allowed_tools column — always check for the column regardless of version
@@ -197,6 +240,42 @@ export class SessionDB {
       }
     }
 
+    // v8: provider-aware managed session bindings
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS managed_sessions (
+        instance_id TEXT PRIMARY KEY,
+        provider_name TEXT NOT NULL,
+        provider_session_id TEXT,
+        name TEXT NOT NULL,
+        working_directory TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_activity_at INTEGER NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        custom_title INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        git_branch TEXT,
+        worktree_path TEXT,
+        original_directory TEXT,
+        parent_session_id TEXT,
+        preferred_model TEXT,
+        reasoning_budget INTEGER,
+        skip_permissions INTEGER NOT NULL DEFAULT 0,
+        runtime_mode TEXT NOT NULL DEFAULT 'approval-required',
+        resume_cursor_json TEXT,
+        runtime_payload_json TEXT,
+        transcript_path TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_managed_sessions_provider ON managed_sessions(provider_name);
+      CREATE INDEX IF NOT EXISTS idx_managed_sessions_archived ON managed_sessions(archived);
+      CREATE INDEX IF NOT EXISTS idx_managed_sessions_working_directory ON managed_sessions(working_directory);
+      CREATE INDEX IF NOT EXISTS idx_managed_sessions_provider_session_id ON managed_sessions(provider_session_id);
+    `);
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -208,13 +287,13 @@ export class SessionDB {
   private prepareStatements(): void {
     this.stmtUpsert = this.db.prepare(`
       INSERT INTO sessions (
-        session_id, instance_id, name, working_directory, jsonl_path,
+        session_id, instance_id, provider_name, name, working_directory, jsonl_path,
         created_at, last_activity_at, type, archived, custom_title,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_usd, summary, first_prompt, git_branch, message_count, allowed_tools,
         worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, skip_permissions
       ) VALUES (
-        @session_id, @instance_id, @name, @working_directory, @jsonl_path,
+        @session_id, @instance_id, @provider_name, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @cost_usd, @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
@@ -222,6 +301,7 @@ export class SessionDB {
       )
       ON CONFLICT(session_id) DO UPDATE SET
         instance_id = excluded.instance_id,
+        provider_name = excluded.provider_name,
         name = excluded.name,
         working_directory = excluded.working_directory,
         jsonl_path = excluded.jsonl_path,
@@ -247,9 +327,55 @@ export class SessionDB {
         skip_permissions = excluded.skip_permissions
     `);
 
+    this.stmtUpsertManaged = this.db.prepare(`
+      INSERT INTO managed_sessions (
+        instance_id, provider_name, provider_session_id, name, working_directory,
+        created_at, last_activity_at, archived, custom_title,
+        input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd,
+        git_branch, worktree_path, original_directory, parent_session_id,
+        preferred_model, reasoning_budget, skip_permissions, runtime_mode,
+        resume_cursor_json, runtime_payload_json, transcript_path
+      ) VALUES (
+        @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
+        @created_at, @last_activity_at, @archived, @custom_title,
+        @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens, @cost_usd,
+        @git_branch, @worktree_path, @original_directory, @parent_session_id,
+        @preferred_model, @reasoning_budget, @skip_permissions, @runtime_mode,
+        @resume_cursor_json, @runtime_payload_json, @transcript_path
+      )
+      ON CONFLICT(instance_id) DO UPDATE SET
+        provider_name = excluded.provider_name,
+        provider_session_id = excluded.provider_session_id,
+        name = excluded.name,
+        working_directory = excluded.working_directory,
+        last_activity_at = excluded.last_activity_at,
+        archived = excluded.archived,
+        custom_title = excluded.custom_title,
+        input_tokens = excluded.input_tokens,
+        output_tokens = excluded.output_tokens,
+        cache_creation_tokens = excluded.cache_creation_tokens,
+        cache_read_tokens = excluded.cache_read_tokens,
+        cost_usd = excluded.cost_usd,
+        git_branch = excluded.git_branch,
+        worktree_path = excluded.worktree_path,
+        original_directory = excluded.original_directory,
+        parent_session_id = excluded.parent_session_id,
+        preferred_model = excluded.preferred_model,
+        reasoning_budget = excluded.reasoning_budget,
+        skip_permissions = excluded.skip_permissions,
+        runtime_mode = excluded.runtime_mode,
+        resume_cursor_json = excluded.resume_cursor_json,
+        runtime_payload_json = excluded.runtime_payload_json,
+        transcript_path = excluded.transcript_path
+    `);
+
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
 
     this.stmtGetByInstanceId = this.db.prepare("SELECT * FROM sessions WHERE instance_id = ?");
+
+    this.stmtGetManagedByInstanceId = this.db.prepare(
+      "SELECT * FROM managed_sessions WHERE instance_id = ?",
+    );
 
     this.stmtGetByJsonlPath = this.db.prepare("SELECT * FROM sessions WHERE jsonl_path = ?");
 
@@ -265,7 +391,15 @@ export class SessionDB {
       "SELECT * FROM sessions ORDER BY last_activity_at DESC",
     );
 
+    this.stmtGetAllManagedActive = this.db.prepare(
+      "SELECT * FROM managed_sessions WHERE archived = 0 ORDER BY last_activity_at DESC",
+    );
+
     this.stmtArchive = this.db.prepare("UPDATE sessions SET archived = 1 WHERE session_id = ?");
+
+    this.stmtArchiveManaged = this.db.prepare(
+      "UPDATE managed_sessions SET archived = 1 WHERE instance_id = ?",
+    );
 
     this.stmtUnarchive = this.db.prepare("UPDATE sessions SET archived = 0 WHERE session_id = ?");
 
@@ -313,25 +447,64 @@ export class SessionDB {
 
     this.stmtGetProjectStats = this.db.prepare(`
       SELECT
-        COUNT(*) as session_count,
+        COALESCE(SUM(session_count), 0) as session_count,
         COALESCE(SUM(input_tokens), 0) as input_tokens,
         COALESCE(SUM(output_tokens), 0) as output_tokens,
         COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
         COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
         COALESCE(SUM(cost_usd), 0) as cost_usd
-      FROM sessions
-      WHERE working_directory = ?
+      FROM (
+        SELECT
+          COUNT(*) as session_count,
+          COALESCE(SUM(input_tokens), 0) as input_tokens,
+          COALESCE(SUM(output_tokens), 0) as output_tokens,
+          COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
+          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+          COALESCE(SUM(cost_usd), 0) as cost_usd
+        FROM sessions
+        WHERE archived = 0 AND type = 'external' AND working_directory = ?
+        UNION ALL
+        SELECT
+          COUNT(*) as session_count,
+          COALESCE(SUM(input_tokens), 0) as input_tokens,
+          COALESCE(SUM(output_tokens), 0) as output_tokens,
+          COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
+          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+          COALESCE(SUM(cost_usd), 0) as cost_usd
+        FROM managed_sessions
+        WHERE archived = 0 AND working_directory = ?
+      )
     `);
 
     this.stmtGetGlobalStats = this.db.prepare(`
       SELECT
-        COUNT(*) as session_count,
+        COALESCE(SUM(session_count), 0) as session_count,
         COALESCE(SUM(input_tokens), 0) as input_tokens,
         COALESCE(SUM(output_tokens), 0) as output_tokens,
         COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
         COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
         COALESCE(SUM(cost_usd), 0) as cost_usd
-      FROM sessions
+      FROM (
+        SELECT
+          COUNT(*) as session_count,
+          COALESCE(SUM(input_tokens), 0) as input_tokens,
+          COALESCE(SUM(output_tokens), 0) as output_tokens,
+          COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
+          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+          COALESCE(SUM(cost_usd), 0) as cost_usd
+        FROM sessions
+        WHERE archived = 0 AND type = 'external'
+        UNION ALL
+        SELECT
+          COUNT(*) as session_count,
+          COALESCE(SUM(input_tokens), 0) as input_tokens,
+          COALESCE(SUM(output_tokens), 0) as output_tokens,
+          COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
+          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+          COALESCE(SUM(cost_usd), 0) as cost_usd
+        FROM managed_sessions
+        WHERE archived = 0
+      )
     `);
   }
 
@@ -356,6 +529,10 @@ export class SessionDB {
     return this.stmtGetByInstanceId.get(instanceId) as SessionRow | undefined;
   }
 
+  getManagedByInstanceId(instanceId: string): ManagedInstanceRow | undefined {
+    return this.stmtGetManagedByInstanceId.get(instanceId) as ManagedInstanceRow | undefined;
+  }
+
   getByJsonlPath(jsonlPath: string): SessionRow | undefined {
     return this.stmtGetByJsonlPath.get(jsonlPath) as SessionRow | undefined;
   }
@@ -373,6 +550,18 @@ export class SessionDB {
 
   archive(sessionId: string): void {
     this.stmtArchive.run(sessionId);
+  }
+
+  upsertManaged(row: ManagedInstanceRow): void {
+    this.stmtUpsertManaged.run(row);
+  }
+
+  getAllManagedActive(): ManagedInstanceRow[] {
+    return this.stmtGetAllManagedActive.all() as ManagedInstanceRow[];
+  }
+
+  archiveManaged(instanceId: string): void {
+    this.stmtArchiveManaged.run(instanceId);
   }
 
   unarchive(sessionId: string): void {
@@ -440,7 +629,7 @@ export class SessionDB {
     cacheReadTokens: number;
     costUSD: number;
   } {
-    const row = this.stmtGetProjectStats.get(workingDirectory) as {
+    const row = this.stmtGetProjectStats.get(workingDirectory, workingDirectory) as {
       session_count: number;
       input_tokens: number;
       output_tokens: number;
@@ -490,6 +679,7 @@ export class SessionDB {
 
   clear(): void {
     this.db.exec("DELETE FROM sessions");
+    this.db.exec("DELETE FROM managed_sessions");
   }
 
   close(): void {

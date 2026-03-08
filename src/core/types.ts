@@ -10,6 +10,24 @@
 // =============================================================================
 
 export type InstanceStatus = "idle" | "processing" | "error" | "stopped";
+export type ProviderKind = "claude" | "codex" | "gemini";
+export type ProviderRuntimeMode = "approval-required" | "full-access";
+
+export interface ProviderRequest {
+  requestId: string;
+  kind: "approval";
+  tool?: string;
+  description?: string;
+}
+
+export interface ProviderRuntimeBinding {
+  provider: ProviderKind;
+  providerSessionId?: string;
+  resumeCursor?: unknown;
+  runtimePayload?: Record<string, unknown>;
+  transcriptPath?: string;
+  runtimeMode?: ProviderRuntimeMode;
+}
 
 export interface SessionStats {
   inputTokens: number;
@@ -34,6 +52,7 @@ export interface LastMessagePreview {
 
 export interface InstanceInfo {
   id: string;
+  provider: ProviderKind;
   name: string;
   workingDirectory: string;
   status: InstanceStatus;
@@ -44,7 +63,7 @@ export interface InstanceInfo {
   /** Tool name when an external/terminal session has a pending tool_use awaiting approval */
   pendingTool?: string;
   /** Pending permission request for a managed instance awaiting user approval */
-  pendingPermission?: string | { tool: string; description?: string };
+  pendingPermission?: ProviderRequest;
   sessionId?: string;
   /** True when the user has manually set the title (prevents auto-refresh) */
   customTitle?: boolean;
@@ -92,6 +111,7 @@ export interface ListInstancesPayload {
 
 export interface CreateInstancePayload {
   type: "create_instance";
+  provider?: ProviderKind;
   name?: string;
   workingDirectory?: string;
   dangerouslySkipPermissions?: boolean;
@@ -126,10 +146,11 @@ export interface InstanceCancelPayload {
   instanceId: string;
 }
 
-export interface ApproveToolPayload {
-  type: "approve_tool";
+export interface RespondToRequestPayload {
+  type: "respond_to_request";
   instanceId: string;
-  tool: string;
+  requestId: string;
+  decision: "accept" | "decline";
 }
 
 export interface RefreshTitlePayload {
@@ -179,7 +200,7 @@ export type ClientMessage =
   | UnsubscribePayload
   | InstanceMessagePayload
   | InstanceCancelPayload
-  | ApproveToolPayload
+  | RespondToRequestPayload
   | RefreshTitlePayload
   | RenameInstancePayload
   | MergeInstancePayload

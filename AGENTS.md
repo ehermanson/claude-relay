@@ -65,8 +65,9 @@ src/
     logger.ts                Logger interface, noopLogger
     tools.ts                 describeToolUse(), describeToolDetail(), estimateCost()
     git.ts                   isGitRepo(), getRepoRoot(), createWorktree(), removeWorktree()
-    db.ts                    SessionDB class — SQLite-backed session persistence (better-sqlite3)
+    db.ts                    SessionDB class — SQLite-backed transcript index + managed-session runtime bindings
     claude-process.ts        ClaudeProcess class — spawns `Codex -p`, parses stream-json, setSessionId()
+    provider.ts              ProviderSession contract for managed adapters
     instance-manager.ts      InstanceManager — multi-instance + external session discovery
     workspace-entries.ts     Workspace indexing/search for composer `@` file mentions
     providers/
@@ -113,6 +114,13 @@ ui/
 - `server/index.ts` does `export * from "../core/index.js"` — so importing from `Codex-relay/server` gives you everything.
 - `SessionDB` and `SessionRow` are exported from core (available via both `Codex-relay` and `Codex-relay/server`).
 - UI imports shared types via `@shared/types` (Vite alias resolves to `src/core/types.ts`).
+
+### Provider Adapters
+
+- `provider.ts` defines the provider-agnostic managed-session contract consumed by `InstanceManager`
+- `InstanceInfo.provider` is first-class and persisted for managed sessions
+- Managed restore uses provider runtime bindings from SQLite, not the current default provider
+- Claude JSONL remains a Claude-specific read model for history replay, transcript capture, and external-session discovery
 
 ### import.meta.dirname
 
@@ -195,6 +203,7 @@ ui/
 - Subscription model: clients send `subscribe`/`unsubscribe` with instanceId
 - Instance output/activity/exit go only to subscribers
 - Status/create/remove events broadcast to all clients
+- Managed provider requests are answered with `{ type: "respond_to_request", instanceId, requestId, decision }`
 
 ### Agent Transcript Messages
 
@@ -214,12 +223,13 @@ ui/
 - `ClaudeProcess.allowedTools` accumulates approved tools; passed as `--allowedTools` on each `send()`
 - **Cancel on first denial**: `ClaudeProcess.cancelForPermission()` sends SIGINT after the first permission denial to stop the retry loop (saves ~1-2k tokens per denial cycle). Subsequent denials from buffered output are suppressed via `_cancelledForPermission` flag. Close handler suppresses error events when cancelled for permission.
 - **File-write grouping**: Approving any of Edit/Write/NotebookEdit approves all three (`FILE_WRITE_GROUP`)
-- **`pendingPermission`**: Set on `InstanceInfo` when a managed instance gets a permission denial; cleared on approval or next user message. Broadcast via `instance:status`.
+- **`pendingPermission`**: Set on `InstanceInfo` as a `ProviderRequest` with a stable `requestId` when a managed instance needs approval; cleared on approval/decline or next user message. Broadcast via `instance:status`.
 - **Permission banner**: `PermissionBanner.tsx` renders a sticky banner above InputArea with contextual labels ("edit files" / "run commands" / tool name) and an "Allow" button. Existing inline "Allow" buttons in `ActivityEntry` remain as fallback.
-- `InstanceManager.approveToolUse(id, tool)` adds grouped tools, persists to DB, and sends a contextual retry prompt (or queues it via `pendingRetry` if the process is still running — drained when process becomes idle)
+- `InstanceManager.respondToRequest(id, requestId, decision)` is the primary approval entrypoint. Legacy `approveToolUse(id, tool)` still maps old call sites onto the current pending request when possible.
+- Accepted Claude CLI requests still add grouped tools, persist them to DB, and send a contextual retry prompt (or queue it via `pendingRetry` if the process is still running — drained when process becomes idle)
 - **`allowedTools` persists in SQLite** (`allowed_tools` TEXT column, JSON array) — survives relay restarts including dev-mode hot reloads. DB schema v2 migration adds the column. Restored on managed instance startup.
 - Retry message: "Permission granted for {file writes|tool}. Please continue."
-- WS message: `{ type: "approve_tool", instanceId, tool }`
+- WS message: `{ type: "respond_to_request", instanceId, requestId, decision }`
 - **Known limitation (external sessions):** When a terminal-side Codex session prompts the user to approve a tool (e.g., "Allow Bash?"), nothing is written to the JSONL until the user responds. The relay sees the `tool_use` activity but cannot distinguish "waiting for permission" from "tool is running." This means **no banner, toast, or visual indicator** appears in the UI for permission prompts on external sessions. Only `INTERACTIVE_TOOLS` (AskUserQuestion, ExitPlanMode, EnterPlanMode) are detected because those tools _always_ block for input. Fixing this would require either an upstream JSONL event for permission prompts, or a timeout-based heuristic (tool_use without tool_result for N seconds).
 
 ### Instance Renaming
@@ -304,7 +314,7 @@ ui/
 ### JSONL Watching (`watchState`)
 
 - `watchState` (`jsonlPath` + `fileOffset`) lives on `Instance` independently of `externalState`
-- All instance types get a JSONL watcher: external (on discovery), managed (after `captureSessionId`), restored (on startup)
+- External sessions always get a JSONL watcher. Managed sessions get one once Claude transcript capture succeeds, or on restore when a persisted `transcript_path` exists.
 - After resume, the watcher keeps running — picks up terminal-side changes when someone does `Codex --resume` externally
 - **Dedup strategy** (two layers):
   1. While `instance.process.isProcessing` is true, the watcher advances the file offset but suppresses event emission
@@ -314,24 +324,27 @@ ui/
 
 ### Session Targeting
 
-- First message of a new instance: `Codex -p "message"` (no flags — creates a new session)
-- `captureSessionId` fires after the first response, finds the JSONL, extracts the session ID, and calls `proc.setSessionId(id)`
-- All subsequent messages use `--resume <sessionId>` for precise session targeting
+- For Claude CLI sessions, the first message of a new instance is `Codex -p "message"` (no flags — creates a new session)
+- Claude transcript capture still fires after the first response, finds the JSONL, extracts the session ID, and calls `proc.setSessionId(id)`
+- Managed sessions persist provider-owned resume state separately from transcript capture, so restore no longer depends on the current default provider or an existing JSONL row
+- Subsequent Claude CLI messages use `--resume <sessionId>` for precise session targeting
 - **Never relies on `--continue`** after session capture — `--continue` picks up the "most recently modified" session in the CWD, which can be wrong when multiple sessions share a directory
 
 ### Instance Persistence (SQLite Session Registry)
 
-- **SQLite is a rebuildable cache/index** — JSONL files on disk are the canonical source of truth. If the DB is lost or corrupted, it is rebuilt by scanning `~/.Codex/projects/`.
+- **SQLite has two roles**: `sessions` is a rebuildable Claude transcript index, while `managed_sessions` is the source of truth for managed-session provider bindings and restore metadata.
 - `SessionDB` (in `src/core/db.ts`) wraps `better-sqlite3` with prepared statements for synchronous access. WAL journal mode, 3s busy timeout.
-- **Schema versioning**: `schema_version` table tracks migrations. Current version: 6.
+- **Schema versioning**: `schema_version` table tracks migrations. Current version: 8.
 - **Startup sequence**: `migrateFromManifest()` (one-time import from legacy `instances.json`) → `scanAllSessions()` (discover JSONL files on disk, upsert new ones, archive missing ones) → restore active sessions.
-- **`scanAllSessions()`**: Walks `~/.Codex/projects/` directories, reads `sessions-index.json` for fast metadata, compares with DB via `getJsonlPaths()`, upserts new sessions, repairs corrupted `working_directory` values, archives DB entries whose JSONL files no longer exist on disk. Also archives sessions from deleted directories (no longer exist on disk) and temp directories (`/tmp`, `/private/tmp`).
+- **`scanAllSessions()`**: Walks `~/.Codex/projects/` directories, reads `sessions-index.json` for fast metadata, compares with DB via `getJsonlPaths()`, upserts new transcript rows, repairs corrupted `working_directory` values, archives DB entries whose JSONL files no longer exist on disk. Also archives sessions from deleted directories (no longer exist on disk) and temp directories (`/tmp`, `/private/tmp`).
 - **Archive model** replaces pruning: `removeInstance()` archives (sets `archived = 1`) instead of deleting. Discovery auto-unarchives if the JSONL reappears. Archived sessions are excluded from `getAllActive()` but retained in the DB.
 - **Corruption recovery**: If the DB file cannot be opened, it is renamed to `sessions.db.corrupt.{timestamp}` and recreated from scratch. `needsRebuild` flag triggers a full scan.
-- **Managed restore**: Creates `ClaudeProcess` with `--resume <sessionId>`, wires events, starts watcher
+- **Managed restore**: Reads `managed_sessions`, recreates the correct provider adapter from `provider_name` plus persisted runtime binding, then starts a watcher only if `transcript_path` exists
 - **External restore**: Creates stopped instance with `process: null`, `external: true`, no watcher — visible in UI with full history from JSONL
 - **Discovery upgrade**: When a `Codex` process starts in a dir matching a restored stopped external, `upgradeRestoredExternal()` sets `externalState`, starts watcher, transitions to `idle`
-- `db.upsert()` is called after: session ID capture, instance removal (archive), external discovery, plan-parent linking, stats updates
+- Managed instances are always persisted into `managed_sessions`, even before Claude transcript capture completes
+- Legacy managed transcript rows are migrated into `managed_sessions` on startup when needed
+- Transcript rows in `sessions` still persist provider name (`provider_name`) for Claude-indexed sessions
 - `stopAll()` does NOT clear the DB — instances survive relay restarts
 - `discoverExisting()` skips JSONL paths already known (managed or external) to prevent duplicates
 

@@ -42,7 +42,7 @@ Claude Relay also automatically discovers other Claude Code sessions running on 
 ```
 
 1. **Claude Relay** runs on your dev machine alongside Claude Code
-2. **InstanceManager** spawns and manages Claude Code processes (`claude -p --output-format stream-json`)
+2. **InstanceManager** spawns and manages provider-backed sessions (currently Claude CLI and Claude Agent SDK)
 3. **Session discovery** finds Claude Code instances you started in the terminal and streams their JSONL transcripts
 4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
 5. **Tailscale** (optional) makes the relay reachable from any device on your private tailnet
@@ -54,7 +54,9 @@ Claude Relay inherits Claude Code's project model: **the directory you launch `c
 
 This is a convention, not a constraint. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar` or running commands elsewhere. The working directory is a "home base," not a sandbox — the same way a git repo doesn't stop you from touching files outside it. In practice the heuristic is correct the vast majority of the time, since people launch `claude` from the repo they're working on.
 
-New managed sessions run directly in the directory you choose. If Relay discovers or restores a session that already lives in a Relay-managed git worktree, it preserves that worktree metadata so the session can still be resumed, displayed, and merged correctly.
+New managed sessions run directly in the directory you choose. Managed sessions now persist a provider binding and provider-owned resume state in SQLite, so restore does not depend on discovering a Claude JSONL file first. Claude transcripts are still used for Claude-specific history replay, external session discovery, and post-hoc session capture.
+
+If Relay discovers or restores a session that already lives in a Relay-managed git worktree, it preserves that worktree metadata so the session can still be resumed, displayed, and merged correctly.
 
 ## What It Does
 
@@ -62,6 +64,7 @@ New managed sessions run directly in the directory you choose. If Relay discover
 - **External session discovery** — automatically detects Claude Code sessions started from your terminal and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
 - **Per-session controls** — choose a model override and reasoning effort from the chat input for managed sessions
+- **Provider-aware managed sessions** — managed instances persist their provider identity and runtime binding, so future adapters can restore without going through Claude-specific transcript indexing
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
 - **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
@@ -135,6 +138,7 @@ This gives you a public `https://*.trycloudflare.com` URL you can open on any de
 src/
   core/                 ← "claude-relay" (no server deps)
     claude-process.ts      Spawns claude -p processes, parses stream-json
+    provider.ts            Provider session contract used by managed adapters
     providers/claude-sdk.ts Long-lived SDK-backed provider session
     instance-manager.ts    Manages multiple instances + discovers external sessions
     workspace-entries.ts   Workspace file/folder indexing for `@` mention search
@@ -170,6 +174,12 @@ import { createRelay } from "claude-relay/server";
 
 The server entry point re-exports everything from core, so you never need to import from both.
 
+Managed-session architecture is split in two:
+
+- `provider.ts` defines the adapter contract used by `InstanceManager`
+- `managed_sessions` in SQLite stores provider identity plus provider-owned runtime state for restore
+- Claude JSONL files remain an optional Claude-specific read model for history replay and external session discovery
+
 ## Library Usage
 
 ### Full Server
@@ -200,7 +210,7 @@ const config = resolveCoreConfig({
 });
 
 const manager = new InstanceManager(config);
-const instance = manager.createInstance({ name: "My Session" });
+const instance = manager.createInstance({ name: "My Session", provider: "claude" });
 
 manager.on("instance:output", (id, message) => {
   console.log(message.text);
@@ -223,7 +233,7 @@ manager.sendMessage(instance.id, "Hello Claude");
 | `DANGEROUS_SKIP_PERMISSIONS` | `false`                          | Set `"true"` to skip Claude's permission prompts              |
 | `PROCESS_TIMEOUT`            | `300000`                         | Process timeout in ms (5 min)                                 |
 | `SESSION_MAX_AGE`            | `604800000`                      | Session lifetime in ms (7 days)                               |
-| `SESSION_FILE`               | `~/.claude-relay/sessions.json`  | Session persistence file path                                 |
+| `SESSION_FILE`               | `~/.claude-relay/sessions.json`  | Session cookie storage file path                              |
 | `MANIFEST_FILE`              | `~/.claude-relay/instances.json` | Instance manifest file path (for persistence across restarts) |
 
 ### Programmatic Options
@@ -242,6 +252,16 @@ manager.sendMessage(instance.id, "Hello Claude");
 | `rateLimitWindow`            | `number`  | `60000`                          | Rate limit window in ms                        |
 | `manifestFile`               | `string`  | `~/.claude-relay/instances.json` | Instance manifest file for restart persistence |
 | `logger`                     | `Logger`  | `console`                        | Custom logger implementation                   |
+
+## Managed Sessions
+
+Managed sessions are now restored from provider runtime bindings stored in SQLite, not just from Claude transcript rows. The current provider implementation is Claude-focused, but the persistence and `ProviderSession` contract are now isolated enough to add other managed providers without teaching `InstanceManager` about provider-specific transcript formats.
+
+For Claude specifically:
+
+- new sessions may still capture a transcript path after the first turn
+- transcript paths are used for history replay and external-session discovery
+- approval prompts are routed as provider requests with stable request IDs over WebSocket
 
 ## Security
 

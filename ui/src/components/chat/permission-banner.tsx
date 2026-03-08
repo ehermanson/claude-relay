@@ -11,13 +11,15 @@ function getPermissionLabel(tool: string): string {
 }
 
 export function PermissionBanner({
+  requestId,
   tool,
   description,
   onApprove,
 }: {
+  requestId: string;
   tool: string;
   description?: string;
-  onApprove: (tool: string) => void;
+  onApprove: (requestId: string, tool: string) => void;
 }) {
   const [dismissed, setDismissed] = useState(false);
 
@@ -48,7 +50,7 @@ export function PermissionBanner({
           </p>
           {description && <p className="truncate text-[0.75rem] text-muted">{description}</p>}
         </div>
-        <Button variant="primary" className="shrink-0" onClick={() => onApprove(tool)}>
+        <Button variant="primary" className="shrink-0" onClick={() => onApprove(requestId, tool)}>
           Allow
         </Button>
         <Tooltip content="Dismiss">

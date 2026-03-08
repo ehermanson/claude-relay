@@ -211,6 +211,7 @@ function seedDB(tempDir, entries) {
     db.upsert({
       session_id: entry.sessionId || "test-session",
       instance_id: entry.id || "test-id",
+      provider_name: "claude",
       name: entry.name || "Test Session",
       working_directory: entry.workingDirectory || "/Users/test/projects/my-app",
       jsonl_path: entry.jsonlPath,
@@ -234,6 +235,7 @@ function seedDB(tempDir, entries) {
       parent_session_id: entry.parentSessionId || null,
       preferred_model: null,
       reasoning_budget: null,
+      skip_permissions: 0,
     });
   }
   db.close();

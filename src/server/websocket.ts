@@ -287,13 +287,17 @@ export function createWebSocketServer(
             break;
           }
 
-          case "approve_tool": {
+          case "respond_to_request": {
             try {
-              instanceManager.approveToolUse(message.instanceId, message.tool);
+              instanceManager.respondToRequest(
+                message.instanceId,
+                message.requestId,
+                message.decision,
+              );
             } catch (err) {
               sendMessage(ws, {
                 type: "error",
-                message: err instanceof Error ? err.message : "Failed to approve tool",
+                message: err instanceof Error ? err.message : "Failed to resolve request",
                 instanceId: message.instanceId,
               });
             }
