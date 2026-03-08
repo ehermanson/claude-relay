@@ -301,6 +301,7 @@ export function InstanceView() {
         reasoningBudget={instance.reasoningBudget}
         activeModel={instance.stats?.model}
         skipPermissions={instance.skipPermissions}
+        stats={instance.stats}
       />
     </>
   );

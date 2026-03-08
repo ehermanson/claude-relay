@@ -1156,6 +1156,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this._stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
     this._stats.costUSD += estimateCost(model, u);
     this._stats.model = model;
+    // Snapshot total input for this turn = current context window utilization (not cumulative)
+    this._stats.contextTokens =
+      u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
     this.emit("stats", { ...this._stats });
   }
 

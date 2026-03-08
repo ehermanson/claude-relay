@@ -2459,6 +2459,9 @@ export class InstanceManager extends EventEmitter {
         ctx.stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
         ctx.stats.costUSD += estimateCost(entry.message.model, u);
         ctx.stats.model = entry.message.model;
+        // Snapshot this turn's total input = current context window utilization (not cumulative)
+        ctx.stats.contextTokens =
+          u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
       }
     }
 

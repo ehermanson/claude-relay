@@ -2,7 +2,8 @@ import { useRef, useEffect, useState } from "react";
 import { ArrowUp, ImagePlus, Loader2, Square } from "lucide-react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useWSMethods } from "../../context/websocket-context";
-import { formatModel } from "../../lib/utils";
+import { formatModel, formatTokens } from "../../lib/utils";
+import type { SessionStats } from "@shared/types";
 import { detectMentionTrigger, replacePromptRange } from "../../lib/composer-mentions";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -110,6 +111,71 @@ interface SlashMenuItem {
   onSelect: () => void;
 }
 
+const CONTEXT_WINDOW = 200_000;
+
+function ContextRing({ stats }: { stats: SessionStats }) {
+  const contextTokens = stats.contextTokens ?? 0;
+  if (!contextTokens) return null;
+
+  const pct = Math.min(contextTokens / CONTEXT_WINDOW, 1);
+  const used = Math.round(pct * 100);
+  const r = 5;
+  const size = 14;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circ = 2 * Math.PI * r;
+  const dashOffset = circ * (1 - pct);
+  const ringColor = pct > 0.9 ? "#ef4444" : pct > 0.7 ? "#f59e0b" : "currentColor";
+  const textColor = pct > 0.9 ? "text-error" : pct > 0.7 ? "text-warning" : "text-muted";
+
+  const tooltipContent = (
+    <div className="space-y-0.5 text-center">
+      <div className="font-semibold text-text">Context window</div>
+      <div>
+        {used}% used &middot; {100 - used}% left
+      </div>
+      <div>
+        {formatTokens(contextTokens)} / {formatTokens(CONTEXT_WINDOW)} tokens
+      </div>
+      <div className="pt-1 text-muted">Auto-compacts when full</div>
+    </div>
+  );
+
+  return (
+    <Tooltip content={tooltipContent} delay={200}>
+      <button
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface-hover ${textColor}`}
+      >
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          {/* Background track */}
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke="currentColor"
+            strokeOpacity={0.2}
+            strokeWidth={2}
+          />
+          {/* Progress arc */}
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke={ringColor}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeDasharray={circ}
+            strokeDashoffset={dashOffset}
+            transform={`rotate(-90 ${cx} ${cy})`}
+          />
+        </svg>
+      </button>
+    </Tooltip>
+  );
+}
+
 function getSlashContext(text: string): SlashContext | null {
   const normalized = text.trimStart();
   if (!normalized.startsWith("/") || normalized.includes("\n")) return null;
@@ -166,6 +232,7 @@ interface InputAreaProps {
   reasoningBudget?: number;
   activeModel?: string;
   skipPermissions?: boolean;
+  stats?: SessionStats;
 }
 
 export function InputArea({
@@ -182,6 +249,7 @@ export function InputArea({
   reasoningBudget,
   activeModel,
   skipPermissions,
+  stats,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1247,6 +1315,7 @@ export function InputArea({
                 {reasoningPickerButton}
                 {permissionsButton}
                 <div className="flex-1" />
+                {stats && <ContextRing stats={stats} />}
                 {isProcessing && (
                   <Tooltip content="Cancel (Esc)">
                     <button

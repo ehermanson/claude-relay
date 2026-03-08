@@ -19,6 +19,11 @@ export interface SessionStats {
   costUSD: number;
   /** Model identifier from the most recent API response (e.g. "claude-opus-4-6") */
   model?: string;
+  /**
+   * Total input tokens from the most recent API call (input + cache_read + cache_creation).
+   * Represents current context window utilization — NOT a cumulative sum.
+   */
+  contextTokens?: number;
 }
 
 export interface LastMessagePreview {
