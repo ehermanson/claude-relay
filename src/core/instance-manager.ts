@@ -4290,6 +4290,55 @@ export class InstanceManager extends EventEmitter {
     return true;
   }
 
+  /**
+   * Switch the provider on an instance that has not yet sent a message.
+   * Tears down the current process and creates a new one for the target provider.
+   * Returns false if the instance already has a session (message was sent).
+   */
+  setProvider(id: string, provider: ProviderKind): boolean {
+    const instance = this.instances.get(id);
+    if (!instance || instance.info.external) return false;
+
+    // Only allow switching before any message has been sent
+    if (instance.sessionId || instance.info.sessionId) return false;
+
+    if (instance.info.provider === provider) return true; // no-op
+
+    // Tear down old process
+    if (instance.process) {
+      instance.process.close();
+      instance.process = null;
+    }
+
+    // Clear model preference — may not be valid for the new provider
+    instance.info.preferredModel = undefined;
+    instance.info.reasoningBudget = undefined;
+    instance.info.provider = provider;
+
+    // Create new process for the target provider
+    const instanceConfig: CoreConfig = {
+      ...this.baseConfig,
+      workingDirectory: instance.actualCwd || instance.info.workingDirectory,
+      dangerouslySkipPermissions:
+        instance.info.skipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
+    };
+
+    const proc = this.createProviderSession(instanceConfig, { provider });
+    instance.process = proc;
+    instance.providerBinding = proc.getRuntimeBinding();
+
+    this.wireProcessEvents(id, instance, proc);
+    this.captureSessionId(id, instance, proc);
+
+    this.emit("instance:status", instance.info.id, { ...instance.info });
+    this.dbSave(instance);
+
+    this.baseConfig.logger.info(
+      `[InstanceManager] Switched instance ${id} to provider "${provider}"`,
+    );
+    return true;
+  }
+
   private doRefreshTitle(instance: Instance): boolean {
     if (instance.info.customTitle) return false;
 

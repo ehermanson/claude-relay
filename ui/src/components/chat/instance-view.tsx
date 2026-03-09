@@ -152,6 +152,7 @@ export function InstanceView() {
   const handleSwitchProvider = async (
     targetProvider: ProviderKind,
     carryContext: boolean,
+    model?: string | null,
   ): Promise<void> => {
     if (!id || !instance || targetProvider === instance.provider) return;
 
@@ -160,6 +161,7 @@ export function InstanceView() {
       name: instance.customTitle ? instance.name : undefined,
       workingDirectory: instance.workingDirectory,
       dangerouslySkipPermissions: instance.skipPermissions ?? false,
+      model: model ?? undefined,
     });
 
     if (carryContext) {
@@ -380,6 +382,7 @@ export function InstanceView() {
           activeModel={instance.stats?.model}
           skipPermissions={instance.skipPermissions}
           stats={instance.stats}
+          hasMessages={items.length > 0}
         />
       )}
     </>

@@ -314,6 +314,7 @@ export function createRequestHandler(
             workingDirectory?: string;
             dangerouslySkipPermissions?: boolean;
             resumeSessionId?: string;
+            model?: string;
           };
           const info = instanceManager.createInstance({
             provider: body.provider,
@@ -321,6 +322,7 @@ export function createRequestHandler(
             workingDirectory: body.workingDirectory,
             dangerouslySkipPermissions: body.dangerouslySkipPermissions,
             resumeSessionId: body.resumeSessionId,
+            model: body.model,
           });
           sendJson(res, 201, info);
         } catch (err) {

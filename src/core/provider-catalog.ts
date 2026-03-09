@@ -12,6 +12,7 @@ export const BUILTIN_PROVIDER_MODELS: Record<ProviderKind, readonly ProviderMode
       provider: "claude",
       id: "claude-opus-4-6",
       label: "Opus 4.6",
+      isDefault: true,
     },
     {
       provider: "claude",

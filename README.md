@@ -281,7 +281,7 @@ For Codex specifically:
 - restored managed Codex sessions replay history from `~/.codex/sessions/...` by `provider_session_id`, and persist the discovered transcript path back into `managed_sessions`
 - provider switching from the chat input creates a new managed session instead of rewriting the current one, with optional recent-context carryover
 - Codex sessions keep model switching via the shared provider/model picker in the chat input
-- Claude-only reasoning controls are hidden for Codex sessions, and the permission toggle is presented as sandbox/full-access mode
+- Codex sessions also show the shared reasoning control in the composer, and the permission toggle is presented as sandbox/full-access mode
 - external Codex session discovery and approval-request parity are still follow-up work
 
 ## Security
@@ -309,5 +309,7 @@ npm run build
 ## Prerequisites
 
 - Node.js 20+
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+- At least one provider CLI installed and authenticated:
+  - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — for Claude sessions and external session discovery
+  - [Codex CLI](https://github.com/openai/codex) — for Codex sessions (`npm install -g @openai/codex`)
 - [Tailscale](https://tailscale.com) (optional, for private remote access) or [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (optional, for public tunnel access)

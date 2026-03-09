@@ -23,7 +23,12 @@ export type {
   CodexCliSessionOptions,
   DiscoverCodexModelsOptions,
 } from "./providers/index.js";
-export { CodexCliSession, discoverCodexModels, findCodexBinary } from "./providers/index.js";
+export {
+  CodexCliSession,
+  discoverCodexModels,
+  findCodexBinary,
+  isCodexInstalled,
+} from "./providers/index.js";
 export {
   BUILTIN_PROVIDER_MODELS,
   PROVIDER_DISPLAY_NAMES,

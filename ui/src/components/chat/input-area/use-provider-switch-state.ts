@@ -3,17 +3,23 @@ import type { ProviderKind } from "@shared/types";
 
 export function useProviderSwitchState(
   currentProvider: ProviderKind,
-  onSwitchProvider?: (provider: ProviderKind, carryContext: boolean) => Promise<void> | void,
+  onSwitchProvider?: (
+    provider: ProviderKind,
+    carryContext: boolean,
+    model?: string | null,
+  ) => Promise<void> | void,
 ) {
   const [showProviderSwitchDialog, setShowProviderSwitchDialog] = useState(false);
   const [providerSwitchTarget, setProviderSwitchTarget] = useState<ProviderKind | null>(null);
+  const [providerSwitchModel, setProviderSwitchModel] = useState<string | null>(null);
   const [carryProviderContext, setCarryProviderContext] = useState(true);
   const [providerSwitchError, setProviderSwitchError] = useState("");
   const [isSwitchingProvider, setIsSwitchingProvider] = useState(false);
 
-  const openProviderSwitchDialog = (targetProvider: ProviderKind) => {
+  const openProviderSwitchDialog = (targetProvider: ProviderKind, model?: string | null) => {
     if (!onSwitchProvider || targetProvider === currentProvider) return;
     setProviderSwitchTarget(targetProvider);
+    setProviderSwitchModel(model ?? null);
     setCarryProviderContext(true);
     setProviderSwitchError("");
     setShowProviderSwitchDialog(true);
@@ -22,6 +28,7 @@ export function useProviderSwitchState(
   const closeProviderSwitchDialog = () => {
     setShowProviderSwitchDialog(false);
     setProviderSwitchTarget(null);
+    setProviderSwitchModel(null);
     setProviderSwitchError("");
     setCarryProviderContext(true);
   };
@@ -32,7 +39,7 @@ export function useProviderSwitchState(
     setProviderSwitchError("");
 
     try {
-      await onSwitchProvider(providerSwitchTarget, carryProviderContext);
+      await onSwitchProvider(providerSwitchTarget, carryProviderContext, providerSwitchModel);
       closeProviderSwitchDialog();
     } catch (error) {
       setProviderSwitchError(
@@ -46,6 +53,7 @@ export function useProviderSwitchState(
   return {
     showProviderSwitchDialog,
     providerSwitchTarget,
+    providerSwitchModel,
     carryProviderContext,
     providerSwitchError,
     isSwitchingProvider,

@@ -32,7 +32,11 @@ import { useProviderSwitchState } from "./input-area/use-provider-switch-state";
 interface InputAreaProps {
   onSend: (text: string, images?: string[]) => void;
   onCancel: () => void;
-  onSwitchProvider?: (provider: ProviderKind, carryContext: boolean) => Promise<void> | void;
+  onSwitchProvider?: (
+    provider: ProviderKind,
+    carryContext: boolean,
+    model?: string | null,
+  ) => Promise<void> | void;
   isProcessing: boolean;
   isConnected: boolean;
   instanceId: string;
@@ -46,6 +50,7 @@ interface InputAreaProps {
   activeModel?: string;
   skipPermissions?: boolean;
   stats?: SessionStats;
+  hasMessages?: boolean;
 }
 
 export function InputArea({
@@ -65,6 +70,7 @@ export function InputArea({
   activeModel,
   skipPermissions,
   stats,
+  hasMessages,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
   const composerContainerRef = useRef<HTMLDivElement>(null);
@@ -137,14 +143,15 @@ export function InputArea({
   const activeModelLabel = activeModel
     ? (currentProviderModelLabels.get(activeModel) ?? formatModel(activeModel))
     : null;
+  const catalogDefaultLabel = currentProviderModels.find((m) => m.isDefault)?.label ?? null;
+  const resolvedDefaultLabel = activeModelLabel ?? catalogDefaultLabel ?? "Default";
   const modelLabel = preferredModel
     ? (currentProviderModelLabels.get(preferredModel) ?? preferredModel)
-    : (activeModelLabel ?? "Default");
-  const defaultMenuLabel = activeModelLabel ? `Default (${activeModelLabel})` : "Default";
+    : resolvedDefaultLabel;
   const activeReasoningLevel = REASONING_LEVELS.find((level) => level.budget === reasoningBudget);
   const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
   const supportsModelSelection = true;
-  const supportsReasoningSelection = provider === "claude";
+  const supportsReasoningSelection = true;
   const providerLabel = provider === "claude" ? "Claude" : getProviderDisplayName(provider);
   const providerSwitchLabel = providerSwitchTarget
     ? providerSwitchTarget === "claude"
@@ -265,12 +272,18 @@ export function InputArea({
         provider={provider}
         preferredModel={preferredModel}
         currentProviderModels={currentProviderModels}
-        defaultMenuLabel={defaultMenuLabel}
         modelLabel={modelLabel}
         onSelectModel={setModel}
-        onStartProviderSwitch={(targetProvider) => {
-          setShowModelMenu(false);
-          openProviderSwitchDialog(targetProvider);
+        onSelectProviderModel={(targetProvider, model) => {
+          if (!hasMessages) {
+            // Empty session — switch provider (and model) in-place
+            send({ type: "set_provider", instanceId, provider: targetProvider });
+            if (model) send({ type: "set_model", instanceId, model });
+          } else {
+            // Active session — open confirmation dialog with pre-selected model
+            setShowModelMenu(false);
+            openProviderSwitchDialog(targetProvider, model);
+          }
         }}
       />
     ) : null,

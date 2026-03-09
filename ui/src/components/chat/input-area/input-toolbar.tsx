@@ -60,6 +60,11 @@ export function InputToolbar({
             {control}
           </div>
         ))}
+      </div>
+
+      {!isMobile ? <div className="flex-1" /> : null}
+      <div className="flex items-center gap-2">
+        {!isMobile && stats ? <ContextRing stats={stats} /> : null}
         {isProcessing ? (
           <Tooltip content={isMobile ? "Cancel" : "Cancel (Esc)"}>
             <button
@@ -70,21 +75,17 @@ export function InputToolbar({
             </button>
           </Tooltip>
         ) : null}
+        <Tooltip content={isMobile ? "Send" : "Send (Enter)"}>
+          <Button
+            variant="primary"
+            onClick={onSend}
+            disabled={isSendDisabled}
+            className={roundPrimary}
+          >
+            {sendIcon}
+          </Button>
+        </Tooltip>
       </div>
-
-      {!isMobile ? <div className="flex-1" /> : null}
-      {!isMobile && stats ? <ContextRing stats={stats} /> : null}
-
-      <Tooltip content={isMobile ? "Send" : "Send (Enter)"}>
-        <Button
-          variant="primary"
-          onClick={onSend}
-          disabled={isSendDisabled}
-          className={roundPrimary}
-        >
-          {sendIcon}
-        </Button>
-      </Tooltip>
     </div>
   );
 }

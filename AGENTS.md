@@ -189,11 +189,11 @@ ui/
 - `InstanceInfo` carries both `preferredModel?: string` and `reasoningBudget?: number`
 - UI: `InputArea` shows a combined provider/model picker for managed instances; models stay switchable, while choosing another provider starts a new managed chat instead of rewriting the current session
 - UI: provider switching can optionally carry over recent portable context (recent user/assistant turns, transcript results, and changed files) via `session-handoff.ts`
-- Claude sessions expose preset model selection and reasoning effort controls
-- Codex sessions expose curated model selection through the shared picker; reasoning effort controls remain hidden until Codex support exists
+- Managed sessions expose preset reasoning effort controls in the shared toolbar
+- Codex sessions expose curated model selection and the shared reasoning picker through the composer controls
 - `GET /api/provider-models?provider=...` returns provider-scoped model metadata for the picker. Codex uses a built-in catalog filtered by best-effort `codex app-server` discovery when available, and falls back to the built-in list on discovery failure
 - UI: `InputArea` now uses a Lexical-based `ComposerEditor` so inline path mentions can render as atomic chips without giving up plain-text message semantics
-- UI: the composer supports slash commands: `/model ...` for provider-appropriate model choices and `/reasoning <default|low|medium|high|max>` for Claude sessions
+- UI: the composer supports slash commands: `/model ...` for provider-appropriate model choices and `/reasoning <default|low|medium|high|max>` for managed sessions
 - UI: typing `@` opens a workspace search palette backed by `GET /api/workspace-entries`; selecting a result inserts an inline mention chip but still sends plain `@path/to/file` text to Codex
 - Reasoning presets are shown as effort levels (low/medium/high/max), mapped to underlying token budgets and sent over WS as `set_reasoning_budget`
 - `InstanceManager.setModel()` and `InstanceManager.setReasoningBudget()` persist both preferences to SQLite and rebroadcast `instance:status`

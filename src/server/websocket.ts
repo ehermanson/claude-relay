@@ -177,6 +177,7 @@ export function createWebSocketServer(
                 workingDirectory: message.workingDirectory,
                 dangerouslySkipPermissions: message.dangerouslySkipPermissions ?? true,
                 resumeSessionId: message.resumeSessionId,
+                model: message.model,
               });
               broadcast({ type: "instance_created", instance: info });
             } catch (err) {
@@ -327,6 +328,11 @@ export function createWebSocketServer(
 
           case "set_permissions": {
             instanceManager.setPermissions(message.instanceId, message.skipPermissions);
+            break;
+          }
+
+          case "set_provider": {
+            instanceManager.setProvider(message.instanceId, message.provider);
             break;
           }
 

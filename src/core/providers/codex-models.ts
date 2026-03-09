@@ -44,6 +44,10 @@ export async function discoverCodexModels(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const includeHidden = options.includeHidden ?? false;
 
+  if (!codexPath) {
+    return Promise.resolve([]);
+  }
+
   return new Promise((resolve, reject) => {
     const child = spawnProcess(codexPath, ["app-server", "--listen", "stdio://"], {
       env: process.env,

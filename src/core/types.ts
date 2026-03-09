@@ -128,6 +128,8 @@ export interface CreateInstancePayload {
   dangerouslySkipPermissions?: boolean;
   /** Resume an existing Claude Code session by ID */
   resumeSessionId?: string;
+  /** Model ID to use (e.g. "claude-opus-4-6") */
+  model?: string;
 }
 
 export interface RemoveInstancePayload {
@@ -201,6 +203,13 @@ export interface SetPermissionsPayload {
   skipPermissions: boolean;
 }
 
+export interface SetProviderPayload {
+  type: "set_provider";
+  instanceId: string;
+  /** Target provider to switch to */
+  provider: ProviderKind;
+}
+
 export type ClientMessage =
   | MessagePayload
   | CancelPayload
@@ -217,7 +226,8 @@ export type ClientMessage =
   | MergeInstancePayload
   | SetModelPayload
   | SetReasoningBudgetPayload
-  | SetPermissionsPayload;
+  | SetPermissionsPayload
+  | SetProviderPayload;
 
 // =============================================================================
 // Server -> Client Messages

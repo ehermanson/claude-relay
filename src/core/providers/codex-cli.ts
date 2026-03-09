@@ -78,7 +78,16 @@ export class CodexCliSession extends EventEmitter implements ProviderSession {
     this.cwd = options.cwd;
     this.processTimeout = options.processTimeout ?? 0;
     this.spawnProcess = options.spawnProcess ?? spawn;
-    this.codexPath = options.codexPath ?? findCodexBinary();
+
+    const resolved = options.codexPath ?? findCodexBinary();
+    if (!resolved) {
+      throw new Error(
+        "Codex CLI not found. Install it with: npm install -g @openai/codex" +
+          "\nSee https://github.com/openai/codex for details.",
+      );
+    }
+    this.codexPath = resolved;
+
     this._sessionId = options.resumeSessionId;
     this._preferredModel = options.model ?? null;
     this._bypassPermissions = options.dangerouslySkipPermissions ?? false;
@@ -285,9 +294,12 @@ export class CodexCliSession extends EventEmitter implements ProviderSession {
 
       case "turn.completed":
         if (event.usage) {
-          this._stats.inputTokens += event.usage.input_tokens ?? 0;
-          this._stats.cacheReadTokens += event.usage.cached_input_tokens ?? 0;
+          const inputTokens = event.usage.input_tokens ?? 0;
+          const cacheReadTokens = event.usage.cached_input_tokens ?? 0;
+          this._stats.inputTokens += inputTokens;
+          this._stats.cacheReadTokens += cacheReadTokens;
           this._stats.outputTokens += event.usage.output_tokens ?? 0;
+          this._stats.contextTokens = inputTokens + cacheReadTokens;
           this.emit("stats", { ...this._stats });
         }
         this.finishTurn();
@@ -376,7 +388,7 @@ export class CodexCliSession extends EventEmitter implements ProviderSession {
   }
 }
 
-export function findCodexBinary(): string {
+export function findCodexBinary(): string | null {
   const candidates = [
     `${process.env.HOME}/.local/bin/codex`,
     "/usr/local/bin/codex",
@@ -400,5 +412,9 @@ export function findCodexBinary(): string {
     // ignore
   }
 
-  return "codex";
+  return null;
+}
+
+export function isCodexInstalled(): boolean {
+  return findCodexBinary() !== null;
 }
