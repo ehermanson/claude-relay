@@ -269,6 +269,7 @@ export async function createSdkSession(
 class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private _isProcessing = false;
   private _hasStreamedText = false;
+  private _lastMessageHadToolUse = false;
   private _sessionId: string | undefined;
   private _stopped = false;
   private _stats: SessionStats = {
@@ -399,6 +400,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     this._isProcessing = true;
     this._hasStreamedText = false;
+    this._lastMessageHadToolUse = false;
     this._autoContinueCount = 0;
     this.logger.info(`[SdkSession] Sending: "${message.slice(0, 50)}..."`);
 
@@ -723,6 +725,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       this.accumulateUsage(message.model, message.usage);
     }
 
+    // Track whether this message contained tool_use for auto-continue fallback
+    this._lastMessageHadToolUse = message.content.some((block) => block.type === "tool_use");
+
     const hasNonChatBlocks = message.content.some(
       (block) => block.type === "thinking" || block.type === "tool_use",
     );
@@ -814,7 +819,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private handleResult(msg: Record<string, unknown>): void {
     const stopReason = msg.stop_reason as string | null;
     const numTurns = msg.num_turns as number | undefined;
-    this.logger.debug(
+    this.logger.info(
       `[SdkSession] Result: subtype=${msg.subtype}, stop_reason=${stopReason}, num_turns=${numTurns}, is_error=${msg.is_error}`,
     );
 
@@ -863,14 +868,14 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // Auto-continue: if the turn ended with stop_reason "tool_use", it means
     // Claude was mid-agent-loop but the CLI subprocess ended the turn prematurely.
     // Push a continuation prompt to keep the work going.
-    if (
-      stopReason === "tool_use" &&
-      this._autoContinueCount < MAX_AUTO_CONTINUES &&
-      !this._stopped
-    ) {
+    // Also continue when stop_reason is missing but the last message had tool_use
+    // blocks — the SDK sometimes omits stop_reason when the subprocess exits.
+    const shouldContinue =
+      stopReason === "tool_use" || (stopReason == null && this._lastMessageHadToolUse);
+    if (shouldContinue && this._autoContinueCount < MAX_AUTO_CONTINUES && !this._stopped) {
       this._autoContinueCount++;
       this.logger.info(
-        `[SdkSession] Turn ended mid-tool-loop (stop_reason=tool_use) — auto-continuing (${this._autoContinueCount}/${MAX_AUTO_CONTINUES})`,
+        `[SdkSession] Turn ended mid-tool-loop (stop_reason=${stopReason}) — auto-continuing (${this._autoContinueCount}/${MAX_AUTO_CONTINUES})`,
       );
       this.promptQueue.push({
         type: "user",
@@ -885,6 +890,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     }
 
     // Turn is complete — go idle
+    if (shouldContinue) {
+      this.logger.warn(
+        `[SdkSession] Turn ended mid-tool-loop but auto-continue blocked (stop_reason=${stopReason}, count=${this._autoContinueCount}/${MAX_AUTO_CONTINUES}, stopped=${this._stopped})`,
+      );
+    }
     this.finishTurn();
   }
 
