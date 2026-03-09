@@ -183,6 +183,9 @@ interface PendingStreamMessage {
 // Tool / State Tracking
 // =============================================================================
 
+/** Max auto-continue attempts per user message to prevent runaway loops */
+const MAX_AUTO_CONTINUES = 25;
+
 const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite"]);
 const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
@@ -282,6 +285,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private allowedToolSet: Set<string>;
   private _bypassPermissions = false;
   private pendingStreamMessage: PendingStreamMessage | null = null;
+  private _autoContinueCount = 0;
 
   // State tracking (mirrors ClaudeProcess)
   private taskMap = new Map<string, TaskItem>();
@@ -395,6 +399,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     this._isProcessing = true;
     this._hasStreamedText = false;
+    this._autoContinueCount = 0;
     this.logger.info(`[SdkSession] Sending: "${message.slice(0, 50)}..."`);
 
     const userMessage: SDKUserMessage = {
@@ -804,7 +809,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   }
 
   private handleResult(msg: Record<string, unknown>): void {
-    this.logger.debug(`[SdkSession] Result: subtype=${msg.subtype}, is_error=${msg.is_error}`);
+    const stopReason = msg.stop_reason as string | null;
+    const numTurns = msg.num_turns as number | undefined;
+    this.logger.debug(
+      `[SdkSession] Result: subtype=${msg.subtype}, stop_reason=${stopReason}, num_turns=${numTurns}, is_error=${msg.is_error}`,
+    );
 
     // Extract usage from result
     const modelUsage = msg.modelUsage as
@@ -832,14 +841,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       }
     }
 
-    // Emit result text if no other output was emitted
-    if (msg.result && typeof msg.result === "string") {
-      // Result text is the final summary — we've likely already emitted it via
-      // assistant content blocks. Only emit if nothing else was sent this turn.
-      // For now, skip to avoid duplication. The stream_event / assistant blocks
-      // already produce all the text output.
-    }
-
     // Handle error results
     if (msg.subtype !== "success") {
       const errors = msg.errors as string[] | undefined;
@@ -852,6 +853,32 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         };
         this.emit("exit", exit);
       }
+      this.finishTurn();
+      return;
+    }
+
+    // Auto-continue: if the turn ended with stop_reason "tool_use", it means
+    // Claude was mid-agent-loop but the CLI subprocess ended the turn prematurely.
+    // Push a continuation prompt to keep the work going.
+    if (
+      stopReason === "tool_use" &&
+      this._autoContinueCount < MAX_AUTO_CONTINUES &&
+      !this._stopped
+    ) {
+      this._autoContinueCount++;
+      this.logger.info(
+        `[SdkSession] Turn ended mid-tool-loop (stop_reason=tool_use) — auto-continuing (${this._autoContinueCount}/${MAX_AUTO_CONTINUES})`,
+      );
+      this.promptQueue.push({
+        type: "user",
+        parent_tool_use_id: null,
+        session_id: this._sessionId || "",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "Continue." }],
+        },
+      });
+      return;
     }
 
     // Turn is complete — go idle
