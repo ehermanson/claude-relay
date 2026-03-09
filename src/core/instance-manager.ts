@@ -144,6 +144,8 @@ interface Instance {
   originalDirectory?: string;
   /** Actual CWD passed to the provider session (worktree path or original) */
   actualCwd?: string;
+  /** False when only skeleton metadata is loaded from DB; true after full JSONL parse + git info */
+  hydrated: boolean;
 }
 
 export interface InstanceManagerEvents {
@@ -512,6 +514,49 @@ function hasSessionStats(stats: SessionStats | undefined): stats is SessionStats
   );
 }
 
+/** Reconstruct a LastMessagePreview from DB columns (avoids JSONL parse at restore). */
+function lastMessageFromDb(entry: {
+  last_message_text: string | null;
+  last_message_from: string | null;
+  last_message_at: number | null;
+}): LastMessagePreview | undefined {
+  if (!entry.last_message_text || !entry.last_message_from) return undefined;
+  return {
+    text: entry.last_message_text,
+    from: entry.last_message_from as "user" | "claude",
+    timestamp: entry.last_message_at ?? 0,
+  };
+}
+
+/** Reconstruct SessionStats from DB token/cost columns (avoids JSONL parse at restore). */
+function dbStatsToSessionStats(entry: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  cost_usd: number;
+}): SessionStats | undefined {
+  const stats: SessionStats = {
+    inputTokens: entry.input_tokens,
+    outputTokens: entry.output_tokens,
+    cacheCreationTokens: entry.cache_creation_tokens,
+    cacheReadTokens: entry.cache_read_tokens,
+    costUSD: entry.cost_usd,
+  };
+  return hasSessionStats(stats) ? stats : undefined;
+}
+
+function gitInfoFromDb(entry: {
+  git_info_branch: string | null;
+  git_info_is_worktree: number | null;
+}): { branch: string; isWorktree: boolean } | undefined {
+  if (!entry.git_info_branch) return undefined;
+  return {
+    branch: entry.git_info_branch,
+    isWorktree: entry.git_info_is_worktree === 1,
+  };
+}
+
 function statsChanged(before: SessionStats, after: SessionStats): boolean {
   return (
     before.inputTokens !== after.inputTokens ||
@@ -705,6 +750,7 @@ export class InstanceManager extends EventEmitter {
       providerBinding: proc.getRuntimeBinding(),
       history: [],
       autoTitle: !hasCustomName && !resumeId,
+      hydrated: true,
     };
     this.instances.set(id, instance);
 
@@ -891,12 +937,20 @@ export class InstanceManager extends EventEmitter {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
 
+    this.hydrateInstance(id, instance);
+
     // Transparent resume/revive on first send
     let resumed: InstanceInfo | undefined;
-    if (instance.info.status === "stopped" && instance.sessionId) {
-      resumed = this.reviveInstance(id);
-    } else if (instance.info.external) {
+    if (instance.info.external) {
       resumed = this.resumeInstance(id);
+    } else if (!instance.process) {
+      this.bootManagedInstance(id, instance);
+    } else if (instance.info.status === "stopped" && instance.sessionId) {
+      resumed = this.reviveInstance(id);
+    }
+
+    if (!instance.process) {
+      throw new Error("Instance could not be started");
     }
 
     // Auto-title from first user message
@@ -931,6 +985,7 @@ export class InstanceManager extends EventEmitter {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
     if (instance.info.external) throw new Error("Cannot cancel on external instances");
+    if (!instance.process) throw new Error("Instance is not running");
     instance.process!.interrupt();
   }
 
@@ -938,6 +993,7 @@ export class InstanceManager extends EventEmitter {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
     if (instance.info.external) throw new Error("Cannot approve tools on external instances");
+    if (!instance.process) throw new Error("Instance is not running");
     const pendingRequest = instance.info.pendingPermission;
     if (!pendingRequest) throw new Error("Instance has no pending request");
 
@@ -1153,6 +1209,15 @@ export class InstanceManager extends EventEmitter {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
 
+    this.hydrateInstance(id, instance);
+    if (!instance.info.external && !instance.process) {
+      try {
+        this.bootManagedInstance(id, instance);
+      } catch (err) {
+        this.baseConfig.logger.warn(`[InstanceManager] Lazy boot failed for ${id}: ${err}`);
+      }
+    }
+
     // If we have enriched file data on the instance, patch the last file_list
     // activity in history so the UI gets diff stats on initial load.
     if (instance.files && instance.files.size > 0) {
@@ -1172,6 +1237,137 @@ export class InstanceManager extends EventEmitter {
     }
 
     return [...instance.history];
+  }
+
+  private getPersistedAllowedTools(sessionId: string | undefined): string[] {
+    if (!sessionId) return [];
+    const row = this.db.getBySessionId(sessionId);
+    if (!row?.allowed_tools) return [];
+    try {
+      const parsed = JSON.parse(row.allowed_tools) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.filter((tool): tool is string => typeof tool === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private hydrateInstance(id: string, instance: Instance): void {
+    if (instance.hydrated) return;
+
+    const transcriptPath =
+      instance.jsonlPath ??
+      instance.providerBinding?.transcriptPath ??
+      instance.externalState?.jsonlPath;
+
+    if (transcriptPath && existsSync(transcriptPath)) {
+      const parsed = instance.info.external
+        ? this.parseJsonl(transcriptPath)
+        : this.parseProviderTranscript(instance.info.provider, transcriptPath);
+
+      instance.history = parsed.history;
+      instance.tasks = parsed.tasks.size > 0 ? parsed.tasks : undefined;
+      instance.files = parsed.files.size > 0 ? parsed.files : undefined;
+      instance.team = parsed.team ?? undefined;
+      instance.agentActivities =
+        parsed.agentActivities.size > 0 ? parsed.agentActivities : undefined;
+
+      const parsedStats = hasSessionStats(parsed.stats) ? parsed.stats : undefined;
+      if (parsedStats) {
+        instance.info.stats = parsedStats;
+      }
+
+      const parsedLastMessage = extractLastMessage(parsed.history);
+      if (parsedLastMessage) {
+        instance.info.lastMessage = parsedLastMessage;
+      }
+
+      if (instance.files && instance.files.size > 0) {
+        const diffCwd = instance.actualCwd || instance.info.workingDirectory;
+        const origBranch = instance.originalDirectory
+          ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
+          : undefined;
+        enrichDiffStats(diffCwd, instance.files, {
+          originalBranch: origBranch,
+          sessionCreatedAt: instance.info.createdAt,
+        });
+      }
+
+      if (!instance.watchState) {
+        try {
+          instance.watchState = createWatchState(
+            transcriptPath,
+            statSync(transcriptPath).size,
+            instance.info.stats,
+          );
+          this.startWatching(id, instance);
+        } catch {
+          // ignore — transcript may disappear between existsSync/statSync
+        }
+      }
+    }
+
+    if (!instance.info.gitInfo) {
+      instance.info.gitInfo = instance.info.external
+        ? instance.worktreePath
+          ? (getGitInfo(instance.worktreePath) ?? undefined)
+          : (getGitInfo(instance.info.workingDirectory) ?? undefined)
+        : (getGitInfo(instance.info.workingDirectory) ?? undefined);
+    }
+
+    this.checkWorktreeChanges(instance);
+    instance.hydrated = true;
+    this.dbSave(instance);
+    this.emit("instance:status", id, { ...instance.info });
+  }
+
+  private bootManagedInstance(id: string, instance: Instance): void {
+    if (instance.info.external || instance.process) return;
+
+    const binding = instance.providerBinding;
+    const resumeSessionId =
+      binding?.providerSessionId ??
+      instance.sessionId ??
+      instance.info.sessionId ??
+      extractResumeSessionId(binding?.resumeCursor);
+    if (!resumeSessionId) return;
+
+    const cwd = instance.actualCwd || instance.info.workingDirectory;
+    const instanceConfig: CoreConfig = {
+      ...this.baseConfig,
+      workingDirectory: cwd,
+      dangerouslySkipPermissions:
+        instance.info.skipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
+    };
+
+    const proc = this.createProviderSession(instanceConfig, {
+      provider: instance.info.provider,
+      resumeSessionId,
+      model: instance.info.preferredModel,
+      reasoningBudget: instance.info.reasoningBudget,
+      allowedTools: this.getPersistedAllowedTools(resumeSessionId),
+    });
+
+    instance.process = proc;
+    instance.providerBinding = {
+      ...(binding ?? {}),
+      ...proc.getRuntimeBinding(),
+      provider: instance.info.provider,
+      providerSessionId: resumeSessionId,
+      transcriptPath: binding?.transcriptPath ?? instance.jsonlPath,
+    };
+    instance.sessionId = resumeSessionId;
+    instance.info.sessionId = resumeSessionId;
+
+    this.wireProcessEvents(id, instance, proc);
+
+    if (instance.info.status === "stopped") {
+      this.setStatus(instance, "idle");
+    } else {
+      this.emit("instance:status", id, { ...instance.info });
+    }
+    this.dbSave(instance);
   }
 
   /**
@@ -2027,6 +2223,7 @@ export class InstanceManager extends EventEmitter {
       gitBranch,
       originalDirectory,
       actualCwd: worktreePath ? cwd : undefined,
+      hydrated: true,
     };
 
     // Enrich files with git diff stats
@@ -3025,6 +3222,16 @@ export class InstanceManager extends EventEmitter {
       preferred_model: instance.info.preferredModel ?? null,
       reasoning_budget: instance.info.reasoningBudget ?? null,
       skip_permissions: instance.info.skipPermissions ? 1 : 0,
+      last_message_text: instance.info.lastMessage?.text ?? null,
+      last_message_from: instance.info.lastMessage?.from ?? null,
+      last_message_at: instance.info.lastMessage?.timestamp ?? null,
+      git_info_branch: instance.info.gitInfo?.branch ?? null,
+      git_info_is_worktree:
+        instance.info.gitInfo?.isWorktree !== undefined
+          ? instance.info.gitInfo.isWorktree
+            ? 1
+            : 0
+          : null,
     };
   }
 
@@ -3058,6 +3265,16 @@ export class InstanceManager extends EventEmitter {
       resume_cursor_json: binding?.resumeCursor ? JSON.stringify(binding.resumeCursor) : null,
       runtime_payload_json: binding?.runtimePayload ? JSON.stringify(binding.runtimePayload) : null,
       transcript_path: binding?.transcriptPath ?? instance.jsonlPath ?? null,
+      last_message_text: instance.info.lastMessage?.text ?? null,
+      last_message_from: instance.info.lastMessage?.from ?? null,
+      last_message_at: instance.info.lastMessage?.timestamp ?? null,
+      git_info_branch: instance.info.gitInfo?.branch ?? null,
+      git_info_is_worktree:
+        instance.info.gitInfo?.isWorktree !== undefined
+          ? instance.info.gitInfo.isWorktree
+            ? 1
+            : 0
+          : null,
     };
   }
 
@@ -3147,6 +3364,11 @@ export class InstanceManager extends EventEmitter {
           preferred_model: null,
           reasoning_budget: null,
           skip_permissions: 0,
+          last_message_text: null,
+          last_message_from: null,
+          last_message_at: null,
+          git_info_branch: null,
+          git_info_is_worktree: null,
         });
       }
 
@@ -3322,6 +3544,7 @@ export class InstanceManager extends EventEmitter {
 
           const firstMsg = readFirstUserMessage(jsonlPath);
           const name = indexEntry?.summary || (firstMsg ? generateTitle(firstMsg) : "New session");
+          const gitInfo = scanWorktreePath ? getGitInfo(scanWorktreePath) : getGitInfo(cwd);
 
           rows.push({
             session_id: sessionId,
@@ -3351,6 +3574,12 @@ export class InstanceManager extends EventEmitter {
             preferred_model: null,
             reasoning_budget: null,
             skip_permissions: 0,
+            last_message_text: null,
+            last_message_from: null,
+            last_message_at: null,
+            git_info_branch: gitInfo?.branch ?? null,
+            git_info_is_worktree:
+              gitInfo?.isWorktree !== undefined ? (gitInfo.isWorktree ? 1 : 0) : null,
           });
           discovered++;
         }
@@ -3433,6 +3662,11 @@ export class InstanceManager extends EventEmitter {
           resume_cursor_json: JSON.stringify({ sessionId: row.session_id }),
           runtime_payload_json: JSON.stringify({ cwd: row.working_directory }),
           transcript_path: row.jsonl_path,
+          last_message_text: row.last_message_text,
+          last_message_from: row.last_message_from,
+          last_message_at: row.last_message_at,
+          git_info_branch: row.git_info_branch,
+          git_info_is_worktree: row.git_info_is_worktree,
         });
       } catch (err) {
         this.baseConfig.logger.warn(
@@ -3452,6 +3686,8 @@ export class InstanceManager extends EventEmitter {
     }
 
     let restored = 0;
+
+    // --- External sessions: skeleton from DB metadata only (no JSONL parse, no git) ---
     for (const entry of this.db.getAllActive()) {
       if (entry.type !== "external") continue;
       if (!existsSync(entry.jsonl_path)) {
@@ -3459,99 +3695,64 @@ export class InstanceManager extends EventEmitter {
         continue;
       }
 
-      const { history, tasks, files, team, agentActivities, stats } = this.parseJsonl(
-        entry.jsonl_path,
-      );
-      const parsedStats = hasSessionStats(stats) ? stats : undefined;
+      const extWorktreePath = entry.worktree_path ?? undefined;
+      const extOriginalDir = entry.original_directory ?? undefined;
+      const extGitBranch = entry.git_branch ?? undefined;
 
-      const lastMessage = extractLastMessage(history);
+      const info: InstanceInfo = {
+        id: entry.instance_id,
+        provider: (entry.provider_name as ProviderKind) || "claude",
+        name: entry.name,
+        workingDirectory: entry.working_directory,
+        status: "stopped",
+        createdAt: entry.created_at,
+        lastActivityAt: entry.last_activity_at,
+        external: true,
+        lastMessage: lastMessageFromDb(entry),
+        sessionId: entry.session_id,
+        customTitle: entry.custom_title === 1,
+        stats: dbStatsToSessionStats(entry),
+        gitBranch: extGitBranch,
+        originalDirectory: extOriginalDir,
+        gitInfo: gitInfoFromDb(entry),
+        parentSessionId: entry.parent_session_id ?? undefined,
+        preferredModel: entry.preferred_model ?? undefined,
+        reasoningBudget: entry.reasoning_budget ?? undefined,
+        skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      };
 
-      if (parsedStats) {
-        this.db.updateStats(entry.session_id, {
-          inputTokens: parsedStats.inputTokens,
-          outputTokens: parsedStats.outputTokens,
-          cacheCreationTokens: parsedStats.cacheCreationTokens,
-          cacheReadTokens: parsedStats.cacheReadTokens,
-          costUSD: parsedStats.costUSD,
-        });
-      }
-
-      if (entry.type === "external") {
-        // Restore worktree metadata if present (from scanAllSessions worktree recovery)
-        const extWorktreePath = entry.worktree_path ?? undefined;
-        const extOriginalDir = entry.original_directory ?? undefined;
-        const extGitBranch = entry.git_branch ?? undefined;
-
-        const info: InstanceInfo = {
-          id: entry.instance_id,
+      const instance: Instance = {
+        info,
+        process: null,
+        providerBinding: {
           provider: (entry.provider_name as ProviderKind) || "claude",
-          name: entry.name,
-          workingDirectory: entry.working_directory,
-          status: "stopped",
-          createdAt: entry.created_at,
-          lastActivityAt: entry.last_activity_at,
-          external: true,
-          lastMessage,
-          sessionId: entry.session_id,
-          customTitle: entry.custom_title === 1,
-          stats: parsedStats,
-          gitBranch: extGitBranch,
-          originalDirectory: extOriginalDir,
-          gitInfo: extWorktreePath
-            ? (getGitInfo(extWorktreePath) ?? undefined)
-            : (getGitInfo(entry.working_directory) ?? undefined),
-          parentSessionId: entry.parent_session_id ?? undefined,
-          preferredModel: entry.preferred_model ?? undefined,
-          reasoningBudget: entry.reasoning_budget ?? undefined,
-          skipPermissions: entry.skip_permissions === 1 ? true : undefined,
-        };
-
-        const instance: Instance = {
-          info,
-          process: null,
-          providerBinding: {
-            provider: (entry.provider_name as ProviderKind) || "claude",
-            providerSessionId: entry.session_id,
-            resumeCursor: { sessionId: entry.session_id },
-            runtimePayload: { cwd: entry.working_directory },
-            transcriptPath: entry.jsonl_path,
-            runtimeMode: normalizeRuntimeMode(entry.skip_permissions === 1),
-          },
-          history,
-          sessionId: entry.session_id,
+          providerSessionId: entry.session_id,
+          resumeCursor: { sessionId: entry.session_id },
+          runtimePayload: { cwd: entry.working_directory },
+          transcriptPath: entry.jsonl_path,
+          runtimeMode: normalizeRuntimeMode(entry.skip_permissions === 1),
+        },
+        history: [], // deferred until hydration
+        sessionId: entry.session_id,
+        jsonlPath: entry.jsonl_path,
+        externalState: {
           jsonlPath: entry.jsonl_path,
-          externalState: {
-            jsonlPath: entry.jsonl_path,
-            sessionId: entry.session_id,
-          },
-          tasks: tasks.size > 0 ? tasks : undefined,
-          files: files.size > 0 ? files : undefined,
-          team: team ?? undefined,
-          agentActivities: agentActivities.size > 0 ? agentActivities : undefined,
-          worktreePath: extWorktreePath,
-          gitBranch: extGitBranch,
-          originalDirectory: extOriginalDir,
-          actualCwd: extWorktreePath ? extWorktreePath : undefined,
-        };
+          sessionId: entry.session_id,
+        },
+        // tasks, files, team, agentActivities deferred until hydration
+        worktreePath: extWorktreePath,
+        gitBranch: extGitBranch,
+        originalDirectory: extOriginalDir,
+        actualCwd: extWorktreePath ? extWorktreePath : undefined,
+        hydrated: false,
+      };
 
-        // Enrich files with git diff stats
-        if (instance.files && instance.files.size > 0) {
-          const diffCwd = instance.actualCwd || entry.working_directory;
-          const origBranch = extOriginalDir
-            ? (getCurrentBranch(extOriginalDir) ?? undefined)
-            : undefined;
-          enrichDiffStats(diffCwd, instance.files, {
-            originalBranch: origBranch,
-            sessionCreatedAt: instance.info.createdAt,
-          });
-        }
-
-        this.instances.set(entry.instance_id, instance);
-        this.emit("instance:created", entry.instance_id, { ...info });
-        restored++;
-      }
+      this.instances.set(entry.instance_id, instance);
+      this.emit("instance:created", entry.instance_id, { ...info });
+      restored++;
     }
 
+    // --- Managed sessions: skeleton from DB metadata only (no provider boot, no JSONL parse) ---
     for (const entry of this.db.getAllManagedActive()) {
       let restoreActualCwd = entry.working_directory;
       let restoreWorktreePath: string | undefined;
@@ -3587,13 +3788,6 @@ export class InstanceManager extends EventEmitter {
       }
 
       const resumeSessionId = entry.provider_session_id ?? extractResumeSessionId(resumeCursor);
-
-      let history: HistoryEntry[] = [];
-      let tasks = new Map<string, TaskItem>();
-      let files = new Map<string, FileChange>();
-      let team: TeamInfo | null = null;
-      let agentActivities = new Map<string, AgentActivity>();
-      let parsedStats: SessionStats | undefined;
       const provider = entry.provider_name as ProviderKind;
       const transcriptPath = this.resolveManagedTranscriptPath(provider, {
         sessionId: resumeSessionId,
@@ -3607,62 +3801,31 @@ export class InstanceManager extends EventEmitter {
         );
         continue;
       }
-      if (transcriptPath && existsSync(transcriptPath)) {
-        const parsed = this.parseProviderTranscript(provider, transcriptPath);
-        history = parsed.history;
-        tasks = parsed.tasks;
-        files = parsed.files;
-        team = parsed.team;
-        agentActivities = parsed.agentActivities;
-        parsedStats = hasSessionStats(parsed.stats) ? parsed.stats : undefined;
-      }
-
-      const instanceConfig: CoreConfig = {
-        ...this.baseConfig,
-        workingDirectory: restoreActualCwd,
-        dangerouslySkipPermissions: entry.skip_permissions === 1,
-      };
-
-      const proc = this.createProviderSession(instanceConfig, {
-        provider,
-        resumeSessionId,
-        model: entry.preferred_model ?? undefined,
-        reasoningBudget: entry.reasoning_budget ?? undefined,
-      });
 
       const info: InstanceInfo = {
         id: entry.instance_id,
         provider: entry.provider_name as ProviderKind,
         name: entry.name,
         workingDirectory: entry.working_directory,
-        status: "idle",
+        status: "stopped",
         createdAt: entry.created_at,
         lastActivityAt: entry.last_activity_at,
-        lastMessage: extractLastMessage(history),
+        lastMessage: lastMessageFromDb(entry),
         sessionId: resumeSessionId,
         customTitle: entry.custom_title === 1,
-        stats: parsedStats,
+        stats: dbStatsToSessionStats(entry),
         gitBranch: restoreGitBranch,
         originalDirectory: restoreOriginalDirectory,
-        gitInfo: getGitInfo(entry.working_directory) ?? undefined,
+        gitInfo: gitInfoFromDb(entry),
         parentSessionId: entry.parent_session_id ?? undefined,
         preferredModel: entry.preferred_model ?? undefined,
         reasoningBudget: entry.reasoning_budget ?? undefined,
         skipPermissions: entry.skip_permissions === 1 ? true : undefined,
       };
 
-      let watchState: WatchState | undefined;
-      if (transcriptPath && existsSync(transcriptPath)) {
-        try {
-          watchState = createWatchState(transcriptPath, statSync(transcriptPath).size, parsedStats);
-        } catch {
-          watchState = undefined;
-        }
-      }
-
       const instance: Instance = {
         info,
-        process: proc,
+        process: null,
         providerBinding: {
           provider,
           providerSessionId: resumeSessionId,
@@ -3671,34 +3834,18 @@ export class InstanceManager extends EventEmitter {
           transcriptPath,
           runtimeMode: entry.runtime_mode as ProviderRuntimeMode,
         },
-        history,
+        history: [], // deferred until hydration
         sessionId: resumeSessionId,
         jsonlPath: transcriptPath,
-        watchState,
-        tasks: tasks.size > 0 ? tasks : undefined,
-        files: files.size > 0 ? files : undefined,
-        team: team ?? undefined,
-        agentActivities: agentActivities.size > 0 ? agentActivities : undefined,
+        // watchState, tasks, files, team, agentActivities deferred until hydration
         worktreePath: restoreWorktreePath,
         gitBranch: restoreGitBranch,
         originalDirectory: restoreOriginalDirectory,
         actualCwd: restoreWorktreePath ? restoreActualCwd : undefined,
+        hydrated: false,
       };
 
-      if (instance.files && instance.files.size > 0) {
-        const diffCwd = instance.actualCwd || entry.working_directory;
-        const origBranch = restoreOriginalDirectory
-          ? (getCurrentBranch(restoreOriginalDirectory) ?? undefined)
-          : undefined;
-        enrichDiffStats(diffCwd, instance.files, {
-          originalBranch: origBranch,
-          sessionCreatedAt: instance.info.createdAt,
-        });
-      }
-
       this.instances.set(entry.instance_id, instance);
-      this.wireProcessEvents(entry.instance_id, instance, proc);
-      if (watchState) this.startWatching(entry.instance_id, instance);
       if (transcriptPath !== (entry.transcript_path ?? undefined)) {
         this.dbSave(instance);
       }
@@ -3712,7 +3859,8 @@ export class InstanceManager extends EventEmitter {
       );
     }
 
-    this.linkPlanSessions();
+    // Defer plan-parent linking to after server.listen()
+    queueMicrotask(() => this.linkPlanSessions());
   }
 
   /**

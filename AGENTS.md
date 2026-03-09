@@ -170,6 +170,8 @@ ui/
 - Sidebar and sidecar are resizable via `react-resizable-panels` (v4 API: `Group`, `Panel`, `Separator`)
 - `ResizableHandle` (`ui/src/components/ui/ResizableHandle.tsx`) wraps the library's `Separator` with themed styling
 - **AppLayout**: `Group` wraps sidebar panel (25% default, 12-40%, collapsible) + main panel (75%). Shared across ChatPage and ProjectPage via layout route — sidebar persists across navigation.
+- Sidebar/dashboard session rows are rendered from persisted SQLite metadata first (`name`, timestamps, last-message preview, stats, git info); opening a chat triggers lazy hydration/boot for that session instead of startup doing full transcript replay for every session
+- `InstanceView` shows a session-scoped loading panel while the first `instance_history` replay is in flight, so lazy hydration does not render as a blank chat page
 - **InstanceView**: When sidecar is visible, `Group` wraps chat panel (75%) + sidecar panel (25%, 15-40%, collapsible)
 - Mobile (<=768px): No resizable panels — falls back to existing full-width/overlay behavior
 - Both sidebar and sidecar panels are collapsible (`collapsible collapsedSize={0}`)
@@ -350,14 +352,15 @@ ui/
 
 - **SQLite has two roles**: `sessions` is a rebuildable Claude transcript index, while `managed_sessions` is the source of truth for managed-session provider bindings and restore metadata.
 - `SessionDB` (in `src/core/db.ts`) wraps `better-sqlite3` with prepared statements for synchronous access. WAL journal mode, 3s busy timeout.
-- **Schema versioning**: `schema_version` table tracks migrations. Current version: 8.
+- **Schema versioning**: `schema_version` table tracks migrations. Current version: 10.
 - **Startup sequence**: `migrateFromManifest()` (one-time import from legacy `instances.json`) → `scanAllSessions()` (discover JSONL files on disk, upsert new ones, archive missing ones) → restore active sessions.
 - **`scanAllSessions()`**: Walks `~/.Codex/projects/` directories, reads `sessions-index.json` for fast metadata, compares with DB via `getJsonlPaths()`, upserts new transcript rows, repairs corrupted `working_directory` values, archives DB entries whose JSONL files no longer exist on disk. Also archives sessions from deleted directories (no longer exist on disk) and temp directories (`/tmp`, `/private/tmp`).
 - **Archive model** replaces pruning: `removeInstance()` archives (sets `archived = 1`) instead of deleting. Discovery auto-unarchives if the JSONL reappears. Archived sessions are excluded from `getAllActive()` but retained in the DB.
 - **Corruption recovery**: If the DB file cannot be opened, it is renamed to `sessions.db.corrupt.{timestamp}` and recreated from scratch. `needsRebuild` flag triggers a full scan.
-- **Managed restore**: Reads `managed_sessions`, recreates the correct provider adapter from `provider_name` plus persisted runtime binding, resolves provider-specific transcript paths when possible, starts a watcher once a transcript path is available, and archives incomplete placeholder rows that have neither a resumable provider session nor a transcript path
-- **External restore**: Creates stopped instance with `process: null`, `external: true`, no watcher — visible in UI with full history from JSONL
+- **Managed restore**: Reads `managed_sessions`, restores a stopped skeleton from persisted metadata only (no provider boot, no transcript parse), resolves provider-specific transcript paths when possible, and archives incomplete placeholder rows that have neither a resumable provider session nor a transcript path
+- **External restore**: Creates stopped instance with `process: null`, `external: true`, and no watcher or transcript parse at startup
 - **Discovery upgrade**: When a `Codex` process starts in a dir matching a restored stopped external, `upgradeRestoredExternal()` sets `externalState`, starts watcher, transitions to `idle`
+- **Lazy hydration/boot**: `getHistory()` is the main on-demand hydration point. On first open it replays the transcript, restores task/file/team state, refreshes git info/stats/last message in SQLite, starts the watcher, and boots a managed provider session when resumable runtime state exists
 - Managed instances are persisted into `managed_sessions` once they have resumable state (provider session ID and/or transcript path); empty placeholder sessions are not restored
 - Legacy managed transcript rows are migrated into `managed_sessions` on startup when needed
 - Transcript rows in `sessions` still persist provider name (`provider_name`) for Claude-indexed sessions

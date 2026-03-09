@@ -236,6 +236,12 @@ function seedDB(tempDir, entries) {
       preferred_model: null,
       reasoning_budget: null,
       skip_permissions: 0,
+      last_message_text: entry.lastMessageText || null,
+      last_message_from: entry.lastMessageFrom || null,
+      last_message_at: entry.lastMessageAt || null,
+      git_info_branch: entry.gitInfoBranch || null,
+      git_info_is_worktree:
+        entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
     });
   }
   db.close();

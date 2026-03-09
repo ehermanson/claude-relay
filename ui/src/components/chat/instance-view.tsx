@@ -11,6 +11,7 @@ import { ResizableHandle } from "../ui/resizable-handle";
 import { Dialog } from "../ui/dialog";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Spinner } from "../ui/spinner";
 import { Tooltip } from "../ui/tooltip";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
@@ -86,6 +87,7 @@ export function InstanceView() {
 
   const {
     items,
+    hasLoadedHistory,
     isProcessing,
     showThinkingIndicator,
     currentTasks,
@@ -261,24 +263,43 @@ export function InstanceView() {
     rawPermission && typeof rawPermission === "object" ? rawPermission.requestId : null;
   const pendingPermissionDesc =
     rawPermission && typeof rawPermission === "object" ? rawPermission.description : undefined;
+  const isLoadingSession = connectionId > 0 && !hasLoadedHistory;
+
+  const loadingContent = (
+    <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+      <div className="flex w-full max-w-md flex-col items-center rounded-2xl border border-border bg-surface/80 px-6 py-8 text-center shadow-sm">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 text-accent">
+          <Spinner size={20} className="text-accent" />
+        </div>
+        <p className="text-[0.875rem] font-medium text-text-bright">Loading session</p>
+        <p className="mt-1 text-[0.75rem] text-muted">
+          Replaying history and restoring live state for this chat.
+        </p>
+      </div>
+    </div>
+  );
 
   const chatContent = (
     <>
-      <MessageList
-        items={items}
-        isProcessing={isProcessing}
-        showThinkingIndicator={showThinkingIndicator}
-        instanceStatus={instance.status}
-        lastActivity={lastActivity}
-        processingStartedAt={processingStartedAt}
-        onSendMessage={handleSend}
-        isInteractive={!isStopped}
-        onApproveTool={handleApproveTool}
-        approvedTools={approvedTools}
-        isExternal={!!instance.sessionId}
-        planChildId={planChild?.id}
-        planChildName={planChild?.name}
-      />
+      {isLoadingSession ? (
+        loadingContent
+      ) : (
+        <MessageList
+          items={items}
+          isProcessing={isProcessing}
+          showThinkingIndicator={showThinkingIndicator}
+          instanceStatus={instance.status}
+          lastActivity={lastActivity}
+          processingStartedAt={processingStartedAt}
+          onSendMessage={handleSend}
+          isInteractive={!isStopped}
+          onApproveTool={handleApproveTool}
+          approvedTools={approvedTools}
+          isExternal={!!instance.sessionId}
+          planChildId={planChild?.id}
+          planChildName={planChild?.name}
+        />
+      )}
       {showDebugPaste && (
         <DebugModal
           instance={instance}
@@ -341,24 +362,26 @@ export function InstanceView() {
         !instance.external &&
         items.length > 0 && <MergeBanner onMerge={handleMerge} />}
 
-      <InputArea
-        onSend={handleSend}
-        onCancel={handleCancel}
-        onSwitchProvider={handleSwitchProvider}
-        isProcessing={isProcessing}
-        isConnected={isConnected}
-        instanceId={id!}
-        sessionId={instance.sessionId}
-        isStopped={isStopped}
-        isExternal={!!instance.external}
-        isPendingInTerminal={!!pendingTerminalTool}
-        provider={instance.provider}
-        preferredModel={instance.preferredModel}
-        reasoningBudget={instance.reasoningBudget}
-        activeModel={instance.stats?.model}
-        skipPermissions={instance.skipPermissions}
-        stats={instance.stats}
-      />
+      {!isLoadingSession && (
+        <InputArea
+          onSend={handleSend}
+          onCancel={handleCancel}
+          onSwitchProvider={handleSwitchProvider}
+          isProcessing={isProcessing}
+          isConnected={isConnected}
+          instanceId={id!}
+          sessionId={instance.sessionId}
+          isStopped={isStopped}
+          isExternal={!!instance.external}
+          isPendingInTerminal={!!pendingTerminalTool}
+          provider={instance.provider}
+          preferredModel={instance.preferredModel}
+          reasoningBudget={instance.reasoningBudget}
+          activeModel={instance.stats?.model}
+          skipPermissions={instance.skipPermissions}
+          stats={instance.stats}
+        />
+      )}
     </>
   );
 

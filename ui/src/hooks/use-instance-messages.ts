@@ -35,6 +35,7 @@ export interface LiveActivity {
 
 interface State {
   items: ChatItem[];
+  hasLoadedHistory: boolean;
   isProcessing: boolean;
   showThinkingIndicator: boolean;
   currentTasks: TaskItem[] | null;
@@ -63,6 +64,7 @@ function reducer(state: State, action: Action): State {
     case "reset":
       return {
         items: [],
+        hasLoadedHistory: false,
         isProcessing: false,
         showThinkingIndicator: false,
         currentTasks: null,
@@ -181,6 +183,7 @@ function reducer(state: State, action: Action): State {
 
       return {
         items,
+        hasLoadedHistory: true,
         isProcessing: false,
         showThinkingIndicator: false,
         currentTasks,
@@ -440,6 +443,7 @@ function reducer(state: State, action: Action): State {
 export function useInstanceMessages() {
   const [state, dispatch] = useReducer(reducer, {
     items: [],
+    hasLoadedHistory: false,
     isProcessing: false,
     showThinkingIndicator: false,
     currentTasks: null,
@@ -518,6 +522,7 @@ export function useInstanceMessages() {
 
   return {
     items: state.items,
+    hasLoadedHistory: state.hasLoadedHistory,
     isProcessing: state.isProcessing,
     showThinkingIndicator: state.showThinkingIndicator,
     currentTasks: state.currentTasks,

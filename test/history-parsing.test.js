@@ -67,6 +67,12 @@ function seedDB(tempDir, entries) {
       preferred_model: null,
       reasoning_budget: null,
       skip_permissions: 0,
+      last_message_text: entry.lastMessageText || null,
+      last_message_from: entry.lastMessageFrom || null,
+      last_message_at: entry.lastMessageAt || null,
+      git_info_branch: entry.gitInfoBranch || null,
+      git_info_is_worktree:
+        entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
     });
   }
   db.close();
@@ -116,6 +122,12 @@ function seedManagedDB(tempDir, entries) {
         entry.runtimePayloadJson ||
         JSON.stringify({ cwd: entry.workingDirectory || "/Users/test/projects/my-app" }),
       transcript_path: entry.transcriptPath || null,
+      last_message_text: entry.lastMessageText || null,
+      last_message_from: entry.lastMessageFrom || null,
+      last_message_at: entry.lastMessageAt || null,
+      git_info_branch: entry.gitInfoBranch || null,
+      git_info_is_worktree:
+        entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
     });
   }
   db.close();
@@ -351,25 +363,34 @@ describe("History Parsing via DB Restore", () => {
   });
 
   describe("lastMessage preview", () => {
-    it("populates lastMessage from the most recent meaningful message", () => {
-      seedDB(tempDir, [makeExternalEntry({ jsonlPath: join(fixturesDir, "basic-session.jsonl") })]);
+    it("restores sidebar preview metadata from the database before hydration", () => {
+      const lastMessageAt = Date.now() - 60_000;
+      seedDB(tempDir, [
+        makeExternalEntry({
+          jsonlPath: join(fixturesDir, "basic-session.jsonl"),
+          lastMessageText: "Persisted preview",
+          lastMessageFrom: "user",
+          lastMessageAt,
+          gitInfoBranch: "main",
+          gitInfoIsWorktree: false,
+        }),
+      ]);
       const manager = makeManager(tempDir);
       manager.restoreInstances();
 
       const info = manager.getInstance("test-id");
       assert.ok(info.lastMessage, "Should have lastMessage");
-      assert.ok(info.lastMessage.text, "lastMessage should have text");
-      assert.ok(
-        info.lastMessage.from === "user" || info.lastMessage.from === "claude",
-        "lastMessage.from should be user or claude",
-      );
+      assert.equal(info.lastMessage.text, "Persisted preview");
+      assert.equal(info.lastMessage.from, "user");
+      assert.equal(info.lastMessage.timestamp, lastMessageAt);
+      assert.deepEqual(info.gitInfo, { branch: "main", isWorktree: false });
 
       manager.stopAll();
     });
   });
 
   describe("managed Codex restore", () => {
-    it("rehydrates history and stats from a persisted Codex transcript", () => {
+    it("rehydrates history and stats from a persisted Codex transcript on first open", () => {
       const transcriptPath = join(fixturesDir, "codex-managed-session.jsonl");
       seedManagedDB(tempDir, [
         {
@@ -387,16 +408,23 @@ describe("History Parsing via DB Restore", () => {
       const manager = makeManager(tempDir);
       manager.restoreInstances();
 
-      const info = manager.getInstance("codex-managed-id");
-      const history = manager.getHistory("codex-managed-id");
+      const infoBefore = manager.getInstance("codex-managed-id");
+      const instanceBefore = manager.instances.get("codex-managed-id");
+      assert.equal(infoBefore.provider, "codex");
+      assert.equal(infoBefore.sessionId, "codex-test-session");
+      assert.equal(infoBefore.status, "stopped");
+      assert.equal(instanceBefore.process, null);
 
-      assert.equal(info.provider, "codex");
-      assert.equal(info.sessionId, "codex-test-session");
+      const history = manager.getHistory("codex-managed-id");
+      const info = manager.getInstance("codex-managed-id");
+
+      assert.equal(info.status, "idle");
       assert.ok(info.stats, "Managed Codex session should restore stats");
       assert.equal(info.stats.inputTokens, 120);
       assert.equal(info.stats.cacheReadTokens, 45);
       assert.equal(info.stats.outputTokens, 30);
       assert.equal(info.stats.model, "gpt-5.4");
+      assert.equal(manager.instances.get("codex-managed-id").process?.provider, "codex");
 
       const userMessages = history.filter((h) => h.message.type === "user");
       assert.equal(userMessages.length, 1, "Only the actual chat message should be replayed");

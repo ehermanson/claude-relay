@@ -36,6 +36,11 @@ function makeRow(overrides = {}) {
     preferred_model: null,
     reasoning_budget: null,
     skip_permissions: 0,
+    last_message_text: null,
+    last_message_from: null,
+    last_message_at: null,
+    git_info_branch: null,
+    git_info_is_worktree: null,
     ...overrides,
   };
 }

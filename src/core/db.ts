@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 10;
 
 export interface SessionRow {
   session_id: string;
@@ -40,6 +40,11 @@ export interface SessionRow {
   preferred_model: string | null;
   reasoning_budget: number | null;
   skip_permissions: number;
+  last_message_text: string | null;
+  last_message_from: string | null;
+  last_message_at: number | null;
+  git_info_branch: string | null;
+  git_info_is_worktree: number | null;
 }
 
 export interface ManagedInstanceRow {
@@ -68,6 +73,11 @@ export interface ManagedInstanceRow {
   resume_cursor_json: string | null;
   runtime_payload_json: string | null;
   transcript_path: string | null;
+  last_message_text: string | null;
+  last_message_from: string | null;
+  last_message_at: number | null;
+  git_info_branch: string | null;
+  git_info_is_worktree: number | null;
 }
 
 export class SessionDB {
@@ -276,6 +286,40 @@ export class SessionDB {
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_provider_session_id ON managed_sessions(provider_session_id);
     `);
 
+    // v9: add last_message columns for lazy hydration (sidebar preview without JSONL parse)
+    {
+      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!sessionCols.some((c) => c.name === "last_message_text")) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN last_message_text TEXT`);
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN last_message_from TEXT`);
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN last_message_at INTEGER`);
+      }
+      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
+        name: string;
+      }>;
+      if (!managedCols.some((c) => c.name === "last_message_text")) {
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN last_message_text TEXT`);
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN last_message_from TEXT`);
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN last_message_at INTEGER`);
+      }
+    }
+
+    // v10: persist git metadata so sidebar grouping/icons can render from DB
+    {
+      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!sessionCols.some((c) => c.name === "git_info_branch")) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN git_info_branch TEXT`);
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN git_info_is_worktree INTEGER`);
+      }
+      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
+        name: string;
+      }>;
+      if (!managedCols.some((c) => c.name === "git_info_branch")) {
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN git_info_branch TEXT`);
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN git_info_is_worktree INTEGER`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -291,13 +335,17 @@ export class SessionDB {
         created_at, last_activity_at, type, archived, custom_title,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         cost_usd, summary, first_prompt, git_branch, message_count, allowed_tools,
-        worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, skip_permissions
+        worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, skip_permissions,
+        last_message_text, last_message_from, last_message_at,
+        git_info_branch, git_info_is_worktree
       ) VALUES (
         @session_id, @instance_id, @provider_name, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @cost_usd, @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
-        @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @skip_permissions
+        @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @skip_permissions,
+        @last_message_text, @last_message_from, @last_message_at,
+        @git_info_branch, @git_info_is_worktree
       )
       ON CONFLICT(session_id) DO UPDATE SET
         instance_id = excluded.instance_id,
@@ -324,7 +372,12 @@ export class SessionDB {
         parent_session_id = excluded.parent_session_id,
         preferred_model = excluded.preferred_model,
         reasoning_budget = excluded.reasoning_budget,
-        skip_permissions = excluded.skip_permissions
+        skip_permissions = excluded.skip_permissions,
+        last_message_text = excluded.last_message_text,
+        last_message_from = excluded.last_message_from,
+        last_message_at = excluded.last_message_at,
+        git_info_branch = excluded.git_info_branch,
+        git_info_is_worktree = excluded.git_info_is_worktree
     `);
 
     this.stmtUpsertManaged = this.db.prepare(`
@@ -334,14 +387,18 @@ export class SessionDB {
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd,
         git_branch, worktree_path, original_directory, parent_session_id,
         preferred_model, reasoning_budget, skip_permissions, runtime_mode,
-        resume_cursor_json, runtime_payload_json, transcript_path
+        resume_cursor_json, runtime_payload_json, transcript_path,
+        last_message_text, last_message_from, last_message_at,
+        git_info_branch, git_info_is_worktree
       ) VALUES (
         @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
         @created_at, @last_activity_at, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens, @cost_usd,
         @git_branch, @worktree_path, @original_directory, @parent_session_id,
         @preferred_model, @reasoning_budget, @skip_permissions, @runtime_mode,
-        @resume_cursor_json, @runtime_payload_json, @transcript_path
+        @resume_cursor_json, @runtime_payload_json, @transcript_path,
+        @last_message_text, @last_message_from, @last_message_at,
+        @git_info_branch, @git_info_is_worktree
       )
       ON CONFLICT(instance_id) DO UPDATE SET
         provider_name = excluded.provider_name,
@@ -366,7 +423,12 @@ export class SessionDB {
         runtime_mode = excluded.runtime_mode,
         resume_cursor_json = excluded.resume_cursor_json,
         runtime_payload_json = excluded.runtime_payload_json,
-        transcript_path = excluded.transcript_path
+        transcript_path = excluded.transcript_path,
+        last_message_text = excluded.last_message_text,
+        last_message_from = excluded.last_message_from,
+        last_message_at = excluded.last_message_at,
+        git_info_branch = excluded.git_info_branch,
+        git_info_is_worktree = excluded.git_info_is_worktree
     `);
 
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
