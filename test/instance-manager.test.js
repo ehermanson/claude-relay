@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { InstanceManager } from "../dist/core/instance-manager.js";
+import { SessionDB } from "../dist/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
 
 // Use a noop logger to keep test output clean
@@ -63,6 +64,17 @@ describe("InstanceManager", () => {
       manager.createInstance();
       manager.createInstance();
       assert.throws(() => manager.createInstance(), /Maximum processes/);
+    });
+
+    it("does not persist an empty managed instance before it has resumable state", () => {
+      const info = manager.createInstance({ name: "Unsaved Draft" });
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+
+      try {
+        assert.equal(db.getManagedByInstanceId(info.id), undefined);
+      } finally {
+        db.close();
+      }
     });
   });
 

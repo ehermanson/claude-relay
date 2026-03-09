@@ -354,10 +354,10 @@ ui/
 - **`scanAllSessions()`**: Walks `~/.Codex/projects/` directories, reads `sessions-index.json` for fast metadata, compares with DB via `getJsonlPaths()`, upserts new transcript rows, repairs corrupted `working_directory` values, archives DB entries whose JSONL files no longer exist on disk. Also archives sessions from deleted directories (no longer exist on disk) and temp directories (`/tmp`, `/private/tmp`).
 - **Archive model** replaces pruning: `removeInstance()` archives (sets `archived = 1`) instead of deleting. Discovery auto-unarchives if the JSONL reappears. Archived sessions are excluded from `getAllActive()` but retained in the DB.
 - **Corruption recovery**: If the DB file cannot be opened, it is renamed to `sessions.db.corrupt.{timestamp}` and recreated from scratch. `needsRebuild` flag triggers a full scan.
-- **Managed restore**: Reads `managed_sessions`, recreates the correct provider adapter from `provider_name` plus persisted runtime binding, resolves provider-specific transcript paths when possible, and starts a watcher once a transcript path is available
+- **Managed restore**: Reads `managed_sessions`, recreates the correct provider adapter from `provider_name` plus persisted runtime binding, resolves provider-specific transcript paths when possible, starts a watcher once a transcript path is available, and archives incomplete placeholder rows that have neither a resumable provider session nor a transcript path
 - **External restore**: Creates stopped instance with `process: null`, `external: true`, no watcher — visible in UI with full history from JSONL
 - **Discovery upgrade**: When a `Codex` process starts in a dir matching a restored stopped external, `upgradeRestoredExternal()` sets `externalState`, starts watcher, transitions to `idle`
-- Managed instances are always persisted into `managed_sessions`, even before Claude transcript capture completes
+- Managed instances are persisted into `managed_sessions` once they have resumable state (provider session ID and/or transcript path); empty placeholder sessions are not restored
 - Legacy managed transcript rows are migrated into `managed_sessions` on startup when needed
 - Transcript rows in `sessions` still persist provider name (`provider_name`) for Claude-indexed sessions
 - `stopAll()` does NOT clear the DB — instances survive relay restarts

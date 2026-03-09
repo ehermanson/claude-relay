@@ -452,6 +452,37 @@ describe("History Parsing via DB Restore", () => {
 
       manager.stopAll();
     });
+
+    it("archives incomplete managed rows that have no resumable binding", () => {
+      seedManagedDB(tempDir, [
+        {
+          id: "empty-managed-id",
+          provider: "claude",
+          name: "Normal",
+          workingDirectory: "/Users/test/projects/my-app",
+          providerSessionId: null,
+          resumeCursorJson: null,
+          runtimePayloadJson: JSON.stringify({ cwd: "/Users/test/projects/my-app" }),
+          transcriptPath: null,
+        },
+      ]);
+
+      const manager = makeManager(tempDir);
+      manager.restoreInstances();
+
+      assert.equal(manager.listInstances().length, 0);
+
+      const db = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+      try {
+        const row = db.getManagedByInstanceId("empty-managed-id");
+        assert.ok(row, "Expected placeholder row to remain in DB");
+        assert.equal(row.archived, 1, "Incomplete managed row should be archived");
+      } finally {
+        db.close();
+      }
+
+      manager.stopAll();
+    });
   });
 
   describe("malformed JSONL handling", () => {

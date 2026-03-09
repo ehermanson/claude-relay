@@ -54,7 +54,7 @@ Claude Relay inherits Claude Code's project model: **the directory you launch `c
 
 This is a convention, not a constraint. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar` or running commands elsewhere. The working directory is a "home base," not a sandbox — the same way a git repo doesn't stop you from touching files outside it. In practice the heuristic is correct the vast majority of the time, since people launch `claude` from the repo they're working on.
 
-New managed sessions run directly in the directory you choose. Managed sessions now persist a provider binding and provider-owned resume state in SQLite, so restore does not depend on discovering a Claude JSONL file first. Claude transcripts are still used for Claude-specific history replay, external session discovery, and post-hoc session capture.
+New managed sessions run directly in the directory you choose. Once a managed session has a resumable provider binding or transcript path, Relay persists that runtime state in SQLite so restore does not depend on discovering a Claude JSONL file first. Empty placeholder sessions that never started a real provider conversation are not restored. Claude transcripts are still used for Claude-specific history replay, external session discovery, and post-hoc session capture.
 
 If Relay discovers or restores a session that already lives in a Relay-managed git worktree, it preserves that worktree metadata so the session can still be resumed, displayed, and merged correctly.
 
@@ -265,7 +265,7 @@ manager.sendMessage(instance.id, "Hello Claude");
 
 ## Managed Sessions
 
-Managed sessions are now restored from provider runtime bindings stored in SQLite, not just from Claude transcript rows. The persistence and `ProviderSession` contract are isolated enough to add other managed providers without teaching `InstanceManager` about provider-specific runtime state.
+Managed sessions are now restored from provider runtime bindings stored in SQLite, not just from Claude transcript rows. Empty placeholder rows without a resumable provider session or transcript are archived during restore instead of showing up as blank sessions. The persistence and `ProviderSession` contract are isolated enough to add other managed providers without teaching `InstanceManager` about provider-specific runtime state.
 
 For Claude specifically:
 

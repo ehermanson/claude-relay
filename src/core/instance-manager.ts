@@ -493,6 +493,12 @@ function normalizeRuntimeMode(skipPermissions: boolean | undefined): ProviderRun
   return skipPermissions ? "full-access" : "approval-required";
 }
 
+function extractResumeSessionId(resumeCursor: unknown): string | undefined {
+  if (!resumeCursor || typeof resumeCursor !== "object") return undefined;
+  const value = (resumeCursor as Record<string, unknown>).sessionId;
+  return typeof value === "string" && value ? value : undefined;
+}
+
 function hasSessionStats(stats: SessionStats | undefined): stats is SessionStats {
   if (!stats) return false;
   return (
@@ -3055,9 +3061,20 @@ export class InstanceManager extends EventEmitter {
     };
   }
 
+  private shouldPersistManagedInstance(instance: Instance): boolean {
+    const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
+    const resumeSessionId =
+      binding?.providerSessionId ??
+      instance.sessionId ??
+      instance.info.sessionId ??
+      extractResumeSessionId(binding?.resumeCursor);
+
+    return !!(resumeSessionId || binding?.transcriptPath || instance.jsonlPath);
+  }
+
   private dbSave(instance: Instance): void {
     try {
-      if (!instance.info.external) {
+      if (!instance.info.external && this.shouldPersistManagedInstance(instance)) {
         instance.providerBinding =
           instance.process?.getRuntimeBinding() ?? instance.providerBinding;
         this.db.upsertManaged(this.toManagedInstanceRow(instance));
@@ -3569,14 +3586,7 @@ export class InstanceManager extends EventEmitter {
         runtimePayload = undefined;
       }
 
-      const resumeSessionId =
-        entry.provider_session_id ??
-        (resumeCursor &&
-        typeof resumeCursor === "object" &&
-        "sessionId" in (resumeCursor as Record<string, unknown>) &&
-        typeof (resumeCursor as Record<string, unknown>).sessionId === "string"
-          ? ((resumeCursor as Record<string, unknown>).sessionId as string)
-          : undefined);
+      const resumeSessionId = entry.provider_session_id ?? extractResumeSessionId(resumeCursor);
 
       let history: HistoryEntry[] = [];
       let tasks = new Map<string, TaskItem>();
@@ -3590,6 +3600,13 @@ export class InstanceManager extends EventEmitter {
         transcriptPath: entry.transcript_path ?? undefined,
         workingDirectory: restoreActualCwd,
       });
+      if (!resumeSessionId && !transcriptPath) {
+        this.db.archiveManaged(entry.instance_id);
+        this.baseConfig.logger.info(
+          `[InstanceManager] Archived incomplete managed session "${entry.name}" (${entry.instance_id}) with no resumable binding`,
+        );
+        continue;
+      }
       if (transcriptPath && existsSync(transcriptPath)) {
         const parsed = this.parseProviderTranscript(provider, transcriptPath);
         history = parsed.history;
