@@ -6,7 +6,7 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { InstanceManager } from "../dist/core/instance-manager.js";
@@ -29,6 +29,7 @@ function makeManager(tempDir, overrides = {}) {
     maxProcesses: 20,
     dbPath: join(tempDir, "sessions.db"),
     claudeDir: join(tempDir, ".claude"),
+    codexDir: join(tempDir, ".codex"),
     ...overrides,
   });
   return new InstanceManager(config);
@@ -81,6 +82,43 @@ function makeExternalEntry(overrides) {
     type: "external",
     ...overrides,
   };
+}
+
+function seedManagedDB(tempDir, entries) {
+  const dbPath = join(tempDir, "sessions.db");
+  const db = new SessionDB(dbPath, noopLogger);
+  for (const entry of entries) {
+    db.upsertManaged({
+      instance_id: entry.id || "managed-id",
+      provider_name: entry.provider || "codex",
+      provider_session_id: entry.providerSessionId || null,
+      name: entry.name || "Managed Session",
+      working_directory: entry.workingDirectory || "/Users/test/projects/my-app",
+      created_at: entry.createdAt || Date.now(),
+      last_activity_at: entry.lastActivityAt || entry.createdAt || Date.now(),
+      archived: 0,
+      custom_title: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      cost_usd: 0,
+      git_branch: null,
+      worktree_path: null,
+      original_directory: null,
+      parent_session_id: null,
+      preferred_model: entry.preferredModel || null,
+      reasoning_budget: null,
+      skip_permissions: 0,
+      runtime_mode: "approval-required",
+      resume_cursor_json: entry.resumeCursorJson || null,
+      runtime_payload_json:
+        entry.runtimePayloadJson ||
+        JSON.stringify({ cwd: entry.workingDirectory || "/Users/test/projects/my-app" }),
+      transcript_path: entry.transcriptPath || null,
+    });
+  }
+  db.close();
 }
 
 describe("History Parsing via DB Restore", () => {
@@ -325,6 +363,92 @@ describe("History Parsing via DB Restore", () => {
         info.lastMessage.from === "user" || info.lastMessage.from === "claude",
         "lastMessage.from should be user or claude",
       );
+
+      manager.stopAll();
+    });
+  });
+
+  describe("managed Codex restore", () => {
+    it("rehydrates history and stats from a persisted Codex transcript", () => {
+      const transcriptPath = join(fixturesDir, "codex-managed-session.jsonl");
+      seedManagedDB(tempDir, [
+        {
+          id: "codex-managed-id",
+          provider: "codex",
+          providerSessionId: "codex-test-session",
+          name: "Codex Session",
+          workingDirectory: "/Users/test/projects/my-app",
+          transcriptPath,
+          preferredModel: "gpt-5.4",
+          resumeCursorJson: JSON.stringify({ sessionId: "codex-test-session" }),
+        },
+      ]);
+
+      const manager = makeManager(tempDir);
+      manager.restoreInstances();
+
+      const info = manager.getInstance("codex-managed-id");
+      const history = manager.getHistory("codex-managed-id");
+
+      assert.equal(info.provider, "codex");
+      assert.equal(info.sessionId, "codex-test-session");
+      assert.ok(info.stats, "Managed Codex session should restore stats");
+      assert.equal(info.stats.inputTokens, 120);
+      assert.equal(info.stats.cacheReadTokens, 45);
+      assert.equal(info.stats.outputTokens, 30);
+      assert.equal(info.stats.model, "gpt-5.4");
+
+      const userMessages = history.filter((h) => h.message.type === "user");
+      assert.equal(userMessages.length, 1, "Only the actual chat message should be replayed");
+      assert.equal(userMessages[0].message.text, "How do I build this?");
+
+      const toolUse = history.find(
+        (h) => h.message.type === "activity" && h.message.activity === "tool_use",
+      );
+      assert.ok(toolUse, "Expected a restored tool_use activity");
+      assert.equal(toolUse.message.tool, "Bash");
+      assert.equal(toolUse.message.description, "Running command");
+
+      const toolResult = history.find(
+        (h) => h.message.type === "activity" && h.message.activity === "tool_result",
+      );
+      assert.ok(toolResult, "Expected a restored tool_result activity");
+      assert.equal(toolResult.message.description, "Command completed");
+
+      manager.stopAll();
+    });
+
+    it("discovers the Codex transcript path from the provider session id on restore", () => {
+      const codexSessionDir = join(tempDir, ".codex", "sessions", "2026", "03", "08");
+      mkdirSync(codexSessionDir, { recursive: true });
+      const transcriptPath = join(
+        codexSessionDir,
+        "rollout-2026-03-08T12-00-00-codex-test-session.jsonl",
+      );
+      writeFileSync(transcriptPath, readFileSync(join(fixturesDir, "codex-managed-session.jsonl")));
+
+      seedManagedDB(tempDir, [
+        {
+          id: "codex-discovery-id",
+          provider: "codex",
+          providerSessionId: "codex-test-session",
+          name: "Recovered Codex Session",
+          workingDirectory: "/Users/test/projects/my-app",
+          resumeCursorJson: JSON.stringify({ sessionId: "codex-test-session" }),
+        },
+      ]);
+
+      const manager = makeManager(tempDir);
+      manager.restoreInstances();
+
+      const history = manager.getHistory("codex-discovery-id");
+      assert.ok(history.length > 0, "Managed Codex restore should discover transcript history");
+
+      const db = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+      const row = db.getManagedByInstanceId("codex-discovery-id");
+      assert.ok(row, "Expected managed Codex row to persist");
+      assert.equal(row.transcript_path, transcriptPath);
+      db.close();
 
       manager.stopAll();
     });

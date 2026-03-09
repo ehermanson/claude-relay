@@ -28,6 +28,11 @@ import type { ProviderSession } from "./provider.js";
 import { createSdkSessionSync, resolveQueryFn } from "./providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "./providers/claude-sdk.js";
 import { CodexCliSession } from "./providers/codex-cli.js";
+import {
+  convertCodexTranscriptEntry,
+  findCodexTranscriptPath,
+  parseCodexTranscript,
+} from "./providers/codex-transcript.js";
 import { SessionDB } from "./db.js";
 import type { SessionRow, ManagedInstanceRow } from "./db.js";
 import type { CoreConfig } from "./config.js";
@@ -101,6 +106,7 @@ interface WatchState {
   /** Tracks tool_use_id → tool name for permission denial attribution */
   pendingTools: Map<string, string>;
   pendingTaskCreates: Map<string, { subject: string; activeForm?: string }>;
+  pendingProviderCalls: Map<string, { name: string; arguments?: string }>;
   stats: SessionStats;
 }
 
@@ -470,6 +476,7 @@ function createWatchState(
     fileOffset,
     pendingTools: new Map(),
     pendingTaskCreates: new Map(),
+    pendingProviderCalls: new Map(),
     stats: existingStats
       ? { ...existingStats }
       : {
@@ -486,6 +493,31 @@ function normalizeRuntimeMode(skipPermissions: boolean | undefined): ProviderRun
   return skipPermissions ? "full-access" : "approval-required";
 }
 
+function hasSessionStats(stats: SessionStats | undefined): stats is SessionStats {
+  if (!stats) return false;
+  return (
+    stats.inputTokens > 0 ||
+    stats.outputTokens > 0 ||
+    stats.cacheCreationTokens > 0 ||
+    stats.cacheReadTokens > 0 ||
+    stats.costUSD > 0 ||
+    typeof stats.model === "string" ||
+    typeof stats.contextTokens === "number"
+  );
+}
+
+function statsChanged(before: SessionStats, after: SessionStats): boolean {
+  return (
+    before.inputTokens !== after.inputTokens ||
+    before.outputTokens !== after.outputTokens ||
+    before.cacheCreationTokens !== after.cacheCreationTokens ||
+    before.cacheReadTokens !== after.cacheReadTokens ||
+    before.costUSD !== after.costUSD ||
+    before.model !== after.model ||
+    before.contextTokens !== after.contextTokens
+  );
+}
+
 export class InstanceManager extends EventEmitter {
   private instances = new Map<string, Instance>();
   private baseConfig: CoreConfig;
@@ -496,6 +528,7 @@ export class InstanceManager extends EventEmitter {
   /** Tracks consecutive discovery misses per external instance (grace period before marking stopped) */
   private staleCounts = new Map<string, number>();
   private claudeDir: string;
+  private codexDir: string;
   /** Pre-resolved SDK query function — null if SDK not available (falls back to CLI) */
   private _sdkQueryFn: ((params: { prompt: unknown; options?: unknown }) => unknown) | null = null;
 
@@ -503,6 +536,7 @@ export class InstanceManager extends EventEmitter {
     super();
     this.baseConfig = config;
     this.claudeDir = config.claudeDir ?? join(homedir(), ".claude");
+    this.codexDir = config.codexDir ?? join(homedir(), ".codex");
     this.db = new SessionDB(config.dbPath, config.logger);
   }
 
@@ -672,24 +706,27 @@ export class InstanceManager extends EventEmitter {
 
     if (resumeId) {
       // We already know the session ID — set it up directly instead of waiting for captureSessionId
-      const encoded = workingDirectory.replace(/\//g, "-");
-      const jsonlPath = join(this.claudeDir, "projects", encoded, `${resumeId}.jsonl`);
+      const transcriptPath = this.resolveManagedTranscriptPath(provider, {
+        sessionId: resumeId,
+        workingDirectory,
+      });
       instance.sessionId = resumeId;
-      instance.jsonlPath = jsonlPath;
+      instance.jsonlPath = transcriptPath;
       info.sessionId = resumeId;
       instance.providerBinding = {
         ...(instance.providerBinding ?? proc.getRuntimeBinding()),
         provider,
         providerSessionId: resumeId,
         resumeCursor: { sessionId: resumeId },
-        transcriptPath: jsonlPath,
+        transcriptPath,
         runtimeMode: normalizeRuntimeMode(skipPerms),
       };
       proc.setSessionId?.(resumeId);
 
       // Parse existing history so the UI shows the full conversation
-      if (existsSync(jsonlPath)) {
-        const { history, tasks, files, team, agentActivities, stats } = this.parseJsonl(jsonlPath);
+      if (transcriptPath && existsSync(transcriptPath)) {
+        const { history, tasks, files, team, agentActivities, stats } =
+          this.parseProviderTranscript(provider, transcriptPath);
         instance.history = history;
         if (tasks.size > 0) instance.tasks = tasks;
         if (files.size > 0) {
@@ -705,11 +742,15 @@ export class InstanceManager extends EventEmitter {
         }
         if (team) instance.team = team;
         if (agentActivities.size > 0) instance.agentActivities = agentActivities;
-        if (stats.costUSD > 0) info.stats = stats;
+        if (hasSessionStats(stats)) info.stats = stats;
 
         // Start JSONL watcher
         try {
-          instance.watchState = createWatchState(jsonlPath, statSync(jsonlPath).size, info.stats);
+          instance.watchState = createWatchState(
+            transcriptPath,
+            statSync(transcriptPath).size,
+            info.stats,
+          );
           this.startWatching(id, instance);
         } catch {
           /* ignore */
@@ -1940,7 +1981,7 @@ export class InstanceManager extends EventEmitter {
       external: true,
       lastMessage,
       sessionId,
-      stats: stats.costUSD > 0 ? stats : undefined,
+      stats: hasSessionStats(stats) ? stats : undefined,
       gitInfo: worktreePath ? (getGitInfo(cwd) ?? undefined) : gitInfo,
       gitBranch,
       originalDirectory,
@@ -2182,6 +2223,62 @@ export class InstanceManager extends EventEmitter {
       agentActivities: ctx.agentActivities,
       stats: ctx.stats,
     };
+  }
+
+  private parseProviderTranscript(
+    provider: ProviderKind,
+    filePath: string,
+  ): {
+    cwd: string;
+    history: HistoryEntry[];
+    tasks: Map<string, TaskItem>;
+    files: Map<string, FileChange>;
+    team: TeamInfo | null;
+    agentActivities: Map<string, AgentActivity>;
+    stats: SessionStats;
+  } {
+    if (provider === "codex") {
+      const parsed = parseCodexTranscript(filePath);
+      return {
+        cwd: parsed.cwd,
+        history: parsed.history,
+        tasks: new Map(),
+        files: new Map(),
+        team: null,
+        agentActivities: new Map(),
+        stats: parsed.stats,
+      };
+    }
+
+    return this.parseJsonl(filePath);
+  }
+
+  private resolveManagedTranscriptPath(
+    provider: ProviderKind,
+    options: {
+      sessionId?: string;
+      transcriptPath?: string;
+      workingDirectory?: string;
+    },
+  ): string | undefined {
+    if (options.transcriptPath && existsSync(options.transcriptPath)) {
+      return options.transcriptPath;
+    }
+
+    if (!options.sessionId) {
+      return options.transcriptPath;
+    }
+
+    if (provider === "codex") {
+      return findCodexTranscriptPath(this.codexDir, options.sessionId);
+    }
+
+    if (!options.workingDirectory) {
+      return options.transcriptPath;
+    }
+
+    const encoded = options.workingDirectory.replace(/\//g, "-");
+    return join(this.claudeDir, "projects", encoded, `${options.sessionId}.jsonl`);
   }
 
   /**
@@ -2801,16 +2898,22 @@ export class InstanceManager extends EventEmitter {
     if (!instance.files) instance.files = new Map();
     if (!instance.agentActivities) instance.agentActivities = new Map();
 
-    const prevCost = instance.watchState.stats.costUSD;
-    const converted = this.convertJsonlEntry(entry, {
-      pendingTools: instance.watchState.pendingTools,
-      pendingTaskCreates: instance.watchState.pendingTaskCreates,
-      tasks: instance.tasks,
-      files: instance.files,
-      agentActivities: instance.agentActivities,
-      stats: instance.watchState.stats,
-    });
-    if (instance.watchState.stats.costUSD !== prevCost) {
+    const prevStats = { ...instance.watchState.stats };
+    const converted =
+      instance.info.provider === "codex"
+        ? convertCodexTranscriptEntry(entry as Record<string, unknown>, {
+            pendingCalls: instance.watchState.pendingProviderCalls,
+            stats: instance.watchState.stats,
+          })
+        : this.convertJsonlEntry(entry, {
+            pendingTools: instance.watchState.pendingTools,
+            pendingTaskCreates: instance.watchState.pendingTaskCreates,
+            tasks: instance.tasks,
+            files: instance.files,
+            agentActivities: instance.agentActivities,
+            stats: instance.watchState.stats,
+          });
+    if (statsChanged(prevStats, instance.watchState.stats)) {
       instance.info.stats = { ...instance.watchState.stats };
       this.emit("instance:status", instanceId, { ...instance.info });
     }
@@ -3342,7 +3445,7 @@ export class InstanceManager extends EventEmitter {
       const { history, tasks, files, team, agentActivities, stats } = this.parseJsonl(
         entry.jsonl_path,
       );
-      const parsedStats = stats.costUSD > 0 ? stats : undefined;
+      const parsedStats = hasSessionStats(stats) ? stats : undefined;
 
       const lastMessage = extractLastMessage(history);
 
@@ -3481,15 +3584,20 @@ export class InstanceManager extends EventEmitter {
       let team: TeamInfo | null = null;
       let agentActivities = new Map<string, AgentActivity>();
       let parsedStats: SessionStats | undefined;
-      const transcriptPath = entry.transcript_path ?? undefined;
+      const provider = entry.provider_name as ProviderKind;
+      const transcriptPath = this.resolveManagedTranscriptPath(provider, {
+        sessionId: resumeSessionId,
+        transcriptPath: entry.transcript_path ?? undefined,
+        workingDirectory: restoreActualCwd,
+      });
       if (transcriptPath && existsSync(transcriptPath)) {
-        const parsed = this.parseJsonl(transcriptPath);
+        const parsed = this.parseProviderTranscript(provider, transcriptPath);
         history = parsed.history;
         tasks = parsed.tasks;
         files = parsed.files;
         team = parsed.team;
         agentActivities = parsed.agentActivities;
-        parsedStats = parsed.stats.costUSD > 0 ? parsed.stats : undefined;
+        parsedStats = hasSessionStats(parsed.stats) ? parsed.stats : undefined;
       }
 
       const instanceConfig: CoreConfig = {
@@ -3499,7 +3607,7 @@ export class InstanceManager extends EventEmitter {
       };
 
       const proc = this.createProviderSession(instanceConfig, {
-        provider: entry.provider_name as ProviderKind,
+        provider,
         resumeSessionId,
         model: entry.preferred_model ?? undefined,
         reasoningBudget: entry.reasoning_budget ?? undefined,
@@ -3539,7 +3647,7 @@ export class InstanceManager extends EventEmitter {
         info,
         process: proc,
         providerBinding: {
-          provider: entry.provider_name as ProviderKind,
+          provider,
           providerSessionId: resumeSessionId,
           resumeCursor,
           runtimePayload,
@@ -3574,6 +3682,9 @@ export class InstanceManager extends EventEmitter {
       this.instances.set(entry.instance_id, instance);
       this.wireProcessEvents(entry.instance_id, instance, proc);
       if (watchState) this.startWatching(entry.instance_id, instance);
+      if (transcriptPath !== (entry.transcript_path ?? undefined)) {
+        this.dbSave(instance);
+      }
       this.emit("instance:created", entry.instance_id, { ...info });
       restored++;
     }
@@ -3761,6 +3872,25 @@ export class InstanceManager extends EventEmitter {
       // One-shot: remove this listener after first capture
       proc.off("output", onOutput);
 
+      if (instance.info.provider === "codex") {
+        try {
+          const binding = proc.getRuntimeBinding();
+          const sessionId =
+            binding.providerSessionId ??
+            instance.providerBinding?.providerSessionId ??
+            instance.sessionId;
+          if (!sessionId) return;
+
+          const transcriptPath = findCodexTranscriptPath(this.codexDir, sessionId);
+          this.finalizeSessionCapture(id, instance, proc, sessionId, transcriptPath);
+        } catch (err) {
+          this.baseConfig.logger.debug(
+            `[InstanceManager] Failed to capture Codex session ID for "${instance.info.name}": ${err}`,
+          );
+        }
+        return;
+      }
+
       // For SDK sessions, try to get session ID from the session object first
       let sessionId: string | undefined;
       if (isSdk && (proc as ClaudeSdkSession).sessionId) {
@@ -3819,7 +3949,7 @@ export class InstanceManager extends EventEmitter {
     instance: Instance,
     proc: ProviderSession,
     sessionId: string,
-    jsonlPath: string,
+    jsonlPath?: string,
   ): void {
     instance.sessionId = sessionId;
     instance.jsonlPath = jsonlPath;
@@ -3838,7 +3968,7 @@ export class InstanceManager extends EventEmitter {
     proc.setSessionId?.(sessionId);
 
     // Start JSONL watching so terminal-side changes are picked up.
-    if (instance.watchState?.jsonlPath !== jsonlPath) {
+    if (jsonlPath && instance.watchState?.jsonlPath !== jsonlPath) {
       const oldInterval = this.watchIntervals.get(id);
       if (oldInterval) {
         clearInterval(oldInterval);

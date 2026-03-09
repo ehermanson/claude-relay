@@ -59,5 +59,6 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
     manifestFile: options.manifestFile,
     claudeDir: options.claudeDir,
+    codexDir: options.codexDir,
   };
 }

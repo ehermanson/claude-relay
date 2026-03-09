@@ -30,6 +30,8 @@ export interface CoreConfig {
   manifestFile?: string;
   /** Override for ~/.claude directory (used in tests) */
   claudeDir?: string;
+  /** Override for ~/.codex directory (used in tests and Codex transcript restore) */
+  codexDir?: string;
 }
 
 /**
@@ -49,5 +51,6 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
     logger: options.logger ?? defaultLogger,
     dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
     manifestFile: options.manifestFile,
+    codexDir: options.codexDir,
   };
 }

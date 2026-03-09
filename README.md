@@ -144,6 +144,7 @@ src/
     provider-catalog.ts    Shared provider labels + built-in model catalogs
     providers/claude-sdk.ts Long-lived SDK-backed provider session
     providers/codex-cli.ts Managed Codex CLI provider session
+    providers/codex-transcript.ts Provider-specific Codex transcript lookup + replay
     providers/codex-models.ts Best-effort Codex app-server model discovery
     instance-manager.ts    Manages multiple instances + discovers external sessions
     workspace-entries.ts   Workspace file/folder indexing for `@` mention search
@@ -256,11 +257,13 @@ manager.sendMessage(instance.id, "Hello Claude");
 | `rateLimitMax`               | `number`  | `5`                              | Max login attempts per IP per window           |
 | `rateLimitWindow`            | `number`  | `60000`                          | Rate limit window in ms                        |
 | `manifestFile`               | `string`  | `~/.claude-relay/instances.json` | Instance manifest file for restart persistence |
+| `claudeDir`                  | `string`  | `~/.claude`                      | Override Claude transcript root                |
+| `codexDir`                   | `string`  | `~/.codex`                       | Override Codex transcript root                 |
 | `logger`                     | `Logger`  | `console`                        | Custom logger implementation                   |
 
 ## Managed Sessions
 
-Managed sessions are now restored from provider runtime bindings stored in SQLite, not just from Claude transcript rows. The current provider implementation is Claude-focused, but the persistence and `ProviderSession` contract are now isolated enough to add other managed providers without teaching `InstanceManager` about provider-specific transcript formats.
+Managed sessions are now restored from provider runtime bindings stored in SQLite, not just from Claude transcript rows. The persistence and `ProviderSession` contract are isolated enough to add other managed providers without teaching `InstanceManager` about provider-specific runtime state.
 
 For Claude specifically:
 
@@ -272,9 +275,10 @@ For Codex specifically:
 
 - relay-managed Codex turns run through `codex exec --json` and `codex exec resume --json`
 - provider selection is available in the new-session UI as well as the core/API contract
+- restored managed Codex sessions replay history from `~/.codex/sessions/...` by `provider_session_id`, and persist the discovered transcript path back into `managed_sessions`
 - Codex sessions keep model switching via a custom model entry dialog in the chat input
 - Claude-only reasoning controls are hidden for Codex sessions, and the permission toggle is presented as sandbox/full-access mode
-- external Codex session discovery, transcript/history replay parity, and approval-request parity are still follow-up work
+- external Codex session discovery and approval-request parity are still follow-up work
 
 ## Security
 

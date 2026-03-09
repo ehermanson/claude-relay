@@ -74,6 +74,7 @@ src/
     providers/
       claude-sdk.ts          Claude SDK provider session implementation
       codex-cli.ts           Managed Codex CLI provider session implementation (`codex exec --json`)
+      codex-transcript.ts    Provider-specific Codex transcript lookup + replay from `~/.codex/sessions`
       codex-models.ts        Best-effort Codex app-server model discovery (`initialize` + `model/list`)
     index.ts                 Barrel: exports all core API
   server/
@@ -104,7 +105,7 @@ ui/
 
 ### Config Hierarchy
 
-- `CoreConfig` — minimal: workingDirectory, dangerouslySkipPermissions, processTimeout, maxProcesses, logger, dbPath, manifestFile (legacy, optional)
+- `CoreConfig` — minimal: workingDirectory, dangerouslySkipPermissions, processTimeout, maxProcesses, logger, dbPath, manifestFile (legacy, optional), `claudeDir` override, `codexDir` override
 - `RelayConfig extends CoreConfig` — adds: port, password, sessionMaxAge, serveUI, rateLimitMax, rateLimitWindow, sessionFile
 - Core modules accept `CoreConfig`. Server modules accept `RelayConfig`. Structural subtyping makes RelayConfig assignable to CoreConfig.
 
@@ -124,6 +125,7 @@ ui/
 - `InstanceInfo.provider` is first-class and persisted for managed sessions
 - Managed restore uses provider runtime bindings from SQLite, not the current default provider
 - Claude JSONL remains a Claude-specific read model for history replay, transcript capture, and external-session discovery
+- Codex transcript replay is handled separately via `providers/codex-transcript.ts`, which locates persisted sessions under `~/.codex/sessions` by provider session ID
 - Current managed providers:
   - Claude via Agent SDK or Claude CLI fallback
   - Codex via `codex exec --json` / `codex exec resume --json`
@@ -336,6 +338,7 @@ ui/
 
 - For Claude CLI sessions, the first message of a new instance is `Codex -p "message"` (no flags — creates a new session)
 - Claude transcript capture still fires after the first response, finds the JSONL, extracts the session ID, and calls `proc.setSessionId(id)`
+- For managed Codex sessions, the session ID comes from the provider runtime binding and the transcript path is resolved from `~/.codex/sessions` after the first completed turn
 - Managed sessions persist provider-owned resume state separately from transcript capture, so restore no longer depends on the current default provider or an existing JSONL row
 - Subsequent Claude CLI messages use `--resume <sessionId>` for precise session targeting
 - **Never relies on `--continue`** after session capture — `--continue` picks up the "most recently modified" session in the CWD, which can be wrong when multiple sessions share a directory
@@ -349,7 +352,7 @@ ui/
 - **`scanAllSessions()`**: Walks `~/.Codex/projects/` directories, reads `sessions-index.json` for fast metadata, compares with DB via `getJsonlPaths()`, upserts new transcript rows, repairs corrupted `working_directory` values, archives DB entries whose JSONL files no longer exist on disk. Also archives sessions from deleted directories (no longer exist on disk) and temp directories (`/tmp`, `/private/tmp`).
 - **Archive model** replaces pruning: `removeInstance()` archives (sets `archived = 1`) instead of deleting. Discovery auto-unarchives if the JSONL reappears. Archived sessions are excluded from `getAllActive()` but retained in the DB.
 - **Corruption recovery**: If the DB file cannot be opened, it is renamed to `sessions.db.corrupt.{timestamp}` and recreated from scratch. `needsRebuild` flag triggers a full scan.
-- **Managed restore**: Reads `managed_sessions`, recreates the correct provider adapter from `provider_name` plus persisted runtime binding, then starts a watcher only if `transcript_path` exists
+- **Managed restore**: Reads `managed_sessions`, recreates the correct provider adapter from `provider_name` plus persisted runtime binding, resolves provider-specific transcript paths when possible, and starts a watcher once a transcript path is available
 - **External restore**: Creates stopped instance with `process: null`, `external: true`, no watcher — visible in UI with full history from JSONL
 - **Discovery upgrade**: When a `Codex` process starts in a dir matching a restored stopped external, `upgradeRestoredExternal()` sets `externalState`, starts watcher, transitions to `idle`
 - Managed instances are always persisted into `managed_sessions`, even before Claude transcript capture completes
