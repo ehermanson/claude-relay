@@ -712,10 +712,11 @@ export class InstanceManager extends EventEmitter {
         options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
     };
 
+    const model = options?.model ?? this.baseConfig.defaultModel;
     const proc = this.createProviderSession(instanceConfig, {
       provider,
       resumeSessionId: resumeId,
-      model: options?.model,
+      model,
       reasoningBudget: options?.reasoningBudget,
     });
 
@@ -737,7 +738,7 @@ export class InstanceManager extends EventEmitter {
       createdAt: now,
       lastActivityAt: now,
       gitInfo: getGitInfo(workingDirectory) ?? undefined,
-      preferredModel: options?.model,
+      preferredModel: model,
       reasoningBudget: options?.reasoningBudget,
       skipPermissions: skipPerms,
     };

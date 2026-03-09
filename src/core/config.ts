@@ -26,6 +26,8 @@ export interface CoreConfig {
   logger: Logger;
   /** Path to the SQLite database for session persistence */
   dbPath: string;
+  /** Default model for new managed instances (e.g. "claude-opus-4-6"). Omit to use Claude's default. */
+  defaultModel?: string;
   /** Legacy manifest file path — used only for one-time migration to SQLite */
   manifestFile?: string;
   /** Override for ~/.claude directory (used in tests) */
@@ -50,6 +52,7 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
     maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? defaultLogger,
     dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
+    defaultModel: options.defaultModel,
     manifestFile: options.manifestFile,
     codexDir: options.codexDir,
   };

@@ -17,6 +17,7 @@
  *   TUNNEL                   (optional) Set to "true" to start a cloudflared tunnel
  *   SESSION_FILE             (optional) Path to session persistence file, default ~/.claude-relay/sessions.json
  *   DB_PATH                  (optional) Path to SQLite database, default ~/.claude-relay/sessions.db
+ *   DEFAULT_MODEL            (optional) Default model for new sessions, default "claude-opus-4-6"
  *   MANIFEST_FILE            (optional) Legacy manifest file path (used for one-time migration to SQLite)
  */
 
@@ -53,6 +54,7 @@ const relay = createRelay({
         return "15";
       })(),
   ),
+  defaultModel: process.env.DEFAULT_MODEL || "claude-opus-4-6",
   serveUI: true,
   ...(process.env.SESSION_FILE ? { sessionFile: process.env.SESSION_FILE } : {}),
   ...(process.env.DB_PATH ? { dbPath: process.env.DB_PATH } : {}),

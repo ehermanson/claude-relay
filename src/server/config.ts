@@ -57,6 +57,7 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     maxProcesses: options.maxProcesses ?? 15,
     sessionFile: options.sessionFile ?? join(homedir(), ".claude-relay", "sessions.json"),
     dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
+    defaultModel: options.defaultModel,
     manifestFile: options.manifestFile,
     claudeDir: options.claudeDir,
     codexDir: options.codexDir,
