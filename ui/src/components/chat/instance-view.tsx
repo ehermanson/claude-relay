@@ -15,9 +15,11 @@ import { Tooltip } from "../ui/tooltip";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
 import { shortenPath, formatTokens, formatCost } from "../../lib/utils";
+import { createInstance, fetchInstanceHistory } from "../../lib/api";
+import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
 import type { ServerMessage } from "@shared/types";
 
-import type { InstanceInfo } from "@shared/types";
+import type { InstanceInfo, ProviderKind } from "@shared/types";
 import type { ChatItem } from "../../hooks/use-instance-messages";
 
 function DebugModal({
@@ -74,7 +76,10 @@ function DebugModal({
 }
 
 export function InstanceView() {
-  const { chatId: id } = useParams({ strict: false }) as { chatId?: string };
+  const { chatId: id, projectId } = useParams({ strict: false }) as {
+    chatId?: string;
+    projectId?: string;
+  };
   const navigate = useNavigate();
   const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
   const { isConnected, connectionId, instances } = useWSState();
@@ -140,6 +145,42 @@ export function InstanceView() {
   const handleCancel = () => {
     if (!id || !isProcessing) return;
     send({ type: "instance_cancel", instanceId: id });
+  };
+
+  const handleSwitchProvider = async (
+    targetProvider: ProviderKind,
+    carryContext: boolean,
+  ): Promise<void> => {
+    if (!id || !instance || targetProvider === instance.provider) return;
+
+    const nextInstance = await createInstance({
+      provider: targetProvider,
+      name: instance.customTitle ? instance.name : undefined,
+      workingDirectory: instance.workingDirectory,
+      dangerouslySkipPermissions: instance.skipPermissions ?? false,
+    });
+
+    if (carryContext) {
+      const history = await fetchInstanceHistory(id);
+      const handoffPrompt = buildProviderSwitchHandoffPrompt({
+        sourceProvider: instance.provider,
+        targetProvider,
+        sourceName: instance.name,
+        workingDirectory: instance.workingDirectory,
+        history,
+        changedFiles: currentFiles,
+      });
+      send({ type: "instance_message", instanceId: nextInstance.id, text: handoffPrompt });
+    }
+
+    await navigate({
+      to: "/projects/$projectId/chats/$chatId",
+      params: {
+        projectId:
+          projectId || instance.workingDirectory.split("/").pop() || instance.workingDirectory,
+        chatId: nextInstance.id,
+      },
+    });
   };
 
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -303,6 +344,7 @@ export function InstanceView() {
       <InputArea
         onSend={handleSend}
         onCancel={handleCancel}
+        onSwitchProvider={handleSwitchProvider}
         isProcessing={isProcessing}
         isConnected={isConnected}
         instanceId={id!}

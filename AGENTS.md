@@ -69,6 +69,7 @@ src/
     claude-process.ts        ClaudeProcess class — spawns `Codex -p`, parses stream-json, setSessionId()
     provider.ts              ProviderSession contract for managed adapters
     provider-catalog.ts      Shared provider labels + built-in model catalogs
+    session-handoff.ts       Provider-neutral prompt builder for spawning a new provider chat with carried context
     instance-manager.ts      InstanceManager — multi-instance + external session discovery
     workspace-entries.ts     Workspace indexing/search for composer `@` file mentions
     providers/
@@ -183,9 +184,10 @@ ui/
 ### Composer Controls
 
 - `InstanceInfo` carries both `preferredModel?: string` and `reasoningBudget?: number`
-- UI: `InputArea` shows a combined provider/model picker for managed instances; provider stays fixed for the session while the model remains switchable
+- UI: `InputArea` shows a combined provider/model picker for managed instances; models stay switchable, while choosing another provider starts a new managed chat instead of rewriting the current session
+- UI: provider switching can optionally carry over recent portable context (recent user/assistant turns, transcript results, and changed files) via `session-handoff.ts`
 - Claude sessions expose preset model selection and reasoning effort controls
-- Codex sessions expose curated model selection plus a custom model dialog; reasoning effort controls remain hidden until Codex support exists
+- Codex sessions expose curated model selection through the shared picker; reasoning effort controls remain hidden until Codex support exists
 - `GET /api/provider-models?provider=...` returns provider-scoped model metadata for the picker. Codex uses a built-in catalog filtered by best-effort `codex app-server` discovery when available, and falls back to the built-in list on discovery failure
 - UI: `InputArea` now uses a Lexical-based `ComposerEditor` so inline path mentions can render as atomic chips without giving up plain-text message semantics
 - UI: the composer supports slash commands: `/model ...` for provider-appropriate model choices and `/reasoning <default|low|medium|high|max>` for Claude sessions

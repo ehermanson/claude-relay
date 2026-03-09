@@ -63,10 +63,11 @@ If Relay discovers or restores a session that already lives in a Relay-managed g
 - **Multi-session management** — run multiple Claude Code instances side-by-side, each with its own working directory and conversation history
 - **External session discovery** — automatically detects Claude Code sessions started from your terminal and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
-- **Per-session controls** — managed sessions show a combined provider/model picker in the chat input; provider stays fixed per session while the model remains switchable
+- **Per-session controls** — managed sessions show a combined provider/model picker in the chat input; models stay switchable, and changing providers starts a new chat instead of mutating the current session
 - **Provider-aware managed sessions** — managed instances persist their provider identity and runtime binding, so future adapters can restore without going through Claude-specific transcript indexing
 - **Managed Codex adapter** — core/API-managed sessions can now run through `codex exec --json` with provider-isolated turn/resume handling
 - **Codex model filtering** — Relay asks `codex app-server` for `model/list` when available and filters the Codex picker to models the local runtime actually reports
+- **Provider handoff flow** — switching from Codex to Claude (or back) can spawn a new chat in the same workspace and optionally seed it with recent portable context from the current session
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
 - **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
@@ -142,6 +143,7 @@ src/
     claude-process.ts      Spawns claude -p processes, parses stream-json
     provider.ts            Provider session contract used by managed adapters
     provider-catalog.ts    Shared provider labels + built-in model catalogs
+    session-handoff.ts     Provider-neutral prompt builder for switching providers into a new chat
     providers/claude-sdk.ts Long-lived SDK-backed provider session
     providers/codex-cli.ts Managed Codex CLI provider session
     providers/codex-transcript.ts Provider-specific Codex transcript lookup + replay
@@ -276,7 +278,8 @@ For Codex specifically:
 - relay-managed Codex turns run through `codex exec --json` and `codex exec resume --json`
 - provider selection is available in the new-session UI as well as the core/API contract
 - restored managed Codex sessions replay history from `~/.codex/sessions/...` by `provider_session_id`, and persist the discovered transcript path back into `managed_sessions`
-- Codex sessions keep model switching via a custom model entry dialog in the chat input
+- provider switching from the chat input creates a new managed session instead of rewriting the current one, with optional recent-context carryover
+- Codex sessions keep model switching via the shared provider/model picker in the chat input
 - Claude-only reasoning controls are hidden for Codex sessions, and the permission toggle is presented as sandbox/full-access mode
 - external Codex session discovery and approval-request parity are still follow-up work
 

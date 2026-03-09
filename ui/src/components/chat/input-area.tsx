@@ -9,6 +9,7 @@ import { siClaude } from "simple-icons";
 import { detectMentionTrigger, replacePromptRange } from "../../lib/composer-mentions";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { CheckboxField } from "../ui/checkbox";
 import {
   Command,
   CommandEmpty,
@@ -18,6 +19,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "../ui/command";
+import { Dialog } from "../ui/dialog";
 import { FileIcon } from "../ui/file-icon";
 import { Tooltip } from "../ui/tooltip";
 import { Menu } from "../ui/menu";
@@ -299,6 +301,7 @@ interface MentionEntry {
 interface InputAreaProps {
   onSend: (text: string, images?: string[]) => void;
   onCancel: () => void;
+  onSwitchProvider?: (provider: ProviderKind, carryContext: boolean) => Promise<void> | void;
   isProcessing: boolean;
   isConnected: boolean;
   instanceId: string;
@@ -317,6 +320,7 @@ interface InputAreaProps {
 export function InputArea({
   onSend,
   onCancel,
+  onSwitchProvider,
   isProcessing,
   isConnected,
   instanceId,
@@ -341,6 +345,11 @@ export function InputArea({
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
+  const [showProviderSwitchDialog, setShowProviderSwitchDialog] = useState(false);
+  const [providerSwitchTarget, setProviderSwitchTarget] = useState<ProviderKind | null>(null);
+  const [carryProviderContext, setCarryProviderContext] = useState(true);
+  const [providerSwitchError, setProviderSwitchError] = useState("");
+  const [isSwitchingProvider, setIsSwitchingProvider] = useState(false);
   const [availableProviderModels, setAvailableProviderModels] = useState<ProviderModelOption[]>([]);
   const [draftText, setDraftText] = useState("");
   const [composerSelectionOffset, setComposerSelectionOffset] = useState(0);
@@ -404,6 +413,35 @@ export function InputArea({
   const supportsModelSelection = true;
   const supportsReasoningSelection = provider === "claude";
   const providerLabel = getProviderDisplayName(provider);
+  const providerSwitchLabel = providerSwitchTarget
+    ? getProviderDisplayName(providerSwitchTarget)
+    : null;
+
+  const openProviderSwitchDialog = (targetProvider: ProviderKind) => {
+    if (!onSwitchProvider || targetProvider === provider) return;
+    setProviderSwitchTarget(targetProvider);
+    setCarryProviderContext(true);
+    setProviderSwitchError("");
+    setShowProviderSwitchDialog(true);
+    setShowModelMenu(false);
+  };
+
+  const handleProviderSwitch = async () => {
+    if (!providerSwitchTarget || !onSwitchProvider) return;
+    setIsSwitchingProvider(true);
+    setProviderSwitchError("");
+
+    try {
+      await onSwitchProvider(providerSwitchTarget, carryProviderContext);
+      setShowProviderSwitchDialog(false);
+    } catch (error) {
+      setProviderSwitchError(
+        error instanceof Error ? error.message : "Failed to start the new provider chat",
+      );
+    } finally {
+      setIsSwitchingProvider(false);
+    }
+  };
 
   const updateDraft = (value: string) => {
     setDraftText(value);
@@ -911,7 +949,7 @@ export function InputArea({
   const roundPrimary = "h-8 w-8 shrink-0 !rounded-full !p-0";
   const providerModelPickerButton = !isExternal && supportsModelSelection && (
     <Menu.Root open={showModelMenu} onOpenChange={setShowModelMenu}>
-      <Tooltip content="Provider is fixed for this session; model stays switchable">
+      <Tooltip content="Switch models here, or start a new chat to change providers">
         <Menu.Trigger
           disabled={isProcessing}
           className={`flex shrink-0 items-center gap-2 rounded-full border border-border/80 px-3 py-1.5 text-xs transition-colors ${
@@ -947,15 +985,23 @@ export function InputArea({
             <div className="space-y-1">
               {SESSION_PROVIDER_OPTIONS.map((option) => {
                 const isCurrent = option.provider === provider;
+                const canSwitch = !isCurrent && !!onSwitchProvider && !isProcessing;
                 return (
                   <button
                     key={option.provider}
                     type="button"
-                    disabled
+                    onClick={() => {
+                      if (canSwitch) {
+                        openProviderSwitchDialog(option.provider);
+                      }
+                    }}
+                    disabled={!isCurrent && !canSwitch}
                     className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-colors ${
                       isCurrent
                         ? "bg-surface-raised text-text shadow-sm ring-1 ring-border"
-                        : "cursor-not-allowed text-muted opacity-80"
+                        : canSwitch
+                          ? "text-muted hover:bg-surface-hover hover:text-text"
+                          : "cursor-not-allowed text-muted opacity-80"
                     }`}
                   >
                     <div className="flex min-w-0 items-center gap-3">
@@ -964,8 +1010,8 @@ export function InputArea({
                         <div className="truncate text-sm font-medium">{option.label}</div>
                         <div className="text-[0.6875rem] text-muted">
                           {isCurrent
-                            ? "Active provider for this session"
-                            : `Start a new ${option.label} session to switch providers`}
+                            ? "Active provider for this chat"
+                            : `Start a new ${option.label} chat`}
                         </div>
                       </div>
                     </div>
@@ -983,7 +1029,21 @@ export function InputArea({
                       >
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
-                    ) : null}
+                    ) : (
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={canSwitch ? "shrink-0 opacity-70" : "shrink-0 opacity-30"}
+                      >
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    )}
                   </button>
                 );
               })}
@@ -1420,112 +1480,222 @@ export function InputArea({
   const composerMenu = mentionTrigger ? mentionMenu : slashMenu;
 
   return (
-    <div className="shrink-0 safe-area-bottom">
-      <div
-        className={`mx-auto max-w-3xl ${isMobile ? "px-2 pb-1.5" : "px-6 pb-4"}`}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
+    <>
+      <Dialog.Root
+        open={showProviderSwitchDialog}
+        onOpenChange={(open) => {
+          if (isSwitchingProvider) return;
+          setShowProviderSwitchDialog(open);
+          if (!open) {
+            setProviderSwitchTarget(null);
+            setProviderSwitchError("");
+            setCarryProviderContext(true);
+          }
+        }}
       >
-        {showBanner && (
-          <div className="flex items-center gap-2 pb-2">
-            <span className="flex-1 text-xs text-muted">
-              Resume in terminal:{" "}
-              <code className="rounded bg-surface-hover px-1.5 py-0.5 font-mono text-xs text-text">
-                claude --resume {sessionId}
-              </code>
-            </span>
-            <Tooltip content={copied ? "Copied!" : "Copy command"}>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(`claude --resume ${sessionId}`);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                }}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted transition-colors hover:text-text"
-              >
-                {copied ? (
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-accent"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                ) : (
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                  </svg>
-                )}
-              </button>
-            </Tooltip>
-            <Tooltip content="Dismiss">
-              <button
-                onClick={() => setBannerDismissed(true)}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted transition-colors hover:text-text"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </Tooltip>
-          </div>
-        )}
-
-        {hiddenFileInput}
-
-        <div
-          ref={composerContainerRef}
-          className="relative rounded-2xl border border-border bg-surface"
-        >
-          {imageStrip}
-
-          {isMobile ? (
-            <>
-              <ComposerEditor
-                ref={composerRef}
-                value={draftText}
-                placeholder={composerPlaceholder}
-                placeholderClassName="px-3.5 pt-3 pb-1 text-[15px] leading-normal"
-                disabled={disabled}
-                selectionOffset={pendingSelectionOffset}
-                onSelectionApplied={() => setPendingSelectionOffset(null)}
-                onChange={(value, selectionOffset) => {
-                  updateDraft(value);
-                  setComposerSelectionOffset(selectionOffset);
-                }}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                className={`min-h-[36px] max-h-[100px] overflow-y-auto bg-transparent px-3.5 pt-3 pb-1 text-[16px] leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`}
+        {showProviderSwitchDialog && providerSwitchLabel && (
+          <Dialog.Content maxWidth="max-w-lg">
+            <Dialog.Header>
+              <Dialog.Title>Start a new {providerSwitchLabel} chat?</Dialog.Title>
+              <Dialog.Close />
+            </Dialog.Header>
+            <div className="space-y-3 text-sm text-muted">
+              <p>
+                Switching providers creates a new chat. Your current {providerLabel} chat stays
+                unchanged.
+              </p>
+              <CheckboxField
+                checked={carryProviderContext}
+                onCheckedChange={setCarryProviderContext}
+                label="Carry over recent conversation context and changed files"
               />
-              {composerMenu}
-              <div className="flex items-center justify-between px-2 pb-2">
-                <div className="flex items-center gap-0.5">
+              {providerSwitchError && (
+                <div className="rounded-lg border border-error/25 bg-error/5 px-3 py-2 text-[0.8125rem] text-error">
+                  {providerSwitchError}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setShowProviderSwitchDialog(false)}
+                disabled={isSwitchingProvider}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleProviderSwitch}
+                disabled={isSwitchingProvider}
+              >
+                {isSwitchingProvider ? "Starting..." : `Start ${providerSwitchLabel} chat`}
+              </Button>
+            </div>
+          </Dialog.Content>
+        )}
+      </Dialog.Root>
+      <div className="shrink-0 safe-area-bottom">
+        <div
+          className={`mx-auto max-w-3xl ${isMobile ? "px-2 pb-1.5" : "px-6 pb-4"}`}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+        >
+          {showBanner && (
+            <div className="flex items-center gap-2 pb-2">
+              <span className="flex-1 text-xs text-muted">
+                Resume in terminal:{" "}
+                <code className="rounded bg-surface-hover px-1.5 py-0.5 font-mono text-xs text-text">
+                  claude --resume {sessionId}
+                </code>
+              </span>
+              <Tooltip content={copied ? "Copied!" : "Copy command"}>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(`claude --resume ${sessionId}`);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  }}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted transition-colors hover:text-text"
+                >
+                  {copied ? (
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="text-accent"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  )}
+                </button>
+              </Tooltip>
+              <Tooltip content="Dismiss">
+                <button
+                  onClick={() => setBannerDismissed(true)}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted transition-colors hover:text-text"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </Tooltip>
+            </div>
+          )}
+
+          {hiddenFileInput}
+
+          <div
+            ref={composerContainerRef}
+            className="relative rounded-2xl border border-border bg-surface"
+          >
+            {imageStrip}
+
+            {isMobile ? (
+              <>
+                <ComposerEditor
+                  ref={composerRef}
+                  value={draftText}
+                  placeholder={composerPlaceholder}
+                  placeholderClassName="px-3.5 pt-3 pb-1 text-[15px] leading-normal"
+                  disabled={disabled}
+                  selectionOffset={pendingSelectionOffset}
+                  onSelectionApplied={() => setPendingSelectionOffset(null)}
+                  onChange={(value, selectionOffset) => {
+                    updateDraft(value);
+                    setComposerSelectionOffset(selectionOffset);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  className={`min-h-[36px] max-h-[100px] overflow-y-auto bg-transparent px-3.5 pt-3 pb-1 text-[16px] leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`}
+                />
+                {composerMenu}
+                <div className="flex items-center justify-between px-2 pb-2">
+                  <div className="flex items-center gap-0.5">
+                    <Tooltip content="Attach image">
+                      <Button
+                        variant="icon"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={disabled}
+                        className={roundIcon}
+                      >
+                        <ImagePlus size={18} />
+                      </Button>
+                    </Tooltip>
+                    {providerModelPickerButton}
+                    {reasoningPickerButton}
+                    {permissionsButton}
+                    {isProcessing && (
+                      <Tooltip content="Cancel">
+                        <button
+                          onClick={onCancel}
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
+                        >
+                          <Square size={16} />
+                        </button>
+                      </Tooltip>
+                    )}
+                  </div>
+                  <Tooltip content="Send">
+                    <Button
+                      variant="primary"
+                      onClick={handleSend}
+                      disabled={disabled || uploading}
+                      className={roundPrimary}
+                    >
+                      {sendIcon}
+                    </Button>
+                  </Tooltip>
+                </div>
+              </>
+            ) : (
+              <>
+                <ComposerEditor
+                  ref={composerRef}
+                  value={draftText}
+                  placeholder={composerPlaceholder}
+                  placeholderClassName="px-4 pt-3 pb-1 text-[13px] leading-normal"
+                  disabled={disabled}
+                  selectionOffset={pendingSelectionOffset}
+                  onSelectionApplied={() => setPendingSelectionOffset(null)}
+                  onChange={(value, selectionOffset) => {
+                    updateDraft(value);
+                    setComposerSelectionOffset(selectionOffset);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  className={`min-h-[52px] max-h-[140px] overflow-y-auto bg-transparent px-4 pt-3 pb-1 text-sm leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`}
+                />
+                {composerMenu}
+                <div className="flex items-center gap-0.5 px-2 pb-2">
                   <Tooltip content="Attach image">
                     <Button
                       variant="icon"
@@ -1539,89 +1709,34 @@ export function InputArea({
                   {providerModelPickerButton}
                   {reasoningPickerButton}
                   {permissionsButton}
+                  <div className="flex-1" />
+                  {stats && <ContextRing stats={stats} />}
                   {isProcessing && (
-                    <Tooltip content="Cancel">
+                    <Tooltip content="Cancel (Esc)">
                       <button
                         onClick={onCancel}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
                       >
                         <Square size={16} />
                       </button>
                     </Tooltip>
                   )}
-                </div>
-                <Tooltip content="Send">
-                  <Button
-                    variant="primary"
-                    onClick={handleSend}
-                    disabled={disabled || uploading}
-                    className={roundPrimary}
-                  >
-                    {sendIcon}
-                  </Button>
-                </Tooltip>
-              </div>
-            </>
-          ) : (
-            <>
-              <ComposerEditor
-                ref={composerRef}
-                value={draftText}
-                placeholder={composerPlaceholder}
-                placeholderClassName="px-4 pt-3 pb-1 text-[13px] leading-normal"
-                disabled={disabled}
-                selectionOffset={pendingSelectionOffset}
-                onSelectionApplied={() => setPendingSelectionOffset(null)}
-                onChange={(value, selectionOffset) => {
-                  updateDraft(value);
-                  setComposerSelectionOffset(selectionOffset);
-                }}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                className={`min-h-[52px] max-h-[140px] overflow-y-auto bg-transparent px-4 pt-3 pb-1 text-sm leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`}
-              />
-              {composerMenu}
-              <div className="flex items-center gap-0.5 px-2 pb-2">
-                <Tooltip content="Attach image">
-                  <Button
-                    variant="icon"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={disabled}
-                    className={roundIcon}
-                  >
-                    <ImagePlus size={18} />
-                  </Button>
-                </Tooltip>
-                {providerModelPickerButton}
-                {reasoningPickerButton}
-                {permissionsButton}
-                <div className="flex-1" />
-                {stats && <ContextRing stats={stats} />}
-                {isProcessing && (
-                  <Tooltip content="Cancel (Esc)">
-                    <button
-                      onClick={onCancel}
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
+                  <Tooltip content="Send (Enter)">
+                    <Button
+                      variant="primary"
+                      onClick={handleSend}
+                      disabled={disabled || uploading}
+                      className={roundPrimary}
                     >
-                      <Square size={16} />
-                    </button>
+                      {sendIcon}
+                    </Button>
                   </Tooltip>
-                )}
-                <Tooltip content="Send (Enter)">
-                  <Button
-                    variant="primary"
-                    onClick={handleSend}
-                    disabled={disabled || uploading}
-                    className={roundPrimary}
-                  >
-                    {sendIcon}
-                  </Button>
-                </Tooltip>
-              </div>
-            </>
-          )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

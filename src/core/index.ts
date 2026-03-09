@@ -31,6 +31,7 @@ export {
   getBuiltinProviderModels,
   getProviderDisplayName,
 } from "./provider-catalog.js";
+export { buildProviderSwitchHandoffPrompt } from "./session-handoff.js";
 
 export { ClaudeProcess } from "./claude-process.js";
 export type { ClaudeProcessEvents } from "./claude-process.js";

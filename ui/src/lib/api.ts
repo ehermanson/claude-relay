@@ -1,3 +1,12 @@
+import type {
+  CreateInstancePayload,
+  HistoryEntry,
+  InstanceInfo,
+  ProviderKind,
+  ProviderModelOption,
+  ProjectArtifacts,
+} from "@shared/types";
+
 export async function login(password: string): Promise<{ success: boolean; error?: string }> {
   const res = await fetch("/auth", {
     method: "POST",
@@ -45,13 +54,34 @@ export async function fetchWorkspaceEntries(
   return res.json();
 }
 
-export async function fetchProviderModels(
-  provider: import("@shared/types").ProviderKind,
-): Promise<import("@shared/types").ProviderModelOption[]> {
+export async function fetchProviderModels(provider: ProviderKind): Promise<ProviderModelOption[]> {
   const res = await fetch(`/api/provider-models?provider=${encodeURIComponent(provider)}`);
   if (!res.ok) throw new Error("Failed to fetch provider models");
-  const data = (await res.json()) as { models?: import("@shared/types").ProviderModelOption[] };
+  const data = (await res.json()) as { models?: ProviderModelOption[] };
   return data.models ?? [];
+}
+
+export async function createInstance(
+  payload: Omit<CreateInstancePayload, "type">,
+): Promise<InstanceInfo> {
+  const res = await fetch("/api/instances", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to create instance" }));
+    throw new Error(data.error || "Failed to create instance");
+  }
+
+  return res.json();
+}
+
+export async function fetchInstanceHistory(instanceId: string): Promise<HistoryEntry[]> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/history`);
+  if (!res.ok) throw new Error("Failed to fetch instance history");
+  return res.json();
 }
 
 export async function uploadImage(file: File): Promise<string> {
@@ -86,9 +116,7 @@ export async function fetchBeadsProjects(): Promise<string[]> {
   return res.json();
 }
 
-export async function fetchProjectArtifacts(
-  projectId: string,
-): Promise<import("@shared/types").ProjectArtifacts> {
+export async function fetchProjectArtifacts(projectId: string): Promise<ProjectArtifacts> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`);
   if (!res.ok) throw new Error("Failed to fetch project");
   return res.json();
