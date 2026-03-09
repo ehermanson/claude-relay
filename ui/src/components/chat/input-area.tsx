@@ -110,7 +110,7 @@ export function InputArea({
     setSelectedSlashKey,
     dismissSlashMenu,
     resetAfterSend,
-  } = useComposerState(instanceId, composerRef);
+  } = useComposerState(sessionId, composerRef);
 
   const builtInProviderModels = provider === "codex" ? CODEX_MODELS : MODELS;
   const discoveredProviderModels =

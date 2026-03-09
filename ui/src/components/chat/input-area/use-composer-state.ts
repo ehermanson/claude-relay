@@ -2,7 +2,39 @@ import { useCallback, useEffect, useReducer, type RefObject, type SetStateAction
 import type { MentionEntry } from "./shared";
 import type { ComposerEditorHandle } from "../composer-editor";
 
-const drafts = new Map<string, string>();
+const DRAFT_PREFIX = "claude-relay:draft:";
+
+function getDraftKey(sessionId: string): string {
+  return `${DRAFT_PREFIX}${sessionId}`;
+}
+
+function loadDraft(sessionId: string): string {
+  try {
+    return sessionStorage.getItem(getDraftKey(sessionId)) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveDraft(sessionId: string, value: string): void {
+  try {
+    if (value) {
+      sessionStorage.setItem(getDraftKey(sessionId), value);
+    } else {
+      sessionStorage.removeItem(getDraftKey(sessionId));
+    }
+  } catch {
+    // sessionStorage full or unavailable — silently ignore
+  }
+}
+
+function deleteDraft(sessionId: string): void {
+  try {
+    sessionStorage.removeItem(getDraftKey(sessionId));
+  } catch {
+    // ignore
+  }
+}
 
 interface ComposerState {
   draftText: string;
@@ -137,26 +169,23 @@ function reducer(state: ComposerState, action: ComposerAction): ComposerState {
 }
 
 export function useComposerState(
-  instanceId: string,
+  sessionId: string | undefined,
   composerRef: RefObject<ComposerEditorHandle | null>,
 ) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
 
   useEffect(() => {
-    const restored = drafts.get(instanceId) || "";
-    dispatch({ type: "restore", value: restored });
+    if (!sessionId) return;
+    dispatch({ type: "restore", value: loadDraft(sessionId) });
     composerRef.current?.focus();
-  }, [composerRef, instanceId]);
+  }, [composerRef, sessionId]);
 
   const persistDraft = useCallback(
     (value: string) => {
-      if (value) {
-        drafts.set(instanceId, value);
-      } else {
-        drafts.delete(instanceId);
-      }
+      if (!sessionId) return;
+      saveDraft(sessionId, value);
     },
-    [instanceId],
+    [sessionId],
   );
 
   const updateDraft = useCallback(
@@ -177,9 +206,9 @@ export function useComposerState(
   );
 
   const resetAfterSend = useCallback(() => {
-    drafts.delete(instanceId);
+    if (sessionId) deleteDraft(sessionId);
     dispatch({ type: "reset_after_send" });
-  }, [instanceId]);
+  }, [sessionId]);
 
   return {
     ...state,
