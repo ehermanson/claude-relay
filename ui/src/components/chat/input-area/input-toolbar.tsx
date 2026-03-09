@@ -1,0 +1,90 @@
+import { Children, type ReactNode } from "react";
+import { ImagePlus, Square } from "lucide-react";
+import type { SessionStats } from "@shared/types";
+import { Button } from "../../ui/button";
+import { Tooltip } from "../../ui/tooltip";
+import { ContextRing } from "./shared";
+
+interface InputToolbarProps {
+  isMobile: boolean;
+  disabled: boolean;
+  stats?: SessionStats;
+  controls: ReactNode[];
+  isProcessing: boolean;
+  onCancel: () => void;
+  onAttachImage: () => void;
+  onSend: () => void;
+  sendIcon: ReactNode;
+  isSendDisabled: boolean;
+}
+
+const roundIcon = "h-8 w-8 shrink-0 !rounded-full";
+const roundPrimary = "h-8 w-8 shrink-0 !rounded-full !p-0";
+
+export function InputToolbar({
+  isMobile,
+  disabled,
+  stats,
+  controls,
+  isProcessing,
+  onCancel,
+  onAttachImage,
+  onSend,
+  sendIcon,
+  isSendDisabled,
+}: InputToolbarProps) {
+  const populatedControls = Children.toArray(controls);
+
+  return (
+    <div
+      className={
+        isMobile
+          ? "flex items-center justify-between px-2 pb-2"
+          : "flex items-center gap-0.5 px-2 pb-2"
+      }
+    >
+      <div className="flex items-center gap-2">
+        <Tooltip content="Attach image">
+          <Button variant="icon" onClick={onAttachImage} disabled={disabled} className={roundIcon}>
+            <ImagePlus size={18} />
+          </Button>
+        </Tooltip>
+        {populatedControls.length > 0 ? (
+          <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
+        ) : null}
+        {populatedControls.map((control, index) => (
+          <div key={index} className="flex items-center gap-2">
+            {index > 0 ? (
+              <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
+            ) : null}
+            {control}
+          </div>
+        ))}
+        {isProcessing ? (
+          <Tooltip content={isMobile ? "Cancel" : "Cancel (Esc)"}>
+            <button
+              onClick={onCancel}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
+            >
+              <Square size={16} />
+            </button>
+          </Tooltip>
+        ) : null}
+      </div>
+
+      {!isMobile ? <div className="flex-1" /> : null}
+      {!isMobile && stats ? <ContextRing stats={stats} /> : null}
+
+      <Tooltip content={isMobile ? "Send" : "Send (Enter)"}>
+        <Button
+          variant="primary"
+          onClick={onSend}
+          disabled={isSendDisabled}
+          className={roundPrimary}
+        >
+          {sendIcon}
+        </Button>
+      </Tooltip>
+    </div>
+  );
+}

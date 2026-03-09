@@ -94,6 +94,7 @@ ui/
     hooks/                   use-auth, use-web-socket, use-instance-messages, use-auto-scroll, use-directory-browser, use-media-query, use-terminal-pending-toasts
     pages/                   chat-page, login-page, project-page, plans-page, plan-page, issues-page
     components/chat/         instance-view, message-list, composer-editor, Codex-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
+    components/chat/input-area/ shared input-area subcomponents + hooks: toolbar, provider picker, overlay menus, resume banner, attachments, composer panel, composer/attachment/provider state hooks, menu/resume hooks
     components/ui/           command, file-icon, resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react + cmdk)
     components/layout/       app-layout, sidebar, sidebar-item
     components/forms/        new-instance-form, directory-picker

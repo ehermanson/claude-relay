@@ -165,6 +165,7 @@ src/
   bin.ts                ← CLI entry point
 ui/                     ← React app
   src/components/chat/composer-editor.tsx
+  src/components/chat/input-area/  InputArea subcomponents + hooks: toolbar, picker, overlays, resume banner, attachments, composer state, menu controller
   src/components/ui/file-icon.tsx
   src/lib/composer-mentions.ts
   src/lib/file-icons.ts
