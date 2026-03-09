@@ -737,6 +737,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         };
         this.emit("activity", activity);
       } else if (block.type === "tool_use" && block.name) {
+        // Reset auto-continue counter on productive progress — the limit should
+        // only fire on consecutive empty turns, not during active tool loops.
+        this._autoContinueCount = 0;
         if (block.id) this.pendingTools.set(block.id, block.name);
         this.handleToolUse(block.name, block.input, block.id);
       } else if (block.type === "tool_result") {
