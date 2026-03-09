@@ -37,7 +37,7 @@ export function UserMessage({ text, timestamp }: UserMessageProps) {
   const hasImages = images.length > 0;
 
   return (
-    <div className="animate-fade-in flex max-w-[80%] flex-col items-end gap-1.5 self-end">
+    <div className="flex max-w-[80%] flex-col items-end gap-1.5 self-end">
       {hasText && (
         <div className="rounded-2xl rounded-br-sm border border-border/50 bg-user-bg px-4 py-3 text-sm leading-relaxed text-user-text">
           <MarkdownContent text={textPart} />

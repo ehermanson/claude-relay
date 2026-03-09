@@ -6,7 +6,7 @@ interface ThinkingBlockProps {
 
 export function ThinkingBlock({ text }: ThinkingBlockProps) {
   return (
-    <div className="animate-fade-in flex flex-col gap-1">
+    <div className="flex flex-col gap-1">
       <div className="border-l-2 border-l-claude/25 pl-4">
         <div className="mb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-claude/70">
           Thinking

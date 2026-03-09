@@ -11,6 +11,7 @@
     "@base-ui/react": "^1.2.0",
     "@lexical/react": "^0.41.0",
     "@tanstack/react-router": "^1.159.5",
+    "@tanstack/react-virtual": "^3.13.21",
     "cmdk": "^1.1.1",
     "highlight.js": "^11.11.0",
     "lexical": "^0.41.0",

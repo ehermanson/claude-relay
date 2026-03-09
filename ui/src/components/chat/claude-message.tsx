@@ -28,7 +28,7 @@ export function ClaudeMessage({ text, timestamp, isLast }: ClaudeMessageProps) {
   const collapsed = isOverflowing && !expanded && !isLast;
 
   return (
-    <div className="animate-fade-in flex min-w-0 flex-col gap-1.5">
+    <div className="flex min-w-0 flex-col gap-1.5">
       <div className="min-w-0 overflow-hidden px-1 py-0.5 text-sm leading-relaxed text-text/80">
         <div
           ref={contentRef}
