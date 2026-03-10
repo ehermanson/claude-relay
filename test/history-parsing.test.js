@@ -424,6 +424,8 @@ describe("History Parsing via DB Restore", () => {
       assert.equal(info.stats.cacheReadTokens, 45);
       assert.equal(info.stats.outputTokens, 30);
       assert.equal(info.stats.model, "gpt-5.4");
+      assert.equal(info.stats.contextTokens, 120);
+      assert.equal(info.stats.contextWindow, 258400);
       assert.equal(manager.instances.get("codex-managed-id").process?.provider, "codex");
 
       const userMessages = history.filter((h) => h.message.type === "user");

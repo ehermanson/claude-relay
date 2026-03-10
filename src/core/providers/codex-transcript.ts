@@ -322,9 +322,11 @@ export function convertCodexTranscriptEntry(
 
         if (last) {
           const inputTokens = typeof last.input_tokens === "number" ? last.input_tokens : 0;
-          const cacheReadTokens =
-            typeof last.cached_input_tokens === "number" ? last.cached_input_tokens : 0;
-          ctx.stats.contextTokens = inputTokens + cacheReadTokens;
+          // Codex cached_input_tokens are already included in input_tokens.
+          ctx.stats.contextTokens = inputTokens;
+        }
+        if (info && typeof info.model_context_window === "number") {
+          ctx.stats.contextWindow = info.model_context_window;
         }
         break;
       }
@@ -411,6 +413,7 @@ export function parseCodexTranscript(filePath: string): CodexTranscriptParseResu
   } catch {
     return {
       cwd: "",
+      files: new Map(),
       history: [],
       stats: createZeroStats(),
     };

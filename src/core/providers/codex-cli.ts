@@ -351,7 +351,8 @@ export class CodexCliSession extends EventEmitter implements ProviderSession {
           this._stats.inputTokens += inputTokens;
           this._stats.cacheReadTokens += cacheReadTokens;
           this._stats.outputTokens += event.usage.output_tokens ?? 0;
-          this._stats.contextTokens = inputTokens + cacheReadTokens;
+          // Codex reports cached tokens as a subset of input_tokens, so do not double-count them.
+          this._stats.contextTokens = inputTokens;
           this.emit("stats", { ...this._stats });
         }
         this.finishTurn();

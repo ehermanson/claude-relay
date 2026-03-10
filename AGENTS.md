@@ -179,7 +179,7 @@ ui/
 
 ### Session Cost & Token Tracking
 
-- `SessionStats` type on `InstanceInfo.stats`: `inputTokens`, `outputTokens`, `cacheCreationTokens`, `cacheReadTokens`, `costUSD`
+- `SessionStats` type on `InstanceInfo.stats`: `inputTokens`, `outputTokens`, `cacheCreationTokens`, `cacheReadTokens`, `costUSD`, optional `contextTokens`, optional `contextWindow`
 - `estimateCost()` in `tools.ts`: pricing table keyed by model prefix (`Codex-opus-4`, `Codex-sonnet-4`, `Codex-haiku-4`), fallback to Sonnet pricing
 - **ClaudeProcess**: Accumulates usage from `assistant` events (`event.message.usage/model`) and `result` events (`event.usage/model`). Emits `"stats"` event.
 - **InstanceManager**: Wires `proc.on("stats")` → `instance.info.stats`, broadcasts via `instance:status`. JSONL `parseJsonl` and `convertJsonlEntry` extract usage from assistant entries into `ctx.stats`. JSONL watcher also accumulates incrementally.

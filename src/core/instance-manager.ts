@@ -510,7 +510,8 @@ function hasSessionStats(stats: SessionStats | undefined): stats is SessionStats
     stats.cacheReadTokens > 0 ||
     stats.costUSD > 0 ||
     typeof stats.model === "string" ||
-    typeof stats.contextTokens === "number"
+    typeof stats.contextTokens === "number" ||
+    typeof stats.contextWindow === "number"
   );
 }
 
@@ -565,7 +566,8 @@ function statsChanged(before: SessionStats, after: SessionStats): boolean {
     before.cacheReadTokens !== after.cacheReadTokens ||
     before.costUSD !== after.costUSD ||
     before.model !== after.model ||
-    before.contextTokens !== after.contextTokens
+    before.contextTokens !== after.contextTokens ||
+    before.contextWindow !== after.contextWindow
   );
 }
 
@@ -3107,6 +3109,7 @@ export class InstanceManager extends EventEmitter {
       instance.info.provider === "codex"
         ? convertCodexTranscriptEntry(entry as Record<string, unknown>, {
             pendingCalls: instance.watchState.pendingProviderCalls,
+            files: instance.files,
             stats: instance.watchState.stats,
           })
         : this.convertJsonlEntry(entry, {
@@ -4002,7 +4005,10 @@ export class InstanceManager extends EventEmitter {
     });
 
     proc.on("stats", (stats) => {
-      instance.info.stats = stats;
+      instance.info.stats =
+        instance.info.stats?.contextWindow != null && stats.contextWindow == null
+          ? { ...stats, contextWindow: instance.info.stats.contextWindow }
+          : stats;
       instance.providerBinding = proc.getRuntimeBinding();
       this.dbSave(instance);
       this.emit("instance:status", id, { ...instance.info });

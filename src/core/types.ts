@@ -53,6 +53,8 @@ export interface SessionStats {
    * Represents current context window utilization — NOT a cumulative sum.
    */
   contextTokens?: number;
+  /** Provider-reported context window size when available. */
+  contextWindow?: number;
 }
 
 export interface LastMessagePreview {

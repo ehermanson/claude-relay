@@ -176,10 +176,14 @@ export function ProviderLogo({
 }
 
 export function ContextRing({ stats }: { stats: SessionStats }) {
-  const contextTokens = stats.contextTokens ?? 0;
-  if (!contextTokens) return null;
+  const contextWindow =
+    stats.contextWindow && stats.contextWindow > 0 ? stats.contextWindow : CONTEXT_WINDOW;
+  const rawContextTokens = stats.contextTokens ?? 0;
+  if (!rawContextTokens) return null;
 
-  const pct = Math.min(contextTokens / CONTEXT_WINDOW, 1);
+  // Guard against stale or provider-misaligned snapshots that exceed the known window.
+  const contextTokens = Math.min(rawContextTokens, contextWindow);
+  const pct = Math.min(contextTokens / contextWindow, 1);
   const used = Math.round(pct * 100);
   const r = 5;
   const size = 14;
@@ -199,7 +203,7 @@ export function ContextRing({ stats }: { stats: SessionStats }) {
             {used}% used &middot; {100 - used}% left
           </div>
           <div>
-            {formatTokens(contextTokens)} / {formatTokens(CONTEXT_WINDOW)} tokens
+            {formatTokens(contextTokens)} / {formatTokens(contextWindow)} tokens
           </div>
           <div className="pt-1 text-muted">Auto-compacts when full</div>
         </div>
