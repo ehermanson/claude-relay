@@ -2447,7 +2447,7 @@ export class InstanceManager extends EventEmitter {
         cwd: parsed.cwd,
         history: parsed.history,
         tasks: new Map(),
-        files: new Map(),
+        files: parsed.files,
         team: null,
         agentActivities: new Map(),
         stats: parsed.stats,

@@ -174,4 +174,32 @@ describe("CodexCliSession", () => {
     assert.equal(activities[1][0].description, "Command completed");
     assert.equal(activities[1][0].detail, "/tmp/project");
   });
+
+  it("emits file_list activity for apply_patch tool calls", async () => {
+    const harness = createHarness();
+    const session = new CodexCliSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const activities = collectEvents(session, "activity");
+
+    session.send("patch it");
+    const child = harness.children[0];
+    child.stdout.write(
+      '{"type":"item.started","item":{"id":"patch_0","type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch\\n*** Update File: src/app.ts\\n@@\\n*** End Patch\\n","status":"in_progress"}}\n',
+    );
+    child.stdout.write(
+      '{"type":"item.completed","item":{"id":"patch_0","type":"custom_tool_call_output","output":"Success. Updated the following files:\\nM src/app.ts\\n","status":"completed"}}\n',
+    );
+    child.stdout.write('{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n');
+    child.emit("close", 0, null);
+
+    await tick();
+
+    const fileList = activities.find(([activity]) => activity.activity === "file_list");
+    assert.ok(fileList, "Expected a file_list activity");
+    assert.deepEqual(fileList[0].files, [{ path: "src/app.ts", editCount: 1, type: "edited" }]);
+  });
 });

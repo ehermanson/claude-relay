@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import type {
   ActivityMessage,
+  FileChange,
   HistoryEntry,
   OutputMessage,
   SessionStats,
@@ -18,11 +19,13 @@ export interface CodexPendingCall {
 
 export interface CodexReplayContext {
   pendingCalls: Map<string, CodexPendingCall>;
+  files: Map<string, FileChange>;
   stats: SessionStats;
 }
 
 export interface CodexTranscriptParseResult {
   cwd: string;
+  files: Map<string, FileChange>;
   history: HistoryEntry[];
   stats: SessionStats;
 }
@@ -59,6 +62,52 @@ function normalizeToolOutput(output: unknown): string {
   const normalized =
     markerIndex >= 0 ? output.slice(markerIndex + TOOL_OUTPUT_MARKER.length) : output;
   return normalized.trim();
+}
+
+function trackFileChange(files: Map<string, FileChange>, path: string, type: "added" | "edited") {
+  const existing = files.get(path);
+  if (existing) {
+    existing.editCount++;
+    if (existing.type !== "added") existing.type = type;
+    return;
+  }
+  files.set(path, { path, editCount: 1, type });
+}
+
+function extractPatchFiles(patch: string): Array<{ path: string; type: "added" | "edited" }> {
+  const files = new Map<string, { path: string; type: "added" | "edited" }>();
+  let pendingPath: string | null = null;
+  let pendingType: "added" | "edited" = "edited";
+
+  for (const rawLine of patch.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (line.startsWith("*** Add File: ")) {
+      pendingPath = line.slice("*** Add File: ".length).trim();
+      pendingType = "added";
+      files.set(pendingPath, { path: pendingPath, type: pendingType });
+      continue;
+    }
+    if (line.startsWith("*** Update File: ")) {
+      pendingPath = line.slice("*** Update File: ".length).trim();
+      pendingType = "edited";
+      files.set(pendingPath, { path: pendingPath, type: pendingType });
+      continue;
+    }
+    if (line.startsWith("*** Delete File: ")) {
+      pendingPath = line.slice("*** Delete File: ".length).trim();
+      pendingType = "edited";
+      files.set(pendingPath, { path: pendingPath, type: pendingType });
+      continue;
+    }
+    if (line.startsWith("*** Move to: ") && pendingPath) {
+      const movedPath = line.slice("*** Move to: ".length).trim();
+      files.delete(pendingPath);
+      pendingPath = movedPath;
+      files.set(movedPath, { path: movedPath, type: pendingType });
+    }
+  }
+
+  return Array.from(files.values());
 }
 
 function buildToolUseActivity(name: string, rawArguments: unknown): ActivityMessage {
@@ -134,18 +183,48 @@ export function convertCodexTranscriptEntry(
         : null;
     if (!payload) return results;
 
-    if (payload.type === "function_call" && typeof payload.name === "string") {
+    if (
+      (payload.type === "function_call" || payload.type === "custom_tool_call") &&
+      typeof payload.name === "string"
+    ) {
       if (typeof payload.call_id === "string") {
         ctx.pendingCalls.set(payload.call_id, {
           name: payload.name,
-          arguments: typeof payload.arguments === "string" ? payload.arguments : undefined,
+          arguments:
+            typeof payload.arguments === "string"
+              ? payload.arguments
+              : typeof payload.input === "string"
+                ? payload.input
+                : undefined,
         });
       }
       results.push({
         timestamp,
-        message: buildToolUseActivity(payload.name, payload.arguments),
+        message: buildToolUseActivity(
+          payload.name,
+          typeof payload.arguments === "string" ? payload.arguments : payload.input,
+        ),
       });
-    } else if (payload.type === "function_call_output") {
+      if (payload.name === "apply_patch" && typeof payload.input === "string") {
+        for (const file of extractPatchFiles(payload.input)) {
+          trackFileChange(ctx.files, file.path, file.type);
+        }
+        if (ctx.files.size > 0) {
+          results.push({
+            timestamp,
+            message: {
+              type: "activity",
+              activity: "file_list",
+              description: "Files changed",
+              files: Array.from(ctx.files.values()).map((file) => ({ ...file })),
+            } as ActivityMessage,
+          });
+        }
+      }
+    } else if (
+      payload.type === "function_call_output" ||
+      payload.type === "custom_tool_call_output"
+    ) {
       const callId = typeof payload.call_id === "string" ? payload.call_id : undefined;
       const call = callId ? ctx.pendingCalls.get(callId) : undefined;
       if (callId) ctx.pendingCalls.delete(callId);
@@ -341,6 +420,7 @@ export function parseCodexTranscript(filePath: string): CodexTranscriptParseResu
   const history: HistoryEntry[] = [];
   const ctx: CodexReplayContext = {
     pendingCalls: new Map(),
+    files: new Map(),
     stats: createZeroStats(),
   };
 
@@ -371,6 +451,7 @@ export function parseCodexTranscript(filePath: string): CodexTranscriptParseResu
 
   return {
     cwd,
+    files: ctx.files,
     history,
     stats: ctx.stats,
   };

@@ -12,6 +12,7 @@ import type {
   OutputMessage,
   ExitMessage,
   ActivityMessage,
+  FileChange,
   SessionStats,
   ProviderRequest,
   ProviderRuntimeBinding,
@@ -27,7 +28,10 @@ interface CodexStreamEvent {
   item?: {
     id?: string;
     type?: string;
+    name?: string;
     text?: string;
+    input?: string;
+    output?: string;
     command?: string;
     aggregated_output?: string;
     exit_code?: number | null;
@@ -51,6 +55,52 @@ export interface CodexCliSessionOptions {
   codexPath?: string;
 }
 
+function trackFileChange(files: Map<string, FileChange>, path: string, type: "added" | "edited") {
+  const existing = files.get(path);
+  if (existing) {
+    existing.editCount++;
+    if (existing.type !== "added") existing.type = type;
+    return;
+  }
+  files.set(path, { path, editCount: 1, type });
+}
+
+function extractPatchFiles(patch: string): Array<{ path: string; type: "added" | "edited" }> {
+  const files = new Map<string, { path: string; type: "added" | "edited" }>();
+  let pendingPath: string | null = null;
+  let pendingType: "added" | "edited" = "edited";
+
+  for (const rawLine of patch.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (line.startsWith("*** Add File: ")) {
+      pendingPath = line.slice("*** Add File: ".length).trim();
+      pendingType = "added";
+      files.set(pendingPath, { path: pendingPath, type: pendingType });
+      continue;
+    }
+    if (line.startsWith("*** Update File: ")) {
+      pendingPath = line.slice("*** Update File: ".length).trim();
+      pendingType = "edited";
+      files.set(pendingPath, { path: pendingPath, type: pendingType });
+      continue;
+    }
+    if (line.startsWith("*** Delete File: ")) {
+      pendingPath = line.slice("*** Delete File: ".length).trim();
+      pendingType = "edited";
+      files.set(pendingPath, { path: pendingPath, type: pendingType });
+      continue;
+    }
+    if (line.startsWith("*** Move to: ") && pendingPath) {
+      const movedPath = line.slice("*** Move to: ".length).trim();
+      files.delete(pendingPath);
+      pendingPath = movedPath;
+      files.set(movedPath, { path: movedPath, type: pendingType });
+    }
+  }
+
+  return Array.from(files.values());
+}
+
 export class CodexCliSession extends EventEmitter implements ProviderSession {
   private currentProcess: ChildProcess | null = null;
   private readonly logger: CoreConfig["logger"];
@@ -69,6 +119,8 @@ export class CodexCliSession extends EventEmitter implements ProviderSession {
     cacheReadTokens: 0,
     costUSD: 0,
   };
+  private readonly fileMap = new Map<string, FileChange>();
+  private readonly pendingCustomToolCalls = new Map<string, { name: string; input?: string }>();
   private stderrBuffer = "";
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
@@ -324,6 +376,29 @@ export class CodexCliSession extends EventEmitter implements ProviderSession {
         inputDescription: item.command,
       };
       this.emit("activity", activity);
+      return;
+    }
+
+    if (item.type === "custom_tool_call" && item.name) {
+      if (item.id) {
+        this.pendingCustomToolCalls.set(item.id, {
+          name: item.name,
+          input: typeof item.input === "string" ? item.input : undefined,
+        });
+      }
+      const activity: ActivityMessage = {
+        type: "activity",
+        activity: "tool_use",
+        tool: item.name,
+        description: item.name === "apply_patch" ? "Editing files" : `Using ${item.name}`,
+        detail:
+          item.name === "apply_patch"
+            ? undefined
+            : typeof item.input === "string"
+              ? item.input
+              : undefined,
+      };
+      this.emit("activity", activity);
     }
   }
 
@@ -356,6 +431,49 @@ export class CodexCliSession extends EventEmitter implements ProviderSession {
         inputDescription: item.command,
       };
       this.emit("activity", activity);
+      return;
+    }
+
+    const pendingCall = item.id ? this.pendingCustomToolCalls.get(item.id) : undefined;
+    const toolName = item.name ?? pendingCall?.name;
+    const toolInput =
+      typeof item.input === "string"
+        ? item.input
+        : typeof pendingCall?.input === "string"
+          ? pendingCall.input
+          : undefined;
+    if (item.id) {
+      this.pendingCustomToolCalls.delete(item.id);
+    }
+
+    if ((item.type === "custom_tool_call" || item.type === "custom_tool_call_output") && toolName) {
+      if (toolName === "apply_patch" && toolInput) {
+        for (const file of extractPatchFiles(toolInput)) {
+          trackFileChange(this.fileMap, file.path, file.type);
+        }
+        if (this.fileMap.size > 0) {
+          this.emit("activity", {
+            type: "activity",
+            activity: "file_list",
+            description: "Files changed",
+            files: Array.from(this.fileMap.values()).map((file) => ({ ...file })),
+          });
+        }
+      }
+
+      const detail =
+        typeof item.output === "string"
+          ? item.output.trim() || undefined
+          : toolName === "apply_patch"
+            ? "Patch applied"
+            : undefined;
+      this.emit("activity", {
+        type: "activity",
+        activity: "tool_result",
+        tool: toolName,
+        description: "Tool completed",
+        detail,
+      });
     }
   }
 

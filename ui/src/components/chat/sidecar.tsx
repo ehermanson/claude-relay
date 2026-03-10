@@ -282,6 +282,7 @@ interface DirGroup {
 }
 
 function groupFilesByDir(files: FileChange[], cwd: string): DirGroup[] {
+  const compare = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
   const map = new Map<string, { basename: string; file: FileChange }[]>();
   for (const file of files) {
     const rel = relativePath(file.path, cwd);
@@ -296,26 +297,37 @@ function groupFilesByDir(files: FileChange[], cwd: string): DirGroup[] {
     group.push({ basename, file });
   }
 
-  return Array.from(map.entries()).map(([dir, dirFiles]) => {
-    let additions = 0;
-    let deletions = 0;
-    let hasDiffStats = false;
-    for (const { file } of dirFiles) {
-      if (file.additions != null || file.deletions != null) {
-        hasDiffStats = true;
-        additions += file.additions ?? 0;
-        deletions += file.deletions ?? 0;
+  return Array.from(map.entries())
+    .map(([dir, dirFiles]) => {
+      const sortedFiles = [...dirFiles].sort(
+        (a, b) =>
+          compare(a.basename, b.basename) ||
+          compare(relativePath(a.file.path, cwd), relativePath(b.file.path, cwd)),
+      );
+      let additions = 0;
+      let deletions = 0;
+      let hasDiffStats = false;
+      for (const { file } of sortedFiles) {
+        if (file.additions != null || file.deletions != null) {
+          hasDiffStats = true;
+          additions += file.additions ?? 0;
+          deletions += file.deletions ?? 0;
+        }
       }
-    }
-    return {
-      dir,
-      files: dirFiles,
-      totalEdits: dirFiles.reduce((sum, f) => sum + f.file.editCount, 0),
-      additions,
-      deletions,
-      hasDiffStats,
-    };
-  });
+      return {
+        dir,
+        files: sortedFiles,
+        totalEdits: sortedFiles.reduce((sum, f) => sum + f.file.editCount, 0),
+        additions,
+        deletions,
+        hasDiffStats,
+      };
+    })
+    .sort((a, b) => {
+      if (a.dir === "." && b.dir !== ".") return 1;
+      if (b.dir === "." && a.dir !== ".") return -1;
+      return compare(a.dir, b.dir);
+    });
 }
 
 function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
@@ -385,7 +397,7 @@ function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
                   </Collapsible.Trigger>
                 )}
                 <Collapsible.Content>
-                  <div className={showDir ? "ml-3" : ""}>
+                  <div className={showDir ? "ml-5" : ""}>
                     {group.files.map(({ basename, file }) => (
                       <Tooltip key={file.path} content={relativePath(file.path, cwd)} side="left">
                         <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.8125rem] leading-snug transition-colors hover:bg-hover">

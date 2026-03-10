@@ -481,6 +481,70 @@ describe("History Parsing via DB Restore", () => {
       manager.stopAll();
     });
 
+    it("rebuilds changed files from Codex apply_patch transcript entries", () => {
+      const transcriptPath = join(tempDir, "codex-files-session.jsonl");
+      writeFileSync(
+        transcriptPath,
+        [
+          JSON.stringify({
+            timestamp: "2026-03-08T12:00:00.000Z",
+            type: "session_meta",
+            payload: {
+              id: "codex-files-session",
+              timestamp: "2026-03-08T12:00:00.000Z",
+              cwd: "/Users/test/projects/my-app",
+              originator: "codex_exec",
+              source: "exec",
+              model_provider: "openai",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-08T12:00:01.000Z",
+            type: "response_item",
+            payload: {
+              type: "custom_tool_call",
+              name: "apply_patch",
+              call_id: "call-patch",
+              input: "*** Begin Patch\n*** Update File: src/app.ts\n@@\n*** End Patch\n",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-08T12:00:01.050Z",
+            type: "response_item",
+            payload: {
+              type: "custom_tool_call_output",
+              call_id: "call-patch",
+              output: '{"output":"Success. Updated the following files:\\nM src/app.ts\\n"}',
+            },
+          }),
+          "",
+        ].join("\n"),
+      );
+
+      seedManagedDB(tempDir, [
+        {
+          id: "codex-files-id",
+          provider: "codex",
+          providerSessionId: "codex-files-session",
+          name: "Codex Files Session",
+          workingDirectory: "/Users/test/projects/my-app",
+          transcriptPath,
+          resumeCursorJson: JSON.stringify({ sessionId: "codex-files-session" }),
+        },
+      ]);
+
+      const manager = makeManager(tempDir);
+      manager.restoreInstances();
+
+      manager.getHistory("codex-files-id");
+      const instance = manager.instances.get("codex-files-id");
+      assert.deepEqual(Array.from(instance.files.values()), [
+        { path: "src/app.ts", editCount: 1, type: "edited" },
+      ]);
+
+      manager.stopAll();
+    });
+
     it("archives incomplete managed rows that have no resumable binding", () => {
       seedManagedDB(tempDir, [
         {

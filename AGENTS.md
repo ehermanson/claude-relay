@@ -144,6 +144,7 @@ ui/
 - TaskList/TaskGet tools are suppressed (no activity emitted)
 - InstanceManager syncs `task_list` activities from process onto `instance.tasks`; JSONL parser handles `"deleted"` status
 - **Files:** ClaudeProcess tracks `fileMap` — intercepts Edit/Write/NotebookEdit `tool_use` events, extracts `file_path`/`path`/`notebook_path`, emits consolidated `file_list` activity
+- Managed Codex sessions also synthesize `file_list` activity from `apply_patch` custom-tool calls, and Codex transcript replay rebuilds the same file state from `custom_tool_call` / `custom_tool_call_output` entries
 - InstanceManager syncs `file_list` activities from process onto `instance.files`; JSONL `convertJsonlEntry` also tracks file changes
 - UI: `Sidecar` renders changed files and directories with `FileIcon` + `file-icons.ts`; generic file/folder glyphs use the app's neutral style while framework/language files use `simple-icons` brand marks (React, Svelte, Vue, Astro, HTML, CSS, etc.)
 - **Team:** ClaudeProcess tracks `teamState` — intercepts TeamCreate, Task (with `team_name`), SendMessage (shutdown_request), TeamDelete tool events
@@ -172,7 +173,7 @@ ui/
 - **AppLayout**: `Group` wraps sidebar panel (25% default, 12-40%, collapsible) + main panel (75%). Shared across ChatPage and ProjectPage via layout route — sidebar persists across navigation.
 - Sidebar/dashboard session rows are rendered from persisted SQLite metadata first (`name`, timestamps, last-message preview, stats, git info); opening a chat triggers lazy hydration/boot for that session instead of startup doing full transcript replay for every session
 - `InstanceView` shows a session-scoped loading panel while the first `instance_history` replay is in flight, so lazy hydration does not render as a blank chat page
-- **InstanceView**: When sidecar is visible, `Group` wraps chat panel (75%) + sidecar panel (25%, 15-40%, collapsible)
+- **InstanceView**: When sidecar is visible, `Group` wraps chat panel (72%) + sidecar panel (28%, 15-40%, collapsible)
 - Mobile (<=768px): No resizable panels — falls back to existing full-width/overlay behavior
 - Both sidebar and sidecar panels are collapsible (`collapsible collapsedSize={0}`)
 

@@ -550,11 +550,11 @@ export function InstanceView() {
 
       {!isMobile && sidecarContentCount > 0 && !sidecarDismissed ? (
         <Group orientation="horizontal" className="min-h-0 flex-1">
-          <Panel defaultSize="75" minSize="40">
+          <Panel defaultSize="72" minSize="40">
             <div className="flex h-full min-w-0 flex-col">{chatContent}</div>
           </Panel>
           <ResizableHandle />
-          <Panel defaultSize="25" minSize="15" maxSize="40" collapsible collapsedSize="0">
+          <Panel defaultSize="28" minSize="15" maxSize="40" collapsible collapsedSize="0">
             <Sidecar
               tasks={currentTasks}
               files={currentFiles}
