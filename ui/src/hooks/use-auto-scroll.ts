@@ -1,10 +1,17 @@
 import { useRef, useEffect } from "react";
 
+// How long after mount to ignore user-scroll detection.
+// During this window the virtualizer is still measuring rows and
+// changing scrollHeight, which produces scroll events that would
+// falsely disable stick-to-bottom.
+const SETTLE_MS = 500;
+
 export function useAutoScroll<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const stickToBottom = useRef(true);
   const isAutoScrolling = useRef(false);
   const rafId = useRef<number | null>(null);
+  const settledAt = useRef(0); // timestamp when settling window ends
 
   const scrollToBottom = () => {
     const el = ref.current;
@@ -12,6 +19,11 @@ export function useAutoScroll<T extends HTMLElement>() {
     isAutoScrolling.current = true;
     el.scrollTop = el.scrollHeight;
   };
+
+  // Start the settling window on mount
+  useEffect(() => {
+    settledAt.current = Date.now() + SETTLE_MS;
+  }, []);
 
   // Track user scroll intent — ignore programmatic scrolls
   useEffect(() => {
@@ -23,6 +35,9 @@ export function useAutoScroll<T extends HTMLElement>() {
         isAutoScrolling.current = false;
         return;
       }
+      // Ignore scroll events during settling — virtualizer layout
+      // changes scrollHeight which fires spurious scroll events
+      if (Date.now() < settledAt.current) return;
       const { scrollTop, scrollHeight, clientHeight } = el;
       stickToBottom.current = scrollHeight - scrollTop - clientHeight < 60;
     };

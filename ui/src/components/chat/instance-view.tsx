@@ -287,6 +287,7 @@ export function InstanceView() {
         loadingContent
       ) : (
         <MessageList
+          key={id}
           items={items}
           isProcessing={isProcessing}
           showThinkingIndicator={showThinkingIndicator}

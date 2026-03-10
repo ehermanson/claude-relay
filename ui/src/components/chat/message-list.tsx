@@ -263,7 +263,11 @@ export function MessageList({
   useEffect(() => {
     if (items.length > 0 && !hadItems.current) {
       hadItems.current = true;
-      requestAnimationFrame(scrollToBottom);
+      // Double-rAF: first frame lets the virtualizer measure & lay out,
+      // second frame scrolls after the browser has painted the layout.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(scrollToBottom);
+      });
     } else if (items.length === 0) {
       hadItems.current = false;
     } else {
@@ -359,7 +363,7 @@ export function MessageList({
         {hasNonVirtual && (
           <div className={`flex flex-col gap-4${hasVirtual ? " mt-4" : ""}`}>
             {nonVirtualizedRows.map((row) => (
-              <div key={row.id} className="animate-fade-in">
+              <div key={row.id} className="flex animate-fade-in flex-col">
                 {renderRow(row)}
               </div>
             ))}
