@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import hljs from "../../lib/markdown";
+import { openNativePath } from "../../lib/api";
 
 interface MarkdownContentProps {
   text: string;
@@ -181,11 +182,93 @@ function PreBlock({
   );
 }
 
+function parseNativeFileHref(
+  href: string,
+): { path: string; line?: number; column?: number } | null {
+  if (
+    !href ||
+    href.startsWith("#") ||
+    href.startsWith("/api/") ||
+    /^[a-z][a-z0-9+.-]*:/i.test(href)
+  ) {
+    if (!href.startsWith("file://")) return null;
+  }
+
+  let rawPath = href;
+  let hash = "";
+
+  if (href.startsWith("file://")) {
+    const url = new URL(href);
+    rawPath = decodeURIComponent(url.pathname);
+    hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+    if (/^\/[A-Za-z]:\//.test(rawPath)) {
+      rawPath = rawPath.slice(1);
+    }
+  } else {
+    if (!(href.startsWith("/") || /^[A-Za-z]:[\\/]/.test(href))) {
+      return null;
+    }
+    const hashIndex = href.indexOf("#");
+    if (hashIndex >= 0) {
+      rawPath = href.slice(0, hashIndex);
+      hash = href.slice(hashIndex + 1);
+    }
+  }
+
+  const path = decodeURIComponent(rawPath);
+  const lineMatch = hash.match(/^L(\d+)(?:C(\d+))?$/i);
+  return {
+    path,
+    line: lineMatch ? Number.parseInt(lineMatch[1], 10) : undefined,
+    column: lineMatch?.[2] ? Number.parseInt(lineMatch[2], 10) : undefined,
+  };
+}
+
+function MarkdownLink({
+  href = "",
+  children,
+  ...props
+}: React.ComponentProps<"a"> & { node?: unknown }) {
+  const nativeTarget = parseNativeFileHref(href);
+
+  if (nativeTarget) {
+    return (
+      <a
+        href={href}
+        {...props}
+        onClick={async (event) => {
+          event.preventDefault();
+          try {
+            await openNativePath(nativeTarget);
+          } catch {
+            // Keep the link inert on failure instead of routing the SPA to a filesystem-looking path.
+          }
+        }}
+      >
+        {children}
+      </a>
+    );
+  }
+
+  const external = /^https?:\/\//i.test(href);
+  return (
+    <a
+      href={href}
+      {...props}
+      target={external ? "_blank" : props.target}
+      rel={external ? "noreferrer" : props.rel}
+    >
+      {children}
+    </a>
+  );
+}
+
 const REMARK_PLUGINS = [remarkGfm];
 const MD_COMPONENTS = {
   code: CodeBlock,
   pre: PreBlock,
   img: ImageThumbnail,
+  a: MarkdownLink,
 };
 
 export function MarkdownContent({ text }: MarkdownContentProps) {

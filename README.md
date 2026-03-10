@@ -70,6 +70,7 @@ If Relay discovers or restores a session that already lives in a Relay-managed g
 - **Provider handoff flow** — switching from Codex to Claude (or back) can spawn a new chat in the same workspace and optionally seed it with recent portable context from the current session
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
 - **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
+- **Native file links in chat** — local file references in assistant messages open through the operating system instead of navigating the relay SPA
 - **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
 - **Mobile-friendly web UI** — React SPA with markdown rendering, syntax highlighting, activity indicators, directory browsing, and modern framework-aware file icons in the sidecar
 - **Remote access** — built-in Cloudflare Tunnel support for secure access from anywhere

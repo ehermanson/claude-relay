@@ -121,3 +121,19 @@ export async function fetchProjectArtifacts(projectId: string): Promise<ProjectA
   if (!res.ok) throw new Error("Failed to fetch project");
   return res.json();
 }
+
+export async function openNativePath(target: {
+  path: string;
+  line?: number;
+  column?: number;
+}): Promise<void> {
+  const res = await fetch("/api/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(target),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to open path" }));
+    throw new Error(data.error || "Failed to open path");
+  }
+}

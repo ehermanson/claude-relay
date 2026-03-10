@@ -6,6 +6,7 @@
  */
 
 import http from "node:http";
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -146,6 +147,30 @@ const instanceMergePattern = /^\/api\/instances\/([a-f0-9-]+)\/merge$/;
 
 interface RequestHandlerOverrides {
   getProviderModels?: (provider: ProviderKind) => Promise<ProviderModelOption[]>;
+  openNativePath?: (targetPath: string, line?: number, column?: number) => Promise<void>;
+}
+
+async function openNativePath(targetPath: string, _line?: number, _column?: number): Promise<void> {
+  const normalizedPath =
+    process.platform === "win32" ? targetPath.replaceAll("/", "\\") : targetPath;
+  const command =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "explorer.exe"
+        : "xdg-open";
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, [normalizedPath], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
 }
 
 /**
@@ -224,6 +249,7 @@ export function createRequestHandler(
       });
       return pending;
     });
+  const doOpenNativePath = overrides.openNativePath ?? openNativePath;
 
   return async function handleRequest(
     req: http.IncomingMessage,
@@ -600,6 +626,47 @@ export function createRequestHandler(
           return;
         }
         sendJson(res, 200, artifacts);
+        return;
+      }
+
+      // POST /api/open — ask the OS to open a local file path
+      if (method === "POST" && pathname === "/api/open") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+
+        const body = (await parseJsonBody(req)) as {
+          path?: string;
+          line?: number;
+          column?: number;
+        };
+        const targetPath = typeof body.path === "string" ? body.path.trim() : "";
+        if (!targetPath) {
+          sendJson(res, 400, { error: "Missing path" });
+          return;
+        }
+        if (!path.isAbsolute(targetPath)) {
+          sendJson(res, 400, { error: "Path must be absolute" });
+          return;
+        }
+        if (!fs.existsSync(targetPath)) {
+          sendJson(res, 404, { error: "Path not found" });
+          return;
+        }
+
+        try {
+          await doOpenNativePath(
+            targetPath,
+            typeof body.line === "number" ? body.line : undefined,
+            typeof body.column === "number" ? body.column : undefined,
+          );
+          sendJson(res, 200, { success: true });
+        } catch (err) {
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : "Failed to open path",
+          });
+        }
         return;
       }
 

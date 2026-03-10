@@ -51,10 +51,12 @@ describe("HTTP Routes — Additional Coverage", () => {
   let manager;
   let tempDir;
   let getProviderModels;
+  let openPathCalls;
 
   beforeEach((_, done) => {
     tempDir = mkdtempSync(join(tmpdir(), "relay-http-test-"));
     getProviderModels = undefined;
+    openPathCalls = [];
     const config = resolveConfig({
       password: "testpass",
       logger: noopLogger,
@@ -68,6 +70,9 @@ describe("HTTP Routes — Additional Coverage", () => {
     manager = new InstanceManager(config);
     const handler = createRequestHandler(config, auth, manager, undefined, {
       getProviderModels,
+      openNativePath: async (targetPath, line, column) => {
+        openPathCalls.push({ targetPath, line, column });
+      },
     });
     server = http.createServer(handler);
     server.listen(0, done);
@@ -360,6 +365,37 @@ describe("HTTP Routes — Additional Coverage", () => {
       );
       // Should be 403 (access denied) or 404 (not found with .png extension)
       assert.ok(res.status === 403 || res.status === 404);
+    });
+  });
+
+  describe("POST /api/open", () => {
+    it("requires authentication", async () => {
+      const res = await request(server, "POST", "/api/open", {
+        body: { path: join(tempDir, "example.txt") },
+      });
+      assert.equal(res.status, 401);
+    });
+
+    it("rejects missing path", async () => {
+      const session = auth.createSession();
+      const res = await request(server, "POST", "/api/open", {
+        headers: { Cookie: `session=${session.id}` },
+        body: {},
+      });
+      assert.equal(res.status, 400);
+      assert.match(res.body.error, /Missing path/);
+    });
+
+    it("opens an absolute local path via the override", async () => {
+      const session = auth.createSession();
+      const filePath = join(tempDir, "open-me.txt");
+      writeFileSync(filePath, "hello");
+      const res = await request(server, "POST", "/api/open", {
+        headers: { Cookie: `session=${session.id}` },
+        body: { path: filePath, line: 12, column: 3 },
+      });
+      assert.equal(res.status, 200);
+      assert.deepEqual(openPathCalls, [{ targetPath: filePath, line: 12, column: 3 }]);
     });
   });
 
