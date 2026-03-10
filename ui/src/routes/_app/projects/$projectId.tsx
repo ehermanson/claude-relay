@@ -2,6 +2,7 @@ import { createFileRoute, Outlet, useParams, useLocation, Link } from "@tanstack
 import { useState, useEffect, useMemo } from "react";
 import { useWSState } from "../../../context/websocket-context";
 import { useMediaQuery } from "../../../hooks/use-media-query";
+import { OpenInMenu } from "../../../components/project/open-in-menu";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { fetchProjectArtifacts } from "../../../lib/api";
 import { formatTokens, formatCost } from "../../../lib/utils";
@@ -141,6 +142,7 @@ function ProjectLayout() {
             )}
           </div>
           <div className="flex shrink-0 items-center gap-3">
+            <OpenInMenu path={artifacts?.directory} />
             {artifacts?.githubUrl && (
               <Tooltip content="Open on GitHub">
                 <a

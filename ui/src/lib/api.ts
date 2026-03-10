@@ -2,6 +2,8 @@ import type {
   CreateInstancePayload,
   HistoryEntry,
   InstanceInfo,
+  NativeOpenTarget,
+  NativeOpenTargetsResponse,
   ProviderKind,
   ProviderModelOption,
   ProjectArtifacts,
@@ -126,6 +128,8 @@ export async function openNativePath(target: {
   path: string;
   line?: number;
   column?: number;
+  targetId?: string;
+  rememberForProject?: boolean;
 }): Promise<void> {
   const res = await fetch("/api/open", {
     method: "POST",
@@ -137,3 +141,14 @@ export async function openNativePath(target: {
     throw new Error(data.error || "Failed to open path");
   }
 }
+
+export async function fetchOpenTargets(targetPath: string): Promise<NativeOpenTargetsResponse> {
+  const res = await fetch(`/api/open-targets?path=${encodeURIComponent(targetPath)}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to fetch open targets" }));
+    throw new Error(data.error || "Failed to fetch open targets");
+  }
+  return res.json();
+}
+
+export type { NativeOpenTarget };

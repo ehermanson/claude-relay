@@ -82,6 +82,7 @@ src/
     config.ts                RelayConfig extends CoreConfig, RelayOptions, resolveConfig()
     auth.ts                  AuthManager — password auth, sessions, cookies, rate limiting
     http.ts                  createRequestHandler() — REST API + static files + SPA fallback
+    project-opener.ts        Native app target discovery + per-project opener preferences
     websocket.ts             createWebSocketServer() — subscription-based real-time relay
     tunnel.ts                startTunnel(), stopTunnel() — cloudflared lifecycle
     index.ts                 ClaudeRelay class, createRelay(), re-exports core + server
@@ -95,6 +96,7 @@ ui/
     pages/                   chat-page, login-page, project-page, plans-page, plan-page, issues-page
     components/chat/         instance-view, message-list, composer-editor, Codex-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
     components/chat/input-area/ shared input-area subcomponents + hooks: toolbar, provider picker, overlay menus, resume banner, attachments, composer panel, composer/attachment/provider state hooks, menu/resume hooks
+    components/project/      shared project-level UI like the `OpenInMenu`
     components/ui/           command, file-icon, resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react + cmdk)
     components/layout/       app-layout, sidebar, sidebar-item
     components/forms/        new-instance-form, directory-picker
@@ -195,6 +197,7 @@ ui/
 - `GET /api/provider-models?provider=...` returns provider-scoped model metadata for the picker. Codex uses a built-in catalog filtered by best-effort `codex app-server` discovery when available, and falls back to the built-in list on discovery failure
 - UI: `InputArea` now uses a Lexical-based `ComposerEditor` so inline path mentions can render as atomic chips without giving up plain-text message semantics
 - UI: markdown-rendered absolute local file links in assistant messages are intercepted client-side and sent to `POST /api/open`, which asks the OS to open the path natively instead of routing the SPA to that pathname
+- `project-opener.ts` backs `GET /api/open-targets?path=...` and target-aware `POST /api/open`; chat/project headers use it for a remembered per-project `Open in` menu (preferred app persisted in `project-open-preferences.json` next to the relay DB)
 - UI: the composer supports slash commands: `/model ...` for provider-appropriate model choices and `/reasoning <default|low|medium|high|max>` for managed sessions
 - UI: typing `@` opens a workspace search palette backed by `GET /api/workspace-entries`; selecting a result inserts an inline mention chip but still sends plain `@path/to/file` text to Codex
 - Reasoning presets are shown as effort levels (low/medium/high/max), mapped to underlying token budgets and sent over WS as `set_reasoning_budget`

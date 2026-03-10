@@ -440,6 +440,29 @@ export interface DashboardStats {
   connections: number;
 }
 
+export type NativeOpenTargetKind = "default" | "app" | "finder" | "file-manager" | "terminal";
+
+export interface NativeOpenTarget {
+  id: string;
+  label: string;
+  kind: NativeOpenTargetKind;
+  description?: string;
+}
+
+export interface NativeOpenTargetsResponse {
+  path: string;
+  preferredTargetId: string | null;
+  targets: NativeOpenTarget[];
+}
+
+export interface NativeOpenRequest {
+  path: string;
+  line?: number;
+  column?: number;
+  targetId?: string;
+  rememberForProject?: boolean;
+}
+
 export interface McpServerConfig {
   type: string;
   url?: string;

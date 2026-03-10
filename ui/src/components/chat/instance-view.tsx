@@ -13,6 +13,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Tooltip } from "../ui/tooltip";
+import { OpenInMenu } from "../project/open-in-menu";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
 import { shortenPath, formatTokens, formatCost } from "../../lib/utils";
@@ -451,6 +452,7 @@ export function InstanceView() {
         <Badge dot dotClass={dotClass}>
           {statusLabel}
         </Badge>
+        <OpenInMenu path={instance.workingDirectory} />
         {instance.gitBranch && (
           <Tooltip
             content={`Working in worktree on branch ${instance.gitBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`}

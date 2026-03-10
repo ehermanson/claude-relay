@@ -51,11 +51,21 @@ describe("HTTP Routes — Additional Coverage", () => {
   let manager;
   let tempDir;
   let getProviderModels;
+  let getOpenTargets;
   let openPathCalls;
 
   beforeEach((_, done) => {
     tempDir = mkdtempSync(join(tmpdir(), "relay-http-test-"));
     getProviderModels = undefined;
+    getOpenTargets = async (targetPath) => ({
+      path: targetPath,
+      preferredTargetId: null,
+      targets: [
+        { id: "system-default", label: "Default app", kind: "default" },
+        { id: "cursor", label: "Cursor", kind: "app" },
+        { id: "finder", label: "Finder", kind: "finder" },
+      ],
+    });
     openPathCalls = [];
     const config = resolveConfig({
       password: "testpass",
@@ -70,8 +80,9 @@ describe("HTTP Routes — Additional Coverage", () => {
     manager = new InstanceManager(config);
     const handler = createRequestHandler(config, auth, manager, undefined, {
       getProviderModels,
-      openNativePath: async (targetPath, line, column) => {
-        openPathCalls.push({ targetPath, line, column });
+      getOpenTargets,
+      openNativePath: async (request) => {
+        openPathCalls.push(request);
       },
     });
     server = http.createServer(handler);
@@ -207,6 +218,10 @@ describe("HTTP Routes — Additional Coverage", () => {
       });
       const handler = createRequestHandler(config, auth, manager, undefined, {
         getProviderModels,
+        getOpenTargets,
+        openNativePath: async (request) => {
+          openPathCalls.push(request);
+        },
       });
       server = http.createServer(handler);
       await new Promise((resolve) => server.listen(0, resolve));
@@ -225,6 +240,36 @@ describe("HTTP Routes — Additional Coverage", () => {
           isDefault: true,
         },
       ]);
+    });
+  });
+
+  describe("GET /api/open-targets", () => {
+    it("requires authentication", async () => {
+      const res = await request(
+        server,
+        "GET",
+        `/api/open-targets?path=${encodeURIComponent(tempDir)}`,
+      );
+      assert.equal(res.status, 401);
+    });
+
+    it("returns detected open targets for a project path", async () => {
+      const session = auth.createSession();
+      const res = await request(
+        server,
+        "GET",
+        `/api/open-targets?path=${encodeURIComponent(tempDir)}`,
+        {
+          headers: { Cookie: `session=${session.id}` },
+        },
+      );
+      assert.equal(res.status, 200);
+      assert.equal(res.body.path, tempDir);
+      assert.equal(res.body.preferredTargetId, null);
+      assert.deepEqual(
+        res.body.targets.map((target) => target.id),
+        ["system-default", "cursor", "finder"],
+      );
     });
   });
 
@@ -395,7 +440,35 @@ describe("HTTP Routes — Additional Coverage", () => {
         body: { path: filePath, line: 12, column: 3 },
       });
       assert.equal(res.status, 200);
-      assert.deepEqual(openPathCalls, [{ targetPath: filePath, line: 12, column: 3 }]);
+      assert.deepEqual(openPathCalls, [
+        {
+          path: filePath,
+          line: 12,
+          column: 3,
+          targetId: undefined,
+          rememberForProject: false,
+        },
+      ]);
+    });
+
+    it("passes through target selection and project preference intent", async () => {
+      const session = auth.createSession();
+      const filePath = join(tempDir, "open-project.txt");
+      writeFileSync(filePath, "hello");
+      const res = await request(server, "POST", "/api/open", {
+        headers: { Cookie: `session=${session.id}` },
+        body: { path: filePath, targetId: "cursor", rememberForProject: true },
+      });
+      assert.equal(res.status, 200);
+      assert.deepEqual(openPathCalls, [
+        {
+          path: filePath,
+          line: undefined,
+          column: undefined,
+          targetId: "cursor",
+          rememberForProject: true,
+        },
+      ]);
     });
   });
 

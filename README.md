@@ -158,6 +158,7 @@ src/
     index.ts               Barrel export
   server/               ← "claude-relay/server" (extends core)
     http.ts                REST API + static file serving
+    project-opener.ts      Project/app target discovery + native open persistence
     websocket.ts           Real-time message relay via subscriptions
     auth.ts                Password auth + session cookies + rate limiting
     tunnel.ts              Cloudflare Tunnel lifecycle
@@ -167,6 +168,7 @@ src/
 ui/                     ← React app
   src/components/chat/composer-editor.tsx
   src/components/chat/input-area/  InputArea subcomponents + hooks: toolbar, picker, overlays, resume banner, attachments, composer state, menu controller
+  src/components/project/open-in-menu.tsx
   src/components/ui/file-icon.tsx
   src/lib/composer-mentions.ts
   src/lib/file-icons.ts
@@ -283,6 +285,7 @@ For Codex specifically:
 - provider switching from the chat input creates a new managed session instead of rewriting the current one, with optional recent-context carryover
 - Codex sessions keep model switching via the shared provider/model picker in the chat input
 - Codex sessions also show the shared reasoning control in the composer, and the permission toggle is presented as sandbox/full-access mode
+- project and chat headers expose an `Open in` menu backed by `/api/open-targets` and `/api/open`, which remembers the chosen app per project directory
 - external Codex session discovery and approval-request parity are still follow-up work
 
 ## Security
