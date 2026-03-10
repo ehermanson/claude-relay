@@ -13,6 +13,8 @@ import { randomUUID } from "crypto";
 import {
   readdirSync,
   readFileSync,
+  writeFileSync,
+  unlinkSync,
   renameSync,
   statSync,
   existsSync,
@@ -1849,8 +1851,14 @@ export class InstanceManager extends EventEmitter {
     return this.baseConfig.workingDirectory;
   }
 
+  private get processingAtShutdownPath(): string {
+    return join(this.baseConfig.dbPath, "..", "processing-at-shutdown.json");
+  }
+
   stopAll(): void {
+    const processingIds: string[] = [];
     for (const instance of this.instances.values()) {
+      const wasProcessing = instance.process?.isProcessing ?? false;
       if (instance.process) {
         instance.process.close();
       }
@@ -1858,6 +1866,19 @@ export class InstanceManager extends EventEmitter {
       if (instance.sessionId) {
         this.db.updateLastActivity(instance.sessionId, instance.info.lastActivityAt);
       }
+      if (wasProcessing && !instance.info.external) {
+        processingIds.push(instance.info.id);
+      }
+    }
+    // Persist which instances were mid-turn so we can auto-continue after restart
+    try {
+      if (processingIds.length > 0) {
+        writeFileSync(this.processingAtShutdownPath, JSON.stringify(processingIds));
+      } else {
+        if (existsSync(this.processingAtShutdownPath)) unlinkSync(this.processingAtShutdownPath);
+      }
+    } catch {
+      // best-effort
     }
     this.instances.clear();
     this.staleCounts.clear();
@@ -3865,6 +3886,46 @@ export class InstanceManager extends EventEmitter {
 
     // Defer plan-parent linking to after server.listen()
     queueMicrotask(() => this.linkPlanSessions());
+
+    // Auto-continue instances that were mid-turn when the server shut down
+    this.autoContinueAfterRestart();
+  }
+
+  private autoContinueAfterRestart(): void {
+    let processingIds: string[];
+    try {
+      if (!existsSync(this.processingAtShutdownPath)) return;
+      processingIds = JSON.parse(readFileSync(this.processingAtShutdownPath, "utf-8"));
+      unlinkSync(this.processingAtShutdownPath);
+    } catch {
+      return;
+    }
+
+    if (!processingIds.length) return;
+
+    // Delay briefly to let the server finish starting up
+    setTimeout(() => {
+      for (const id of processingIds) {
+        const instance = this.instances.get(id);
+        if (!instance || instance.info.external) continue;
+
+        this.baseConfig.logger.info(
+          `[InstanceManager] Auto-continuing instance "${instance.info.name}" (${id}) — was mid-turn at shutdown`,
+        );
+
+        try {
+          this.bootManagedInstance(id, instance);
+          if (instance.process) {
+            const continueMsg =
+              "The relay server restarted while you were mid-turn. Please continue from where you left off.";
+            instance.process.send(continueMsg);
+            this.setStatus(instance, "processing");
+          }
+        } catch (err) {
+          this.baseConfig.logger.warn(`[InstanceManager] Auto-continue failed for ${id}: ${err}`);
+        }
+      }
+    }, 1000);
   }
 
   /**

@@ -728,10 +728,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // Track whether this message contained tool_use for auto-continue fallback
     this._lastMessageHadToolUse = message.content.some((block) => block.type === "tool_use");
 
-    const hasNonChatBlocks = message.content.some(
-      (block) => block.type === "thinking" || block.type === "tool_use",
-    );
-
     for (const block of message.content) {
       if (block.type === "thinking" && block.thinking) {
         const activity: ActivityMessage = {
@@ -750,9 +746,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       } else if (block.type === "tool_result") {
         this.handleToolResult(block as unknown as Record<string, unknown>);
       } else if (block.type === "text" && block.text) {
-        // Assistant messages that include tool use / thinking often contain
-        // pre-tool narration ("Let me check..."), which should stay out of chat.
-        if (!this._hasStreamedText && !hasNonChatBlocks) {
+        // Emit all text from the assistant — the session layer should never
+        // suppress model output. If streaming already delivered this text,
+        // skip to avoid duplicates.
+        if (!this._hasStreamedText) {
+          this._hasStreamedText = true;
           const output: OutputMessage = {
             type: "output",
             text: block.text,
@@ -913,8 +911,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private flushPendingStreamText(): void {
     const pending = this.pendingStreamMessage;
     this.pendingStreamMessage = null;
-    if (!pending || pending.hasToolUse || pending.hasThinking) return;
+    if (!pending) return;
 
+    // Emit all streamed text regardless of whether the message also
+    // contained tool_use or thinking blocks. The session layer should
+    // never suppress model output — filtering is a UI concern.
     const text = pending.textOrder
       .sort((a, b) => a - b)
       .map((index) => pending.textByIndex.get(index) || "")
