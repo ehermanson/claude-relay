@@ -20,11 +20,11 @@ export { createSdkSession, createSdkSessionSync, resolveQueryFn } from "./provid
 export type {
   ClaudeSdkSession,
   ClaudeSdkSessionOptions,
-  CodexCliSessionOptions,
+  CodexAppServerSessionOptions,
   DiscoverCodexModelsOptions,
 } from "./providers/index.js";
 export {
-  CodexCliSession,
+  CodexAppServerSession,
   discoverCodexModels,
   findCodexBinary,
   isCodexInstalled,
