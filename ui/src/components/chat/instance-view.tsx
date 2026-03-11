@@ -233,15 +233,41 @@ export function InstanceView() {
   }, [id]);
 
   const hasLiveAgentActivities = (currentAgentActivities?.length ?? 0) > 0;
+  const retainedClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Agent activity arrives as a high-frequency, non-persistent stream.
   // Once we have agent activity for a loaded chat, keep showing it for the
   // rest of that chat session instead of treating it like a temporary pulse.
+  // When live activities go empty during processing, hold retained for 2s
+  // to avoid sub-second flicker between tabbed and non-tabbed sidecar.
   useEffect(() => {
     if (hasLiveAgentActivities) {
+      // New live data — update retained and cancel any pending clear
+      if (retainedClearTimerRef.current) {
+        clearTimeout(retainedClearTimerRef.current);
+        retainedClearTimerRef.current = null;
+      }
       setRetainedAgentActivities(currentAgentActivities);
+    } else if (!isProcessing && retainedAgentActivities) {
+      // Processing ended — clear retained after a short hold
+      if (!retainedClearTimerRef.current) {
+        retainedClearTimerRef.current = setTimeout(() => {
+          setRetainedAgentActivities(null);
+          retainedClearTimerRef.current = null;
+        }, 2000);
+      }
     }
-  }, [currentAgentActivities, hasLiveAgentActivities]);
+    // During processing with no live activities — keep retained as-is (no timer)
+  }, [currentAgentActivities, hasLiveAgentActivities, isProcessing, retainedAgentActivities]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (retainedClearTimerRef.current) {
+        clearTimeout(retainedClearTimerRef.current);
+      }
+    };
+  }, []);
 
   const sidecarAgentActivities =
     hasLiveAgentActivities && currentAgentActivities
