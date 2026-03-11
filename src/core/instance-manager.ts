@@ -3956,12 +3956,40 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
+   * Seed the module-level gitInfoCache from DB metadata so the first discovery
+   * poll doesn't re-run git rev-parse on every known directory.
+   */
+  private preloadGitInfoCache(): void {
+    const seeded = new Set<string>();
+    const seed = (dir: string, branch: string | null, isWorktree: number | null) => {
+      if (!dir || seeded.has(dir) || branch === null) return;
+      seeded.add(dir);
+      gitInfoCache.set(dir, {
+        info: { branch, isWorktree: isWorktree === 1 },
+        cachedAt: Date.now(),
+      });
+    };
+    for (const row of this.db.getAllActive()) {
+      seed(row.working_directory, row.git_info_branch, row.git_info_is_worktree);
+    }
+    for (const row of this.db.getAllManagedActive()) {
+      seed(row.working_directory, row.git_info_branch, row.git_info_is_worktree);
+    }
+    if (seeded.size > 0) {
+      this.baseConfig.logger.debug(
+        `[InstanceManager] Seeded git info cache for ${seeded.size} directories`,
+      );
+    }
+  }
+
+  /**
    * Fast restore from DB cache only — no filesystem scan.
    * Gets instances into the sidebar immediately from cached metadata.
    */
   restoreInstances(): void {
     this.migrateFromManifest();
     this.migrateLegacyManagedSessions();
+    this.preloadGitInfoCache();
 
     if (this.db.needsRebuild) {
       this.baseConfig.logger.info("[InstanceManager] DB was rebuilt from JSONL scan");
