@@ -21,7 +21,7 @@ interface PricingTier {
 const PRICING: { prefix: string; tier: PricingTier }[] = [
   {
     prefix: "claude-opus-4",
-    tier: { input: 3e-6, output: 15e-6, cacheWrite: 3.75e-6, cacheRead: 0.3e-6 },
+    tier: { input: 5e-6, output: 25e-6, cacheWrite: 6.25e-6, cacheRead: 0.5e-6 },
   },
   {
     prefix: "claude-sonnet-4",
@@ -29,7 +29,7 @@ const PRICING: { prefix: string; tier: PricingTier }[] = [
   },
   {
     prefix: "claude-haiku-4",
-    tier: { input: 0.8e-6, output: 4e-6, cacheWrite: 1e-6, cacheRead: 0.08e-6 },
+    tier: { input: 1e-6, output: 5e-6, cacheWrite: 1.25e-6, cacheRead: 0.1e-6 },
   },
 ];
 
