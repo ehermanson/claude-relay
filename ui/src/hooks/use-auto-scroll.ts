@@ -1,10 +1,14 @@
 import { useRef, useEffect, useCallback } from "react";
 
 const NEAR_BOTTOM_PX = 64;
+const FORCE_SCROLL_MAX_FRAMES = 48;
+const FORCE_SCROLL_STABLE_FRAMES = 3;
 
 export function useAutoScroll<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const stickToBottom = useRef(true);
+  const forceScrollRunId = useRef(0);
+  const forceScrollUntil = useRef(0);
 
   const scrollToBottom = useCallback(() => {
     const el = ref.current;
@@ -12,11 +16,47 @@ export function useAutoScroll<T extends HTMLElement>() {
     el.scrollTop = el.scrollHeight;
   }, []);
 
+  const cancelForcedScroll = useCallback(() => {
+    forceScrollRunId.current += 1;
+    forceScrollUntil.current = 0;
+  }, []);
+
   // Force scroll to bottom — session switch / initial load
   const forceStickToBottom = useCallback(() => {
     stickToBottom.current = true;
-    scrollToBottom();
-    requestAnimationFrame(scrollToBottom);
+    const runId = forceScrollRunId.current + 1;
+    forceScrollRunId.current = runId;
+    forceScrollUntil.current = performance.now() + 1000;
+
+    let lastScrollHeight = -1;
+    let stableFrames = 0;
+    let frames = 0;
+
+    const settleToBottom = () => {
+      if (forceScrollRunId.current !== runId) return;
+
+      const el = ref.current;
+      if (!el) return;
+
+      scrollToBottom();
+
+      const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const heightStable = Math.abs(el.scrollHeight - lastScrollHeight) <= 1;
+      stableFrames = remaining <= 1 && heightStable ? stableFrames + 1 : 0;
+      lastScrollHeight = el.scrollHeight;
+      frames += 1;
+
+      if (stableFrames >= FORCE_SCROLL_STABLE_FRAMES || frames >= FORCE_SCROLL_MAX_FRAMES) {
+        if (forceScrollRunId.current === runId) {
+          forceScrollUntil.current = 0;
+        }
+        return;
+      }
+
+      requestAnimationFrame(settleToBottom);
+    };
+
+    settleToBottom();
   }, [scrollToBottom]);
 
   // Conditionally scroll — content changes while user is at bottom
@@ -33,19 +73,32 @@ export function useAutoScroll<T extends HTMLElement>() {
     const onScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
       const nearBottom = scrollHeight - scrollTop - clientHeight <= NEAR_BOTTOM_PX;
+      const forcingBottom = performance.now() < forceScrollUntil.current;
 
       if (nearBottom) {
         stickToBottom.current = true;
-      } else if (scrollTop < lastScrollTop - 1) {
+      } else if (!forcingBottom && scrollTop < lastScrollTop - 1) {
         stickToBottom.current = false;
       }
 
       lastScrollTop = scrollTop;
     };
 
+    const onUserIntent = () => {
+      cancelForcedScroll();
+    };
+
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+    el.addEventListener("wheel", onUserIntent, { passive: true });
+    el.addEventListener("touchstart", onUserIntent, { passive: true });
+    el.addEventListener("pointerdown", onUserIntent, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onUserIntent);
+      el.removeEventListener("touchstart", onUserIntent);
+      el.removeEventListener("pointerdown", onUserIntent);
+    };
+  }, [cancelForcedScroll]);
 
   // Auto-scroll when content/container size changes
   // (virtualizer measuring, images loading, panel resizing, etc.)
