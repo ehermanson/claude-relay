@@ -751,10 +751,12 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       } else if (block.type === "tool_result") {
         this.handleToolResult(block as unknown as Record<string, unknown>);
       } else if (block.type === "text" && block.text) {
-        // Emit all text from the assistant — the session layer should never
-        // suppress model output. If streaming already delivered this text,
-        // skip to avoid duplicates.
-        if (!this._hasStreamedText) {
+        // Emit text only as a fallback when no streaming occurred.
+        // With includePartialMessages, the SDK sends partial assistant messages
+        // interleaved with stream_event deltas. If we emit text here while
+        // streaming is active (pendingStreamMessage exists), flushPendingStreamText()
+        // will also emit the accumulated text on message_stop → duplicate.
+        if (!this._hasStreamedText && !this.pendingStreamMessage) {
           this._hasStreamedText = true;
           const output: OutputMessage = {
             type: "output",
