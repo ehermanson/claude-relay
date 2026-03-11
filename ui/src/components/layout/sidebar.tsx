@@ -317,13 +317,20 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-full flex-col border-r border-border bg-surface">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between px-5 py-4">
+      <div className="flex shrink-0 items-center justify-between px-5 py-3">
         <Link
           to="/"
-          className="flex items-center gap-2.5 rounded-md transition-opacity hover:opacity-80"
+          className="flex items-center gap-2 rounded-md transition-opacity hover:opacity-80"
         >
-          <RelayLogo size={44} connected={isConnected} />
-          <span className="text-[0.9375rem] font-semibold tracking-tight text-text-bright">
+          <RelayLogo size={28} connected={isConnected} />
+          <span
+            className="text-[1.1rem] text-text-bright"
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontWeight: 900,
+              letterSpacing: "0.04em",
+            }}
+          >
             Relay
           </span>
         </Link>
