@@ -43,7 +43,7 @@ Relay also automatically discovers agent sessions running on your machine and le
 
 1. **Relay** runs on your dev machine alongside your coding agents
 2. **InstanceManager** spawns and manages provider-backed sessions (currently Claude CLI, Claude Agent SDK, and managed Codex CLI)
-3. **Session discovery** finds Claude Code instances you started in the terminal and streams their JSONL transcripts
+3. **Session discovery** finds Claude Code and Codex sessions and streams their JSONL transcripts
 4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
 5. **Tailscale** (optional) makes the relay reachable from any device on your private tailnet
 6. **Cloudflare Tunnel** (optional) gives you a public HTTPS URL for access from any device
@@ -61,7 +61,7 @@ If Relay discovers or restores a session that already lives in a Relay-managed g
 ## What It Does
 
 - **Multi-session management** — run multiple Claude Code instances side-by-side, each with its own working directory and conversation history
-- **External session discovery** — automatically detects Claude Code sessions started from your terminal and streams their output in real time
+- **External session discovery** — automatically detects Claude Code and Codex sessions and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
 - **Per-session controls** — managed sessions show a combined provider/model picker in the chat input; models stay switchable, and changing providers starts a new chat instead of mutating the current session
 - **Provider markers in the sidebar** — each session row shows which provider it belongs to, so Claude and Codex chats are easy to tell apart at a glance
@@ -288,7 +288,7 @@ For Codex specifically:
 - Codex sessions keep model switching via the shared provider/model picker in the chat input
 - Codex sessions also show the shared reasoning control in the composer, and the permission toggle is presented as sandbox/full-access mode
 - project and chat headers expose an `Open in` menu backed by `/api/open-targets` and `/api/open`, which remembers the chosen app per project directory
-- external Codex session discovery and approval-request parity are still follow-up work
+- external Codex session discovery is supported (historical scan on startup); live `ps`-based discovery and approval-request parity are still follow-up work
 
 ## Security
 

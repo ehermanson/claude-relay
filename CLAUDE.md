@@ -275,9 +275,9 @@ ui/
 
 ### External Session Discovery
 
-- InstanceManager polls `ps` + `lsof` every 10s to find running `claude` processes
-- Managed instance PIDs are excluded from discovery to prevent duplicate instances
-- Matches PIDs to JSONL transcript files in `~/.claude/projects/`
+- **Claude**: InstanceManager polls `ps` + `lsof` every 10s to find running `claude` processes. Managed PIDs excluded to prevent duplicates. Matches PIDs to JSONL transcript files in `~/.claude/projects/`. `scanAllSessions()` walks `~/.claude/projects/` on startup to discover historical sessions.
+- **Codex**: `scanCodexSessions()` recursively walks `~/.codex/sessions/` (date-organized: `YYYY/MM/DD/`) on startup. Reads `session_meta` from the first JSONL line for session ID and CWD. Sets `provider_name: "codex"` so hydration uses the Codex transcript parser. No live discovery via `ps` yet — historical scan only.
+- **Provider auto-repair**: On restore, sessions with `provider: "claude"` but a `/.codex/` JSONL path are auto-corrected to `codex` (fixes legacy manifest migration).
 - Watches JSONL files for incremental updates (2s poll)
 - External sessions can be "resumed" — converts to a managed ClaudeProcess with `--resume`
 - `resumeInstance()` uses atomic state transitions with rollback on failure — prevents duplicate instances

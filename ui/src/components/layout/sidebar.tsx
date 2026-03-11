@@ -22,7 +22,9 @@ export function Sidebar() {
   const { isConnected, isSyncing, instances } = useWSState();
   const { logout } = useAuthContext();
   const navigate = useNavigate();
-  const { chatId: currentId, projectId: currentProjectId } = useParams({ strict: false }) as {
+  const { chatId: currentId, projectId: currentProjectId } = useParams({
+    strict: false,
+  }) as {
     chatId?: string;
     projectId?: string;
   };
@@ -231,9 +233,9 @@ export function Sidebar() {
                   e.stopPropagation();
                   handleQuickCreate(dir);
                 }}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted/50 opacity-0 transition-all group-hover:opacity-100 hover:text-accent hover:bg-surface-active"
+                className="flex p-2 shrink-0 items-center justify-center rounded-md text-muted/50 opacity-0 transition-all group-hover:opacity-100 hover:text-accent hover:bg-surface-active"
               >
-                <Plus size={11} strokeWidth={2.5} />
+                <Plus className="size-4.5" />
               </button>
             </Tooltip>
           </div>

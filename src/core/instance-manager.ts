@@ -3555,11 +3555,15 @@ export class InstanceManager extends EventEmitter {
    */
   private scanAllSessions(): void {
     const projectsDir = join(this.claudeDir, "projects");
-    if (!existsSync(projectsDir)) return;
 
     const knownPaths = this.db.getJsonlPaths();
     const diskPaths = new Set<string>();
     let discovered = 0;
+
+    // --- Scan Codex sessions (~/.codex/sessions/) ---
+    this.scanCodexSessions(knownPaths, diskPaths);
+
+    if (!existsSync(projectsDir)) return;
 
     try {
       const projectDirs = readdirSync(projectsDir).filter((name) => {
@@ -3758,10 +3762,11 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Archive sessions whose JSONL no longer exists on disk
-    // Only consider paths under the scanned projectsDir
+    // Only consider paths under scanned directories (Claude projects + Codex sessions)
+    const codexSessionsDir = join(this.codexDir, "sessions");
     let archived = 0;
     for (const knownPath of knownPaths) {
-      if (!knownPath.startsWith(projectsDir)) continue;
+      if (!knownPath.startsWith(projectsDir) && !knownPath.startsWith(codexSessionsDir)) continue;
       if (!diskPaths.has(knownPath)) {
         const row = this.db.getByJsonlPath(knownPath);
         if (row && !row.archived) {
@@ -3793,6 +3798,143 @@ export class InstanceManager extends EventEmitter {
       this.baseConfig.logger.info(
         `[InstanceManager] Session scan: ${discovered} discovered, ${archived} archived`,
       );
+    }
+  }
+
+  /** Recursively scan ~/.codex/sessions/ for Codex JSONL transcripts. */
+  private scanCodexSessions(knownPaths: Set<string>, diskPaths: Set<string>): void {
+    const sessionsDir = join(this.codexDir, "sessions");
+    if (!existsSync(sessionsDir)) return;
+
+    const rows: SessionRow[] = [];
+
+    const walk = (dir: string) => {
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const fullPath = join(dir, entry);
+        try {
+          const stat = statSync(fullPath);
+          if (stat.isDirectory()) {
+            walk(fullPath);
+          } else if (entry.endsWith(".jsonl")) {
+            diskPaths.add(fullPath);
+            if (knownPaths.has(fullPath)) continue;
+
+            // Read session_meta from first line
+            const meta = this.readCodexSessionMeta(fullPath);
+            if (!meta) continue;
+
+            const cwd = meta.cwd;
+            if (!cwd || !existsSync(cwd)) continue;
+
+            const lastMsg = readLastMessage(fullPath);
+
+            rows.push({
+              session_id: meta.id,
+              instance_id: randomUUID(),
+              provider_name: "codex",
+              name: meta.firstUserMessage ? generateTitle(meta.firstUserMessage) : "New session",
+              working_directory: cwd,
+              jsonl_path: fullPath,
+              created_at: meta.createdAt,
+              last_activity_at: Math.floor(stat.mtimeMs),
+              type: "external",
+              archived: 0,
+              custom_title: 0,
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_creation_tokens: 0,
+              cache_read_tokens: 0,
+              cost_usd: 0,
+              summary: null,
+              first_prompt: null,
+              git_branch: null,
+              message_count: 0,
+              allowed_tools: "[]",
+              worktree_path: null,
+              original_directory: null,
+              parent_session_id: null,
+              preferred_model: null,
+              reasoning_budget: null,
+              skip_permissions: 0,
+              last_message_text: lastMsg?.text ?? null,
+              last_message_from: lastMsg?.from ?? null,
+              last_message_at: lastMsg?.timestamp ?? null,
+              git_info_branch: null,
+              git_info_is_worktree: null,
+            });
+          }
+        } catch {
+          // skip unreadable entries
+        }
+      }
+    };
+
+    walk(sessionsDir);
+
+    if (rows.length > 0) {
+      this.db.upsertMany(rows);
+      this.baseConfig.logger.info(
+        `[InstanceManager] Codex scan: discovered ${rows.length} session(s)`,
+      );
+    }
+  }
+
+  /** Read session_meta + first user message from a Codex JSONL file. */
+  private readCodexSessionMeta(
+    jsonlPath: string,
+  ): { id: string; cwd: string; createdAt: number; firstUserMessage: string | null } | null {
+    try {
+      const fd = openSync(jsonlPath, "r");
+      try {
+        const buf = Buffer.alloc(65536);
+        const bytesRead = readSync(fd, buf, 0, 65536, 0);
+        const text = buf.toString("utf-8", 0, bytesRead);
+
+        let id: string | null = null;
+        let cwd: string | null = null;
+        let createdAt = 0;
+        let firstUserMessage: string | null = null;
+
+        for (const line of text.split("\n")) {
+          if (!line.trim()) continue;
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.type === "session_meta" && parsed.payload) {
+              id = parsed.payload.id;
+              cwd = parsed.payload.cwd;
+              const ts = new Date(parsed.payload.timestamp || parsed.timestamp).getTime();
+              createdAt = isNaN(ts) ? Date.now() : ts;
+            } else if (
+              !firstUserMessage &&
+              parsed.type === "event_msg" &&
+              parsed.payload?.type === "user_message" &&
+              parsed.payload.message
+            ) {
+              const msg = parsed.payload.message.trim();
+              if (msg && !isTrivialMessage(msg)) {
+                firstUserMessage = msg;
+              }
+            }
+            // Stop once we have both
+            if (id && firstUserMessage) break;
+          } catch {
+            // partial line
+          }
+        }
+
+        if (!id || !cwd) return null;
+        return { id, cwd, createdAt, firstUserMessage };
+      } finally {
+        closeSync(fd);
+      }
+    } catch {
+      return null;
     }
   }
 
