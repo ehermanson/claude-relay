@@ -449,7 +449,7 @@ function getGitInfo(dir: string): { branch: string; isWorktree: boolean } | null
   return info;
 }
 
-/** Extract the last user or claude message from parsed history for dashboard preview. */
+/** Extract the last user or assistant message from parsed history for dashboard preview. */
 function extractLastMessage(history: HistoryEntry[]): LastMessagePreview | undefined {
   for (let i = history.length - 1; i >= 0; i--) {
     const msg = history[i].message;
@@ -464,7 +464,7 @@ function extractLastMessage(history: HistoryEntry[]): LastMessagePreview | undef
     } else if (msg.type === "output") {
       const output = msg as OutputMessage;
       if (output.text && output.text.trim() && !output.isWaiting) {
-        return { text: output.text, from: "claude", timestamp: history[i].timestamp };
+        return { text: output.text, from: "assistant", timestamp: history[i].timestamp };
       }
     }
   }
@@ -526,9 +526,16 @@ function lastMessageFromDb(entry: {
   last_message_at: number | null;
 }): LastMessagePreview | undefined {
   if (!entry.last_message_text || !entry.last_message_from) return undefined;
+  const from =
+    entry.last_message_from === "user"
+      ? "user"
+      : entry.last_message_from === "assistant" || entry.last_message_from === "claude"
+        ? "assistant"
+        : null;
+  if (!from) return undefined;
   return {
     text: entry.last_message_text,
-    from: entry.last_message_from as "user" | "claude",
+    from,
     timestamp: entry.last_message_at ?? 0,
   };
 }
@@ -1968,6 +1975,26 @@ export class InstanceManager extends EventEmitter {
       }
       if (instance.jsonlPath) {
         knownJsonls.set(instance.jsonlPath, instanceId);
+      }
+    }
+
+    // Eagerly reserve JSONL paths for managed instances that haven't captured their
+    // session yet. Without this, an external `claude` process in the same CWD causes
+    // findRecentJsonls to pick up the managed instance's JSONL (the most recently
+    // modified), creating a duplicate external instance.
+    for (const [instanceId, instance] of this.instances) {
+      if (instance.info.external || instance.jsonlPath) continue;
+      const cwd = instance.actualCwd || instance.info.workingDirectory;
+      const encoded = cwd.replace(/\//g, "-");
+      const projectDir = join(this.claudeDir, "projects", encoded);
+      if (!existsSync(projectDir)) continue;
+      // Find the newest JSONL in the managed instance's project dir that isn't already known
+      const candidates = this.findRecentJsonls(projectDir, 5);
+      for (const candidate of candidates) {
+        if (!knownJsonls.has(candidate)) {
+          knownJsonls.set(candidate, instanceId);
+          break; // Reserve one JSONL per managed instance
+        }
       }
     }
 
@@ -4509,7 +4536,7 @@ export class InstanceManager extends EventEmitter {
       if (output.text && output.text.trim() && !output.isWaiting) {
         instance.info.lastMessage = {
           text: output.text,
-          from: "claude",
+          from: "assistant",
           timestamp: now,
         };
       }
