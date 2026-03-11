@@ -197,7 +197,11 @@ export function InstanceView() {
         history,
         changedFiles: currentFiles,
       });
-      send({ type: "instance_message", instanceId: nextInstance.id, text: handoffPrompt });
+      send({
+        type: "instance_message",
+        instanceId: nextInstance.id,
+        text: handoffPrompt,
+      });
     }
 
     await navigate({
@@ -275,7 +279,12 @@ export function InstanceView() {
     if (!id) return;
     setApprovedTools((prev) => {
       if (prev.has(tool)) return prev;
-      send({ type: "respond_to_request", instanceId: id, requestId, decision: "accept" });
+      send({
+        type: "respond_to_request",
+        instanceId: id,
+        requestId,
+        decision: "accept",
+      });
       showThinking();
       const next = new Set(prev);
       next.add(tool);
@@ -314,7 +323,7 @@ export function InstanceView() {
 
   const loadingContent = (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
-      <div className="flex w-full max-w-md flex-col items-center rounded-2xl border border-border bg-surface/80 px-6 py-8 text-center shadow-sm">
+      <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 text-accent">
           <Spinner size={20} className="text-accent" />
         </div>
