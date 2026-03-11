@@ -48,7 +48,7 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
   return {
     workingDirectory: options.workingDirectory ?? process.cwd(),
     dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? false,
-    processTimeout: options.processTimeout ?? 5 * 60 * 1000,
+    processTimeout: options.processTimeout ?? 10 * 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? defaultLogger,
     dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
