@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "@tanstack/react-router";
 import { Group, Panel } from "react-resizable-panels";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
@@ -21,7 +21,7 @@ import { createInstance, fetchInstanceHistory } from "../../lib/api";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
 import type { ServerMessage } from "@shared/types";
 
-import type { InstanceInfo, ProviderKind } from "@shared/types";
+import type { AgentActivity, InstanceInfo, ProviderKind } from "@shared/types";
 import type { ChatItem } from "../../hooks/use-instance-messages";
 
 function DebugModal({
@@ -215,20 +215,42 @@ export function InstanceView() {
   const [showDebugPaste, setShowDebugPaste] = useState(false);
   const [sidecarDismissed, setSidecarDismissed] = useState(false);
   const [sidecarMobileOpen, setSidecarMobileOpen] = useState(false);
+  const [retainedAgentActivities, setRetainedAgentActivities] = useState<AgentActivity[] | null>(
+    null,
+  );
   const dismissedContentCountRef = useRef(0);
 
   // Reset dismiss when switching instances
   useEffect(() => {
     setSidecarDismissed(false);
+    setSidecarMobileOpen(false);
+    setRetainedAgentActivities(null);
     dismissedContentCountRef.current = 0;
   }, [id]);
+
+  const hasLiveAgentActivities = (currentAgentActivities?.length ?? 0) > 0;
+
+  // Agent activity arrives as a high-frequency, non-persistent stream.
+  // Once we have agent activity for a loaded chat, keep showing it for the
+  // rest of that chat session instead of treating it like a temporary pulse.
+  useEffect(() => {
+    if (hasLiveAgentActivities) {
+      setRetainedAgentActivities(currentAgentActivities);
+    }
+  }, [currentAgentActivities, hasLiveAgentActivities]);
+
+  const sidecarAgentActivities =
+    hasLiveAgentActivities && currentAgentActivities
+      ? currentAgentActivities
+      : retainedAgentActivities;
+  const deferredSidecarAgentActivities = useDeferredValue(sidecarAgentActivities);
 
   // Un-dismiss if new content is added after dismissal
   const sidecarContentCount =
     (currentTasks?.length ?? 0) +
     (currentFiles?.length ?? 0) +
     (currentTeam?.members?.length ?? 0) +
-    (currentAgentActivities?.length ?? 0);
+    (sidecarAgentActivities?.length ?? 0);
   useEffect(() => {
     if (sidecarDismissed && sidecarContentCount > dismissedContentCountRef.current) {
       setSidecarDismissed(false);
@@ -240,7 +262,7 @@ export function InstanceView() {
       (currentTasks?.length ?? 0) +
       (currentFiles?.length ?? 0) +
       (currentTeam?.members?.length ?? 0) +
-      (currentAgentActivities?.length ?? 0);
+      (sidecarAgentActivities?.length ?? 0);
     setSidecarDismissed(true);
   };
 
@@ -603,7 +625,7 @@ export function InstanceView() {
               tasks={currentTasks}
               files={currentFiles}
               team={currentTeam}
-              agentActivities={currentAgentActivities}
+              agentActivities={deferredSidecarAgentActivities}
               workingDirectory={instance.workingDirectory}
               onClose={handleDismissSidecar}
             />
@@ -619,7 +641,7 @@ export function InstanceView() {
           tasks={currentTasks}
           files={currentFiles}
           team={currentTeam}
-          agentActivities={currentAgentActivities}
+          agentActivities={deferredSidecarAgentActivities}
           workingDirectory={instance.workingDirectory}
           onClose={() => setSidecarMobileOpen(false)}
           isMobileOverlay

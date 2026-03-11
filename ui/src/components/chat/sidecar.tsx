@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import { Tabs } from "../ui/tabs";
 import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
@@ -99,103 +99,243 @@ function relativePath(filePath: string, cwd: string): string {
   return filePath;
 }
 
-function TeamPanel({
-  team,
-  agentActivities,
-}: {
-  team: TeamInfo | null;
-  agentActivities?: AgentActivity[] | null;
-}) {
-  const members = team?.members ?? [];
-  const running = members.filter((m) => m.status === "running").length;
-  const total = members.length;
+function looksLikeOpaqueAgentId(value: string): boolean {
+  return /^[a-f0-9]{12,}$/i.test(value);
+}
 
-  // Build a lookup from agentActivities for matching to members.
-  // Agent IDs from progress events may not match member names directly,
-  // so we show unmatched activities as a separate section.
-  const activityByName = new Map<string, AgentActivity>();
-  const unmatchedActivities: AgentActivity[] = [];
-  if (agentActivities) {
-    const memberNames = new Set(members.map((m) => m.name));
-    for (const a of agentActivities) {
-      if (memberNames.has(a.agentId)) {
-        activityByName.set(a.agentId, a);
-      } else {
-        unmatchedActivities.push(a);
-      }
-    }
+function getAgentLabel(value: string, index: number, fallback?: string): string {
+  if (!looksLikeOpaqueAgentId(value)) return value;
+  return fallback || `Agent ${index + 1}`;
+}
+
+function isCompletedAgentActivity(activity: AgentActivity): boolean {
+  const text = activity.description?.trim().toLowerCase() || "";
+  return text.startsWith("completed:") || text.startsWith("complete:");
+}
+
+function AgentRowIcon({ completed }: { completed: boolean }) {
+  if (completed) {
+    return (
+      <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-accent-dim text-accent">
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={3}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </div>
+    );
   }
 
   return (
-    <>
-      {/* Team header */}
-      <div className="shrink-0 px-4 py-3">
-        <div className="text-[0.8125rem] font-semibold text-text-bright">
-          {team?.name ?? "Agents"}
-        </div>
-        {team?.description && (
-          <div className="mt-0.5 text-[0.75rem] text-muted">{team.description}</div>
-        )}
-        <div className="mt-1.5 text-[0.75rem] font-medium text-muted">
-          {total > 0 ? `${running}/${total} active` : `${unmatchedActivities.length} active`}
-        </div>
-      </div>
-
-      {/* Member list */}
-      <div className="flex-1 overflow-y-auto px-2 py-1">
-        <div className="flex flex-col gap-px">
-          {members.map((member) => {
-            const activity = activityByName.get(member.name);
-            return (
-              <div
-                key={member.name}
-                className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug"
-              >
-                <div className="mt-px">
-                  <MemberStatusIcon status={member.status} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div
-                    className={`truncate font-medium ${
-                      member.status === "shutdown" ? "text-muted line-through" : "text-text"
-                    }`}
-                  >
-                    {member.name}
-                  </div>
-                  <div className="truncate text-[0.75rem] text-muted">
-                    {activity?.description || member.subagentType}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Unmatched agent activities (agentId doesn't match any member name) */}
-          {unmatchedActivities.map((a) => (
-            <div
-              key={a.agentId}
-              className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug"
-            >
-              <div className="mt-px">
-                <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-                  <Spinner size={14} />
-                </div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-text">{a.agentId}</div>
-                <div className="truncate text-[0.75rem] text-muted">
-                  {a.description || "Working..."}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
+    <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
+      <Spinner size={14} />
+    </div>
   );
 }
 
-function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
+function sameAgentActivities(
+  prev: AgentActivity[] | null | undefined,
+  next: AgentActivity[] | null | undefined,
+): boolean {
+  const prevList = prev ?? [];
+  const nextList = next ?? [];
+  if (prevList.length !== nextList.length) return false;
+  for (let i = 0; i < prevList.length; i++) {
+    const a = prevList[i];
+    const b = nextList[i];
+    if (!b) return false;
+    if (a.agentId !== b.agentId || a.description !== b.description || a.tool !== b.tool) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameTeam(prev: TeamInfo | null, next: TeamInfo | null): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  if (prev.name !== next.name || prev.description !== next.description) return false;
+  if (prev.members.length !== next.members.length) return false;
+  for (let i = 0; i < prev.members.length; i++) {
+    const a = prev.members[i];
+    const b = next.members[i];
+    if (!b) return false;
+    if (
+      a.name !== b.name ||
+      a.subagentType !== b.subagentType ||
+      a.description !== b.description ||
+      a.status !== b.status
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameTasks(prev: TaskItem[] | null, next: TaskItem[] | null): boolean {
+  const prevList = prev ?? [];
+  const nextList = next ?? [];
+  if (prevList.length !== nextList.length) return false;
+  for (let i = 0; i < prevList.length; i++) {
+    const a = prevList[i];
+    const b = nextList[i];
+    if (!b) return false;
+    if (
+      a.id !== b.id ||
+      a.subject !== b.subject ||
+      a.status !== b.status ||
+      a.activeForm !== b.activeForm
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameFiles(prev: FileChange[] | null, next: FileChange[] | null): boolean {
+  const prevList = prev ?? [];
+  const nextList = next ?? [];
+  if (prevList.length !== nextList.length) return false;
+  for (let i = 0; i < prevList.length; i++) {
+    const a = prevList[i];
+    const b = nextList[i];
+    if (!b) return false;
+    if (
+      a.path !== b.path ||
+      a.editCount !== b.editCount ||
+      a.type !== b.type ||
+      a.additions !== b.additions ||
+      a.deletions !== b.deletions
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+const TeamPanel = memo(
+  function TeamPanel({
+    team,
+    agentActivities,
+  }: {
+    team: TeamInfo | null;
+    agentActivities?: AgentActivity[] | null;
+  }) {
+    const members = team?.members ?? [];
+    const running = useMemo(
+      () => members.filter((member) => member.status === "running").length,
+      [members],
+    );
+    const total = members.length;
+
+    const { activityByName, unmatchedActivities } = useMemo(() => {
+      const nextActivityByName = new Map<string, AgentActivity>();
+      const nextUnmatchedActivities: AgentActivity[] = [];
+      if (agentActivities) {
+        const memberNames = new Set(members.map((member) => member.name));
+        for (const activity of agentActivities) {
+          if (memberNames.has(activity.agentId)) {
+            nextActivityByName.set(activity.agentId, activity);
+          } else {
+            nextUnmatchedActivities.push(activity);
+          }
+        }
+      }
+      return { activityByName: nextActivityByName, unmatchedActivities: nextUnmatchedActivities };
+    }, [agentActivities, members]);
+
+    const unmatchedActiveCount = useMemo(
+      () => unmatchedActivities.filter((activity) => !isCompletedAgentActivity(activity)).length,
+      [unmatchedActivities],
+    );
+
+    return (
+      <>
+        {/* Team header */}
+        <div className="shrink-0 px-4 py-3">
+          <div className="text-[0.8125rem] font-semibold text-text-bright">
+            {team?.name ?? "Agents"}
+          </div>
+          {team?.description && (
+            <div className="mt-0.5 text-[0.75rem] text-muted">{team.description}</div>
+          )}
+          <div className="mt-1.5 text-[0.75rem] font-medium text-muted">
+            {total > 0 ? `${running}/${total} active` : `${unmatchedActiveCount} active`}
+          </div>
+        </div>
+
+        {/* Member list */}
+        <div className="flex-1 overflow-y-auto px-2 py-1">
+          <div className="flex flex-col gap-px">
+            {members.map((member, index) => {
+              const activity = activityByName.get(member.name);
+              const memberLabel = getAgentLabel(member.name, index, member.subagentType);
+              return (
+                <div
+                  key={member.name}
+                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug"
+                >
+                  <div className="mt-px">
+                    <MemberStatusIcon status={member.status} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className={`truncate font-medium ${
+                        member.status === "shutdown" ? "text-muted line-through" : "text-text"
+                      }`}
+                    >
+                      {memberLabel}
+                    </div>
+                    <div className="truncate text-[0.75rem] text-muted">
+                      {activity?.description || activity?.tool || member.subagentType}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Unmatched agent activities (agentId doesn't match any member name) */}
+            {unmatchedActivities.map((a, index) => {
+              const completed = isCompletedAgentActivity(a);
+              return (
+                <div
+                  key={a.agentId}
+                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug"
+                >
+                  <div className="mt-px">
+                    <AgentRowIcon completed={completed} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className={`truncate font-medium ${completed ? "text-muted" : "text-text"}`}
+                    >
+                      {getAgentLabel(a.agentId, index)}
+                    </div>
+                    <div className="truncate text-[0.75rem] text-muted">
+                      {a.description || a.tool || "Working..."}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </>
+    );
+  },
+  (prev, next) =>
+    sameTeam(prev.team, next.team) &&
+    sameAgentActivities(prev.agentActivities, next.agentActivities),
+);
+
+const TasksPanel = memo(function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
   const completed = tasks.filter((t) => t.status === "completed").length;
   const total = tasks.length;
   const progress = total > 0 ? (completed / total) * 100 : 0;
@@ -237,7 +377,7 @@ function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
       </div>
     </>
   );
-}
+});
 
 /** Chevron icon that rotates when open. */
 function ChevronIcon({ open }: { open: boolean }) {
@@ -330,7 +470,7 @@ function groupFilesByDir(files: FileChange[], cwd: string): DirGroup[] {
     });
 }
 
-function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
+const FilesPanel = memo(function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
   const groups = useMemo(() => groupFilesByDir(files, cwd), [files, cwd]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleDir = (dir: string) => {
@@ -422,7 +562,7 @@ function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
       </div>
     </>
   );
-}
+});
 
 type SidecarTab = "team" | "tasks" | "files";
 
@@ -436,101 +576,121 @@ interface SidecarProps {
   isMobileOverlay?: boolean;
 }
 
-export function Sidecar({
-  tasks,
-  files,
-  team,
-  agentActivities,
-  workingDirectory,
-  onClose,
-  isMobileOverlay,
-}: SidecarProps) {
-  const hasTeam = !!team && team.members.length > 0;
-  const hasAgentActivities = (agentActivities?.length ?? 0) > 0;
-  const hasTasks = tasks && tasks.length > 0;
-  const hasFiles = files && files.length > 0;
+export const Sidecar = memo(
+  function Sidecar({
+    tasks,
+    files,
+    team,
+    agentActivities,
+    workingDirectory,
+    onClose,
+    isMobileOverlay,
+  }: SidecarProps) {
+    const hasTeam = !!team && team.members.length > 0;
+    const hasAgentActivities = (agentActivities?.length ?? 0) > 0;
+    const hasTasks = tasks && tasks.length > 0;
+    const hasFiles = files && files.length > 0;
 
-  // Build available tabs in priority order: Team/Agents > Tasks > Files
-  const availableTabs: { key: SidecarTab; label: string; count: number }[] = [];
-  if (hasTeam || hasAgentActivities) {
-    availableTabs.push({
-      key: "team",
-      label: hasTeam ? "Team" : "Agents",
-      count: hasTeam ? team!.members.length : agentActivities!.length,
-    });
-  }
-  if (hasTasks) availableTabs.push({ key: "tasks", label: "Tasks", count: tasks.length });
-  if (hasFiles) availableTabs.push({ key: "files", label: "Files", count: files.length });
-
-  const [activeTab, setActiveTab] = useState<SidecarTab>("team");
-
-  // Resolve effective tab: if activeTab isn't available, fall back to first available
-  const effectiveTab =
-    availableTabs.find((t) => t.key === activeTab)?.key ?? availableTabs[0]?.key ?? "tasks";
-
-  const panel = (
-    <div
-      className={
-        isMobileOverlay
-          ? "animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col border-l border-border bg-surface"
-          : "flex h-full w-full flex-col border-l border-border"
+    // Build available tabs in priority order: Team/Agents > Tasks > Files
+    const availableTabs = useMemo(() => {
+      const tabs: { key: SidecarTab; label: string; count: number }[] = [];
+      if (hasTeam || hasAgentActivities) {
+        tabs.push({
+          key: "team",
+          label: hasTeam ? "Team" : "Agents",
+          count: hasTeam ? team!.members.length : agentActivities!.length,
+        });
       }
-    >
-      {/* Header */}
-      <div className="shrink-0 border-b border-border px-4 py-3">
-        <div className="flex items-center justify-between">
-          {availableTabs.length > 1 ? (
-            <Tabs.Root value={effectiveTab} onValueChange={(v) => setActiveTab(v as SidecarTab)}>
-              <Tabs.List>
-                {availableTabs.map((tab) => (
-                  <Tabs.Tab key={tab.key} value={tab.key}>
-                    {tab.label} ({tab.count})
-                  </Tabs.Tab>
-                ))}
-              </Tabs.List>
-            </Tabs.Root>
-          ) : (
-            <h2 className="text-[0.8125rem] font-semibold text-text-bright">
-              {availableTabs[0]?.label ?? "Sidecar"}
-            </h2>
-          )}
-          <Button variant="icon" size="icon-sm" onClick={onClose}>
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </Button>
-        </div>
-      </div>
+      if (hasTasks) tabs.push({ key: "tasks", label: "Tasks", count: tasks.length });
+      if (hasFiles) tabs.push({ key: "files", label: "Files", count: files.length });
+      return tabs;
+    }, [agentActivities, files, hasAgentActivities, hasFiles, hasTasks, hasTeam, tasks, team]);
 
-      {/* Panel content */}
-      {effectiveTab === "team" && (hasTeam || hasAgentActivities) && (
-        <TeamPanel team={team} agentActivities={agentActivities} />
-      )}
-      {effectiveTab === "tasks" && hasTasks && <TasksPanel tasks={tasks} />}
-      {effectiveTab === "files" && hasFiles && <FilesPanel files={files} cwd={workingDirectory} />}
-    </div>
-  );
+    const [activeTab, setActiveTab] = useState<SidecarTab>("team");
 
-  if (isMobileOverlay) {
-    return (
-      <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
-        <div className="animate-fade-in absolute inset-0 bg-black/50" />
-        <div className="relative h-full" onClick={(e) => e.stopPropagation()}>
-          {panel}
+    // Resolve effective tab: if activeTab isn't available, fall back to first available
+    const effectiveTab =
+      availableTabs.find((t) => t.key === activeTab)?.key ?? availableTabs[0]?.key ?? "tasks";
+
+    const panel = (
+      <div
+        className={
+          isMobileOverlay
+            ? "animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col border-l border-border bg-surface"
+            : "flex h-full w-full flex-col border-l border-border"
+        }
+      >
+        {/* Header */}
+        <div className="shrink-0 border-b border-border px-4 py-3">
+          <div className="flex items-center justify-between">
+            {availableTabs.length > 1 ? (
+              <Tabs.Root value={effectiveTab} onValueChange={(v) => setActiveTab(v as SidecarTab)}>
+                <Tabs.List>
+                  {availableTabs.map((tab) => (
+                    <Tabs.Tab key={tab.key} value={tab.key}>
+                      {tab.label}{" "}
+                      <span className="inline-block min-w-[2ch] text-right tabular-nums">
+                        ({tab.count})
+                      </span>
+                    </Tabs.Tab>
+                  ))}
+                </Tabs.List>
+              </Tabs.Root>
+            ) : (
+              <h2 className="text-[0.8125rem] font-semibold text-text-bright">
+                {availableTabs[0]?.label ?? "Sidecar"}
+              </h2>
+            )}
+            <Button variant="icon" size="icon-sm" onClick={onClose}>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </Button>
+          </div>
         </div>
+
+        {/* Panel content */}
+        {effectiveTab === "team" && (hasTeam || hasAgentActivities) && (
+          <TeamPanel team={team} agentActivities={agentActivities} />
+        )}
+        {effectiveTab === "tasks" && hasTasks && <TasksPanel tasks={tasks} />}
+        {effectiveTab === "files" && hasFiles && (
+          <FilesPanel files={files} cwd={workingDirectory} />
+        )}
       </div>
     );
-  }
 
-  return panel;
-}
+    if (isMobileOverlay) {
+      return (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+          <div className="animate-fade-in absolute inset-0 bg-black/50" />
+          <div className="relative h-full" onClick={(e) => e.stopPropagation()}>
+            {panel}
+          </div>
+        </div>
+      );
+    }
+
+    return panel;
+  },
+  (prev, next) => {
+    return (
+      prev.workingDirectory === next.workingDirectory &&
+      prev.isMobileOverlay === next.isMobileOverlay &&
+      sameTasks(prev.tasks, next.tasks) &&
+      sameFiles(prev.files, next.files) &&
+      sameTeam(prev.team, next.team) &&
+      sameAgentActivities(prev.agentActivities, next.agentActivities)
+    );
+  },
+);
