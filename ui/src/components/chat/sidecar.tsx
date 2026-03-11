@@ -259,28 +259,30 @@ const TeamPanel = memo(
     return (
       <>
         {/* Team header */}
-        <div className="shrink-0 px-4 py-3">
-          <div className="text-[0.8125rem] font-semibold text-text-bright">
-            {team?.name ?? "Agents"}
+        <div className="shrink-0 px-3.5 py-2.5">
+          <div className="flex items-center gap-2">
+            <div className="text-[0.8125rem] font-semibold text-text-bright">
+              {team?.name ?? "Agents"}
+            </div>
+            <span className="rounded-full bg-accent-dim px-1.5 py-px text-[0.625rem] font-semibold tabular-nums text-accent">
+              {total > 0 ? `${running}/${total}` : unmatchedActiveCount}
+            </span>
           </div>
           {team?.description && (
             <div className="mt-0.5 text-[0.75rem] text-muted">{team.description}</div>
           )}
-          <div className="mt-1.5 text-[0.75rem] font-medium text-muted">
-            {total > 0 ? `${running}/${total} active` : `${unmatchedActiveCount} active`}
-          </div>
         </div>
 
         {/* Member list */}
-        <div className="flex-1 overflow-y-auto px-2 py-1">
-          <div className="flex flex-col gap-px">
+        <div className="flex-1 overflow-y-auto px-2 pb-2">
+          <div className="flex flex-col gap-0.5">
             {members.map((member, index) => {
               const activity = activityByName.get(member.name);
               const memberLabel = getAgentLabel(member.name, index, member.subagentType);
               return (
                 <div
                   key={member.name}
-                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug"
+                  className="flex items-start gap-2.5 rounded-lg bg-surface px-2.5 py-2 text-[0.8125rem] leading-snug"
                 >
                   <div className="mt-px">
                     <MemberStatusIcon status={member.status} />
@@ -307,7 +309,7 @@ const TeamPanel = memo(
               return (
                 <div
                   key={a.agentId}
-                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug"
+                  className="flex items-start gap-2.5 rounded-lg bg-surface px-2.5 py-2 text-[0.8125rem] leading-snug"
                 >
                   <div className="mt-px">
                     <AgentRowIcon completed={completed} />
@@ -344,22 +346,23 @@ const TasksPanel = memo(function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
   return (
     <>
       {/* Progress bar */}
-      <div className="shrink-0 px-4 py-3">
+      <div className="shrink-0 px-3.5 py-2.5">
         <div className="flex items-center justify-between pb-1.5">
           <span className={`text-[0.75rem] font-medium ${allDone ? "text-accent" : "text-muted"}`}>
             {completed}/{total} done
           </span>
+          {allDone && <span className="text-[0.625rem] font-medium text-accent">Complete</span>}
         </div>
         <Progress value={progress} indicatorClass={allDone ? "bg-accent" : "bg-claude"} />
       </div>
 
       {/* Task list */}
-      <div className="flex-1 overflow-y-auto px-2 py-1">
-        <div className="flex flex-col gap-px">
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
+        <div className="flex flex-col gap-0.5">
           {tasks.map((task) => (
             <div
               key={task.id}
-              className="flex items-start gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug"
+              className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover"
             >
               <div className="mt-px">
                 <StatusIcon status={task.status} />
@@ -489,19 +492,18 @@ const FilesPanel = memo(function FilesPanel({ files, cwd }: { files: FileChange[
   return (
     <>
       {/* Header */}
-      <div className="shrink-0 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <span className="text-[0.75rem] font-medium tracking-wide text-muted">
-            CHANGED FILES ({files.length})
-            {hasDiffStats && (
-              <span className="ml-1.5">
-                <span className="text-muted/40">• </span>
-                <span className="text-green-400">+{totalAdditions}</span>
-                <span className="text-muted/40"> / </span>
-                <span className="text-red-400">-{totalDeletions}</span>
-              </span>
-            )}
+      <div className="shrink-0 px-3.5 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[0.75rem] font-medium text-muted">
+            {files.length} file{files.length !== 1 ? "s" : ""} changed
           </span>
+          {hasDiffStats && (
+            <span className="text-[0.6875rem] font-medium tabular-nums">
+              <span className="text-green-400">+{totalAdditions}</span>
+              <span className="text-muted/40"> / </span>
+              <span className="text-red-400">-{totalDeletions}</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -519,7 +521,7 @@ const FilesPanel = memo(function FilesPanel({ files, cwd }: { files: FileChange[
                 onOpenChange={() => toggleDir(group.dir)}
               >
                 {showDir && (
-                  <Collapsible.Trigger className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-hover">
+                  <Collapsible.Trigger className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover">
                     <ChevronIcon open={isOpen} />
                     <FileIcon path={group.dir} kind="directory" size={15} />
                     <span className="min-w-0 flex-1 truncate font-medium text-text-bright text-left">
@@ -540,7 +542,7 @@ const FilesPanel = memo(function FilesPanel({ files, cwd }: { files: FileChange[
                   <div className={showDir ? "ml-5" : ""}>
                     {group.files.map(({ basename, file }) => (
                       <Tooltip key={file.path} content={relativePath(file.path, cwd)} side="left">
-                        <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.8125rem] leading-snug transition-colors hover:bg-hover">
+                        <div className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover">
                           <FileIcon path={file.path} size={15} />
                           <span className="min-w-0 flex-1 truncate text-text">{basename}</span>
                           {file.additions != null || file.deletions != null ? (
@@ -616,12 +618,12 @@ export const Sidecar = memo(
       <div
         className={
           isMobileOverlay
-            ? "animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col border-l border-border bg-surface"
-            : "flex h-full w-full flex-col border-l border-border"
+            ? "animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col rounded-l-2xl border-l border-border bg-surface shadow-2xl"
+            : "flex h-full w-full flex-col border-l border-border/60 bg-bg shadow-[inset_1px_0_0_0_rgba(255,255,255,0.02)]"
         }
       >
         {/* Header */}
-        <div className="shrink-0 border-b border-border px-4 py-3">
+        <div className="shrink-0 px-3.5 pt-3 pb-2.5">
           <div className="flex items-center justify-between">
             {availableTabs.length > 1 ? (
               <Tabs.Root value={effectiveTab} onValueChange={(v) => setActiveTab(v as SidecarTab)}>
@@ -629,8 +631,8 @@ export const Sidecar = memo(
                   {availableTabs.map((tab) => (
                     <Tabs.Tab key={tab.key} value={tab.key}>
                       {tab.label}{" "}
-                      <span className="inline-block min-w-[2ch] text-right tabular-nums">
-                        ({tab.count})
+                      <span className="inline-block min-w-[2ch] text-right tabular-nums opacity-60">
+                        {tab.count}
                       </span>
                     </Tabs.Tab>
                   ))}
@@ -673,7 +675,7 @@ export const Sidecar = memo(
     if (isMobileOverlay) {
       return (
         <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
-          <div className="animate-fade-in absolute inset-0 bg-black/50" />
+          <div className="animate-fade-in absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div className="relative h-full" onClick={(e) => e.stopPropagation()}>
             {panel}
           </div>
