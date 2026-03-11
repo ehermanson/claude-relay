@@ -1,4 +1,4 @@
-import { useReducer, useRef } from "react";
+import { useCallback, useReducer, useRef } from "react";
 import type {
   ServerMessage,
   ActivityMessage,
@@ -50,6 +50,7 @@ interface State {
 
 type Action =
   | { type: "reset" }
+  | { type: "restore"; cached: State }
   | { type: "replay"; history: HistoryEntry[] }
   | { type: "output"; text: string; isWaiting: boolean; thinking?: string }
   | { type: "activity"; message: ActivityMessage }
@@ -59,21 +60,31 @@ type Action =
   | { type: "error"; message: string }
   | { type: "show_thinking" };
 
+// Module-level cache — persists across mounts/unmounts within a page session.
+// Switching between sessions restores cached state instantly instead of showing
+// a loading spinner while the WS history replay arrives.
+const stateCache = new Map<string, State>();
+
+const EMPTY_STATE: State = {
+  items: [],
+  hasLoadedHistory: false,
+  isProcessing: false,
+  showThinkingIndicator: false,
+  currentTasks: null,
+  currentFiles: null,
+  currentTeam: null,
+  currentAgentActivities: null,
+  lastActivity: null,
+  processingStartedAt: null,
+};
+
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "reset":
-      return {
-        items: [],
-        hasLoadedHistory: false,
-        isProcessing: false,
-        showThinkingIndicator: false,
-        currentTasks: null,
-        currentFiles: null,
-        currentTeam: null,
-        currentAgentActivities: null,
-        lastActivity: null,
-        processingStartedAt: null,
-      };
+      return EMPTY_STATE;
+
+    case "restore":
+      return action.cached;
 
     case "replay": {
       // Replay history to rebuild items
@@ -441,21 +452,13 @@ function reducer(state: State, action: Action): State {
 }
 
 export function useInstanceMessages() {
-  const [state, dispatch] = useReducer(reducer, {
-    items: [],
-    hasLoadedHistory: false,
-    isProcessing: false,
-    showThinkingIndicator: false,
-    currentTasks: null,
-    currentFiles: null,
-    currentTeam: null,
-    currentAgentActivities: null,
-    lastActivity: null,
-    processingStartedAt: null,
-  });
+  const [state, dispatch] = useReducer(reducer, EMPTY_STATE);
   const instanceIdRef = useRef<string | null>(null);
+  // Ref tracks latest state so cache saves in setInstanceId aren't stale
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  const handleMessage = (instanceId: string, message: ServerMessage) => {
+  const handleMessage = useCallback((instanceId: string, message: ServerMessage) => {
     if (instanceIdRef.current !== instanceId) return;
 
     switch (message.type) {
@@ -509,16 +512,32 @@ export function useInstanceMessages() {
         }
         break;
     }
-  };
+  }, []);
 
-  const setInstanceId = (id: string | null) => {
+  const setInstanceId = useCallback((id: string | null) => {
+    // Save outgoing instance's state to cache
+    const prevId = instanceIdRef.current;
+    if (prevId && stateRef.current.hasLoadedHistory) {
+      stateCache.set(prevId, stateRef.current);
+    }
+
     instanceIdRef.current = id;
-    dispatch({ type: "reset" });
-  };
 
-  const showThinking = () => {
+    // Restore from cache if available (instant), otherwise reset.
+    // The WS history replay still arrives and silently updates to the latest.
+    if (id) {
+      const cached = stateCache.get(id);
+      if (cached) {
+        dispatch({ type: "restore", cached });
+        return;
+      }
+    }
+    dispatch({ type: "reset" });
+  }, []);
+
+  const showThinking = useCallback(() => {
     dispatch({ type: "show_thinking" });
-  };
+  }, []);
 
   return {
     items: state.items,

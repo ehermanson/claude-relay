@@ -2,17 +2,13 @@ import { createContext, useContext } from "react";
 import type { ProjectArtifacts } from "@shared/types";
 
 interface ProjectContextValue {
-  artifacts: ProjectArtifacts | null;
-  loading: boolean;
-  error: string | null;
+  artifacts: ProjectArtifacts;
 }
 
-export const ProjectContext = createContext<ProjectContextValue>({
-  artifacts: null,
-  loading: true,
-  error: null,
-});
+export const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function useProjectContext() {
-  return useContext(ProjectContext);
+  const ctx = useContext(ProjectContext);
+  if (!ctx) throw new Error("useProjectContext must be used within ProjectContext.Provider");
+  return ctx;
 }

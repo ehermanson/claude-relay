@@ -1,7 +1,6 @@
 import { useParams, Link } from "@tanstack/react-router";
 import { useProjectContext } from "../context/project-context";
 import { MarkdownContent } from "../components/chat/markdown-content";
-import { Spinner } from "../components/ui/spinner";
 import { Tooltip } from "../components/ui/tooltip";
 
 function formatDate(epoch: number): string {
@@ -20,24 +19,7 @@ export function PlanPage() {
     planSlug: string;
   };
 
-  const { artifacts, loading, error } = useProjectContext();
-
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner size={20} className="text-muted" />
-      </div>
-    );
-  }
-
-  if (error || !artifacts) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
-        <p className="mb-1 text-sm font-medium text-text">Project not found</p>
-        <span className="text-xs text-muted">{error || "Could not load project artifacts"}</span>
-      </div>
-    );
-  }
+  const { artifacts } = useProjectContext();
 
   const plan = artifacts.plans.find((p) => p.slug === planSlug);
   const dirName = artifacts.directory.split("/").pop() || projectId;

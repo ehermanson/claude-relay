@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, useParams, useLocation, Link } from "@tanstack/react-router";
-import { useState, useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useWSState } from "../../../context/websocket-context";
 import { useMediaQuery } from "../../../hooks/use-media-query";
 import { OpenInMenu } from "../../../components/project/open-in-menu";
@@ -60,7 +60,6 @@ function NavTab({
 }
 
 function ProjectLayout() {
-  const { projectId } = useParams({ strict: false }) as { projectId: string };
   const { chatId, planSlug } = useParams({ strict: false }) as {
     chatId?: string;
     planSlug?: string;
@@ -69,19 +68,8 @@ function ProjectLayout() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { instances } = useWSState();
 
-  const [artifacts, setArtifacts] = useState<import("@shared/types").ProjectArtifacts | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!projectId) return;
-    setLoading(true);
-    setError(null);
-    fetchProjectArtifacts(projectId)
-      .then(setArtifacts)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [projectId]);
+  const artifacts = Route.useLoaderData();
+  const projectId = artifacts.directory.split("/").pop() || "";
 
   const isChildView = !!chatId || !!planSlug;
 
@@ -103,11 +91,11 @@ function ProjectLayout() {
   const isChatsTab = pathname.includes("/chats");
   const isOverviewTab = !isPlansTab && !isIssuesTab && !isChatsTab;
 
-  const dirName = artifacts?.directory.split("/").pop() || projectId;
-  const planCount = artifacts?.plans.length ?? 0;
-  const issueCount = artifacts?.beadsIssues?.length ?? 0;
+  const dirName = artifacts.directory.split("/").pop() || projectId;
+  const planCount = artifacts.plans.length;
+  const issueCount = artifacts.beadsIssues?.length ?? 0;
 
-  const ctxValue = useMemo(() => ({ artifacts, loading, error }), [artifacts, loading, error]);
+  const ctxValue = useMemo(() => ({ artifacts }), [artifacts]);
 
   if (isChildView) {
     return (
@@ -137,13 +125,11 @@ function ProjectLayout() {
             <h1 className="truncate text-[0.9375rem] font-semibold tracking-tight text-text-bright">
               {dirName}
             </h1>
-            {artifacts?.directory && (
-              <p className="truncate text-xs text-muted">{artifacts.directory}</p>
-            )}
+            <p className="truncate text-xs text-muted">{artifacts.directory}</p>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <OpenInMenu path={artifacts?.directory} />
-            {artifacts?.githubUrl && (
+            <OpenInMenu path={artifacts.directory} />
+            {artifacts.githubUrl && (
               <Tooltip content="Open on GitHub">
                 <a
                   href={artifacts.githubUrl}
@@ -157,7 +143,7 @@ function ProjectLayout() {
                 </a>
               </Tooltip>
             )}
-            {artifacts && artifacts.stats.costUSD > 0 && (
+            {artifacts.stats.costUSD > 0 && (
               <Tooltip
                 content={
                   <div className="flex flex-col gap-0.5">
@@ -192,7 +178,7 @@ function ProjectLayout() {
             Overview
           </NavTab>
           <NavTab to="/projects/$projectId/plans" params={{ projectId }} active={isPlansTab}>
-            Plans{!loading && planCount > 0 ? ` (${planCount})` : ""}
+            Plans{planCount > 0 ? ` (${planCount})` : ""}
           </NavTab>
           {issueCount > 0 && (
             <NavTab to="/projects/$projectId/issues" params={{ projectId }} active={isIssuesTab}>
@@ -213,6 +199,26 @@ function ProjectLayout() {
   );
 }
 
+function ProjectPending() {
+  return (
+    <div className="flex flex-1 items-center justify-center">
+      <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted border-t-accent" />
+    </div>
+  );
+}
+
+function ProjectError({ error }: { error: Error }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
+      <p className="mb-1 text-sm font-medium text-text">Project not found</p>
+      <span className="text-xs text-muted">{error.message}</span>
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/_app/projects/$projectId")({
+  loader: ({ params }) => fetchProjectArtifacts(params.projectId),
+  pendingComponent: ProjectPending,
+  errorComponent: ProjectError,
   component: ProjectLayout,
 });

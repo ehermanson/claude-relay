@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useProjectContext } from "../context/project-context";
 import { useMediaQuery } from "../hooks/use-media-query";
-import { Spinner } from "../components/ui/spinner";
 import { Badge } from "../components/ui/badge";
 import { Tooltip } from "../components/ui/tooltip";
 import { Drawer } from "../components/ui/drawer";
@@ -333,7 +332,7 @@ function KanbanColumn({
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 export function IssuesPage() {
-  const { artifacts, loading, error } = useProjectContext();
+  const { artifacts } = useProjectContext();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { issue: selectedId } = useSearch({
     from: "/_app/projects/$projectId/issues/",
@@ -396,23 +395,6 @@ export function IssuesPage() {
       }, 200);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner size={20} className="text-muted" />
-      </div>
-    );
-  }
-
-  if (error || !artifacts) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
-        <p className="mb-1 text-sm font-medium text-text">Project not found</p>
-        <span className="text-xs text-muted">{error || "Could not load project artifacts"}</span>
-      </div>
-    );
-  }
 
   const issues = artifacts.beadsIssues;
   if (!issues || issues.length === 0) {

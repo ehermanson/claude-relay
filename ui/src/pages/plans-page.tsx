@@ -3,7 +3,6 @@ import { useProjectContext } from "../context/project-context";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import { Collapsible } from "../components/ui/collapsible";
 import { Tooltip } from "../components/ui/tooltip";
-import { Spinner } from "../components/ui/spinner";
 import type { ProjectPlan } from "@shared/types";
 
 function formatDate(epoch: number): string {
@@ -74,24 +73,7 @@ function PlanCard({ plan, projectId }: { plan: ProjectPlan; projectId: string })
 
 export function PlansPage() {
   const { projectId } = useParams({ strict: false }) as { projectId: string };
-  const { artifacts, loading, error } = useProjectContext();
-
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner size={20} className="text-muted" />
-      </div>
-    );
-  }
-
-  if (error || !artifacts) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
-        <p className="mb-1 text-sm font-medium text-text">Could not load plans</p>
-        <span className="text-xs text-muted">{error || "Project artifacts unavailable"}</span>
-      </div>
-    );
-  }
+  const { artifacts } = useProjectContext();
 
   if (artifacts.plans.length === 0) {
     return (

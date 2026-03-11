@@ -1,7 +1,6 @@
 import { useProjectContext } from "../context/project-context";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import { Tabs } from "../components/ui/tabs";
-import { Spinner } from "../components/ui/spinner";
 import type { McpServerConfig } from "@shared/types";
 
 // ─── Section Heading ────────────────────────────────────────────────────────
@@ -94,52 +93,33 @@ function McpServerCard({ name, config }: { name: string; config: McpServerConfig
 // ─── Main Content ───────────────────────────────────────────────────────────
 
 export function ProjectPage() {
-  const { artifacts, loading, error } = useProjectContext();
+  const { artifacts } = useProjectContext();
 
   // Build doc tabs — priority order: Memory > CLAUDE.md > README.md
   const docTabs: DocTab[] = [];
-  if (artifacts) {
-    if (artifacts.memory) {
-      docTabs.push({
-        key: "memory",
-        label: "Memory",
-        description: "Persistent notes Claude remembers across sessions.",
-        content: artifacts.memory,
-      });
-    }
-    if (artifacts.claudeMd) {
-      docTabs.push({
-        key: "claude-md",
-        label: "CLAUDE.md",
-        description: "Project instructions checked into the codebase.",
-        content: artifacts.claudeMd,
-      });
-    }
-    if (artifacts.readmeMd) {
-      docTabs.push({
-        key: "readme",
-        label: "README",
-        description: "Project overview from the repository.",
-        content: artifacts.readmeMd,
-      });
-    }
+  if (artifacts.memory) {
+    docTabs.push({
+      key: "memory",
+      label: "Memory",
+      description: "Persistent notes Claude remembers across sessions.",
+      content: artifacts.memory,
+    });
   }
-
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner size={20} className="text-muted" />
-      </div>
-    );
+  if (artifacts.claudeMd) {
+    docTabs.push({
+      key: "claude-md",
+      label: "CLAUDE.md",
+      description: "Project instructions checked into the codebase.",
+      content: artifacts.claudeMd,
+    });
   }
-
-  if (error || !artifacts) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
-        <p className="mb-1 text-sm font-medium text-text">Project not found</p>
-        <span className="text-xs text-muted">{error || "Could not load project artifacts"}</span>
-      </div>
-    );
+  if (artifacts.readmeMd) {
+    docTabs.push({
+      key: "readme",
+      label: "README",
+      description: "Project overview from the repository.",
+      content: artifacts.readmeMd,
+    });
   }
 
   const hasDocs = docTabs.length > 0;
