@@ -183,6 +183,11 @@ function estimateRowHeight(row: RenderRow): number {
 
 const NEAR_BOTTOM_PX = 60;
 
+// Always keep the last N rows non-virtualized so the bottom of the chat
+// is real DOM with accurate measurements — reduces virtualizer churn
+// near the scroll edge and makes stick-to-bottom more reliable.
+const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
+
 // ── Component ────────────────────────────────────────────────────────
 
 interface MessageListProps {
@@ -216,20 +221,28 @@ export function MessageList({
   planChildId,
   planChildName,
 }: MessageListProps) {
-  const { ref: scrollRef, scrollToBottom, onContentChange } = useAutoScroll<HTMLDivElement>();
+  const {
+    ref: scrollRef,
+    scrollToBottom,
+    forceStickToBottom,
+    onContentChange,
+  } = useAutoScroll<HTMLDivElement>();
 
   // ── Build render rows ────────────────────────────────────────────
   const rows = useMemo(() => buildRows(items), [items]);
 
   // ── Hybrid split ─────────────────────────────────────────────────
-  // During processing, keep the current turn (from last user message onward)
-  // non-virtualized to avoid measurement flicker during streaming.
+  // Always keep the last N rows non-virtualized so the bottom of the
+  // chat has real DOM measurements. During processing, extend that to
+  // include the full current turn (from last user message onward).
   const firstUnvirtualizedRowIndex = useMemo(() => {
-    if (!isProcessing) return rows.length; // idle: all virtualized
+    const tailStart = Math.max(rows.length - ALWAYS_UNVIRTUALIZED_TAIL_ROWS, 0);
+    if (!isProcessing) return tailStart;
+    // Find the last user message to include the full current turn
     for (let i = rows.length - 1; i >= 0; i--) {
-      if (rows[i].kind === "user") return i;
+      if (rows[i].kind === "user") return Math.min(i, tailStart);
     }
-    return rows.length;
+    return tailStart;
   }, [rows, isProcessing]);
 
   const virtualizedRowCount = Math.min(firstUnvirtualizedRowIndex, rows.length);
@@ -263,17 +276,13 @@ export function MessageList({
   useEffect(() => {
     if (items.length > 0 && !hadItems.current) {
       hadItems.current = true;
-      // Double-rAF: first frame lets the virtualizer measure & lay out,
-      // second frame scrolls after the browser has painted the layout.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(scrollToBottom);
-      });
+      forceStickToBottom();
     } else if (items.length === 0) {
       hadItems.current = false;
     } else {
       onContentChange();
     }
-  }, [items, scrollToBottom, onContentChange]);
+  }, [items, forceStickToBottom, onContentChange]);
 
   // ── Thinking indicator ───────────────────────────────────────────
   const showThinking = !!showThinkingIndicator || !!isProcessing || instanceStatus === "processing";
