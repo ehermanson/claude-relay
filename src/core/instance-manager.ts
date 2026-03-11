@@ -100,6 +100,8 @@ export type { InstanceStatus, LastMessagePreview, InstanceInfo, HistoryEntry } f
 interface ExternalState {
   jsonlPath: string;
   sessionId: string;
+  /** PID of the external Claude CLI process (for SIGINT on takeover) */
+  pid?: number;
 }
 
 interface WatchState {
@@ -1090,6 +1092,24 @@ export class InstanceManager extends EventEmitter {
     if (!sessionId) throw new Error("Instance has no session ID to resume");
     const cwd = instance.actualCwd || instance.info.workingDirectory;
 
+    // SIGINT the external CLI process so it exits cleanly before we take over
+    if (instance.externalState?.pid) {
+      try {
+        process.kill(instance.externalState.pid, "SIGINT");
+        this.baseConfig.logger.info(
+          `[InstanceManager] Sent SIGINT to external CLI process (PID ${instance.externalState.pid})`,
+        );
+      } catch (err) {
+        this.baseConfig.logger.warn(
+          `[InstanceManager] Failed to SIGINT external PID ${instance.externalState.pid}: ${err}`,
+        );
+      }
+    } else {
+      this.baseConfig.logger.warn(
+        `[InstanceManager] No PID tracked for external session "${instance.info.name}" — cannot SIGINT`,
+      );
+    }
+
     // JSONL watcher keeps running — watchState is independent of externalState.
     // The watcher suppresses emissions while the process is active (dedup),
     // and picks up terminal-side changes when the process is idle.
@@ -1918,22 +1938,23 @@ export class InstanceManager extends EventEmitter {
       if (pid !== undefined) managedPids.add(pid);
     }
 
-    // Find running claude processes — returns cwds with counts (multiple PIDs per cwd)
-    const cwdCounts = this.findRunningClaudeCwds(managedPids);
-    if (cwdCounts.size === 0) {
+    // Find running claude processes — returns cwds with counts and PIDs
+    const cwdInfoMap = this.findRunningClaudeCwds(managedPids);
+    if (cwdInfoMap.size === 0) {
       this.removeStaleExternals(new Set());
       return;
     }
 
     // For each cwd, find N most recently modified JSONLs (N = number of PIDs in that cwd)
-    const activeJsonls = new Map<string, string>(); // jsonlPath → cwd
-    for (const [cwd, count] of cwdCounts) {
+    // Track the first PID per JSONL for external state
+    const activeJsonls = new Map<string, { cwd: string; pid?: number }>(); // jsonlPath → info
+    for (const [cwd, info] of cwdInfoMap) {
       const projectDir = this.cwdToProjectDir(cwd, projectsDir);
       if (!projectDir || !existsSync(projectDir)) continue;
 
-      const jsonlPaths = this.findRecentJsonls(projectDir, count);
-      for (const p of jsonlPaths) {
-        activeJsonls.set(p, cwd);
+      const jsonlPaths = this.findRecentJsonls(projectDir, info.count);
+      for (let i = 0; i < jsonlPaths.length; i++) {
+        activeJsonls.set(jsonlPaths[i], { cwd, pid: info.pids[i] });
       }
     }
 
@@ -1948,31 +1969,24 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Collect CWDs of SDK-based managed instances (which don't expose a PID).
-    // CLI sessions are already excluded via PID matching above, so we only need
-    // CWD matching for SDK sessions to prevent duplicate external instances.
-    const managedCwds = new Set<string>();
-    for (const [, instance] of this.instances) {
-      if (!instance.info.external && instance.process && instance.process.pid === undefined) {
-        managedCwds.add(instance.actualCwd || instance.info.workingDirectory);
-      }
-    }
-
     // Remove external instances that are no longer active
     this.removeStaleExternals(new Set(activeJsonls.keys()));
 
     // Discover new sessions (and upgrade restored stopped externals)
-    for (const [jsonlPath, cwd] of activeJsonls) {
-      // Skip JSONLs whose CWD matches any managed instance (SDK sessions have no PID
-      // to exclude, so CWD matching is the only way to prevent duplicates)
-      if (managedCwds.has(cwd)) continue;
-
+    // Note: SDK-based managed instances don't spawn a `claude` CLI process, so they
+    // won't appear in ps output. Their JSONLs are already in knownJsonls (via
+    // instance.jsonlPath), so the check below naturally prevents duplicates.
+    for (const [jsonlPath, { cwd, pid }] of activeJsonls) {
       if (knownJsonls.has(jsonlPath)) {
         // Check if this is a restored stopped external that should be upgraded to active
         const existingId = knownJsonls.get(jsonlPath)!;
         const existing = this.instances.get(existingId);
         if (existing && existing.info.external && existing.info.status === "stopped") {
           this.upgradeRestoredExternal(existingId, existing, jsonlPath);
+        }
+        // Update PID on existing external instances (PIDs can change across restarts)
+        if (existing?.externalState && pid !== undefined) {
+          existing.externalState.pid = pid;
         }
         continue;
       }
@@ -1990,16 +2004,18 @@ export class InstanceManager extends EventEmitter {
         // Check for plan-continuation parent (explicit reference in first message)
         const planParent = this.findPlanParent(jsonlPath);
         const parentSessionId = planParent?.sessionId || planParent?.info.sessionId;
-        this.addExternalInstance(sessionId, jsonlPath, parentSessionId);
+        this.addExternalInstance(sessionId, jsonlPath, parentSessionId, pid);
       } catch (err) {
         this.baseConfig.logger.debug(`[InstanceManager] Failed to add external session: ${err}`);
       }
     }
   }
 
-  /** Returns a map of cwd → number of external claude PIDs running in that directory */
-  private findRunningClaudeCwds(excludePids: Set<number>): Map<string, number> {
-    const cwdCounts = new Map<string, number>();
+  /** Returns a map of cwd → { count, pids } of external claude PIDs running in that directory */
+  private findRunningClaudeCwds(
+    excludePids: Set<number>,
+  ): Map<string, { count: number; pids: number[] }> {
+    const cwdInfo = new Map<string, { count: number; pids: number[] }>();
     try {
       const psOutput = execSync("ps -eo pid,comm 2>/dev/null | grep -E '\\bclaude$' || true", {
         encoding: "utf-8",
@@ -2024,7 +2040,10 @@ export class InstanceManager extends EventEmitter {
           for (const line of lsofOutput.split("\n")) {
             if (line.startsWith("n/")) {
               const cwd = line.substring(1);
-              cwdCounts.set(cwd, (cwdCounts.get(cwd) || 0) + 1);
+              const existing = cwdInfo.get(cwd) || { count: 0, pids: [] };
+              existing.count++;
+              existing.pids.push(pid);
+              cwdInfo.set(cwd, existing);
             }
           }
         } catch {
@@ -2034,7 +2053,7 @@ export class InstanceManager extends EventEmitter {
     } catch {
       // ignore
     }
-    return cwdCounts;
+    return cwdInfo;
   }
 
   private cwdToProjectDir(cwd: string, projectsDir: string): string | null {
@@ -2149,6 +2168,7 @@ export class InstanceManager extends EventEmitter {
     instance.externalState = {
       jsonlPath,
       sessionId,
+      // PID will be populated by the next discovery cycle
     };
 
     instance.watchState = createWatchState(jsonlPath, fileSize, instance.info.stats);
@@ -2166,6 +2186,7 @@ export class InstanceManager extends EventEmitter {
     sessionId: string,
     jsonlPath: string,
     parentSessionId?: string,
+    pid?: number,
   ): void {
     const { cwd, history, tasks, files, team, agentActivities, stats } = this.parseJsonl(jsonlPath);
     if (!cwd) return; // Can't determine working directory
@@ -2237,6 +2258,7 @@ export class InstanceManager extends EventEmitter {
       externalState: {
         jsonlPath,
         sessionId,
+        pid,
       },
       watchState: createWatchState(jsonlPath, fileSize, info.stats),
       tasks: tasks.size > 0 ? tasks : undefined,
@@ -4077,10 +4099,15 @@ export class InstanceManager extends EventEmitter {
 
     proc.on("exit", (message) => {
       instance.providerBinding = proc.getRuntimeBinding();
-      this.pushHistory(instance, message);
       instance.info.lastActivityAt = Date.now();
       if (message.code !== 0) {
+        this.pushHistory(instance, message);
         this.setStatus(instance, "error");
+      } else {
+        // Clean exit (code 0) — session ended normally (e.g. SDK stream ended
+        // between turns). Mark as "stopped" so the next sendMessage() auto-revives
+        // instead of silently dropping messages into a dead session.
+        this.setStatus(instance, "stopped");
       }
       this.dbSave(instance);
       this.emit("instance:exit", id, message);

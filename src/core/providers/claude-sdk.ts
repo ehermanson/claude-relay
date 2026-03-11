@@ -614,6 +614,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         this._stopped = true;
         this.clearTimeout();
         this.finishTurn();
+        // Signal to InstanceManager that this session is no longer usable.
+        // Without this, the instance stays "idle" but send() silently drops
+        // messages, leaving the UI stuck on "working..." forever.
+        const exit: ExitMessage = { type: "exit", code: 0 };
+        this.emit("exit", exit);
       }
     }
   }
