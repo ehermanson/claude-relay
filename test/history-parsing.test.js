@@ -148,7 +148,7 @@ describe("History Parsing via DB Restore", () => {
     it("restores user and assistant messages from JSONL", () => {
       seedDB(tempDir, [makeExternalEntry({ jsonlPath: join(fixturesDir, "basic-session.jsonl") })]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       assert.ok(history.length > 0, "History should not be empty");
@@ -176,7 +176,7 @@ describe("History Parsing via DB Restore", () => {
     it("extracts timestamps from JSONL entries", () => {
       seedDB(tempDir, [makeExternalEntry({ jsonlPath: join(fixturesDir, "basic-session.jsonl") })]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       for (const entry of history) {
@@ -195,7 +195,7 @@ describe("History Parsing via DB Restore", () => {
         makeExternalEntry({ jsonlPath: join(fixturesDir, "compact-session.jsonl") }),
       ]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       const userMessages = history.filter((h) => h.message.type === "user");
@@ -223,7 +223,7 @@ describe("History Parsing via DB Restore", () => {
         makeExternalEntry({ jsonlPath: join(fixturesDir, "tool-use-session.jsonl") }),
       ]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       const thinkingActivities = history.filter(
@@ -240,7 +240,7 @@ describe("History Parsing via DB Restore", () => {
         makeExternalEntry({ jsonlPath: join(fixturesDir, "tool-use-session.jsonl") }),
       ]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       const toolUseActivities = history.filter(
@@ -258,7 +258,7 @@ describe("History Parsing via DB Restore", () => {
         makeExternalEntry({ jsonlPath: join(fixturesDir, "tool-use-session.jsonl") }),
       ]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       const toolResultActivities = history.filter(
@@ -277,7 +277,7 @@ describe("History Parsing via DB Restore", () => {
         makeExternalEntry({ jsonlPath: join(fixturesDir, "permission-denied-session.jsonl") }),
       ]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       const denials = history.filter(
@@ -300,7 +300,7 @@ describe("History Parsing via DB Restore", () => {
         makeExternalEntry({ jsonlPath: join(fixturesDir, "internal-tags-session.jsonl") }),
       ]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       const userMessages = history.filter((h) => h.message.type === "user");
@@ -319,7 +319,7 @@ describe("History Parsing via DB Restore", () => {
     it("converts image blocks to [Image: source: path] format", () => {
       seedDB(tempDir, [makeExternalEntry({ jsonlPath: join(fixturesDir, "image-session.jsonl") })]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       const userMessages = history.filter((h) => h.message.type === "user");
@@ -343,7 +343,7 @@ describe("History Parsing via DB Restore", () => {
         makeExternalEntry({ jsonlPath: join(fixturesDir, "no-timestamp-session.jsonl") }),
       ]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       assert.ok(history.length > 0, "History should not be empty");
@@ -376,7 +376,7 @@ describe("History Parsing via DB Restore", () => {
         }),
       ]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const info = manager.getInstance("test-id");
       assert.ok(info.lastMessage, "Should have lastMessage");
@@ -406,7 +406,7 @@ describe("History Parsing via DB Restore", () => {
       ]);
 
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const infoBefore = manager.getInstance("codex-managed-id");
       const instanceBefore = manager.instances.get("codex-managed-id");
@@ -469,7 +469,7 @@ describe("History Parsing via DB Restore", () => {
       ]);
 
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("codex-discovery-id");
       assert.ok(history.length > 0, "Managed Codex restore should discover transcript history");
@@ -536,7 +536,7 @@ describe("History Parsing via DB Restore", () => {
       ]);
 
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       manager.getHistory("codex-files-id");
       const instance = manager.instances.get("codex-files-id");
@@ -607,7 +607,7 @@ describe("History Parsing via DB Restore", () => {
       ]);
 
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("codex-plan-id");
       const instance = manager.instances.get("codex-plan-id");
@@ -645,7 +645,7 @@ describe("History Parsing via DB Restore", () => {
       ]);
 
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       assert.equal(manager.listInstances().length, 0);
 
@@ -678,7 +678,7 @@ describe("History Parsing via DB Restore", () => {
 
       seedDB(tempDir, [makeExternalEntry({ jsonlPath })]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       // Should have parsed the valid lines, skipping malformed ones
@@ -694,7 +694,7 @@ describe("History Parsing via DB Restore", () => {
 
       seedDB(tempDir, [makeExternalEntry({ jsonlPath })]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       assert.equal(history.length, 0, "Empty JSONL should produce empty history");
@@ -730,7 +730,7 @@ describe("History Parsing via DB Restore", () => {
 
       seedDB(tempDir, [makeExternalEntry({ jsonlPath })]);
       const manager = makeManager(tempDir);
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       const history = manager.getHistory("test-id");
       assert.ok(history.length <= 1000, `History should be capped at 1000, got ${history.length}`);
@@ -749,7 +749,7 @@ describe("History Parsing via DB Restore", () => {
         events.push({ id, info });
       });
 
-      manager.restoreInstances();
+      manager.restoreAndScan();
 
       assert.equal(events.length, 1);
       assert.equal(events[0].id, "test-id");

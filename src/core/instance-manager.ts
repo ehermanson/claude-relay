@@ -3758,9 +3758,187 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
+  /**
+   * Restore a single external session row from the DB into an in-memory Instance.
+   * Returns true if the instance was created, false if skipped.
+   */
+  private restoreExternalFromRow(entry: SessionRow): boolean {
+    if (entry.type !== "external") return false;
+    if (this.instances.has(entry.instance_id)) return false;
+    if (!existsSync(entry.jsonl_path)) {
+      this.db.archive(entry.session_id);
+      return false;
+    }
+
+    const extWorktreePath = entry.worktree_path ?? undefined;
+    const extOriginalDir = entry.original_directory ?? undefined;
+    const extGitBranch = entry.git_branch ?? undefined;
+
+    const info: InstanceInfo = {
+      id: entry.instance_id,
+      provider: (entry.provider_name as ProviderKind) || "claude",
+      name: entry.name,
+      workingDirectory: entry.working_directory,
+      status: "stopped",
+      createdAt: entry.created_at,
+      lastActivityAt: entry.last_activity_at,
+      external: true,
+      lastMessage: lastMessageFromDb(entry),
+      sessionId: entry.session_id,
+      customTitle: entry.custom_title === 1,
+      stats: dbStatsToSessionStats(entry),
+      gitBranch: extGitBranch,
+      originalDirectory: extOriginalDir,
+      gitInfo: gitInfoFromDb(entry),
+      parentSessionId: entry.parent_session_id ?? undefined,
+      preferredModel: entry.preferred_model ?? undefined,
+      reasoningBudget: entry.reasoning_budget ?? undefined,
+      skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+    };
+
+    const instance: Instance = {
+      info,
+      process: null,
+      providerBinding: {
+        provider: (entry.provider_name as ProviderKind) || "claude",
+        providerSessionId: entry.session_id,
+        resumeCursor: { sessionId: entry.session_id },
+        runtimePayload: { cwd: entry.working_directory },
+        transcriptPath: entry.jsonl_path,
+        runtimeMode: normalizeRuntimeMode(entry.skip_permissions === 1),
+      },
+      history: [], // deferred until hydration
+      sessionId: entry.session_id,
+      jsonlPath: entry.jsonl_path,
+      externalState: {
+        jsonlPath: entry.jsonl_path,
+        sessionId: entry.session_id,
+      },
+      // tasks, files, team, agentActivities deferred until hydration
+      worktreePath: extWorktreePath,
+      gitBranch: extGitBranch,
+      originalDirectory: extOriginalDir,
+      actualCwd: extWorktreePath ? extWorktreePath : undefined,
+      hydrated: false,
+    };
+
+    this.instances.set(entry.instance_id, instance);
+    this.emit("instance:created", entry.instance_id, { ...info });
+    return true;
+  }
+
+  /**
+   * Restore a single managed session row from the DB into an in-memory Instance.
+   * Returns true if the instance was created, false if skipped.
+   */
+  private restoreManagedFromRow(entry: ManagedInstanceRow): boolean {
+    if (this.instances.has(entry.instance_id)) return false;
+
+    let restoreActualCwd = entry.working_directory;
+    let restoreWorktreePath: string | undefined;
+    let restoreGitBranch: string | undefined;
+    let restoreOriginalDirectory: string | undefined;
+
+    if (entry.worktree_path && entry.original_directory) {
+      if (existsSync(entry.worktree_path)) {
+        restoreActualCwd = entry.worktree_path;
+        restoreWorktreePath = entry.worktree_path;
+        restoreGitBranch = entry.git_branch ?? undefined;
+        restoreOriginalDirectory = entry.original_directory;
+      } else {
+        this.baseConfig.logger.warn(
+          `[InstanceManager] Worktree ${entry.worktree_path} no longer exists, using original directory`,
+        );
+      }
+    }
+
+    let resumeCursor: unknown;
+    let runtimePayload: Record<string, unknown> | undefined;
+    try {
+      resumeCursor = entry.resume_cursor_json ? JSON.parse(entry.resume_cursor_json) : undefined;
+    } catch {
+      resumeCursor = undefined;
+    }
+    try {
+      runtimePayload = entry.runtime_payload_json
+        ? (JSON.parse(entry.runtime_payload_json) as Record<string, unknown>)
+        : undefined;
+    } catch {
+      runtimePayload = undefined;
+    }
+
+    const resumeSessionId = entry.provider_session_id ?? extractResumeSessionId(resumeCursor);
+    const provider = entry.provider_name as ProviderKind;
+    const transcriptPath = this.resolveManagedTranscriptPath(provider, {
+      sessionId: resumeSessionId,
+      transcriptPath: entry.transcript_path ?? undefined,
+      workingDirectory: restoreActualCwd,
+    });
+    if (!resumeSessionId && !transcriptPath) {
+      this.db.archiveManaged(entry.instance_id);
+      this.baseConfig.logger.info(
+        `[InstanceManager] Archived incomplete managed session "${entry.name}" (${entry.instance_id}) with no resumable binding`,
+      );
+      return false;
+    }
+
+    const info: InstanceInfo = {
+      id: entry.instance_id,
+      provider: entry.provider_name as ProviderKind,
+      name: entry.name,
+      workingDirectory: entry.working_directory,
+      status: "stopped",
+      createdAt: entry.created_at,
+      lastActivityAt: entry.last_activity_at,
+      lastMessage: lastMessageFromDb(entry),
+      sessionId: resumeSessionId,
+      customTitle: entry.custom_title === 1,
+      stats: dbStatsToSessionStats(entry),
+      gitBranch: restoreGitBranch,
+      originalDirectory: restoreOriginalDirectory,
+      gitInfo: gitInfoFromDb(entry),
+      parentSessionId: entry.parent_session_id ?? undefined,
+      preferredModel: entry.preferred_model ?? undefined,
+      reasoningBudget: entry.reasoning_budget ?? undefined,
+      skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+    };
+
+    const instance: Instance = {
+      info,
+      process: null,
+      providerBinding: {
+        provider,
+        providerSessionId: resumeSessionId,
+        resumeCursor,
+        runtimePayload,
+        transcriptPath,
+        runtimeMode: entry.runtime_mode as ProviderRuntimeMode,
+      },
+      history: [], // deferred until hydration
+      sessionId: resumeSessionId,
+      jsonlPath: transcriptPath,
+      // watchState, tasks, files, team, agentActivities deferred until hydration
+      worktreePath: restoreWorktreePath,
+      gitBranch: restoreGitBranch,
+      originalDirectory: restoreOriginalDirectory,
+      actualCwd: restoreWorktreePath ? restoreActualCwd : undefined,
+      hydrated: false,
+    };
+
+    this.instances.set(entry.instance_id, instance);
+    if (transcriptPath !== (entry.transcript_path ?? undefined)) {
+      this.dbSave(instance);
+    }
+    this.emit("instance:created", entry.instance_id, { ...info });
+    return true;
+  }
+
+  /**
+   * Fast restore from DB cache only — no filesystem scan.
+   * Gets instances into the sidebar immediately from cached metadata.
+   */
   restoreInstances(): void {
     this.migrateFromManifest();
-    this.scanAllSessions();
     this.migrateLegacyManagedSessions();
 
     if (this.db.needsRebuild) {
@@ -3771,168 +3949,12 @@ export class InstanceManager extends EventEmitter {
 
     // --- External sessions: skeleton from DB metadata only (no JSONL parse, no git) ---
     for (const entry of this.db.getAllActive()) {
-      if (entry.type !== "external") continue;
-      if (!existsSync(entry.jsonl_path)) {
-        this.db.archive(entry.session_id);
-        continue;
-      }
-
-      const extWorktreePath = entry.worktree_path ?? undefined;
-      const extOriginalDir = entry.original_directory ?? undefined;
-      const extGitBranch = entry.git_branch ?? undefined;
-
-      const info: InstanceInfo = {
-        id: entry.instance_id,
-        provider: (entry.provider_name as ProviderKind) || "claude",
-        name: entry.name,
-        workingDirectory: entry.working_directory,
-        status: "stopped",
-        createdAt: entry.created_at,
-        lastActivityAt: entry.last_activity_at,
-        external: true,
-        lastMessage: lastMessageFromDb(entry),
-        sessionId: entry.session_id,
-        customTitle: entry.custom_title === 1,
-        stats: dbStatsToSessionStats(entry),
-        gitBranch: extGitBranch,
-        originalDirectory: extOriginalDir,
-        gitInfo: gitInfoFromDb(entry),
-        parentSessionId: entry.parent_session_id ?? undefined,
-        preferredModel: entry.preferred_model ?? undefined,
-        reasoningBudget: entry.reasoning_budget ?? undefined,
-        skipPermissions: entry.skip_permissions === 1 ? true : undefined,
-      };
-
-      const instance: Instance = {
-        info,
-        process: null,
-        providerBinding: {
-          provider: (entry.provider_name as ProviderKind) || "claude",
-          providerSessionId: entry.session_id,
-          resumeCursor: { sessionId: entry.session_id },
-          runtimePayload: { cwd: entry.working_directory },
-          transcriptPath: entry.jsonl_path,
-          runtimeMode: normalizeRuntimeMode(entry.skip_permissions === 1),
-        },
-        history: [], // deferred until hydration
-        sessionId: entry.session_id,
-        jsonlPath: entry.jsonl_path,
-        externalState: {
-          jsonlPath: entry.jsonl_path,
-          sessionId: entry.session_id,
-        },
-        // tasks, files, team, agentActivities deferred until hydration
-        worktreePath: extWorktreePath,
-        gitBranch: extGitBranch,
-        originalDirectory: extOriginalDir,
-        actualCwd: extWorktreePath ? extWorktreePath : undefined,
-        hydrated: false,
-      };
-
-      this.instances.set(entry.instance_id, instance);
-      this.emit("instance:created", entry.instance_id, { ...info });
-      restored++;
+      if (this.restoreExternalFromRow(entry)) restored++;
     }
 
     // --- Managed sessions: skeleton from DB metadata only (no provider boot, no JSONL parse) ---
     for (const entry of this.db.getAllManagedActive()) {
-      let restoreActualCwd = entry.working_directory;
-      let restoreWorktreePath: string | undefined;
-      let restoreGitBranch: string | undefined;
-      let restoreOriginalDirectory: string | undefined;
-
-      if (entry.worktree_path && entry.original_directory) {
-        if (existsSync(entry.worktree_path)) {
-          restoreActualCwd = entry.worktree_path;
-          restoreWorktreePath = entry.worktree_path;
-          restoreGitBranch = entry.git_branch ?? undefined;
-          restoreOriginalDirectory = entry.original_directory;
-        } else {
-          this.baseConfig.logger.warn(
-            `[InstanceManager] Worktree ${entry.worktree_path} no longer exists, using original directory`,
-          );
-        }
-      }
-
-      let resumeCursor: unknown;
-      let runtimePayload: Record<string, unknown> | undefined;
-      try {
-        resumeCursor = entry.resume_cursor_json ? JSON.parse(entry.resume_cursor_json) : undefined;
-      } catch {
-        resumeCursor = undefined;
-      }
-      try {
-        runtimePayload = entry.runtime_payload_json
-          ? (JSON.parse(entry.runtime_payload_json) as Record<string, unknown>)
-          : undefined;
-      } catch {
-        runtimePayload = undefined;
-      }
-
-      const resumeSessionId = entry.provider_session_id ?? extractResumeSessionId(resumeCursor);
-      const provider = entry.provider_name as ProviderKind;
-      const transcriptPath = this.resolveManagedTranscriptPath(provider, {
-        sessionId: resumeSessionId,
-        transcriptPath: entry.transcript_path ?? undefined,
-        workingDirectory: restoreActualCwd,
-      });
-      if (!resumeSessionId && !transcriptPath) {
-        this.db.archiveManaged(entry.instance_id);
-        this.baseConfig.logger.info(
-          `[InstanceManager] Archived incomplete managed session "${entry.name}" (${entry.instance_id}) with no resumable binding`,
-        );
-        continue;
-      }
-
-      const info: InstanceInfo = {
-        id: entry.instance_id,
-        provider: entry.provider_name as ProviderKind,
-        name: entry.name,
-        workingDirectory: entry.working_directory,
-        status: "stopped",
-        createdAt: entry.created_at,
-        lastActivityAt: entry.last_activity_at,
-        lastMessage: lastMessageFromDb(entry),
-        sessionId: resumeSessionId,
-        customTitle: entry.custom_title === 1,
-        stats: dbStatsToSessionStats(entry),
-        gitBranch: restoreGitBranch,
-        originalDirectory: restoreOriginalDirectory,
-        gitInfo: gitInfoFromDb(entry),
-        parentSessionId: entry.parent_session_id ?? undefined,
-        preferredModel: entry.preferred_model ?? undefined,
-        reasoningBudget: entry.reasoning_budget ?? undefined,
-        skipPermissions: entry.skip_permissions === 1 ? true : undefined,
-      };
-
-      const instance: Instance = {
-        info,
-        process: null,
-        providerBinding: {
-          provider,
-          providerSessionId: resumeSessionId,
-          resumeCursor,
-          runtimePayload,
-          transcriptPath,
-          runtimeMode: entry.runtime_mode as ProviderRuntimeMode,
-        },
-        history: [], // deferred until hydration
-        sessionId: resumeSessionId,
-        jsonlPath: transcriptPath,
-        // watchState, tasks, files, team, agentActivities deferred until hydration
-        worktreePath: restoreWorktreePath,
-        gitBranch: restoreGitBranch,
-        originalDirectory: restoreOriginalDirectory,
-        actualCwd: restoreWorktreePath ? restoreActualCwd : undefined,
-        hydrated: false,
-      };
-
-      this.instances.set(entry.instance_id, instance);
-      if (transcriptPath !== (entry.transcript_path ?? undefined)) {
-        this.dbSave(instance);
-      }
-      this.emit("instance:created", entry.instance_id, { ...info });
-      restored++;
+      if (this.restoreManagedFromRow(entry)) restored++;
     }
 
     if (restored > 0) {
@@ -3946,10 +3968,57 @@ export class InstanceManager extends EventEmitter {
 
     // Auto-continue instances that were mid-turn when the server shut down
     this.autoContinueAfterRestart();
+  }
 
-    // Mark scan as complete so the UI knows all sessions are loaded
+  /**
+   * Run the filesystem scan and restore any newly-discovered sessions.
+   * Returns the number of new instances created.
+   */
+  private scanAndRestoreNew(): number {
+    this.scanAllSessions();
+
+    let discovered = 0;
+    for (const entry of this.db.getAllActive()) {
+      if (this.restoreExternalFromRow(entry)) discovered++;
+    }
+    for (const entry of this.db.getAllManagedActive()) {
+      if (this.restoreManagedFromRow(entry)) discovered++;
+    }
+
+    if (discovered > 0) {
+      this.baseConfig.logger.info(
+        `[InstanceManager] Scan discovered ${discovered} new instance(s)`,
+      );
+    }
+
+    // Re-link plan sessions for any newly discovered instances
+    this.linkPlanSessions();
+
     this.scanComplete = true;
     this.emit("scan:complete");
+
+    return discovered;
+  }
+
+  /**
+   * Full synchronous restore: DB cache + filesystem scan.
+   * Used by tests and any path that needs everything ready immediately.
+   */
+  restoreAndScan(): void {
+    this.restoreInstances();
+    this.scanAndRestoreNew();
+  }
+
+  /**
+   * Background filesystem scan — discovers new sessions, archives stale ones,
+   * creates Instance objects for any newly found DB rows. Emits scan:complete when done.
+   * Call this after server.listen() so the UI is already available.
+   */
+  async scanInBackground(): Promise<void> {
+    // Yield to the event loop so server.listen() callback and pending WS connections
+    // get processed before the sync filesystem scan blocks.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    this.scanAndRestoreNew();
   }
 
   private autoContinueAfterRestart(): void {

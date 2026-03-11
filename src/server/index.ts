@@ -72,16 +72,28 @@ export class ClaudeRelay {
 
   /**
    * Start listening for connections.
+   *
+   * Startup sequence:
+   * 1. Initialize SDK provider
+   * 2. Restore instances from DB cache (fast, ~50ms)
+   * 3. Start HTTP server — UI is available immediately
+   * 4. Background: filesystem scan discovers new sessions, then starts discovery polling
    */
   async start(): Promise<void> {
     await this.instanceManager.initSdkProvider();
-    this.instanceManager.restoreInstances();
-    this.instanceManager.startDiscovery();
-    return new Promise((resolve) => {
+    this.instanceManager.restoreInstances(); // DB-only, fast
+
+    await new Promise<void>((resolve) => {
       this.server.listen(this.config.port, () => {
         this.config.logger.info(`Claude Relay listening on http://localhost:${this.config.port}`);
         resolve();
       });
+    });
+
+    // Background: scan filesystem for new sessions, then start discovery polling.
+    // Not awaited — server is already listening.
+    this.instanceManager.scanInBackground().then(() => {
+      this.instanceManager.startDiscovery();
     });
   }
 

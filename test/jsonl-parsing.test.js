@@ -271,7 +271,7 @@ describe("DB Persistence", () => {
   it("handles fresh DB gracefully on restore", () => {
     const config = makeConfig(tempDir);
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
     assert.equal(manager.listInstances().length, 0);
     manager.stopAll();
   });
@@ -294,7 +294,7 @@ describe("DB Persistence", () => {
 
     const config = makeConfig(tempDir);
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
 
     const list = manager.listInstances();
     assert.equal(list.length, 1);
@@ -319,7 +319,7 @@ describe("DB Persistence", () => {
 
     const config = makeConfig(tempDir);
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
 
     // Instance should be archived since JSONL doesn't exist
     assert.equal(manager.listInstances().length, 0);
@@ -347,7 +347,7 @@ describe("DB Persistence", () => {
 
     const config = makeConfig(tempDir, { maxProcesses: 3 });
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
 
     // All sessions should be restored (maxProcesses only limits managed processes)
     assert.equal(manager.listInstances().length, 5);
@@ -375,7 +375,7 @@ describe("DB Persistence", () => {
 
     const config = makeConfig(tempDir, { manifestFile });
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
 
     const list = manager.listInstances();
     assert.equal(list.length, 1);
@@ -395,7 +395,7 @@ describe("DB Persistence", () => {
     const config = makeConfig(tempDir, { manifestFile });
     const manager = new InstanceManager(config);
     // Should not throw
-    manager.restoreInstances();
+    manager.restoreAndScan();
     assert.equal(manager.listInstances().length, 0);
     manager.stopAll();
   });
@@ -406,7 +406,7 @@ describe("DB Persistence", () => {
 
     const config = makeConfig(tempDir, { manifestFile });
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
     assert.equal(manager.listInstances().length, 0);
     manager.stopAll();
   });
@@ -452,7 +452,7 @@ describe("Plan Parent Linking", () => {
 
     const config = makeConfig(tempDir);
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
 
     // Both instances survive — no merging or removal
     const list = manager.listInstances();
@@ -498,7 +498,7 @@ describe("Plan Parent Linking", () => {
 
     const config = makeConfig(tempDir);
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
 
     const list = manager.listInstances();
     const child = list.find((i) => i.id === "child-id");

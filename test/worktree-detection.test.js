@@ -246,7 +246,7 @@ describe("scanAllSessions worktree recovery", () => {
       claudeDir,
     });
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
 
     // The instance should have workingDirectory = original repo dir, not the worktree
     const instances = manager.listInstances();
@@ -302,7 +302,7 @@ describe("scanAllSessions worktree recovery", () => {
       claudeDir,
     });
     const manager = new InstanceManager(config);
-    manager.restoreInstances();
+    manager.restoreAndScan();
 
     // Session gets discovered but then archived because the working_directory
     // (worktree path) no longer exists and there's no original_directory to fall back to
@@ -372,7 +372,7 @@ describe("scanAllSessions archive protection", () => {
 
     // First scan discovers the session and resolves worktree
     const manager1 = new InstanceManager(config);
-    manager1.restoreInstances();
+    manager1.restoreAndScan();
 
     let instances = manager1.listInstances();
     assert.equal(instances.length, 1);
@@ -385,7 +385,7 @@ describe("scanAllSessions archive protection", () => {
 
     // Second scan should NOT archive the instance because original_directory exists
     const manager2 = new InstanceManager(config);
-    manager2.restoreInstances();
+    manager2.restoreAndScan();
 
     instances = manager2.listInstances();
     assert.equal(instances.length, 1, "instance should survive re-scan after worktree removal");
