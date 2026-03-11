@@ -606,8 +606,10 @@ export function InstanceView() {
               onClick={() => {
                 if (isMobile) {
                   setSidecarMobileOpen(true);
+                } else if (sidecarDismissed) {
+                  setSidecarDismissed(false);
                 } else {
-                  setSidecarDismissed((d) => !d);
+                  handleDismissSidecar();
                 }
               }}
               className="relative shrink-0"
