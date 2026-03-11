@@ -371,6 +371,10 @@ export interface TranscriptMessage {
   instanceId?: string;
 }
 
+export interface ScanCompleteMessage {
+  type: "scan_complete";
+}
+
 export type ServerMessage =
   | ConnectedMessage
   | OutputMessage
@@ -383,7 +387,8 @@ export type ServerMessage =
   | InstanceRemovedMessage
   | InstanceStatusMessage
   | InstanceHistoryMessage
-  | TranscriptMessage;
+  | TranscriptMessage
+  | ScanCompleteMessage;
 
 // =============================================================================
 // Session Types

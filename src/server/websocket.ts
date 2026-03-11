@@ -129,6 +129,10 @@ export function createWebSocketServer(
     sendToSubscribers(instanceId, { ...message, instanceId });
   });
 
+  instanceManager.on("scan:complete", () => {
+    broadcast({ type: "scan_complete" });
+  });
+
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
     const cookieHeader = req.headers.cookie;
     const session = auth.getSessionFromCookies(cookieHeader);
@@ -155,6 +159,9 @@ export function createWebSocketServer(
       type: "instance_list",
       instances: instanceManager.listInstances(),
     });
+    if (instanceManager.scanComplete) {
+      sendMessage(ws, { type: "scan_complete" });
+    }
 
     ws.on("message", (data: Buffer | string) => {
       try {

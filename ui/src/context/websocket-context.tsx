@@ -13,6 +13,7 @@ interface WSMethodsContextValue {
 // State that changes over time
 interface WSStateContextValue {
   isConnected: boolean;
+  isSyncing: boolean;
   connectionId: number;
   instances: InstanceInfo[];
 }
@@ -21,11 +22,19 @@ const WSMethodsContext = createContext<WSMethodsContextValue | null>(null);
 const WSStateContext = createContext<WSStateContextValue | null>(null);
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
-  const { isConnected, connectionId, instances, send, subscribe, unsubscribe, addMessageHandler } =
-    useWebSocket();
+  const {
+    isConnected,
+    isSyncing,
+    connectionId,
+    instances,
+    send,
+    subscribe,
+    unsubscribe,
+    addMessageHandler,
+  } = useWebSocket();
 
   const methods = { send, subscribe, unsubscribe, addMessageHandler };
-  const state = { isConnected, connectionId, instances };
+  const state = { isConnected, isSyncing, connectionId, instances };
 
   return (
     <WSMethodsContext.Provider value={methods}>

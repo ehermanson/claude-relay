@@ -161,6 +161,7 @@ export interface InstanceManagerEvents {
   "instance:removed": [instanceId: string];
   "instance:user": [instanceId: string, message: UserMessage];
   "instance:transcript": [instanceId: string, message: TranscriptMessage];
+  "scan:complete": [];
 }
 
 export interface InstanceManager {
@@ -595,6 +596,10 @@ export class InstanceManager extends EventEmitter {
   private codexDir: string;
   /** Pre-resolved SDK query function — null if SDK not available (falls back to CLI) */
   private _sdkQueryFn: ((params: { prompt: unknown; options?: unknown }) => unknown) | null = null;
+  /** True once the background filesystem scan has completed */
+  scanComplete = false;
+  /** Guard to prevent concurrent discovery polls from overlapping */
+  private discovering = false;
 
   constructor(config: CoreConfig) {
     super();
@@ -3941,6 +3946,10 @@ export class InstanceManager extends EventEmitter {
 
     // Auto-continue instances that were mid-turn when the server shut down
     this.autoContinueAfterRestart();
+
+    // Mark scan as complete so the UI knows all sessions are loaded
+    this.scanComplete = true;
+    this.emit("scan:complete");
   }
 
   private autoContinueAfterRestart(): void {

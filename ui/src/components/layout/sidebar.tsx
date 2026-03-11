@@ -18,7 +18,7 @@ const MAX_SIDEBAR_SESSIONS = 10;
 
 export function Sidebar() {
   const { send } = useWSMethods();
-  const { isConnected, instances } = useWSState();
+  const { isConnected, isSyncing, instances } = useWSState();
   const { logout } = useAuthContext();
   const navigate = useNavigate();
   const { chatId: currentId, projectId: currentProjectId } = useParams({ strict: false }) as {
@@ -574,7 +574,31 @@ export function Sidebar() {
 
       {/* Instance list */}
       <div className="flex-1 overflow-y-auto pb-2">
-        {instances.length === 0 ? (
+        {instances.length === 0 && isSyncing ? (
+          <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
+            <svg
+              className="mx-auto mb-3 h-5 w-5 animate-spin text-muted"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                opacity="0.25"
+              />
+              <path
+                d="M12 2a10 10 0 0 1 10 10"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              />
+            </svg>
+            <p className="text-sm text-muted">Syncing sessions...</p>
+          </div>
+        ) : instances.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
             <p className="mb-1 text-sm text-muted">No instances running</p>
             <span className="text-xs text-muted opacity-60">Create one to get started</span>
@@ -607,6 +631,29 @@ export function Sidebar() {
 
             {/* Non-git directories */}
             {systemGroups.map(([dir, groupInstances]) => renderGroup(dir, groupInstances))}
+
+            {/* Subtle syncing indicator when instances already loaded but scan in progress */}
+            {isSyncing && (
+              <div className="flex items-center justify-center gap-1.5 py-3 text-muted/60">
+                <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    opacity="0.25"
+                  />
+                  <path
+                    d="M12 2a10 10 0 0 1 10 10"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span className="text-[0.6875rem]">Syncing...</span>
+              </div>
+            )}
           </>
         )}
       </div>

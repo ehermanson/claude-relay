@@ -40,6 +40,7 @@ const STALE_TIMEOUT = 45_000;
 
 export function useWebSocket() {
   const [isConnected, setIsConnected] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(true);
   // connectionId increments on each successful WS connection.
   // Used by consumers (e.g. instance-view) to trigger re-subscription
   // independently of the visual isConnected state (which has a grace period).
@@ -110,7 +111,11 @@ export function useWebSocket() {
             }
             backoffRef.current = RECONNECT_BASE;
             setIsConnected(true);
+            setIsSyncing(true); // Reset on reconnect — wait for scan_complete
             setConnectionId((n) => n + 1);
+            break;
+          case "scan_complete":
+            setIsSyncing(false);
             break;
           case "instance_list":
             dispatch({ type: "set_list", instances: message.instances });
@@ -179,6 +184,7 @@ export function useWebSocket() {
 
   return {
     isConnected,
+    isSyncing,
     connectionId,
     instances,
     send,
