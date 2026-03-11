@@ -752,6 +752,14 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         this.logger.debug(`[CodexAppServer] Thread status: ${JSON.stringify(params.status)}`);
         break;
 
+      case "thread/name/updated": {
+        const name = typeof params.name === "string" ? params.name.trim() : "";
+        if (name) {
+          this.emit("titleUpdate", name);
+        }
+        break;
+      }
+
       // -----------------------------------------------------------------------
       // Turn lifecycle
       // -----------------------------------------------------------------------

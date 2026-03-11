@@ -29,6 +29,8 @@ export interface ProviderSessionEvents {
   stats: [SessionStats];
   /** Emitted when the SDK's canUseTool callback needs user approval (not a chat activity). */
   permissionRequest: [ProviderRequest];
+  /** Emitted when the provider generates a title for the session (e.g. Codex thread/name/updated). */
+  titleUpdate: [string];
 }
 
 // =============================================================================

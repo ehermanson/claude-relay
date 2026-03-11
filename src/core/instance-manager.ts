@@ -4279,6 +4279,20 @@ export class InstanceManager extends EventEmitter {
         this.emit("instance:status", id, { ...instance.info });
       }) as (...args: unknown[]) => void,
     );
+
+    // Provider-generated title (e.g. Codex thread/name/updated)
+    proc.on(
+      "titleUpdate" as keyof import("./provider.js").ProviderSessionEvents,
+      ((name: string) => {
+        if (!instance.info.customTitle && name !== instance.info.name) {
+          instance.info.name = name;
+          this.emit("instance:status", id, { ...instance.info });
+          this.dbSave(instance);
+          const sid = instance.sessionId || instance.info.sessionId;
+          if (sid) this.db.updateName(sid, name, false);
+        }
+      }) as (...args: unknown[]) => void,
+    );
   }
 
   private captureSessionId(id: string, instance: Instance, proc: ProviderSession): void {

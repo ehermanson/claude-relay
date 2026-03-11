@@ -43,6 +43,8 @@ export interface ClaudeProcessEvents {
   stats: [SessionStats];
   /** CLI sessions never emit this — included for ProviderSession compatibility. */
   permissionRequest: [ProviderRequest];
+  /** CLI sessions never emit this — included for ProviderSession compatibility. */
+  titleUpdate: [string];
 }
 
 export interface ClaudeProcess {
