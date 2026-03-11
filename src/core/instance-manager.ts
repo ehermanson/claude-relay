@@ -2520,7 +2520,7 @@ export class InstanceManager extends EventEmitter {
       return {
         cwd: parsed.cwd,
         history: parsed.history,
-        tasks: new Map(),
+        tasks: parsed.tasks,
         files: parsed.files,
         team: null,
         agentActivities: new Map(),
@@ -3181,6 +3181,7 @@ export class InstanceManager extends EventEmitter {
       instance.info.provider === "codex"
         ? convertCodexTranscriptEntry(entry as Record<string, unknown>, {
             pendingCalls: instance.watchState.pendingProviderCalls,
+            tasks: instance.tasks,
             files: instance.files,
             stats: instance.watchState.stats,
           })

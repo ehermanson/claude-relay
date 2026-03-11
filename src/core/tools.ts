@@ -5,7 +5,7 @@
  * to generate human-readable descriptions of Claude tool usage.
  */
 
-import type { ActivityMessage } from "./types.js";
+import type { ActivityMessage, TaskItem } from "./types.js";
 
 // =============================================================================
 // Cost estimation
@@ -148,6 +148,74 @@ export function extractToolResultText(content: unknown): string {
       .join("\n");
   }
   return "";
+}
+
+interface ParsedPlanUpdate {
+  explanation?: string;
+  tasks: TaskItem[];
+}
+
+function normalizePlanTaskStatus(status: unknown): TaskItem["status"] | undefined {
+  switch (status) {
+    case "pending":
+      return "pending";
+    case "in_progress":
+    case "inProgress":
+      return "in_progress";
+    case "completed":
+      return "completed";
+    default:
+      return undefined;
+  }
+}
+
+export function parsePlanUpdate(raw: unknown): ParsedPlanUpdate | undefined {
+  let value = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.plan)) return undefined;
+
+  const tasks: TaskItem[] = [];
+  for (const item of record.plan) {
+    if (!item || typeof item !== "object") continue;
+    const step = typeof item.step === "string" ? item.step.trim() : "";
+    const status = normalizePlanTaskStatus((item as Record<string, unknown>).status);
+    if (!step || !status) continue;
+    tasks.push({
+      id: `plan-${tasks.length}`,
+      subject: step,
+      status,
+    });
+  }
+
+  const explanation =
+    typeof record.explanation === "string" && record.explanation.trim()
+      ? record.explanation.trim()
+      : undefined;
+
+  return { explanation, tasks };
+}
+
+export function buildTaskListActivityFromPlan(
+  raw: unknown,
+  fallbackDescription = "Tasks",
+): ActivityMessage | undefined {
+  const parsed = parsePlanUpdate(raw);
+  if (!parsed) return undefined;
+  return {
+    type: "activity",
+    activity: "task_list",
+    description: parsed.explanation || fallbackDescription,
+    tasks: parsed.tasks,
+  };
 }
 
 export function extractInputDescription(

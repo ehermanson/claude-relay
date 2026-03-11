@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { describeToolUse, describeToolDetail, isPermissionDenial } from "../dist/core/tools.js";
+import {
+  buildTaskListActivityFromPlan,
+  describeToolUse,
+  describeToolDetail,
+  isPermissionDenial,
+  parsePlanUpdate,
+} from "../dist/core/tools.js";
 
 describe("describeToolUse", () => {
   it("returns 'Reading file' for Read", () => {
@@ -54,18 +60,18 @@ describe("isPermissionDenial", () => {
   it("detects 'haven't granted' format (Write)", () => {
     assert.equal(
       isPermissionDenial(
-        "Claude requested permissions to write to /Users/me/projects/README.md, but you haven't granted it yet."
+        "Claude requested permissions to write to /Users/me/projects/README.md, but you haven't granted it yet.",
       ),
-      true
+      true,
     );
   });
 
   it("detects 'haven't granted' format (Bash)", () => {
     assert.equal(
       isPermissionDenial(
-        "Claude requested permissions to Bash(npm install), but you haven't granted it yet."
+        "Claude requested permissions to Bash(npm install), but you haven't granted it yet.",
       ),
-      true
+      true,
     );
   });
 
@@ -95,7 +101,10 @@ describe("describeToolDetail", () => {
   });
 
   it("extracts file_path for Read", () => {
-    assert.equal(describeToolDetail("Read", { file_path: "/home/user/file.ts" }), "/home/user/file.ts");
+    assert.equal(
+      describeToolDetail("Read", { file_path: "/home/user/file.ts" }),
+      "/home/user/file.ts",
+    );
   });
 
   it("extracts file_path for Edit", () => {
@@ -134,14 +143,65 @@ describe("describeToolDetail", () => {
   });
 
   it("extracts url for WebFetch", () => {
-    assert.equal(describeToolDetail("WebFetch", { url: "https://example.com/api" }), "https://example.com/api");
+    assert.equal(
+      describeToolDetail("WebFetch", { url: "https://example.com/api" }),
+      "https://example.com/api",
+    );
   });
 
   it("extracts query for WebSearch", () => {
-    assert.equal(describeToolDetail("WebSearch", { query: "node test runner" }), "node test runner");
+    assert.equal(
+      describeToolDetail("WebSearch", { query: "node test runner" }),
+      "node test runner",
+    );
   });
 
   it("returns undefined for unknown tool", () => {
     assert.equal(describeToolDetail("CustomTool", { foo: "bar" }), undefined);
+  });
+});
+
+describe("parsePlanUpdate", () => {
+  it("parses update_plan JSON and normalizes statuses", () => {
+    const parsed = parsePlanUpdate(
+      JSON.stringify({
+        explanation: "Current plan",
+        plan: [
+          { step: "Inspect the code", status: "completed" },
+          { step: "Wire the new task flow", status: "inProgress" },
+          { step: "Run checks", status: "pending" },
+        ],
+      }),
+    );
+
+    assert.deepEqual(parsed, {
+      explanation: "Current plan",
+      tasks: [
+        { id: "plan-0", subject: "Inspect the code", status: "completed" },
+        { id: "plan-1", subject: "Wire the new task flow", status: "in_progress" },
+        { id: "plan-2", subject: "Run checks", status: "pending" },
+      ],
+    });
+  });
+
+  it("returns undefined for invalid payloads", () => {
+    assert.equal(parsePlanUpdate("not json"), undefined);
+    assert.equal(parsePlanUpdate({ nope: true }), undefined);
+  });
+});
+
+describe("buildTaskListActivityFromPlan", () => {
+  it("builds a task_list activity from plan data", () => {
+    const activity = buildTaskListActivityFromPlan({
+      explanation: "Plan update",
+      plan: [{ step: "Fix the bug", status: "in_progress" }],
+    });
+
+    assert.deepEqual(activity, {
+      type: "activity",
+      activity: "task_list",
+      description: "Plan update",
+      tasks: [{ id: "plan-0", subject: "Fix the bug", status: "in_progress" }],
+    });
   });
 });

@@ -144,6 +144,7 @@ ui/
 - TaskCreate tool_use stores pending info; tool_result extracts ID via `Task #(\d+)` and creates TaskItem
 - TaskUpdate tool_use updates taskMap (or deletes on `status: "deleted"`); emits consolidated `task_list` activity
 - TaskList/TaskGet tools are suppressed (no activity emitted)
+- Managed Codex sessions also emit `task_list` from `turn/plan/updated` app-server notifications, and Codex transcript replay rebuilds the same task state from `update_plan` / `plan_update` entries
 - InstanceManager syncs `task_list` activities from process onto `instance.tasks`; JSONL parser handles `"deleted"` status
 - **Files:** ClaudeProcess tracks `fileMap` — intercepts Edit/Write/NotebookEdit `tool_use` events, extracts `file_path`/`path`/`notebook_path`, emits consolidated `file_list` activity
 - Managed Codex sessions also synthesize `file_list` activity from `apply_patch` custom-tool calls, and Codex transcript replay rebuilds the same file state from `custom_tool_call` / `custom_tool_call_output` entries

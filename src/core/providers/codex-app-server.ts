@@ -27,6 +27,7 @@ import type {
 } from "../types.js";
 import type { CoreConfig } from "../config.js";
 import type { ProviderSession } from "../provider.js";
+import { buildTaskListActivityFromPlan } from "../tools.js";
 import { findCodexBinary } from "./codex-cli.js";
 
 type SpawnFn = typeof spawn;
@@ -765,6 +766,17 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       case "turn/completed": {
         this._currentTurnId = null;
         this.finishTurn();
+        break;
+      }
+
+      case "turn/plan/updated": {
+        const activity = buildTaskListActivityFromPlan({
+          explanation: typeof params.explanation === "string" ? params.explanation : undefined,
+          plan: Array.isArray(params.plan) ? params.plan : [],
+        });
+        if (activity) {
+          this.emit("activity", activity);
+        }
         break;
       }
 

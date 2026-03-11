@@ -59,7 +59,7 @@ export interface SessionStats {
 
 export interface LastMessagePreview {
   text: string;
-  from: "user" | "claude";
+  from: "user" | "assistant";
   timestamp: number;
 }
 

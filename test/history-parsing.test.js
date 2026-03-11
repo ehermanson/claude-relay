@@ -547,6 +547,89 @@ describe("History Parsing via DB Restore", () => {
       manager.stopAll();
     });
 
+    it("rebuilds task lists from Codex update_plan transcript entries", () => {
+      const transcriptPath = join(tempDir, "codex-plan-session.jsonl");
+      writeFileSync(
+        transcriptPath,
+        [
+          JSON.stringify({
+            timestamp: "2026-03-08T12:00:00.000Z",
+            type: "session_meta",
+            payload: {
+              id: "codex-plan-session",
+              timestamp: "2026-03-08T12:00:00.000Z",
+              cwd: "/Users/test/projects/my-app",
+              originator: "codex_exec",
+              source: "exec",
+              model_provider: "openai",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-08T12:00:01.000Z",
+            type: "response_item",
+            payload: {
+              type: "function_call",
+              name: "update_plan",
+              call_id: "call-plan",
+              arguments: JSON.stringify({
+                explanation: "Plan update",
+                plan: [
+                  { step: "Inspect the code", status: "completed" },
+                  { step: "Apply the fix", status: "inProgress" },
+                  { step: "Run checks", status: "pending" },
+                ],
+              }),
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-08T12:00:01.050Z",
+            type: "response_item",
+            payload: {
+              type: "function_call_output",
+              call_id: "call-plan",
+              output: '{"body":"ok","success":true}',
+            },
+          }),
+          "",
+        ].join("\n"),
+      );
+
+      seedManagedDB(tempDir, [
+        {
+          id: "codex-plan-id",
+          provider: "codex",
+          providerSessionId: "codex-plan-session",
+          name: "Codex Plan Session",
+          workingDirectory: "/Users/test/projects/my-app",
+          transcriptPath,
+          resumeCursorJson: JSON.stringify({ sessionId: "codex-plan-session" }),
+        },
+      ]);
+
+      const manager = makeManager(tempDir);
+      manager.restoreInstances();
+
+      const history = manager.getHistory("codex-plan-id");
+      const instance = manager.instances.get("codex-plan-id");
+
+      const taskListEntries = history.filter(
+        (entry) => entry.message.type === "activity" && entry.message.activity === "task_list",
+      );
+      assert.equal(taskListEntries.length, 1, "Expected one restored task_list activity");
+      assert.deepEqual(taskListEntries[0].message.tasks, [
+        { id: "plan-0", subject: "Inspect the code", status: "completed" },
+        { id: "plan-1", subject: "Apply the fix", status: "in_progress" },
+        { id: "plan-2", subject: "Run checks", status: "pending" },
+      ]);
+      assert.deepEqual(Array.from(instance.tasks.values()), [
+        { id: "plan-0", subject: "Inspect the code", status: "completed" },
+        { id: "plan-1", subject: "Apply the fix", status: "in_progress" },
+        { id: "plan-2", subject: "Run checks", status: "pending" },
+      ]);
+
+      manager.stopAll();
+    });
+
     it("archives incomplete managed rows that have no resumable binding", () => {
       seedManagedDB(tempDir, [
         {

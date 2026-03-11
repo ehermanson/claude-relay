@@ -24,7 +24,7 @@ interface ToolGroupData {
 
 type RenderRow =
   | { id: string; kind: "user"; text: string; timestamp?: number }
-  | { id: string; kind: "claude"; text: string; timestamp?: number; isLast: boolean }
+  | { id: string; kind: "assistant"; text: string; timestamp?: number; isLast: boolean }
   | { id: string; kind: "system"; text: string; isError?: boolean }
   | { id: string; kind: "thinking-block"; text: string }
   | { id: string; kind: "agent-transcript"; title: string; result: string; timestamp?: number }
@@ -36,12 +36,12 @@ type RenderRow =
 function buildRows(items: ChatItem[]): RenderRow[] {
   // Pre-compute last indices for interactivity
   let lastActivityGroupIndex = -1;
-  let lastClaudeIndex = -1;
+  let lastAssistantIndex = -1;
   for (let i = items.length - 1; i >= 0; i--) {
     if (lastActivityGroupIndex === -1 && items[i].kind === "activity-group")
       lastActivityGroupIndex = i;
-    if (lastClaudeIndex === -1 && items[i].kind === "claude") lastClaudeIndex = i;
-    if (lastActivityGroupIndex !== -1 && lastClaudeIndex !== -1) break;
+    if (lastAssistantIndex === -1 && items[i].kind === "assistant") lastAssistantIndex = i;
+    if (lastActivityGroupIndex !== -1 && lastAssistantIndex !== -1) break;
   }
 
   // Detect cross-group interactive tool resolutions
@@ -93,8 +93,8 @@ function buildRows(items: ChatItem[]): RenderRow[] {
       rows.push({ id: `tools-${runStart}`, kind: "tool-container", groups, totalToolUses });
       lastRenderedKind = "tool-container";
     } else {
-      // Insert response divider when claude text follows tool calls
-      if (item.kind === "claude" && lastRenderedKind === "tool-container") {
+      // Insert response divider when assistant text follows tool calls
+      if (item.kind === "assistant" && lastRenderedKind === "tool-container") {
         let durationLabel = "";
         for (let j = i - 1; j >= 0; j--) {
           if (items[j].kind === "user") {
@@ -118,13 +118,13 @@ function buildRows(items: ChatItem[]): RenderRow[] {
         case "user":
           rows.push({ id: `user-${i}`, kind: "user", text: item.text, timestamp: item.timestamp });
           break;
-        case "claude":
+        case "assistant":
           rows.push({
-            id: `claude-${i}`,
-            kind: "claude",
+            id: `assistant-${i}`,
+            kind: "assistant",
             text: item.text,
             timestamp: item.timestamp,
-            isLast: i === lastClaudeIndex,
+            isLast: i === lastAssistantIndex,
           });
           break;
         case "system":
@@ -162,7 +162,7 @@ function estimateRowHeight(row: RenderRow): number {
   switch (row.kind) {
     case "user":
       return 72 + Math.ceil(row.text.length / 80) * 20;
-    case "claude":
+    case "assistant":
       return Math.max(80, Math.min(500, 60 + Math.ceil(row.text.length / 60) * 20));
     case "system":
       return 44;
@@ -292,7 +292,7 @@ export function MessageList({
     switch (row.kind) {
       case "user":
         return <UserMessage text={row.text} timestamp={row.timestamp} />;
-      case "claude":
+      case "assistant":
         return <ClaudeMessage text={row.text} timestamp={row.timestamp} isLast={row.isLast} />;
       case "system":
         return <SystemMessage text={row.text} isError={row.isError} />;

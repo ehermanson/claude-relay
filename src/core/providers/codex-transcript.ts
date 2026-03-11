@@ -6,8 +6,10 @@ import type {
   HistoryEntry,
   OutputMessage,
   SessionStats,
+  TaskItem,
   UserMessage,
 } from "../types.js";
+import { buildTaskListActivityFromPlan } from "../tools.js";
 
 const MAX_HISTORY = 1000;
 const TOOL_OUTPUT_MARKER = "\nOutput:\n";
@@ -19,12 +21,14 @@ export interface CodexPendingCall {
 
 export interface CodexReplayContext {
   pendingCalls: Map<string, CodexPendingCall>;
+  tasks: Map<string, TaskItem>;
   files: Map<string, FileChange>;
   stats: SessionStats;
 }
 
 export interface CodexTranscriptParseResult {
   cwd: string;
+  tasks: Map<string, TaskItem>;
   files: Map<string, FileChange>;
   history: HistoryEntry[];
   stats: SessionStats;
@@ -187,6 +191,8 @@ export function convertCodexTranscriptEntry(
       (payload.type === "function_call" || payload.type === "custom_tool_call") &&
       typeof payload.name === "string"
     ) {
+      const rawArguments =
+        typeof payload.arguments === "string" ? payload.arguments : payload.input;
       if (typeof payload.call_id === "string") {
         ctx.pendingCalls.set(payload.call_id, {
           name: payload.name,
@@ -198,13 +204,20 @@ export function convertCodexTranscriptEntry(
                 : undefined,
         });
       }
-      results.push({
-        timestamp,
-        message: buildToolUseActivity(
-          payload.name,
-          typeof payload.arguments === "string" ? payload.arguments : payload.input,
-        ),
-      });
+      const taskListActivity =
+        payload.name === "update_plan" ? buildTaskListActivityFromPlan(rawArguments) : undefined;
+      if (taskListActivity) {
+        ctx.tasks.clear();
+        for (const task of taskListActivity.tasks ?? []) {
+          ctx.tasks.set(task.id, { ...task });
+        }
+        results.push({ timestamp, message: taskListActivity });
+      } else {
+        results.push({
+          timestamp,
+          message: buildToolUseActivity(payload.name, rawArguments),
+        });
+      }
       if (payload.name === "apply_patch" && typeof payload.input === "string") {
         for (const file of extractPatchFiles(payload.input)) {
           trackFileChange(ctx.files, file.path, file.type);
@@ -228,6 +241,7 @@ export function convertCodexTranscriptEntry(
       const callId = typeof payload.call_id === "string" ? payload.call_id : undefined;
       const call = callId ? ctx.pendingCalls.get(callId) : undefined;
       if (callId) ctx.pendingCalls.delete(callId);
+      if (call?.name === "update_plan") return results;
       results.push({
         timestamp,
         message: buildToolResultActivity(call, payload.output),
@@ -283,6 +297,21 @@ export function convertCodexTranscriptEntry(
           });
         }
         break;
+
+      case "plan_update": {
+        const activity = buildTaskListActivityFromPlan(payload);
+        if (activity) {
+          ctx.tasks.clear();
+          for (const task of activity.tasks ?? []) {
+            ctx.tasks.set(task.id, { ...task });
+          }
+          results.push({
+            timestamp,
+            message: activity,
+          });
+        }
+        break;
+      }
 
       case "task_complete":
         results.push({
@@ -413,6 +442,7 @@ export function parseCodexTranscript(filePath: string): CodexTranscriptParseResu
   } catch {
     return {
       cwd: "",
+      tasks: new Map(),
       files: new Map(),
       history: [],
       stats: createZeroStats(),
@@ -423,6 +453,7 @@ export function parseCodexTranscript(filePath: string): CodexTranscriptParseResu
   const history: HistoryEntry[] = [];
   const ctx: CodexReplayContext = {
     pendingCalls: new Map(),
+    tasks: new Map(),
     files: new Map(),
     stats: createZeroStats(),
   };
@@ -454,6 +485,7 @@ export function parseCodexTranscript(filePath: string): CodexTranscriptParseResu
 
   return {
     cwd,
+    tasks: ctx.tasks,
     files: ctx.files,
     history,
     stats: ctx.stats,

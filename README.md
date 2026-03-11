@@ -66,6 +66,7 @@ If Relay discovers or restores a session that already lives in a Relay-managed g
 - **Per-session controls** — managed sessions show a combined provider/model picker in the chat input; models stay switchable, and changing providers starts a new chat instead of mutating the current session
 - **Provider-aware managed sessions** — managed instances persist their provider identity and runtime binding, so future adapters can restore without going through Claude-specific transcript indexing
 - **Managed Codex adapter** — core/API-managed sessions can now run through `codex exec --json` with provider-isolated turn/resume handling
+- **Codex task/checklist support** — Codex `update_plan` / plan updates now feed the same sidecar task list used for Claude todos, both live and after session reload
 - **Codex model filtering** — Relay asks `codex app-server` for `model/list` when available and filters the Codex picker to models the local runtime actually reports
 - **Provider handoff flow** — switching from Codex to Claude (or back) can spawn a new chat in the same workspace and optionally seed it with recent portable context from the current session
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message

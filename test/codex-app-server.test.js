@@ -503,6 +503,51 @@ describe("CodexAppServerSession", () => {
     assert.equal(lastStats.outputTokens, 30);
   });
 
+  it("emits task_list activity for turn/plan/updated notifications", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const activities = collectEvents(session, "activity");
+
+    session.send("make a plan");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/plan/updated",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-1",
+          explanation: "Working plan",
+          plan: [
+            { step: "Inspect the code", status: "completed" },
+            { step: "Apply the fix", status: "inProgress" },
+            { step: "Run checks", status: "pending" },
+          ],
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const taskList = activities.find(([a]) => a.activity === "task_list");
+    assert.ok(taskList, "Expected a task_list activity");
+    assert.equal(taskList[0].description, "Working plan");
+    assert.deepEqual(taskList[0].tasks, [
+      { id: "plan-0", subject: "Inspect the code", status: "completed" },
+      { id: "plan-1", subject: "Apply the fix", status: "in_progress" },
+      { id: "plan-2", subject: "Run checks", status: "pending" },
+    ]);
+  });
+
   it("emits permissionRequest for command approval and routes response", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({

@@ -18,7 +18,7 @@ function isImageOnly(text: string): boolean {
 // A rendered item in the message list
 export type ChatItem =
   | { kind: "user"; text: string; timestamp?: number }
-  | { kind: "claude"; text: string; timestamp?: number }
+  | { kind: "assistant"; text: string; timestamp?: number }
   | { kind: "system"; text: string; isError?: boolean }
   | { kind: "thinking-block"; text: string }
   | { kind: "activity-group"; activities: ActivityMessage[] }
@@ -78,8 +78,8 @@ function reducer(state: State, action: Action): State {
     case "replay": {
       // Replay history to rebuild items
       let items: ChatItem[] = [];
-      let claudeText = "";
-      let claudeTimestamp: number | undefined;
+      let assistantText = "";
+      let assistantTimestamp: number | undefined;
       let currentActivities: ActivityMessage[] = [];
       let currentTasks: TaskItem[] | null = null;
       let currentFiles: FileChange[] | null = null;
@@ -93,11 +93,11 @@ function reducer(state: State, action: Action): State {
         }
       };
 
-      const flushClaude = () => {
-        if (claudeText) {
-          items.push({ kind: "claude", text: claudeText, timestamp: claudeTimestamp });
-          claudeText = "";
-          claudeTimestamp = undefined;
+      const flushAssistant = () => {
+        if (assistantText) {
+          items.push({ kind: "assistant", text: assistantText, timestamp: assistantTimestamp });
+          assistantText = "";
+          assistantTimestamp = undefined;
         }
       };
 
@@ -108,21 +108,21 @@ function reducer(state: State, action: Action): State {
             if (msg.thinking) {
               items.push({ kind: "thinking-block", text: msg.thinking });
             } else if (msg.text && msg.text.trim()) {
-              // Dedup: skip if text is already at the end of accumulated claude text
-              if (!claudeText.endsWith(msg.text)) {
+              // Dedup: skip if text is already at the end of accumulated assistant text
+              if (!assistantText.endsWith(msg.text)) {
                 flushActivities();
-                if (!claudeText) claudeTimestamp = entry.timestamp;
-                claudeText += msg.text;
+                if (!assistantText) assistantTimestamp = entry.timestamp;
+                assistantText += msg.text;
               }
             }
             if (msg.isWaiting) {
               flushActivities();
-              flushClaude();
+              flushAssistant();
             }
             break;
           case "user": {
             flushActivities();
-            flushClaude();
+            flushAssistant();
             const lastItem = items[items.length - 1];
             if (
               isImageOnly(msg.text) &&
@@ -150,13 +150,13 @@ function reducer(state: State, action: Action): State {
             } else if (msg.activity === "agent_activity" && msg.agentActivities) {
               currentAgentActivities = msg.agentActivities;
             } else {
-              flushClaude();
+              flushAssistant();
               currentActivities.push(msg);
             }
             break;
           case "transcript":
             flushActivities();
-            flushClaude();
+            flushAssistant();
             items.push({
               kind: "agent-transcript",
               title: msg.title,
@@ -166,11 +166,11 @@ function reducer(state: State, action: Action): State {
             break;
           case "exit":
             flushActivities();
-            flushClaude();
+            flushAssistant();
             if (msg.code !== 0) {
               let text = msg.signal
-                ? `Claude process killed by ${msg.signal}`
-                : `Claude process exited with code ${msg.code}`;
+                ? `Session process killed by ${msg.signal}`
+                : `Session process exited with code ${msg.code}`;
               if (msg.stderr) text += `\n${msg.stderr}`;
               items.push({ kind: "system", text, isError: true });
             }
@@ -179,7 +179,7 @@ function reducer(state: State, action: Action): State {
       }
 
       flushActivities();
-      flushClaude();
+      flushAssistant();
 
       return {
         items,
@@ -217,10 +217,10 @@ function reducer(state: State, action: Action): State {
       if (action.text && action.text.trim()) {
         const items = [...state.items];
 
-        // Append to existing claude message or create new one
+        // Append to existing assistant message or create new one
         const lastIdx = items.length - 1;
-        if (lastIdx >= 0 && items[lastIdx].kind === "claude") {
-          const prev = items[lastIdx] as { kind: "claude"; text: string; timestamp?: number };
+        if (lastIdx >= 0 && items[lastIdx].kind === "assistant") {
+          const prev = items[lastIdx] as { kind: "assistant"; text: string; timestamp?: number };
           // Dedup: skip if the incoming text is already at the end of the current message
           // (can happen when JSONL watcher re-emits content after the live stream)
           if (prev.text.endsWith(action.text)) {
@@ -237,12 +237,12 @@ function reducer(state: State, action: Action): State {
             return state;
           }
           items[lastIdx] = {
-            kind: "claude",
+            kind: "assistant",
             text: prev.text + action.text,
             timestamp: prev.timestamp,
           };
         } else {
-          items.push({ kind: "claude", text: action.text, timestamp: Date.now() });
+          items.push({ kind: "assistant", text: action.text, timestamp: Date.now() });
         }
 
         if (action.isWaiting) {
@@ -389,8 +389,8 @@ function reducer(state: State, action: Action): State {
       if (action.code !== 0) {
         const items = [...state.items];
         let text = action.signal
-          ? `Claude process killed by ${action.signal}`
-          : `Claude process exited with code ${action.code}`;
+          ? `Session process killed by ${action.signal}`
+          : `Session process exited with code ${action.code}`;
         if (action.stderr) text += `\n${action.stderr}`;
         items.push({ kind: "system", text, isError: true });
         return {
