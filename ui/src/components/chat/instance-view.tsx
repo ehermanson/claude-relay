@@ -1,13 +1,11 @@
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "@tanstack/react-router";
-import { Group, Panel } from "react-resizable-panels";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useInstanceMessages } from "../../hooks/use-instance-messages";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { MessageList } from "./message-list";
 import { InputArea } from "./input-area";
 import { Sidecar } from "./sidecar";
-import { ResizableHandle } from "../ui/resizable-handle";
 import { Dialog } from "../ui/dialog";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -665,28 +663,27 @@ export function InstanceView() {
         </Tooltip>
       </div>
 
-      {!isMobile && sidecarContentCount > 0 && !sidecarDismissed ? (
-        <Group orientation="horizontal" className="min-h-0 flex-1">
-          <Panel defaultSize="72" minSize="40">
-            <div className="flex h-full min-w-0 flex-col">{chatContent}</div>
-          </Panel>
-          <ResizableHandle />
-          <Panel defaultSize="28" minSize="15" maxSize="40" collapsible collapsedSize="0">
-            <Sidecar
-              tasks={currentTasks}
-              files={currentFiles}
-              team={currentTeam}
-              agentActivities={deferredSidecarAgentActivities}
-              workingDirectory={instance.workingDirectory}
-              onClose={handleDismissSidecar}
-            />
-          </Panel>
-        </Group>
-      ) : (
-        <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col">{chatContent}</div>
-        </div>
-      )}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col">{chatContent}</div>
+        {!isMobile && sidecarContentCount > 0 && (
+          <div
+            className={`shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out ${
+              sidecarDismissed ? "w-0" : "w-80"
+            }`}
+          >
+            <div className="h-full w-80">
+              <Sidecar
+                tasks={currentTasks}
+                files={currentFiles}
+                team={currentTeam}
+                agentActivities={deferredSidecarAgentActivities}
+                workingDirectory={instance.workingDirectory}
+                onClose={handleDismissSidecar}
+              />
+            </div>
+          </div>
+        )}
+      </div>
       {isMobile && sidecarMobileOpen && sidecarContentCount > 0 && (
         <Sidecar
           tasks={currentTasks}
