@@ -1,9 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { useProjectContext } from "../context/project-context";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import { Collapsible } from "../components/ui/collapsible";
 import { Tooltip } from "../components/ui/tooltip";
+import { Menu } from "../components/ui/menu";
 import type { ProjectPlan } from "@shared/types";
 
 function formatDate(epoch: number): string {
@@ -13,6 +14,29 @@ function formatDate(epoch: number): string {
     month: "short",
     day: "numeric",
     year: "numeric",
+  });
+}
+
+type SortKey = "newest" | "oldest" | "alpha";
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "newest", label: "Newest first" },
+  { key: "oldest", label: "Oldest first" },
+  { key: "alpha", label: "Alphabetical" },
+];
+
+function sortPlans(plans: ProjectPlan[], sortKey: SortKey): ProjectPlan[] {
+  return [...plans].sort((a, b) => {
+    switch (sortKey) {
+      case "newest":
+        return b.modifiedAt - a.modifiedAt;
+      case "oldest":
+        return a.modifiedAt - b.modifiedAt;
+      case "alpha":
+        return a.title.localeCompare(b.title);
+      default:
+        return 0;
+    }
   });
 }
 
@@ -93,11 +117,53 @@ function PlanCard({
 
 export function PlansPage() {
   const { projectId } = useParams({ strict: false }) as { projectId: string };
-  const { plan: selectedPlan } = useSearch({
+  const {
+    plan: selectedPlan,
+    sort: sortParam,
+    q: searchParam,
+  } = useSearch({
     from: "/_app/projects/$projectId/plans/",
   });
   const navigate = useNavigate();
   const { artifacts } = useProjectContext();
+  const [searchInput, setSearchInput] = useState(searchParam ?? "");
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const currentSort: SortKey =
+    sortParam && SORT_OPTIONS.some((o) => o.key === sortParam) ? (sortParam as SortKey) : "newest";
+
+  const searchQuery = searchParam ?? "";
+
+  const filteredAndSorted = useMemo(() => {
+    let plans = artifacts.plans;
+    if (searchQuery) {
+      const lower = searchQuery.toLowerCase();
+      plans = plans.filter(
+        (p) => p.title.toLowerCase().includes(lower) || p.content.toLowerCase().includes(lower),
+      );
+    }
+    return sortPlans(plans, currentSort);
+  }, [artifacts.plans, searchQuery, currentSort]);
+
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      navigate({
+        search: (prev: Record<string, unknown>) => ({
+          ...prev,
+          q: value || undefined,
+        }),
+        replace: true,
+      });
+    }, 200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, []);
 
   if (artifacts.plans.length === 0) {
     return (
@@ -111,29 +177,116 @@ export function PlansPage() {
   }
 
   const togglePlan = (slug: string) => {
-    if (selectedPlan === slug) {
-      // Close — remove search param
-      navigate({ search: {}, replace: true });
-    } else {
-      // Open — set search param
-      navigate({ search: { plan: slug }, replace: true });
-    }
+    navigate({
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        plan: prev.plan === slug ? undefined : slug,
+      }),
+      replace: true,
+    });
   };
+
+  const setSort = (key: SortKey) => {
+    navigate({
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        sort: key === "newest" ? undefined : key,
+      }),
+      replace: true,
+    });
+  };
+
+  const sortLabel = SORT_OPTIONS.find((o) => o.key === currentSort)?.label ?? "Newest first";
 
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto px-6 py-6">
-        <div className="flex flex-col gap-2">
-          {artifacts.plans.map((plan) => (
-            <PlanCard
-              key={plan.slug}
-              plan={plan}
-              projectId={projectId}
-              isOpen={selectedPlan === plan.slug}
-              onToggle={() => togglePlan(plan.slug)}
+        {/* Toolbar */}
+        <div className="mb-3 flex items-center gap-2">
+          <div className="relative flex-1">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search plans..."
+              className="h-8 w-full rounded-md border border-border bg-surface pl-8 pr-3 text-[0.8125rem] text-text placeholder:text-muted/60 outline-none transition-colors focus:border-accent"
             />
-          ))}
+          </div>
+          <Menu.Root>
+            <Menu.Trigger className="flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="4" y1="6" x2="20" y2="6" />
+                <line x1="4" y1="12" x2="14" y2="12" />
+                <line x1="4" y1="18" x2="8" y2="18" />
+              </svg>
+              {sortLabel}
+            </Menu.Trigger>
+            <Menu.Content>
+              {SORT_OPTIONS.map((option) => (
+                <Menu.Item key={option.key} onClick={() => setSort(option.key)}>
+                  <span className="flex-1">{option.label}</span>
+                  {currentSort === option.key && (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="shrink-0"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </Menu.Item>
+              ))}
+            </Menu.Content>
+          </Menu.Root>
         </div>
+
+        {/* Plans list */}
+        {filteredAndSorted.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-sm text-muted">No plans match "{searchQuery}"</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {filteredAndSorted.map((plan) => (
+              <PlanCard
+                key={plan.slug}
+                plan={plan}
+                projectId={projectId}
+                isOpen={selectedPlan === plan.slug}
+                onToggle={() => togglePlan(plan.slug)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
