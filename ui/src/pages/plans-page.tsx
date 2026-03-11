@@ -1,4 +1,5 @@
-import { useParams, Link } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
+import { useParams, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { useProjectContext } from "../context/project-context";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import { Collapsible } from "../components/ui/collapsible";
@@ -15,10 +16,29 @@ function formatDate(epoch: number): string {
   });
 }
 
-function PlanCard({ plan, projectId }: { plan: ProjectPlan; projectId: string }) {
+function PlanCard({
+  plan,
+  projectId,
+  isOpen,
+  onToggle,
+}: {
+  plan: ProjectPlan;
+  projectId: string;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Scroll into view when opened via URL param
+  useEffect(() => {
+    if (isOpen) {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, []); // Only on mount
+
   return (
-    <div className="group/plan rounded-lg border border-border bg-surface">
-      <Collapsible.Root>
+    <div ref={cardRef} className="group/plan rounded-lg border border-border bg-surface">
+      <Collapsible.Root open={isOpen} onOpenChange={onToggle}>
         <Collapsible.Trigger className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-surface-hover">
           <svg
             className="h-3 w-3 shrink-0 text-muted transition-transform data-[open]:rotate-90"
@@ -73,6 +93,10 @@ function PlanCard({ plan, projectId }: { plan: ProjectPlan; projectId: string })
 
 export function PlansPage() {
   const { projectId } = useParams({ strict: false }) as { projectId: string };
+  const { plan: selectedPlan } = useSearch({
+    from: "/_app/projects/$projectId/plans/",
+  });
+  const navigate = useNavigate();
   const { artifacts } = useProjectContext();
 
   if (artifacts.plans.length === 0) {
@@ -86,12 +110,28 @@ export function PlansPage() {
     );
   }
 
+  const togglePlan = (slug: string) => {
+    if (selectedPlan === slug) {
+      // Close — remove search param
+      navigate({ search: {}, replace: true });
+    } else {
+      // Open — set search param
+      navigate({ search: { plan: slug }, replace: true });
+    }
+  };
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto px-6 py-6">
         <div className="flex flex-col gap-2">
           {artifacts.plans.map((plan) => (
-            <PlanCard key={plan.slug} plan={plan} projectId={projectId} />
+            <PlanCard
+              key={plan.slug}
+              plan={plan}
+              projectId={projectId}
+              isOpen={selectedPlan === plan.slug}
+              onToggle={() => togglePlan(plan.slug)}
+            />
           ))}
         </div>
       </div>
