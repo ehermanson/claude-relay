@@ -699,8 +699,10 @@ export class InstanceManager extends EventEmitter {
     model?: string;
     reasoningBudget?: number;
   }): InstanceInfo {
-    const managedCount = [...this.instances.values()].filter((i) => !i.info.external).length;
-    if (managedCount >= this.baseConfig.maxProcesses) {
+    const activeCount = [...this.instances.values()].filter(
+      (i) => i.process && !i.info.external,
+    ).length;
+    if (activeCount >= this.baseConfig.maxProcesses) {
       throw new Error(`Maximum processes (${this.baseConfig.maxProcesses}) reached`);
     }
 
