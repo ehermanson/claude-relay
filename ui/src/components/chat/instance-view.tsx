@@ -525,9 +525,13 @@ export function InstanceView() {
           {statusLabel}
         </Badge>
         <OpenInMenu path={instance.workingDirectory} />
-        {instance.gitBranch && (
+        {(instance.gitBranch || instance.gitInfo?.branch) && (
           <Tooltip
-            content={`Working in worktree on branch ${instance.gitBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`}
+            content={
+              instance.gitBranch
+                ? `Working in worktree on branch ${instance.gitBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
+                : `On branch ${instance.gitInfo!.branch}`
+            }
           >
             <Badge variant="accent" className="hidden sm:flex">
               <svg
@@ -545,7 +549,7 @@ export function InstanceView() {
                 <circle cx="6" cy="18" r="3" />
                 <path d="M18 9a9 9 0 0 1-9 9" />
               </svg>
-              {instance.gitBranch}
+              {instance.gitBranch || instance.gitInfo!.branch}
             </Badge>
           </Tooltip>
         )}
