@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useProjectContext } from "../context/project-context";
 import { useMediaQuery } from "../hooks/use-media-query";
 import { Badge } from "../components/ui/badge";
 import { Tooltip } from "../components/ui/tooltip";
 import { Drawer } from "../components/ui/drawer";
+import { Menu } from "../components/ui/menu";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import type { BeadIssue } from "@shared/types";
 
@@ -51,6 +52,32 @@ const statusDotColors: Record<string, string> = {
 };
 
 const STATUS_ORDER = ["in_progress", "open", "blocked", "deferred", "closed"] as const;
+
+type SortKey = "priority" | "updated" | "type" | "created";
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "priority", label: "Priority" },
+  { key: "updated", label: "Recently updated" },
+  { key: "created", label: "Recently created" },
+  { key: "type", label: "Type" },
+];
+
+function sortIssues(issues: BeadIssue[], sortKey: SortKey): BeadIssue[] {
+  return [...issues].sort((a, b) => {
+    switch (sortKey) {
+      case "priority":
+        return a.priority - b.priority;
+      case "updated":
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      case "created":
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      case "type":
+        return a.issue_type.localeCompare(b.issue_type);
+      default:
+        return 0;
+    }
+  });
+}
 
 // ─── Issue Card ─────────────────────────────────────────────────────────────
 
@@ -334,11 +361,15 @@ function KanbanColumn({
 export function IssuesPage() {
   const { artifacts } = useProjectContext();
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const { issue: selectedId } = useSearch({
+  const { issue: selectedId, sort: sortParam } = useSearch({
     from: "/_app/projects/$projectId/issues/",
   });
   const navigate = useNavigate();
   const [stack, setStack] = useState<StackItem[]>([]);
+  const currentSort: SortKey =
+    sortParam && SORT_OPTIONS.some((o) => o.key === sortParam)
+      ? (sortParam as SortKey)
+      : "priority";
 
   // Sync URL → stack (initial load, browser back/forward)
   useEffect(() => {
@@ -410,9 +441,31 @@ export function IssuesPage() {
     );
   }
 
-  const grouped = Object.fromEntries(
-    STATUS_ORDER.map((s) => [s, issues.filter((i) => i.status === s)]),
+  const setSort = (key: SortKey) => {
+    navigate({
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        sort: key === "priority" ? undefined : key,
+      }),
+      replace: true,
+    });
+  };
+
+  const grouped = useMemo(
+    () =>
+      Object.fromEntries(
+        STATUS_ORDER.map((s) => [
+          s,
+          sortIssues(
+            issues.filter((i) => i.status === s),
+            currentSort,
+          ),
+        ]),
+      ),
+    [issues, currentSort],
   );
+
+  const sortLabel = SORT_OPTIONS.find((o) => o.key === currentSort)?.label ?? "Priority";
 
   const openItems = stack.filter((s) => s.open);
   const drawerStack = stack.map((item, idx) => {
@@ -433,10 +486,55 @@ export function IssuesPage() {
     );
   });
 
+  const sortMenu = (
+    <Menu.Root>
+      <Menu.Trigger className="flex items-center gap-1 rounded-md px-2 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="4" y1="6" x2="20" y2="6" />
+          <line x1="4" y1="12" x2="14" y2="12" />
+          <line x1="4" y1="18" x2="8" y2="18" />
+        </svg>
+        {sortLabel}
+      </Menu.Trigger>
+      <Menu.Content>
+        {SORT_OPTIONS.map((option) => (
+          <Menu.Item key={option.key} onClick={() => setSort(option.key)}>
+            <span className="flex-1">{option.label}</span>
+            {currentSort === option.key && (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </Menu.Item>
+        ))}
+      </Menu.Content>
+    </Menu.Root>
+  );
+
   if (isMobile) {
     return (
       <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-6 px-4 py-4">
+        <div className="flex items-center justify-end px-4 pt-3 pb-1">{sortMenu}</div>
+        <div className="flex flex-col gap-6 px-4 py-2">
           {STATUS_ORDER.map((s) => (
             <KanbanColumn
               key={s}
@@ -454,7 +552,8 @@ export function IssuesPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex flex-1 gap-4 overflow-x-auto px-6 py-4">
+      <div className="flex items-center justify-end px-6 pt-3 pb-1">{sortMenu}</div>
+      <div className="flex flex-1 gap-4 overflow-x-auto px-6 py-2">
         {STATUS_ORDER.map((s) => (
           <KanbanColumn key={s} status={s} issues={grouped[s]} onSelectIssue={selectIssue} />
         ))}
