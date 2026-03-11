@@ -597,11 +597,19 @@ export function InstanceView() {
             </span>
           </Tooltip>
         )}
-        {isMobile && sidecarContentCount > 0 && (
-          <Tooltip content="Sidecar">
+        {sidecarContentCount > 0 && (
+          <Tooltip
+            content={isMobile ? "Sidecar" : sidecarDismissed ? "Show sidecar" : "Hide sidecar"}
+          >
             <Button
               variant="icon"
-              onClick={() => setSidecarMobileOpen(true)}
+              onClick={() => {
+                if (isMobile) {
+                  setSidecarMobileOpen(true);
+                } else {
+                  setSidecarDismissed((d) => !d);
+                }
+              }}
               className="relative shrink-0"
             >
               <svg
@@ -619,9 +627,11 @@ export function InstanceView() {
                 <rect x="3" y="14" width="7" height="7" rx="1" />
                 <rect x="14" y="14" width="7" height="7" rx="1" />
               </svg>
-              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
-                {sidecarContentCount}
-              </span>
+              {(isMobile || sidecarDismissed) && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
+                  {sidecarContentCount}
+                </span>
+              )}
             </Button>
           </Tooltip>
         )}
