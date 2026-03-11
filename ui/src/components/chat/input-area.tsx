@@ -263,12 +263,12 @@ export function InputArea({
     : "Send a message... Use @ for files and / for commands";
 
   const toolbarControls = [
-    !isExternal && supportsModelSelection ? (
+    supportsModelSelection ? (
       <ProviderModelPicker
         key="model-picker"
-        open={showModelMenu}
-        onOpenChange={setShowModelMenu}
-        isProcessing={isProcessing}
+        open={isExternal ? false : showModelMenu}
+        onOpenChange={isExternal ? undefined : setShowModelMenu}
+        isProcessing={isProcessing || !!isExternal}
         provider={provider}
         preferredModel={preferredModel}
         currentProviderModels={currentProviderModels}
@@ -276,21 +276,19 @@ export function InputArea({
         onSelectModel={setModel}
         onSelectProviderModel={(targetProvider, model) => {
           if (!hasMessages) {
-            // Empty session — switch provider (and model) in-place
             send({ type: "set_provider", instanceId, provider: targetProvider });
             if (model) send({ type: "set_model", instanceId, model });
           } else {
-            // Active session — open confirmation dialog with pre-selected model
             setShowModelMenu(false);
             openProviderSwitchDialog(targetProvider, model);
           }
         }}
       />
     ) : null,
-    !isExternal && supportsReasoningSelection ? (
+    supportsReasoningSelection ? (
       <ReasoningPicker
         key="reasoning-picker"
-        isProcessing={isProcessing}
+        isProcessing={isProcessing || !!isExternal}
         reasoningBudget={reasoningBudget}
         reasoningLabel={reasoningLabel}
         onSelectReasoningBudget={setReasoningBudget}
