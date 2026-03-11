@@ -79,24 +79,46 @@ export function SidebarItem({
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
-      className={`group relative flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 transition-colors ${
+      className={`group relative flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2 transition-colors ${
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
     >
-      {/* Status dot */}
-      <span
-        className={`h-[6px] w-[6px] shrink-0 rounded-full ${
-          hasPendingTool
-            ? "animate-pulse-dot bg-warning"
-            : instance.status === "idle"
-              ? "bg-accent"
-              : instance.status === "processing"
-                ? "animate-pulse-dot bg-warning"
-                : instance.status === "error"
-                  ? "bg-error"
-                  : "bg-muted"
-        }`}
-      />
+      {/* Status indicator — mt aligns with first line of title text */}
+      {instance.external ? (
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`mt-[3px] shrink-0 ${
+            instance.status === "idle" || instance.status === "processing"
+              ? "text-accent"
+              : "text-muted"
+          }`}
+        >
+          <path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+          <polyline points="8 10 10 12 8 14" />
+          <line x1="12" y1="14" x2="16" y2="14" />
+        </svg>
+      ) : (
+        <span
+          className={`mt-[5px] h-[6px] w-[6px] shrink-0 rounded-full ${
+            hasPendingTool
+              ? "animate-pulse-dot bg-warning"
+              : instance.status === "idle"
+                ? "bg-accent"
+                : instance.status === "processing"
+                  ? "animate-pulse-dot bg-warning"
+                  : instance.status === "error"
+                    ? "bg-error"
+                    : "bg-muted"
+          }`}
+        />
+      )}
 
       {/* Name + preview */}
       <div className="min-w-0 flex-1">
