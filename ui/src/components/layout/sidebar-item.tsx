@@ -1,5 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import {
+  GitBranch,
+  GitMerge,
+  MoreVertical,
+  Pencil,
+  RotateCw,
+  SquareTerminal,
+  Trash2,
+} from "lucide-react";
 import { Menu } from "../ui/menu";
 import { Tooltip } from "../ui/tooltip";
 import { ProviderLogo } from "../chat/input-area/shared";
@@ -72,6 +81,28 @@ export function SidebarItem({
   };
 
   const hasPendingTool = !!instance.pendingTool;
+
+  // Build status tooltip
+  let statusTip: string;
+  if (instance.external) {
+    statusTip =
+      instance.status === "stopped"
+        ? "External session (ended)"
+        : instance.status === "processing"
+          ? "External session (active)"
+          : "External session";
+  } else if (hasPendingTool) {
+    statusTip = "Waiting for permission";
+  } else if (instance.status === "processing") {
+    statusTip = "Processing";
+  } else if (instance.status === "idle") {
+    statusTip = "Idle";
+  } else if (instance.status === "error") {
+    statusTip = "Error";
+  } else {
+    statusTip = "Ended";
+  }
+
   return (
     <Link
       to={to}
@@ -83,42 +114,36 @@ export function SidebarItem({
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
     >
-      {/* Status indicator — mt aligns with first line of title text */}
-      {instance.external ? (
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`mt-[3px] shrink-0 ${
-            instance.status === "idle" || instance.status === "processing"
-              ? "text-accent"
-              : "text-muted"
-          }`}
-        >
-          <path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
-          <polyline points="8 10 10 12 8 14" />
-          <line x1="12" y1="14" x2="16" y2="14" />
-        </svg>
-      ) : (
-        <span
-          className={`mt-[5px] h-[6px] w-[6px] shrink-0 rounded-full ${
-            hasPendingTool
-              ? "animate-pulse-dot bg-warning"
-              : instance.status === "idle"
-                ? "bg-accent"
-                : instance.status === "processing"
+      {/* Status indicator — fixed 12px column so titles align regardless of icon/dot */}
+      <Tooltip content={statusTip} side="right">
+        <span className="mt-[3px] flex h-3 w-3 shrink-0 items-center justify-center">
+          {instance.external ? (
+            <SquareTerminal
+              size={12}
+              strokeWidth={2}
+              className={
+                instance.status === "idle" || instance.status === "processing"
+                  ? "text-muted"
+                  : "text-muted/50"
+              }
+            />
+          ) : (
+            <span
+              className={`h-[6px] w-[6px] rounded-full ${
+                hasPendingTool
                   ? "animate-pulse-dot bg-warning"
-                  : instance.status === "error"
-                    ? "bg-error"
-                    : "bg-muted"
-          }`}
-        />
-      )}
+                  : instance.status === "processing"
+                    ? "animate-pulse-dot bg-warning"
+                    : instance.status === "idle"
+                      ? "bg-text/30"
+                      : instance.status === "error"
+                        ? "bg-error"
+                        : "bg-muted/50"
+              }`}
+            />
+          )}
+        </span>
+      </Tooltip>
 
       {/* Name + preview */}
       <div className="min-w-0 flex-1">
@@ -143,29 +168,15 @@ export function SidebarItem({
             </div>
             <ProviderLogo
               provider={instance.provider}
-              className={`mt-0.5 h-3 w-3 shrink-0 ${isActive ? "text-accent/70" : "text-muted/55"}`}
+              className="mt-0.5 h-3 w-3 shrink-0 text-muted/55"
+              muted
             />
           </div>
         )}
-        {!editing && (instance.gitBranch || instance.gitInfo?.branch) && (
-          <div className="mt-0.5 flex items-center gap-1 truncate text-[0.6875rem] leading-tight text-accent/70">
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="shrink-0"
-            >
-              <line x1="6" y1="3" x2="6" y2="15" />
-              <circle cx="18" cy="6" r="3" />
-              <circle cx="6" cy="18" r="3" />
-              <path d="M18 9a9 9 0 0 1-9 9" />
-            </svg>
-            <span className="truncate">{instance.gitBranch || instance.gitInfo!.branch}</span>
+        {!editing && instance.gitBranch && (
+          <div className="mt-0.5 flex items-center gap-1 truncate text-[0.6875rem] leading-tight text-muted">
+            <GitBranch size={10} strokeWidth={2.5} className="shrink-0" />
+            <span className="truncate">{instance.gitBranch}</span>
           </div>
         )}
         {!editing && isChild && parentInstance && (
@@ -212,11 +223,7 @@ export function SidebarItem({
               }}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-100 transition-all hover:!text-text"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="12" cy="19" r="2" />
-              </svg>
+              <MoreVertical size={12} />
             </Menu.Trigger>
             <Menu.Content>
               {onRename && (
@@ -226,20 +233,7 @@ export function SidebarItem({
                     startEditing();
                   }}
                 >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-muted"
-                  >
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                  </svg>
+                  <Pencil size={13} strokeWidth={2} className="text-muted" />
                   Rename
                 </Menu.Item>
               )}
@@ -250,20 +244,7 @@ export function SidebarItem({
                     onRefreshTitle();
                   }}
                 >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-muted"
-                  >
-                    <polyline points="23 4 23 10 17 10" />
-                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                  </svg>
+                  <RotateCw size={13} strokeWidth={2} className="text-muted" />
                   Refresh title
                 </Menu.Item>
               )}
@@ -274,21 +255,7 @@ export function SidebarItem({
                     onMerge();
                   }}
                 >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-muted"
-                  >
-                    <circle cx="18" cy="18" r="3" />
-                    <circle cx="6" cy="6" r="3" />
-                    <path d="M6 21V9a9 9 0 0 0 9 9" />
-                  </svg>
+                  <GitMerge size={13} strokeWidth={2} className="text-muted" />
                   Merge to main
                 </Menu.Item>
               )}
@@ -301,19 +268,7 @@ export function SidebarItem({
                     onDelete();
                   }}
                 >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
+                  <Trash2 size={13} strokeWidth={2} />
                   Delete
                 </Menu.Item>
               )}
@@ -328,11 +283,7 @@ export function SidebarItem({
             }}
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-40 transition-all hover:!opacity-70 hover:!text-text"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <circle cx="12" cy="19" r="2" />
-            </svg>
+            <MoreVertical size={12} />
           </button>
         ))}
     </Link>

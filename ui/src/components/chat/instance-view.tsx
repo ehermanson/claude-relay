@@ -7,13 +7,13 @@ import { MessageList } from "./message-list";
 import { InputArea } from "./input-area";
 import { Sidecar } from "./sidecar";
 import { Dialog } from "../ui/dialog";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Tooltip } from "../ui/tooltip";
 import { OpenInMenu } from "../project/open-in-menu";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
+import { Bug, ChevronLeft, GitBranch, LayoutGrid } from "lucide-react";
 import { shortenPath, formatTokens, formatCost } from "../../lib/utils";
 import { createInstance, fetchInstanceHistory } from "../../lib/api";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
@@ -491,22 +491,22 @@ export function InstanceView() {
   let statusLabel: string;
   if (isStopped) {
     dotClass = "bg-muted";
-    statusLabel = "Ended";
+    statusLabel = instance.external ? "External session (ended)" : "Ended";
   } else if (instance.status === "processing") {
     dotClass = "animate-pulse-dot bg-warning";
-    statusLabel = instance.external ? "Active" : "Processing";
+    statusLabel = instance.external ? "External session (active)" : "Processing";
   } else if (instance.external) {
     dotClass = "bg-accent";
-    statusLabel = "Watching";
+    statusLabel = "External session";
   } else {
     dotClass = "bg-accent";
-    statusLabel = "Connected";
+    statusLabel = "Idle";
   }
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-3">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
         <Tooltip content="Back">
           <Link
             to="/projects/$projectId/chats"
@@ -515,152 +515,108 @@ export function InstanceView() {
             }}
             className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
+            <ChevronLeft size={16} strokeWidth={2} />
           </Link>
         </Tooltip>
+        {/* Title area with inline status dot */}
         <div className="min-w-0 flex-1">
-          <Tooltip content={instance.workingDirectory} side="bottom">
-            <Link
-              to="/projects/$projectId/chats"
-              params={{
-                projectId: instance.workingDirectory.split("/").pop() || instance.workingDirectory,
-              }}
-              className="hidden truncate text-[0.6875rem] text-muted transition-colors hover:text-accent sm:block"
-            >
-              {instance.workingDirectory.split("/").pop() || instance.workingDirectory}
-            </Link>
-          </Tooltip>
-          <h1 className="truncate text-[0.9375rem] font-semibold tracking-tight text-text-bright">
-            {instance.name}
-          </h1>
+          <div className="flex items-center gap-2">
+            <Tooltip content={statusLabel}>
+              <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
+            </Tooltip>
+            <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
+              {instance.name}
+            </h1>
+          </div>
+          {/* Metadata line: project · branch · tokens */}
+          <div className="hidden items-center gap-1 pl-4 text-[0.6875rem] text-muted sm:flex">
+            <Tooltip content={instance.workingDirectory} side="bottom">
+              <Link
+                to="/projects/$projectId/chats"
+                params={{
+                  projectId:
+                    instance.workingDirectory.split("/").pop() || instance.workingDirectory,
+                }}
+                className="truncate transition-colors hover:text-accent"
+              >
+                {instance.workingDirectory.split("/").pop() || instance.workingDirectory}
+              </Link>
+            </Tooltip>
+            {(instance.gitBranch || instance.gitInfo?.branch) && (
+              <>
+                <span className="text-border">·</span>
+                <Tooltip
+                  content={
+                    instance.gitBranch
+                      ? `Working in worktree on branch ${instance.gitBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
+                      : `On branch ${instance.gitInfo!.branch}`
+                  }
+                >
+                  <span className="flex shrink-0 items-center gap-1 text-accent/70">
+                    <GitBranch size={10} strokeWidth={2.5} />
+                    {instance.gitBranch || instance.gitInfo!.branch}
+                  </span>
+                </Tooltip>
+              </>
+            )}
+            {instance.stats && instance.stats.costUSD > 0 && (
+              <>
+                <span className="text-border">·</span>
+                <Tooltip
+                  content={
+                    <div className="flex flex-col gap-0.5">
+                      <div className="font-medium">{instance.stats.model ?? "Unknown model"}</div>
+                      <div>Input: {formatTokens(instance.stats.inputTokens)}</div>
+                      <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
+                      <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
+                      <div>Cache read: {formatTokens(instance.stats.cacheReadTokens)}</div>
+                    </div>
+                  }
+                >
+                  <span className="shrink-0">
+                    {formatTokens(instance.stats.inputTokens + instance.stats.outputTokens)} tokens
+                    · ~{formatCost(instance.stats.costUSD)}
+                  </span>
+                </Tooltip>
+              </>
+            )}
+          </div>
         </div>
-        <Badge dot dotClass={dotClass}>
-          {statusLabel}
-        </Badge>
-        <OpenInMenu path={instance.workingDirectory} />
-        {(instance.gitBranch || instance.gitInfo?.branch) && (
-          <Tooltip
-            content={
-              instance.gitBranch
-                ? `Working in worktree on branch ${instance.gitBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
-                : `On branch ${instance.gitInfo!.branch}`
-            }
-          >
-            <Badge variant="accent" className="hidden sm:flex">
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="6" y1="3" x2="6" y2="15" />
-                <circle cx="18" cy="6" r="3" />
-                <circle cx="6" cy="18" r="3" />
-                <path d="M18 9a9 9 0 0 1-9 9" />
-              </svg>
-              {instance.gitBranch || instance.gitInfo!.branch}
-            </Badge>
-          </Tooltip>
-        )}
-        {instance.stats && instance.stats.costUSD > 0 && (
-          <Tooltip
-            content={
-              <div className="flex flex-col gap-0.5">
-                <div className="font-medium">{instance.stats.model ?? "Unknown model"}</div>
-                <div>Input: {formatTokens(instance.stats.inputTokens)}</div>
-                <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
-                <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
-                <div>Cache read: {formatTokens(instance.stats.cacheReadTokens)}</div>
-              </div>
-            }
-          >
-            <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted sm:flex">
-              {formatTokens(instance.stats.inputTokens + instance.stats.outputTokens)} tokens · ~
-              {formatCost(instance.stats.costUSD)}
-            </span>
-          </Tooltip>
-        )}
-        {sidecarContentCount > 0 && (
-          <Tooltip
-            content={isMobile ? "Sidecar" : sidecarDismissed ? "Show sidecar" : "Hide sidecar"}
-          >
-            <Button
-              variant="icon"
-              onClick={() => {
-                if (isMobile) {
-                  setSidecarMobileOpen(true);
-                } else if (sidecarDismissed) {
-                  setSidecarDismissed(false);
-                } else {
-                  handleDismissSidecar();
-                }
-              }}
-              className="relative shrink-0"
+        {/* Action buttons */}
+        <div className="flex items-center gap-1">
+          <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
+          {sidecarContentCount > 0 && (
+            <Tooltip
+              content={isMobile ? "Sidecar" : sidecarDismissed ? "Show sidecar" : "Hide sidecar"}
             >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
+              <Button
+                variant="icon"
+                onClick={() => {
+                  if (isMobile) {
+                    setSidecarMobileOpen(true);
+                  } else if (sidecarDismissed) {
+                    setSidecarDismissed(false);
+                  } else {
+                    handleDismissSidecar();
+                  }
+                }}
+                className="relative shrink-0"
               >
-                <rect x="3" y="3" width="7" height="7" rx="1" />
-                <rect x="14" y="3" width="7" height="7" rx="1" />
-                <rect x="3" y="14" width="7" height="7" rx="1" />
-                <rect x="14" y="14" width="7" height="7" rx="1" />
-              </svg>
-              {(isMobile || sidecarDismissed) && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
-                  {sidecarContentCount}
-                </span>
-              )}
+                <LayoutGrid size={15} strokeWidth={2} />
+                {(isMobile || sidecarDismissed) && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
+                    {sidecarContentCount}
+                  </span>
+                )}
+              </Button>
+            </Tooltip>
+          )}
+          <Tooltip content="Debug session data">
+            <Button variant="icon" onClick={() => setShowDebugPaste(true)} className="shrink-0">
+              <Bug size={15} strokeWidth={2} />
             </Button>
           </Tooltip>
-        )}
-        <Tooltip content="Debug session data">
-          <Button variant="icon" onClick={() => setShowDebugPaste(true)} className="shrink-0">
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M8 2l1.88 1.88" />
-              <path d="M14.12 3.88L16 2" />
-              <path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" />
-              <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6" />
-              <path d="M12 20v-9" />
-              <path d="M6.53 9C4.6 8.8 3 7.1 3 5" />
-              <path d="M6 13H2" />
-              <path d="M3 21c0-2.1 1.7-3.9 3.8-4" />
-              <path d="M20.97 5c0 2.1-1.6 3.8-3.5 4" />
-              <path d="M22 13h-4" />
-              <path d="M17.2 17c2.1.1 3.8 1.9 3.8 4" />
-            </svg>
-          </Button>
-        </Tooltip>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">

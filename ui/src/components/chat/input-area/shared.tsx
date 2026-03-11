@@ -148,16 +148,19 @@ export interface ImageAttachment {
 export function ProviderLogo({
   provider,
   className = "",
+  muted,
 }: {
   provider: ProviderKind;
   className?: string;
+  /** When true, uses inherited color instead of brand colors */
+  muted?: boolean;
 }) {
   if (provider === "claude") {
     return (
       <svg
         viewBox="0 0 24 24"
         aria-hidden="true"
-        className={`fill-current text-[#d97757] ${className}`}
+        className={`fill-current ${muted ? "" : "text-[#d97757]"} ${className}`}
       >
         <path d={siClaude.path} />
       </svg>
@@ -168,7 +171,7 @@ export function ProviderLogo({
     <svg
       viewBox="140 220 280 280"
       aria-hidden="true"
-      className={`fill-current text-text ${className}`}
+      className={`fill-current ${muted ? "" : "text-text"} ${className}`}
     >
       <path d={OPENAI_BLOSSOM_PATH} />
     </svg>
