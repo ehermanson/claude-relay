@@ -1,5 +1,5 @@
 /**
- * Cloudflare Tunnel management for Claude Relay
+ * Cloudflare Tunnel management for Relay
  *
  * Extracted from bin.ts for reuse.
  */

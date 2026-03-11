@@ -20,8 +20,8 @@ describe("resolveConfig", () => {
     assert.equal(config.rateLimitMax, 5);
     assert.equal(config.rateLimitWindow, 60_000);
     assert.equal(config.maxProcesses, 15);
-    assert.equal(config.sessionFile, join(homedir(), ".claude-relay", "sessions.json"));
-    assert.equal(config.dbPath, join(homedir(), ".claude-relay", "sessions.db"));
+    assert.equal(config.sessionFile, join(homedir(), ".relay", "sessions.json"));
+    assert.equal(config.dbPath, join(homedir(), ".relay", "sessions.db"));
   });
 
   it("overrides defaults with user options", () => {

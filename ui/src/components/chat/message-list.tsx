@@ -24,12 +24,29 @@ interface ToolGroupData {
 
 type RenderRow =
   | { id: string; kind: "user"; text: string; timestamp?: number }
-  | { id: string; kind: "assistant"; text: string; timestamp?: number; isLast: boolean }
+  | {
+      id: string;
+      kind: "assistant";
+      text: string;
+      timestamp?: number;
+      isLast: boolean;
+    }
   | { id: string; kind: "system"; text: string; isError?: boolean }
   | { id: string; kind: "thinking-block"; text: string }
-  | { id: string; kind: "agent-transcript"; title: string; result: string; timestamp?: number }
+  | {
+      id: string;
+      kind: "agent-transcript";
+      title: string;
+      result: string;
+      timestamp?: number;
+    }
   | { id: string; kind: "response-divider"; durationLabel: string }
-  | { id: string; kind: "tool-container"; groups: ToolGroupData[]; totalToolUses: number };
+  | {
+      id: string;
+      kind: "tool-container";
+      groups: ToolGroupData[];
+      totalToolUses: number;
+    };
 
 // ── Build render rows from ChatItems ─────────────────────────────────
 
@@ -90,7 +107,12 @@ function buildRows(items: ChatItem[]): RenderRow[] {
         (sum, g) => sum + g.activities.filter((a) => a.activity === "tool_use").length,
         0,
       );
-      rows.push({ id: `tools-${runStart}`, kind: "tool-container", groups, totalToolUses });
+      rows.push({
+        id: `tools-${runStart}`,
+        kind: "tool-container",
+        groups,
+        totalToolUses,
+      });
       lastRenderedKind = "tool-container";
     } else {
       // Insert response divider when assistant text follows tool calls
@@ -111,12 +133,21 @@ function buildRows(items: ChatItem[]): RenderRow[] {
             break;
           }
         }
-        rows.push({ id: `divider-${i}`, kind: "response-divider", durationLabel });
+        rows.push({
+          id: `divider-${i}`,
+          kind: "response-divider",
+          durationLabel,
+        });
       }
 
       switch (item.kind) {
         case "user":
-          rows.push({ id: `user-${i}`, kind: "user", text: item.text, timestamp: item.timestamp });
+          rows.push({
+            id: `user-${i}`,
+            kind: "user",
+            text: item.text,
+            timestamp: item.timestamp,
+          });
           break;
         case "assistant":
           rows.push({
@@ -136,7 +167,11 @@ function buildRows(items: ChatItem[]): RenderRow[] {
           });
           break;
         case "thinking-block":
-          rows.push({ id: `thinking-${i}`, kind: "thinking-block", text: item.text });
+          rows.push({
+            id: `thinking-${i}`,
+            kind: "thinking-block",
+            text: item.text,
+          });
           break;
         case "agent-transcript":
           rows.push({
@@ -304,7 +339,7 @@ export function MessageList({
         return (
           <div className="my-1 flex items-center gap-3">
             <span className="h-px flex-1 bg-border/50" />
-            <span className="rounded-full border border-border/60 bg-bg px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted/60">
+            <span className="rounded-lg bg-bg px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted/80">
               Response{row.durationLabel}
             </span>
             <span className="h-px flex-1 bg-border/50" />
@@ -316,7 +351,8 @@ export function MessageList({
             {row.totalToolUses > 0 && (
               <div className="px-3 pt-2.5 pb-1">
                 <span className="text-[10px] uppercase tracking-[0.12em] text-muted/50">
-                  Tool call{row.totalToolUses > 1 ? `s (${row.totalToolUses})` : ""}
+                  Tool call
+                  {row.totalToolUses > 1 ? `s (${row.totalToolUses})` : ""}
                 </span>
               </div>
             )}

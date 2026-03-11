@@ -111,16 +111,16 @@
 
 /* ── Light Theme ───────────────────────────────────────────────────── */
 html.light {
-  --color-bg: #faf8f5;
-  --color-surface: #ffffff;
-  --color-surface-hover: #f5f1eb;
+  --color-bg: #ffffff;
+  --color-surface: #fcfcfd;
+  --color-surface-hover: #f3f4f6;
   --color-surface-raised: #ffffff;
-  --color-border: #e5ddd0;
-  --color-border-hover: #d4c9b8;
-  --color-border-subtle: rgba(210, 200, 185, 0.4);
-  --color-text: #44403c;
-  --color-text-bright: #1c1917;
-  --color-muted: #a8a29e;
+  --color-border: #e5e7eb;
+  --color-border-hover: #d1d5db;
+  --color-border-subtle: rgba(0, 0, 0, 0.08);
+  --color-text: #374151;
+  --color-text-bright: #111827;
+  --color-muted: #9ca3af;
   --color-accent: #059669;
   --color-accent-hover: #047857;
   --color-accent-dim: rgba(5, 150, 105, 0.07);
@@ -128,9 +128,9 @@ html.light {
   --color-claude: #7c3aed;
   --color-claude-dim: rgba(124, 58, 237, 0.06);
   --color-claude-hover: #6d28d9;
-  --color-user-bg: #f0ebe3;
-  --color-user-border: #e5ddd0;
-  --color-user-text: #44403c;
+  --color-user-bg: #f3f4f6;
+  --color-user-border: #e5e7eb;
+  --color-user-text: #374151;
   --color-user-label: #2563eb;
   --color-error: #dc2626;
   --color-error-dim: rgba(220, 38, 38, 0.05);
@@ -145,11 +145,11 @@ html.light {
   --color-panel-options: rgba(0, 0, 0, 0.015);
   --color-diff-remove-bg: rgba(220, 38, 38, 0.08);
   --color-diff-add-bg: rgba(5, 150, 105, 0.08);
-  --color-code-bg: rgba(0, 0, 0, 0.035);
-  --color-pre-bg: #f6f8fa;
+  --color-code-bg: rgba(0, 0, 0, 0.04);
+  --color-pre-bg: #f3f4f6;
   --color-blockquote-bg: rgba(124, 58, 237, 0.03);
   --color-table-header-bg: rgba(0, 0, 0, 0.03);
-  --color-hover-highlight: rgba(0, 0, 0, 0.03);
+  --color-hover-highlight: rgba(0, 0, 0, 0.04);
 }
 
 /* ── Highlight.js Light Overrides ─────────────────────────────────── */

@@ -1,4 +1,4 @@
-# CLAUDE.md — Claude Relay
+# CLAUDE.md — Relay
 
 ## Self-Maintenance Rule
 
@@ -26,12 +26,12 @@ Skip issue creation only for single-line fixes, typo corrections, or other clear
 
 ## Project Overview
 
-Claude Relay is a bridge between remote devices and a local Claude Code CLI. It manages multiple Claude Code processes, discovers external sessions, and serves a React web UI.
+Relay is a bridge between remote devices and local AI coding agents. It manages multiple agent processes, discovers external sessions, and serves a React web UI.
 
 **Two-layer package:**
 
-- `claude-relay` (core) — process management, instance orchestration, types. No server deps.
-- `claude-relay/server` — HTTP, WebSocket, auth, tunnel, UI. Extends core.
+- `relay` (core) — process management, instance orchestration, types. No server deps.
+- `relay/server` — HTTP, WebSocket, auth, tunnel, UI. Extends core.
 
 ## Tech Stack
 
@@ -75,7 +75,7 @@ src/
     http.ts                  createRequestHandler() — REST API + static files + SPA fallback
     websocket.ts             createWebSocketServer() — subscription-based real-time relay
     tunnel.ts                startTunnel(), stopTunnel() — cloudflared lifecycle
-    index.ts                 ClaudeRelay class, createRelay(), re-exports core + server
+    index.ts                 Relay class, createRelay(), re-exports core + server
 test/
   *.test.js                  Tests import from dist/core/ and dist/server/
   fixtures/                  JSONL session fixtures for history-parsing tests
@@ -107,8 +107,8 @@ ui/
 { ".": "./dist/core/index.js", "./server": "./dist/server/index.js" }
 ```
 
-- `server/index.ts` does `export * from "../core/index.js"` — so importing from `claude-relay/server` gives you everything.
-- `SessionDB` and `SessionRow` are exported from core (available via both `claude-relay` and `claude-relay/server`).
+- `server/index.ts` does `export * from "../core/index.js"` — so importing from `relay/server` gives you everything.
+- `SessionDB` and `SessionRow` are exported from core (available via both `relay` and `relay/server`).
 - UI imports shared types via `@shared/types` (Vite alias resolves to `src/core/types.ts`).
 
 ### import.meta.dirname
@@ -164,7 +164,7 @@ ui/
 
 - Users can attach images via clipboard paste, file picker button, or drag-and-drop in the input area
 - Images are uploaded to `POST /api/upload` as raw binary (validated image MIME type, 10MB limit)
-- Uploaded files stored at `~/.claude-relay/uploads/{uuid}{ext}`
+- Uploaded files stored at `~/.relay/uploads/{uuid}{ext}`
 - Upload returns `{ path: "/absolute/path" }` — these server-side paths are sent in the WS `instance_message`
 - `InstanceMessagePayload` and `UserMessage` both have optional `images?: string[]`
 - `InstanceManager.sendMessage()` appends `[Image: source: /path]` markers to the message text
@@ -216,7 +216,7 @@ ui/
 ### Git Worktree Isolation
 
 - When creating a new managed instance (not a resume) in a git repository, the relay automatically creates a git worktree for isolation
-- Worktree path: `~/.claude-relay/worktrees/<shortId>/` where shortId is the first 8 chars of the instance UUID
+- Worktree path: `~/.relay/worktrees/<shortId>/` where shortId is the first 8 chars of the instance UUID
 - Branch name: `relay/<shortId>` — created at HEAD of the current branch
 - `InstanceInfo.gitBranch` and `InstanceInfo.originalDirectory` expose worktree metadata to the UI
 - `Instance.actualCwd` stores the worktree path (used for ClaudeProcess CWD, JSONL path encoding, resume/revive)
@@ -359,7 +359,7 @@ All routes except `/health` and `/auth` require authentication (session cookie).
 - `processTimeout`: 5 minutes
 - `sessionMaxAge`: 7 days
 - `rateLimitMax`: 5 per minute
-- `dbPath`: `~/.claude-relay/sessions.db`
+- `dbPath`: `~/.relay/sessions.db`
 - History capped at 1000 entries per instance
 
 ## Common Pitfalls

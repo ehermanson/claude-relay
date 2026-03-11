@@ -7,7 +7,7 @@ interface ThemeContextValue {
   toggle: () => void;
 }
 
-const STORAGE_KEY = "claude-relay-theme";
+const STORAGE_KEY = "relay-theme";
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 

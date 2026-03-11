@@ -1,5 +1,5 @@
 /**
- * Authentication and session management for Claude Relay
+ * Authentication and session management for Relay
  *
  * Class-based design so each relay instance gets its own session store.
  * Includes IP-based rate limiting on login attempts.

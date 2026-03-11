@@ -1,5 +1,5 @@
 /**
- * Instance Manager for Claude Relay
+ * Instance Manager for Relay
  *
  * Manages multiple Claude Code instances, each with its own
  * provider session (SDK or CLI), metadata, and conversation history.
@@ -17,6 +17,7 @@ import {
   unlinkSync,
   renameSync,
   statSync,
+  fstatSync,
   existsSync,
   openSync,
   readSync,
@@ -249,7 +250,7 @@ function generateTitle(text: string): string {
 
 /** Words/patterns that make a user message useless as a title. */
 const TRIVIAL_MESSAGE_RE =
-  /^(ok|okay|yes|no|yep|nah|sure|thanks|thank you|great|good|done|lgtm|go ahead|sounds good|perfect|commit|commit this|ship it|push it|nice|cool|looks good|approved|continue|proceed|👍|y|n)\.?!?$/i;
+  /^(ok|okay|yes|no|yep|nah|sure|thanks|thank you|great|good|done|lgtm|go ahead|sounds good|perfect|commit|commit this|ship it|push it|nice|cool|looks good|approved|continue|proceed|tool loaded|human turned off|👍|y|n)\.?!?$/i;
 
 /** True if the message text is too short or too generic to be a useful title. */
 function isTrivialMessage(text: string): boolean {
@@ -345,6 +346,64 @@ function readFirstUserMessage(jsonlPath: string): string | null {
           }
         } catch {
           // partial line at end of buffer — skip
+        }
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    // file read error
+  }
+  return null;
+}
+
+/** Read the last user or assistant message from a JSONL file by scanning the tail. */
+function readLastMessage(jsonlPath: string): LastMessagePreview | null {
+  try {
+    const fd = openSync(jsonlPath, "r");
+    try {
+      const stat = fstatSync(fd);
+      const tailSize = Math.min(stat.size, 32768);
+      const offset = stat.size - tailSize;
+      const buf = Buffer.alloc(tailSize);
+      readSync(fd, buf, 0, tailSize, offset);
+      const text = buf.toString("utf-8");
+      const lines = text.split("\n");
+
+      // Walk backwards to find the last substantive message
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        try {
+          const parsed = JSON.parse(line);
+          const ts = parsed.timestamp ? new Date(parsed.timestamp).getTime() : 0;
+
+          // User message
+          if (parsed.type === "user" && parsed.message?.content) {
+            for (const block of parsed.message.content) {
+              if (block.type === "text" && typeof block.text === "string") {
+                const cleaned = stripInternalTags(block.text);
+                if (cleaned && !isTrivialMessage(cleaned)) {
+                  return { text: cleaned, from: "user", timestamp: ts || Date.now() };
+                }
+              }
+            }
+            continue;
+          }
+
+          // Assistant message — extract text from content blocks
+          if (parsed.type === "assistant" && parsed.message?.content) {
+            for (const block of parsed.message.content) {
+              if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+                const preview =
+                  block.text.length > 120 ? block.text.slice(0, 120) + "\u2026" : block.text;
+                return { text: preview, from: "assistant", timestamp: ts || Date.now() };
+              }
+            }
+            continue;
+          }
+        } catch {
+          // partial line — skip
         }
       }
     } finally {
@@ -903,7 +962,7 @@ export class InstanceManager extends EventEmitter {
 
     // Auto-commit dirty worktrees — safe because worktrees are isolated Claude work
     if (isWorktreeDirty(instance.worktreePath)) {
-      const commitMsg = instance.info.name || "Claude Relay work";
+      const commitMsg = instance.info.name || "Relay work";
       this.baseConfig.logger.info(
         `[InstanceManager] Auto-committing changes in worktree for "${commitMsg}"`,
       );
@@ -1304,9 +1363,10 @@ export class InstanceManager extends EventEmitter {
       instance.externalState?.jsonlPath;
 
     if (transcriptPath && existsSync(transcriptPath)) {
-      const parsed = instance.info.external
-        ? this.parseJsonl(transcriptPath)
-        : this.parseProviderTranscript(instance.info.provider, transcriptPath);
+      const parsed =
+        instance.info.provider === "claude" || !instance.info.provider
+          ? this.parseJsonl(transcriptPath)
+          : this.parseProviderTranscript(instance.info.provider, transcriptPath);
 
       instance.history = parsed.history;
       instance.tasks = parsed.tasks.size > 0 ? parsed.tasks : undefined;
@@ -3649,6 +3709,7 @@ export class InstanceManager extends EventEmitter {
           const firstMsg = readFirstUserMessage(jsonlPath);
           const name = indexEntry?.summary || (firstMsg ? generateTitle(firstMsg) : "New session");
           const gitInfo = scanWorktreePath ? getGitInfo(scanWorktreePath) : getGitInfo(cwd);
+          const lastMsg = readLastMessage(jsonlPath);
 
           rows.push({
             session_id: sessionId,
@@ -3678,9 +3739,9 @@ export class InstanceManager extends EventEmitter {
             preferred_model: null,
             reasoning_budget: null,
             skip_permissions: 0,
-            last_message_text: null,
-            last_message_from: null,
-            last_message_at: null,
+            last_message_text: lastMsg?.text ?? null,
+            last_message_from: lastMsg?.from ?? null,
+            last_message_at: lastMsg?.timestamp ?? null,
             git_info_branch: gitInfo?.branch ?? null,
             git_info_is_worktree:
               gitInfo?.isWorktree !== undefined ? (gitInfo.isWorktree ? 1 : 0) : null,
@@ -3796,9 +3857,16 @@ export class InstanceManager extends EventEmitter {
     const extOriginalDir = entry.original_directory ?? undefined;
     const extGitBranch = entry.git_branch ?? undefined;
 
+    // Detect provider from JSONL path if mismatched (legacy migration fix)
+    let provider = (entry.provider_name as ProviderKind) || "claude";
+    if (provider === "claude" && entry.jsonl_path?.includes("/.codex/")) {
+      provider = "codex";
+      this.db.updateProvider(entry.session_id, "codex");
+    }
+
     const info: InstanceInfo = {
       id: entry.instance_id,
-      provider: (entry.provider_name as ProviderKind) || "claude",
+      provider,
       name: entry.name,
       workingDirectory: entry.working_directory,
       status: "stopped",
@@ -4016,6 +4084,16 @@ export class InstanceManager extends EventEmitter {
     // Defer plan-parent linking to after server.listen()
     queueMicrotask(() => this.linkPlanSessions());
 
+    // Refresh titles for sessions that have a trivial/stale name
+    for (const inst of this.instances.values()) {
+      if (
+        !inst.info.customTitle &&
+        (inst.info.name === "New session" || isTrivialMessage(inst.info.name))
+      ) {
+        this.doRefreshTitle(inst);
+      }
+    }
+
     // Auto-continue instances that were mid-turn when the server shut down
     this.autoContinueAfterRestart();
   }
@@ -4069,6 +4147,30 @@ export class InstanceManager extends EventEmitter {
     // get processed before the sync filesystem scan blocks.
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     this.scanAndRestoreNew();
+    this.backfillLastMessages();
+  }
+
+  /** Backfill lastMessage for restored instances that have a JSONL path but no preview. */
+  private backfillLastMessages(): void {
+    let count = 0;
+    for (const instance of this.instances.values()) {
+      if (instance.info.lastMessage) continue;
+      const jsonlPath =
+        instance.watchState?.jsonlPath || instance.externalState?.jsonlPath || instance.jsonlPath;
+      if (!jsonlPath) continue;
+      const lastMsg = readLastMessage(jsonlPath);
+      if (lastMsg) {
+        instance.info.lastMessage = lastMsg;
+        this.emit("instance:status", instance.info.id, { ...instance.info });
+        this.dbSave(instance);
+        count++;
+      }
+    }
+    if (count > 0) {
+      this.baseConfig.logger.info(
+        `[InstanceManager] Backfilled last-message previews for ${count} session(s)`,
+      );
+    }
   }
 
   private autoContinueAfterRestart(): void {

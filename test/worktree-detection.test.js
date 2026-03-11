@@ -45,22 +45,22 @@ function createTempRepo() {
 describe("isRelayWorktreePath", () => {
   it("matches standard relay worktree paths", () => {
     const home = homedir();
-    assert.equal(isRelayWorktreePath(`${home}/.claude-relay/worktrees/8c625689`), true);
-    assert.equal(isRelayWorktreePath(`${home}/.claude-relay/worktrees/abcdef01`), true);
-    assert.equal(isRelayWorktreePath(`${home}/.claude-relay/worktrees/abcdef01/`), true);
+    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/8c625689`), true);
+    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/abcdef01`), true);
+    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/abcdef01/`), true);
   });
 
   it("rejects non-worktree paths", () => {
     assert.equal(isRelayWorktreePath("/Users/foo/projects/my-app"), false);
     assert.equal(isRelayWorktreePath("/tmp/test"), false);
-    assert.equal(isRelayWorktreePath("/home/user/.claude-relay/uploads/file.png"), false);
+    assert.equal(isRelayWorktreePath("/home/user/.relay/uploads/file.png"), false);
   });
 
   it("rejects paths with non-hex worktree IDs", () => {
     const home = homedir();
     // The regex requires hex chars [a-f0-9]+
-    assert.equal(isRelayWorktreePath(`${home}/.claude-relay/worktrees/ZZZZZZZZ`), false);
-    assert.equal(isRelayWorktreePath(`${home}/.claude-relay/worktrees/hello-world`), false);
+    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/ZZZZZZZZ`), false);
+    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/hello-world`), false);
   });
 });
 
@@ -105,7 +105,7 @@ describe("resolveWorktreeOrigin", () => {
 
   it("returns null for nonexistent worktree directory", () => {
     const home = homedir();
-    assert.equal(resolveWorktreeOrigin(`${home}/.claude-relay/worktrees/deadbeef`), null);
+    assert.equal(resolveWorktreeOrigin(`${home}/.relay/worktrees/deadbeef`), null);
   });
 });
 

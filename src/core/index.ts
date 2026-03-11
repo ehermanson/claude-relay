@@ -1,5 +1,5 @@
 /**
- * Claude Relay — Core Library
+ * Relay — Core Library
  *
  * Process management, instance orchestration, and types.
  * No server dependencies (HTTP, WebSocket, auth).

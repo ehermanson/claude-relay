@@ -1,5 +1,5 @@
 /**
- * Core configuration for Claude Relay
+ * Core configuration for Relay
  *
  * Defines the subset of config needed by the core library (process management,
  * instance orchestration) without any server-specific fields.
@@ -51,7 +51,7 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
     processTimeout: options.processTimeout ?? 10 * 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? defaultLogger,
-    dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
+    dbPath: options.dbPath ?? join(homedir(), ".relay", "sessions.db"),
     defaultModel: options.defaultModel,
     manifestFile: options.manifestFile,
     codexDir: options.codexDir,

@@ -1,5 +1,5 @@
 /**
- * HTTP Request Handler for Claude Relay
+ * HTTP Request Handler for Relay
  *
  * Factory function that creates the HTTP request handler.
  * Separated from server creation so consumers can compose their own server.
@@ -737,7 +737,7 @@ export function createRequestHandler(
         });
         req.on("end", () => {
           const data = Buffer.concat(chunks);
-          const uploadsDir = path.join(homedir(), ".claude-relay", "uploads");
+          const uploadsDir = path.join(homedir(), ".relay", "uploads");
           fs.mkdirSync(uploadsDir, { recursive: true });
           const filename = `${crypto.randomUUID()}${ext}`;
           const filePath = path.join(uploadsDir, filename);

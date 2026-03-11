@@ -1,5 +1,5 @@
 /**
- * Shared type definitions for Claude Relay
+ * Shared type definitions for Relay
  *
  * Pure type definitions with zero runtime imports.
  * Used by both server code and the React UI.

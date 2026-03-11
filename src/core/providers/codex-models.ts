@@ -166,7 +166,7 @@ export async function discoverCodexModels(
 
     sendRequest(1, "initialize", {
       clientInfo: {
-        name: "claude-relay",
+        name: "relay",
         version: "0.0.0",
       },
       capabilities: {

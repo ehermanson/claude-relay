@@ -399,7 +399,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private async initializeAndStartThread(message: string): Promise<void> {
     // Step 1: Initialize
     await this.sendRpc("initialize", {
-      clientInfo: { name: "claude-relay", version: "0.0.0" },
+      clientInfo: { name: "relay", version: "0.0.0" },
       capabilities: { experimentalApi: true },
     });
     this.initialized = true;

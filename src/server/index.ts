@@ -1,12 +1,12 @@
 /**
- * Claude Relay — Server Layer
+ * Relay — Server Layer
  *
  * Full server with HTTP, WebSocket, auth, tunnel, and UI serving.
  * Re-exports everything from the core library for convenience.
  *
  * @example
  * ```ts
- * import { createRelay } from "claude-relay/server";
+ * import { createRelay } from "relay/server";
  *
  * const relay = createRelay({
  *   password: process.env.PASSWORD!,
@@ -31,7 +31,7 @@ import { InstanceManager } from "../core/instance-manager.js";
 import { createWebSocketServer } from "./websocket.js";
 import { createRequestHandler } from "./http.js";
 
-export class ClaudeRelay {
+export class Relay {
   readonly config: RelayConfig;
 
   private server: http.Server;
@@ -85,7 +85,7 @@ export class ClaudeRelay {
 
     await new Promise<void>((resolve) => {
       this.server.listen(this.config.port, () => {
-        this.config.logger.info(`Claude Relay listening on http://localhost:${this.config.port}`);
+        this.config.logger.info(`Relay listening on http://localhost:${this.config.port}`);
         resolve();
       });
     });
@@ -126,11 +126,14 @@ export class ClaudeRelay {
 }
 
 /**
- * Create a new Claude Relay instance.
+ * Create a new Relay instance.
  */
-export function createRelay(options: RelayOptions): ClaudeRelay {
-  return new ClaudeRelay(options);
+export function createRelay(options: RelayOptions): Relay {
+  return new Relay(options);
 }
+
+/** @deprecated Use `Relay` instead. */
+export const ClaudeRelay = Relay;
 
 // Re-export everything from core for convenience
 export * from "../core/index.js";

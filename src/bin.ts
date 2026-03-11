@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Claude Relay CLI entry point
+ * Relay CLI entry point
  *
  * Reads configuration from environment variables and starts the relay.
  *
@@ -15,8 +15,8 @@
  *   MAX_PROCESSES             (optional) Maximum concurrent managed processes, default 15
  *   MAX_INSTANCES             (deprecated) Alias for MAX_PROCESSES
  *   TUNNEL                   (optional) Set to "true" to start a cloudflared tunnel
- *   SESSION_FILE             (optional) Path to session persistence file, default ~/.claude-relay/sessions.json
- *   DB_PATH                  (optional) Path to SQLite database, default ~/.claude-relay/sessions.db
+ *   SESSION_FILE             (optional) Path to session persistence file, default ~/.relay/sessions.json
+ *   DB_PATH                  (optional) Path to SQLite database, default ~/.relay/sessions.db
  *   DEFAULT_MODEL            (optional) Default model for new sessions, default "claude-opus-4-6"
  *   MANIFEST_FILE            (optional) Legacy manifest file path (used for one-time migration to SQLite)
  */
@@ -65,7 +65,7 @@ relay
   .start()
   .then(() => {
     if (process.env.DEV) {
-      console.log(`Claude Relay UI at http://localhost:5173\n`);
+      console.log(`Relay UI at http://localhost:5173\n`);
     } else if (enableTunnel) {
       startTunnel(port);
     } else {
@@ -73,7 +73,7 @@ relay
     }
   })
   .catch((err: Error) => {
-    console.error(`\n  Failed to start Claude Relay: ${err.message}`);
+    console.error(`\n  Failed to start Relay: ${err.message}`);
     if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
       console.error(
         `  Port ${port} is already in use. Try a different port with: PORT=8888 npm start`,

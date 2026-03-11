@@ -72,7 +72,7 @@ export function LoginPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.6, ease: "easeOut" }}
           >
-            Claude Relay
+            Relay
           </motion.h1>
           <motion.p
             className="text-sm text-muted"

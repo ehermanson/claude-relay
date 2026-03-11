@@ -1,5 +1,5 @@
 /**
- * WebSocket Server for Claude Relay
+ * WebSocket Server for Relay
  *
  * Handles WebSocket connections from remote clients,
  * authenticates them using session cookies, and relays messages

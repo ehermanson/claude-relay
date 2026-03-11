@@ -376,7 +376,7 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
 
     const initialConfig = useMemo<InitialConfigType>(
       () => ({
-        namespace: "claude-relay-composer",
+        namespace: "relay-composer",
         onError: (error) => {
           throw error;
         },

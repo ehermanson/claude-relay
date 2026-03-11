@@ -1,12 +1,12 @@
-# Claude Relay
+# Relay
 
-A lightweight bridge between remote devices and your local [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI. Run it on your dev machine, connect from your phone or laptop, and chat with Claude Code from anywhere.
+A lightweight bridge between remote devices and your local AI coding agents. Run it on your dev machine, connect from your phone or laptop, and manage your agent sessions from anywhere.
 
-Claude Relay also automatically discovers other Claude Code sessions running on your machine and lets you monitor or resume them from the web UI.
+Relay also automatically discovers agent sessions running on your machine and lets you monitor or resume them from the web UI.
 
 > **Fair warning:** This project is held together with duct tape and optimism. It relies on Claude Code's undocumented JSONL transcript format, its `stream-json` output mode, the layout of `~/.claude/`, and various CLI flags that could change without notice. Any Claude Code update could break things in spectacular and unexpected ways. There is no stable API contract here — just a guy reading JSONL files and hoping for the best. If it works today, celebrate. If it breaks tomorrow, that's expected.
 
-![Claude Relay](claude-relay.png)
+![Relay](claude-relay.png)
 
 ## How It Works
 
@@ -14,7 +14,7 @@ Claude Relay also automatically discovers other Claude Code sessions running on 
                           YOUR DEV MACHINE
   ┌──────────────────────────────────────────────────────────────┐
   │                                                              │
-  │   Terminal sessions           Claude Relay                   │
+  │   Terminal sessions           Relay                          │
   │  ┌──────────────────┐       ┌──────────────────────────┐     │
   │  │ $ claude          │──┐   │                          │     │
   │  │ $ claude          │──┤   │  InstanceManager         │     │
@@ -41,7 +41,7 @@ Claude Relay also automatically discovers other Claude Code sessions running on 
                               └──────────┘  └──────────┘
 ```
 
-1. **Claude Relay** runs on your dev machine alongside Claude Code
+1. **Relay** runs on your dev machine alongside your coding agents
 2. **InstanceManager** spawns and manages provider-backed sessions (currently Claude CLI, Claude Agent SDK, and managed Codex CLI)
 3. **Session discovery** finds Claude Code instances you started in the terminal and streams their JSONL transcripts
 4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
@@ -50,7 +50,7 @@ Claude Relay also automatically discovers other Claude Code sessions running on 
 
 ## Projects and Directories
 
-Claude Relay inherits Claude Code's project model: **the directory you launch `claude` from is your project**. The CLI loads `CLAUDE.md` from the working directory, project memory is keyed by it, and JSONL transcripts are stored under `~/.claude/projects/` using the encoded path. Relay uses the same convention — sessions are grouped by their starting directory in the sidebar, project pages aggregate artifacts by directory, and external session discovery reads the `cwd` from each session's JSONL init entry.
+Relay inherits Claude Code's project model: **the directory you launch `claude` from is your project**. The CLI loads `CLAUDE.md` from the working directory, project memory is keyed by it, and JSONL transcripts are stored under `~/.claude/projects/` using the encoded path. Relay uses the same convention — sessions are grouped by their starting directory in the sidebar, project pages aggregate artifacts by directory, and external session discovery reads the `cwd` from each session's JSONL init entry.
 
 This is a convention, not a constraint. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar` or running commands elsewhere. The working directory is a "home base," not a sandbox — the same way a git repo doesn't stop you from touching files outside it. In practice the heuristic is correct the vast majority of the time, since people launch `claude` from the repo they're working on.
 
@@ -142,7 +142,7 @@ This gives you a public `https://*.trycloudflare.com` URL you can open on any de
 
 ```
 src/
-  core/                 ← "claude-relay" (no server deps)
+  core/                 ← "relay" (no server deps)
     claude-process.ts      Spawns claude -p processes, parses stream-json
     provider.ts            Provider session contract used by managed adapters
     provider-catalog.ts    Shared provider labels + built-in model catalogs
@@ -158,14 +158,14 @@ src/
     logger.ts              Logger interface
     tools.ts               Tool description helpers
     index.ts               Barrel export
-  server/               ← "claude-relay/server" (extends core)
+  server/               ← "relay/server" (extends core)
     http.ts                REST API + static file serving
     project-opener.ts      Project/app target discovery + native open persistence
     websocket.ts           Real-time message relay via subscriptions
     auth.ts                Password auth + session cookies + rate limiting
     tunnel.ts              Cloudflare Tunnel lifecycle
     config.ts              RelayConfig extends CoreConfig
-    index.ts               ClaudeRelay class, createRelay(), re-exports core
+    index.ts               Relay class, createRelay(), re-exports core
   bin.ts                ← CLI entry point
 ui/                     ← React app
   src/components/chat/composer-editor.tsx
@@ -180,10 +180,10 @@ The package exposes two entry points:
 
 ```ts
 // Core only — embed process management in your own app
-import { InstanceManager, ClaudeProcess } from "claude-relay";
+import { InstanceManager, ClaudeProcess } from "relay";
 
 // Full server — HTTP + WebSocket + auth + UI
-import { createRelay } from "claude-relay/server";
+import { createRelay } from "relay/server";
 ```
 
 The server entry point re-exports everything from core, so you never need to import from both.
@@ -199,7 +199,7 @@ Managed-session architecture is split in two:
 ### Full Server
 
 ```ts
-import { createRelay } from "claude-relay/server";
+import { createRelay } from "relay/server";
 
 const relay = createRelay({
   password: "my-secret",
@@ -216,7 +216,7 @@ await relay.stop();
 ### Core Only
 
 ```ts
-import { InstanceManager, resolveCoreConfig } from "claude-relay";
+import { InstanceManager, resolveCoreConfig } from "relay";
 
 const config = resolveCoreConfig({
   workingDirectory: "/my/project",
@@ -237,37 +237,37 @@ manager.sendMessage(instance.id, "Hello Claude");
 
 ### Environment Variables (CLI)
 
-| Variable                     | Default                          | Description                                                   |
-| ---------------------------- | -------------------------------- | ------------------------------------------------------------- |
-| `RELAY_PASSWORD`             | **(required)**                   | Authentication password                                       |
-| `PORT`                       | `7777`                           | Server port                                                   |
-| `WORKING_DIR`                | `$HOME`                          | Default working directory for Claude                          |
-| `MAX_PROCESSES`              | `15`                             | Maximum concurrent managed processes                          |
-| `TUNNEL`                     | `false`                          | Set `"true"` to start a Cloudflare Tunnel                     |
-| `DANGEROUS_SKIP_PERMISSIONS` | `false`                          | Set `"true"` to skip Claude's permission prompts              |
-| `PROCESS_TIMEOUT`            | `300000`                         | Process timeout in ms (5 min)                                 |
-| `SESSION_MAX_AGE`            | `604800000`                      | Session lifetime in ms (7 days)                               |
-| `SESSION_FILE`               | `~/.claude-relay/sessions.json`  | Session cookie storage file path                              |
-| `MANIFEST_FILE`              | `~/.claude-relay/instances.json` | Instance manifest file path (for persistence across restarts) |
+| Variable                     | Default                   | Description                                                   |
+| ---------------------------- | ------------------------- | ------------------------------------------------------------- |
+| `RELAY_PASSWORD`             | **(required)**            | Authentication password                                       |
+| `PORT`                       | `7777`                    | Server port                                                   |
+| `WORKING_DIR`                | `$HOME`                   | Default working directory for Claude                          |
+| `MAX_PROCESSES`              | `15`                      | Maximum concurrent managed processes                          |
+| `TUNNEL`                     | `false`                   | Set `"true"` to start a Cloudflare Tunnel                     |
+| `DANGEROUS_SKIP_PERMISSIONS` | `false`                   | Set `"true"` to skip Claude's permission prompts              |
+| `PROCESS_TIMEOUT`            | `300000`                  | Process timeout in ms (5 min)                                 |
+| `SESSION_MAX_AGE`            | `604800000`               | Session lifetime in ms (7 days)                               |
+| `SESSION_FILE`               | `~/.relay/sessions.json`  | Session cookie storage file path                              |
+| `MANIFEST_FILE`              | `~/.relay/instances.json` | Instance manifest file path (for persistence across restarts) |
 
 ### Programmatic Options
 
-| Option                       | Type      | Default                          | Description                                    |
-| ---------------------------- | --------- | -------------------------------- | ---------------------------------------------- |
-| `password`                   | `string`  | **(required)**                   | Authentication password                        |
-| `port`                       | `number`  | `7777`                           | Server port                                    |
-| `workingDirectory`           | `string`  | `process.cwd()`                  | Default working directory                      |
-| `maxProcesses`               | `number`  | `15`                             | Max concurrent managed processes               |
-| `dangerouslySkipPermissions` | `boolean` | `false`                          | Skip Claude's permission prompts               |
-| `processTimeout`             | `number`  | `300000`                         | Process timeout in ms                          |
-| `serveUI`                    | `boolean` | `true`                           | Serve the built-in web UI                      |
-| `sessionMaxAge`              | `number`  | `604800000`                      | Session lifetime in ms                         |
-| `rateLimitMax`               | `number`  | `5`                              | Max login attempts per IP per window           |
-| `rateLimitWindow`            | `number`  | `60000`                          | Rate limit window in ms                        |
-| `manifestFile`               | `string`  | `~/.claude-relay/instances.json` | Instance manifest file for restart persistence |
-| `claudeDir`                  | `string`  | `~/.claude`                      | Override Claude transcript root                |
-| `codexDir`                   | `string`  | `~/.codex`                       | Override Codex transcript root                 |
-| `logger`                     | `Logger`  | `console`                        | Custom logger implementation                   |
+| Option                       | Type      | Default                   | Description                                    |
+| ---------------------------- | --------- | ------------------------- | ---------------------------------------------- |
+| `password`                   | `string`  | **(required)**            | Authentication password                        |
+| `port`                       | `number`  | `7777`                    | Server port                                    |
+| `workingDirectory`           | `string`  | `process.cwd()`           | Default working directory                      |
+| `maxProcesses`               | `number`  | `15`                      | Max concurrent managed processes               |
+| `dangerouslySkipPermissions` | `boolean` | `false`                   | Skip Claude's permission prompts               |
+| `processTimeout`             | `number`  | `300000`                  | Process timeout in ms                          |
+| `serveUI`                    | `boolean` | `true`                    | Serve the built-in web UI                      |
+| `sessionMaxAge`              | `number`  | `604800000`               | Session lifetime in ms                         |
+| `rateLimitMax`               | `number`  | `5`                       | Max login attempts per IP per window           |
+| `rateLimitWindow`            | `number`  | `60000`                   | Rate limit window in ms                        |
+| `manifestFile`               | `string`  | `~/.relay/instances.json` | Instance manifest file for restart persistence |
+| `claudeDir`                  | `string`  | `~/.claude`               | Override Claude transcript root                |
+| `codexDir`                   | `string`  | `~/.codex`                | Override Codex transcript root                 |
+| `logger`                     | `Logger`  | `console`                 | Custom logger implementation                   |
 
 ## Managed Sessions
 

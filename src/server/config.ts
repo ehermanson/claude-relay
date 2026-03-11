@@ -1,5 +1,5 @@
 /**
- * Server configuration for Claude Relay
+ * Server configuration for Relay
  *
  * Extends CoreConfig with HTTP/auth-specific fields.
  */
@@ -55,8 +55,8 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     rateLimitMax: options.rateLimitMax ?? 5,
     rateLimitWindow: options.rateLimitWindow ?? 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
-    sessionFile: options.sessionFile ?? join(homedir(), ".claude-relay", "sessions.json"),
-    dbPath: options.dbPath ?? join(homedir(), ".claude-relay", "sessions.db"),
+    sessionFile: options.sessionFile ?? join(homedir(), ".relay", "sessions.json"),
+    dbPath: options.dbPath ?? join(homedir(), ".relay", "sessions.db"),
     defaultModel: options.defaultModel,
     manifestFile: options.manifestFile,
     claudeDir: options.claudeDir,

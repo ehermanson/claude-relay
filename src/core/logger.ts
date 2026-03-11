@@ -1,5 +1,5 @@
 /**
- * Logger interface for Claude Relay
+ * Logger interface for Relay
  *
  * Consumers can provide any object that implements these methods.
  * Defaults to console when not specified.

@@ -1,9 +1,9 @@
 {
-  "name": "claude-relay",
+  "name": "relay",
   "version": "3.0.0",
-  "description": "A lightweight server that bridges remote clients to a local Claude Code CLI via WebSockets",
+  "description": "A lightweight server that bridges remote clients to local AI coding agents via WebSockets",
   "bin": {
-    "claude-relay": "dist/bin.js"
+    "relay": "dist/bin.js"
   },
   "files": [
     "dist",

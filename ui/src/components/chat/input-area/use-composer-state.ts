@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, type RefObject, type SetStateAction
 import type { MentionEntry } from "./shared";
 import type { ComposerEditorHandle } from "../composer-editor";
 
-const DRAFT_PREFIX = "claude-relay:draft:";
+const DRAFT_PREFIX = "relay:draft:";
 
 function getDraftKey(sessionId: string): string {
   return `${DRAFT_PREFIX}${sessionId}`;

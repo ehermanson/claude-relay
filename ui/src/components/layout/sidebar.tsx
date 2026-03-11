@@ -322,7 +322,7 @@ export function Sidebar() {
         >
           <RelayLogo size={44} connected={isConnected} />
           <span className="text-[0.9375rem] font-semibold tracking-tight text-text-bright">
-            Claude Relay
+            Relay
           </span>
         </Link>
         <div className="flex items-center gap-1">

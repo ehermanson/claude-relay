@@ -12,10 +12,10 @@ import { homedir } from "os";
 
 import type { FileChange } from "./types.js";
 
-const WORKTREE_BASE = join(homedir(), ".claude-relay", "worktrees");
+const WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
 
-/** Pattern matching ~/.claude-relay/worktrees/<id> paths */
-const RELAY_WORKTREE_RE = /[/\\]\.claude-relay[/\\]worktrees[/\\][a-f0-9]+\/?$/;
+/** Pattern matching ~/.relay/worktrees/<id> paths */
+const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][a-f0-9]+\/?$/;
 
 /**
  * Check if a directory path is a relay-managed worktree.
@@ -101,7 +101,7 @@ export function getCurrentBranch(dir: string): string | null {
  * Create a git worktree for an isolated instance.
  *
  * Creates a new branch `relay/<shortId>` at HEAD and checks it out
- * in `~/.claude-relay/worktrees/<shortId>/`.
+ * in `~/.relay/worktrees/<shortId>/`.
  *
  * Returns the worktree path and branch name, or null on failure.
  */

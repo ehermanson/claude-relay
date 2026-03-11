@@ -1,5 +1,5 @@
 /**
- * SessionDB — SQLite-backed session persistence for Claude Relay
+ * SessionDB — SQLite-backed session persistence for Relay
  *
  * Wraps better-sqlite3 with prepared statements for fast, synchronous access.
  * Handles schema migrations, corruption recovery, and index management.
@@ -656,6 +656,12 @@ export class SessionDB {
 
   updateName(sessionId: string, name: string, customTitle: boolean): void {
     this.stmtUpdateName.run(name, customTitle ? 1 : 0, sessionId);
+  }
+
+  updateProvider(sessionId: string, provider: string): void {
+    this.db
+      .prepare("UPDATE sessions SET provider_name = ? WHERE session_id = ?")
+      .run(provider, sessionId);
   }
 
   updateAllowedTools(sessionId: string, tools: string[]): void {

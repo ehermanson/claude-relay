@@ -1,5 +1,5 @@
 {
-  "name": "claude-relay-ui",
+  "name": "relay-ui",
   "private": true,
   "type": "module",
   "scripts": {
