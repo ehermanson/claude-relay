@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Menu } from "../ui/menu";
 import { Tooltip } from "../ui/tooltip";
+import { ProviderLogo } from "../chat/input-area/shared";
 import { formatTimeAgo } from "../../lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
@@ -71,7 +72,6 @@ export function SidebarItem({
   };
 
   const hasPendingTool = !!instance.pendingTool;
-
   return (
     <Link
       to={to}
@@ -133,12 +133,18 @@ export function SidebarItem({
             className="w-full rounded border border-border bg-surface px-1 py-0.5 text-[0.8125rem] font-medium leading-tight text-text-bright outline-none focus:border-accent"
           />
         ) : (
-          <div
-            className={`truncate text-[0.8125rem] font-medium leading-tight ${
-              isActive ? "text-accent" : "text-text-bright"
-            }`}
-          >
-            {instance.name}
+          <div className="flex items-start gap-2">
+            <div
+              className={`min-w-0 flex-1 truncate text-[0.8125rem] font-medium leading-tight ${
+                isActive ? "text-accent" : "text-text-bright"
+              }`}
+            >
+              {instance.name}
+            </div>
+            <ProviderLogo
+              provider={instance.provider}
+              className={`mt-0.5 h-3 w-3 shrink-0 ${isActive ? "text-accent/70" : "text-muted/55"}`}
+            />
           </div>
         )}
         {!editing && instance.gitBranch && (
