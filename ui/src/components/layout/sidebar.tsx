@@ -241,7 +241,7 @@ export function Sidebar() {
       >
         <div className="mb-1.5">
           {/* Project header — collapse toggle */}
-          <div className="group flex items-center gap-1.5 px-3 pt-4 pb-1">
+          <div className="group flex items-center gap-1.5 px-3 pt-3 pb-0.5">
             <Collapsible.Trigger className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-0.5 text-left transition-colors hover:bg-surface-hover">
               <svg
                 width="12"
@@ -292,7 +292,7 @@ export function Sidebar() {
               )}
               <Tooltip content={dir} side="bottom">
                 <span
-                  className={`min-w-0 flex-1 truncate text-[0.875rem] font-semibold uppercase tracking-wider ${
+                  className={`min-w-0 flex-1 truncate text-[0.8125rem] font-semibold ${
                     isActiveProject ? "text-accent" : "text-text-bright"
                   }`}
                 >
@@ -300,6 +300,29 @@ export function Sidebar() {
                 </span>
               </Tooltip>
             </Collapsible.Trigger>
+            <Tooltip content={`New session in ${dirName}`}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleQuickCreate(dir);
+                }}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted/50 opacity-0 transition-all group-hover:opacity-100 hover:text-accent"
+              >
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+            </Tooltip>
             {githubLinks[dir] && (
               <Tooltip content="Open on GitHub">
                 <a
@@ -320,115 +343,54 @@ export function Sidebar() {
           {/* Content */}
           <Collapsible.Content>
             <div className="pl-6 pr-2">
-              {/* Overview link */}
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: dirName }}
-                className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[0.8125rem] transition-colors ${
-                  isOverviewActive
-                    ? "bg-accent-dim text-accent"
-                    : "text-muted hover:bg-surface-hover hover:text-text"
-                }`}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="shrink-0"
-                >
-                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-                </svg>
-                Overview
-              </Link>
-
-              {/* Plans link */}
-              <Link
-                to="/projects/$projectId/plans"
-                params={{ projectId: dirName }}
-                className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[0.8125rem] transition-colors ${
-                  isPlansActive
-                    ? "bg-accent-dim text-accent"
-                    : "text-muted hover:bg-surface-hover hover:text-text"
-                }`}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="shrink-0"
-                >
-                  <path d="M9 11l3 3L22 4" />
-                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-                </svg>
-                Plans
-              </Link>
-
-              {/* Issues link (beads) */}
-              {beadsDirs.has(dir) && (
+              {/* Compact nav pills */}
+              <div className="flex flex-wrap items-center gap-1 px-2 pb-1.5">
                 <Link
-                  to="/projects/$projectId/issues"
+                  to="/projects/$projectId"
                   params={{ projectId: dirName }}
-                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[0.8125rem] transition-colors ${
-                    isIssuesActive
+                  className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
+                    isOverviewActive
                       ? "bg-accent-dim text-accent"
                       : "text-muted hover:bg-surface-hover hover:text-text"
                   }`}
                 >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="shrink-0"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  Issues
+                  Overview
                 </Link>
-              )}
-
-              {/* Sessions section */}
-              <div className="mt-1.5 flex items-center gap-1.5 px-3 py-1">
-                <span className="flex-1 text-[0.6875rem] font-medium uppercase tracking-wider text-muted/70">
-                  Sessions
-                </span>
-                <Tooltip content={`New instance in ${dirName}`}>
-                  <button
-                    onClick={() => handleQuickCreate(dir)}
-                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted/50 transition-colors hover:text-accent"
+                <Link
+                  to="/projects/$projectId/plans"
+                  params={{ projectId: dirName }}
+                  className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
+                    isPlansActive
+                      ? "bg-accent-dim text-accent"
+                      : "text-muted hover:bg-surface-hover hover:text-text"
+                  }`}
+                >
+                  Plans
+                </Link>
+                {beadsDirs.has(dir) && (
+                  <Link
+                    to="/projects/$projectId/issues"
+                    params={{ projectId: dirName }}
+                    className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
+                      isIssuesActive
+                        ? "bg-accent-dim text-accent"
+                        : "text-muted hover:bg-surface-hover hover:text-text"
+                    }`}
                   >
-                    <svg
-                      width="11"
-                      height="11"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2.5}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                  </button>
-                </Tooltip>
+                    Issues
+                  </Link>
+                )}
+                <Link
+                  to="/projects/$projectId/chats"
+                  params={{ projectId: dirName }}
+                  className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
+                    isChatsActive
+                      ? "bg-accent-dim text-accent"
+                      : "text-muted hover:bg-surface-hover hover:text-text"
+                  }`}
+                >
+                  Sessions
+                </Link>
               </div>
 
               {/* Session items */}
@@ -441,7 +403,7 @@ export function Sidebar() {
                   params={{ projectId: dirName }}
                   className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
                 >
-                  Show all ({ordered.length})
+                  +{hiddenCount} more
                   <svg
                     width="10"
                     height="10"
