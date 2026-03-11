@@ -94,7 +94,7 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("does not create duplicate external when managed instance has no jsonlPath yet", () => {
+  it("does not create duplicate external when managed instance has no jsonlPath yet", async () => {
     // 1. Create an older JSONL (the "external" terminal session's file)
     const externalJsonl = join(projectDir, "aaaa-external-session.jsonl");
     writeMinimalJsonl(externalJsonl, fakeCwd);
@@ -109,14 +109,14 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
     // 3. Inject a managed instance WITHOUT jsonlPath (pre-captureSessionId)
     injectManagedInstance(manager, "managed-1", fakeCwd);
 
-    // 4. Override findRunningClaudeCwds to simulate one external `claude` process in fakeCwd
+    // 4. Override findRunningClaudeCwdsAsync to simulate one external `claude` process in fakeCwd
     //    (the managed process's PID would already be excluded, so only the external remains)
-    manager["findRunningClaudeCwds"] = () => {
-      return new Map([[fakeCwd, { count: 1, pids: [99999] }]]);
+    manager["findRunningClaudeCwdsAsync"] = () => {
+      return Promise.resolve(new Map([[fakeCwd, { count: 1, pids: [99999] }]]));
     };
 
     // 5. Run discovery
-    manager["discoverExisting"]();
+    await manager["discoverExisting"]();
 
     // 6. Verify: should have the managed instance + one external (the older JSONL),
     //    NOT a duplicate for the managed instance's JSONL
@@ -136,7 +136,7 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
     );
   });
 
-  it("does not interfere when managed instance already has jsonlPath", () => {
+  it("does not interfere when managed instance already has jsonlPath", async () => {
     // 1. Create a JSONL for the managed instance
     const managedJsonl = join(projectDir, "bbbb-managed.jsonl");
     writeMinimalJsonl(managedJsonl, fakeCwd);
@@ -164,13 +164,13 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
       jsonlPath: managedJsonl, // Already captured
     });
 
-    // 4. Override findRunningClaudeCwds — 1 external process
-    manager["findRunningClaudeCwds"] = () => {
-      return new Map([[fakeCwd, { count: 1, pids: [99999] }]]);
+    // 4. Override findRunningClaudeCwdsAsync — 1 external process
+    manager["findRunningClaudeCwdsAsync"] = () => {
+      return Promise.resolve(new Map([[fakeCwd, { count: 1, pids: [99999] }]]));
     };
 
     // 5. Run discovery
-    manager["discoverExisting"]();
+    await manager["discoverExisting"]();
 
     // 6. The external JSONL should be discovered normally
     const allInstances = manager.listInstances();
@@ -182,7 +182,7 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
     );
   });
 
-  it("reserves one JSONL per managed instance when multiple are pending", () => {
+  it("reserves one JSONL per managed instance when multiple are pending", async () => {
     // Create 3 JSONL files
     const jsonl1 = join(projectDir, "aaa-oldest.jsonl");
     writeMinimalJsonl(jsonl1, fakeCwd);
@@ -201,11 +201,11 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
     injectManagedInstance(manager, "managed-2", fakeCwd);
 
     // 1 external process found
-    manager["findRunningClaudeCwds"] = () => {
-      return new Map([[fakeCwd, { count: 1, pids: [99999] }]]);
+    manager["findRunningClaudeCwdsAsync"] = () => {
+      return Promise.resolve(new Map([[fakeCwd, { count: 1, pids: [99999] }]]));
     };
 
-    manager["discoverExisting"]();
+    await manager["discoverExisting"]();
 
     const allInstances = manager.listInstances();
     const externalInstances = allInstances.filter((i) => i.external);

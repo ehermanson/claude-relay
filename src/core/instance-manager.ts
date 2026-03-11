@@ -24,7 +24,10 @@ import {
 } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import { execSync, execFileSync } from "child_process";
+import { execSync, execFileSync, execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 import { ClaudeProcess } from "./claude-process.js";
 import type { ProviderSession } from "./provider.js";
 import { createSdkSessionSync, resolveQueryFn } from "./providers/claude-sdk.js";
@@ -1926,7 +1929,9 @@ export class InstanceManager extends EventEmitter {
 
   startDiscovery(): void {
     this.discoverExisting();
-    this.discoveryInterval = setInterval(() => this.discoverExisting(), DISCOVERY_INTERVAL);
+    this.discoveryInterval = setInterval(() => {
+      this.discoverExisting();
+    }, DISCOVERY_INTERVAL);
     this.baseConfig.logger.debug("[InstanceManager] Session discovery started");
   }
 
@@ -1941,7 +1946,17 @@ export class InstanceManager extends EventEmitter {
     this.watchIntervals.clear();
   }
 
-  private discoverExisting(): void {
+  private async discoverExisting(): Promise<void> {
+    if (this.discovering) return; // Prevent overlapping discovery polls
+    this.discovering = true;
+    try {
+      await this.discoverExistingInner();
+    } finally {
+      this.discovering = false;
+    }
+  }
+
+  private async discoverExistingInner(): Promise<void> {
     const projectsDir = join(this.claudeDir, "projects");
     if (!existsSync(projectsDir)) return;
 
@@ -1953,7 +1968,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Find running claude processes — returns cwds with counts and PIDs
-    const cwdInfoMap = this.findRunningClaudeCwds(managedPids);
+    const cwdInfoMap = await this.findRunningClaudeCwdsAsync(managedPids);
     if (cwdInfoMap.size === 0) {
       this.removeStaleExternals(new Set());
       return;
@@ -2046,15 +2061,16 @@ export class InstanceManager extends EventEmitter {
   }
 
   /** Returns a map of cwd → { count, pids } of external claude PIDs running in that directory */
-  private findRunningClaudeCwds(
+  private async findRunningClaudeCwdsAsync(
     excludePids: Set<number>,
-  ): Map<string, { count: number; pids: number[] }> {
+  ): Promise<Map<string, { count: number; pids: number[] }>> {
     const cwdInfo = new Map<string, { count: number; pids: number[] }>();
     try {
-      const psOutput = execSync("ps -eo pid,comm 2>/dev/null | grep -E '\\bclaude$' || true", {
-        encoding: "utf-8",
-        timeout: 5000,
-      });
+      const { stdout: psOutput } = await execFileAsync(
+        "/bin/sh",
+        ["-c", "ps -eo pid,comm 2>/dev/null | grep -E '\\bclaude$' || true"],
+        { encoding: "utf-8", timeout: 5000 },
+      );
 
       const pids: number[] = [];
       for (const line of psOutput.split("\n")) {
@@ -2065,23 +2081,29 @@ export class InstanceManager extends EventEmitter {
         }
       }
 
-      for (const pid of pids) {
-        try {
-          const lsofOutput = execSync(`lsof -p ${pid} -a -d cwd -Fn 2>/dev/null || true`, {
-            encoding: "utf-8",
-            timeout: 5000,
-          });
-          for (const line of lsofOutput.split("\n")) {
-            if (line.startsWith("n/")) {
-              const cwd = line.substring(1);
-              const existing = cwdInfo.get(cwd) || { count: 0, pids: [] };
-              existing.count++;
-              existing.pids.push(pid);
-              cwdInfo.set(cwd, existing);
-            }
+      // Resolve CWDs in parallel
+      const results = await Promise.allSettled(
+        pids.map(async (pid) => {
+          const { stdout } = await execFileAsync(
+            "lsof",
+            ["-p", String(pid), "-a", "-d", "cwd", "-Fn"],
+            { encoding: "utf-8", timeout: 5000 },
+          );
+          return { pid, stdout };
+        }),
+      );
+
+      for (const result of results) {
+        if (result.status !== "fulfilled") continue;
+        const { pid, stdout } = result.value;
+        for (const line of stdout.split("\n")) {
+          if (line.startsWith("n/")) {
+            const cwd = line.substring(1);
+            const existing = cwdInfo.get(cwd) || { count: 0, pids: [] };
+            existing.count++;
+            existing.pids.push(pid);
+            cwdInfo.set(cwd, existing);
           }
-        } catch {
-          // skip
         }
       }
     } catch {
