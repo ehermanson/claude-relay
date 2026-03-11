@@ -619,7 +619,7 @@ export const Sidecar = memo(
         className={
           isMobileOverlay
             ? "animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col rounded-l-2xl border-l border-border bg-surface shadow-2xl"
-            : "flex h-full w-full flex-col border-l border-border/60 bg-bg shadow-[inset_1px_0_0_0_rgba(255,255,255,0.02)]"
+            : "flex h-full w-full flex-col border-l border-border/50 bg-surface"
         }
       >
         {/* Header */}
