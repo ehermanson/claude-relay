@@ -91,6 +91,10 @@ import {
 } from "./git.js";
 import { searchWorkspaceEntries, type WorkspaceEntry } from "./workspace-entries.js";
 
+/** Message text injected when the relay server auto-continues an instance after restart. */
+const AUTO_CONTINUE_MSG =
+  "The relay server restarted while you were mid-turn. Please continue from where you left off.";
+
 // =============================================================================
 // Re-exports
 // =============================================================================
@@ -654,6 +658,8 @@ export class InstanceManager extends EventEmitter {
   private watchIntervals = new Map<string, ReturnType<typeof setInterval>>();
   /** Tracks consecutive discovery misses per external instance (grace period before marking stopped) */
   private staleCounts = new Map<string, number>();
+  /** Instance IDs that were auto-continued after a restart — excluded from the next processing-at-shutdown save to prevent restart loops */
+  private recentlyAutoContinued = new Set<string>();
   private claudeDir: string;
   private codexDir: string;
   /** Pre-resolved SDK query function — null if SDK not available (falls back to CLI) */
@@ -1963,7 +1969,11 @@ export class InstanceManager extends EventEmitter {
       if (instance.sessionId) {
         this.db.updateLastActivity(instance.sessionId, instance.info.lastActivityAt);
       }
-      if (wasProcessing && !instance.info.external) {
+      if (
+        wasProcessing &&
+        !instance.info.external &&
+        !this.recentlyAutoContinued.has(instance.info.id)
+      ) {
         processingIds.push(instance.info.id);
       }
     }
@@ -2788,9 +2798,10 @@ export class InstanceManager extends EventEmitter {
           }
           // Suppress the raw "Full transcript available at:" message entirely
         } else {
+          const internal = text === AUTO_CONTINUE_MSG ? true : undefined;
           results.push({
             timestamp,
-            message: { type: "user", text } as UserMessage,
+            message: { type: "user", text, internal } as UserMessage,
           });
         }
       }
@@ -4340,10 +4351,22 @@ export class InstanceManager extends EventEmitter {
         try {
           this.bootManagedInstance(id, instance);
           if (instance.process) {
-            const continueMsg =
-              "The relay server restarted while you were mid-turn. Please continue from where you left off.";
-            instance.process.send(continueMsg);
+            const userMessage: UserMessage = {
+              type: "user",
+              text: AUTO_CONTINUE_MSG,
+              instanceId: id,
+              internal: true,
+            };
+            this.noteManagedProcessActivity(instance);
+            this.pushHistory(instance, userMessage);
+            instance.process.send(AUTO_CONTINUE_MSG);
             this.setStatus(instance, "processing");
+
+            // Track this ID so that if the server restarts again quickly (e.g. a build
+            // triggered by the auto-continued Claude), we don't re-save it to
+            // processing-at-shutdown.json and create an endless restart loop.
+            this.recentlyAutoContinued.add(id);
+            setTimeout(() => this.recentlyAutoContinued.delete(id), 120_000);
           }
         } catch (err) {
           this.baseConfig.logger.warn(`[InstanceManager] Auto-continue failed for ${id}: ${err}`);

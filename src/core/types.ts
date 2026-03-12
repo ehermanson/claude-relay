@@ -258,6 +258,8 @@ export interface UserMessage {
   text: string;
   images?: string[];
   instanceId?: string;
+  /** If true, this message was injected programmatically (e.g. auto-continue after restart) and should be hidden from the chat UI. */
+  internal?: boolean;
 }
 
 export interface ExitMessage {

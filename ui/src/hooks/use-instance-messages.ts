@@ -56,7 +56,7 @@ type Action =
   | { type: "replay"; history: HistoryEntry[] }
   | { type: "output"; text: string; isWaiting: boolean; thinking?: string }
   | { type: "activity"; message: ActivityMessage }
-  | { type: "user"; text: string }
+  | { type: "user"; text: string; internal?: boolean }
   | { type: "transcript"; title: string; result: string }
   | { type: "exit"; code: number; signal?: string; stderr?: string }
   | { type: "error"; message: string }
@@ -135,6 +135,8 @@ function reducer(state: State, action: Action): State {
             }
             break;
           case "user": {
+            // Hide programmatically-injected messages (e.g. auto-continue after restart)
+            if (msg.internal) break;
             flushActivities();
             flushAssistant();
             const lastItem = items[items.length - 1];
@@ -381,6 +383,8 @@ function reducer(state: State, action: Action): State {
     }
 
     case "user": {
+      // Hide programmatically-injected messages (e.g. auto-continue after restart)
+      if (action.internal) return state;
       const items = [...state.items];
       const now = Date.now();
       const lastItem = items[items.length - 1];
@@ -488,7 +492,7 @@ export function useInstanceMessages() {
         break;
       case "user":
         if (message.instanceId === instanceId) {
-          dispatch({ type: "user", text: message.text });
+          dispatch({ type: "user", text: message.text, internal: message.internal });
         }
         break;
       case "transcript":
