@@ -315,9 +315,9 @@ export function MessageList({
     } else if (items.length === 0) {
       hadItems.current = false;
     } else {
-      onContentChange();
+      scrollToBottom();
     }
-  }, [items, forceStickToBottom, onContentChange]);
+  }, [items, forceStickToBottom, scrollToBottom]);
 
   // ── Thinking indicator ───────────────────────────────────────────
   const showThinking = !!showThinkingIndicator || !!isProcessing || instanceStatus === "processing";
