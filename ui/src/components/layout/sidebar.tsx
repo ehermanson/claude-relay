@@ -1,15 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Loader2, LogOut, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, LogOut, Moon, Plus, Sun } from "lucide-react";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
 import { SidebarItem } from "./sidebar-item";
-import { ThemeToggle } from "../ui/theme-toggle";
+import { useTheme } from "../../context/theme-context";
 import { RelayLogo } from "../ui/relay-logo";
-import { Button } from "../ui/button";
 import { Popover } from "../ui/popover";
 import { Collapsible } from "../ui/collapsible";
-import { Tooltip } from "../ui/tooltip";
 
 import { NewInstanceForm } from "../forms/new-instance-form";
 import { fetchBeadsProjects } from "../../lib/api";
@@ -21,6 +19,7 @@ export function Sidebar() {
   const { send } = useWSMethods();
   const { isConnected, isSyncing, instances } = useWSState();
   const { logout } = useAuthContext();
+  const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { chatId: currentId, projectId: currentProjectId } = useParams({
     strict: false,
@@ -222,17 +221,16 @@ export function Sidebar() {
                 {dirName}
               </span>
             </Collapsible.Trigger>
-            <Tooltip content={`New session in ${dirName}`}>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleQuickCreate(dir);
-                }}
-                className="flex p-2 shrink-0 items-center justify-center rounded-md text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:text-accent hover:bg-surface-active"
-              >
-                <Plus className="size-4" strokeWidth={2.5} />
-              </button>
-            </Tooltip>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleQuickCreate(dir);
+              }}
+              className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
+            >
+              <Plus size={12} strokeWidth={2.5} />
+              New Session
+            </button>
           </div>
 
           {/* Content */}
@@ -312,7 +310,7 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-full flex-col border-r border-border bg-surface">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between px-5 py-3">
+      <div className="flex shrink-0 items-center justify-between px-4 py-3">
         <Link
           to="/"
           className="flex items-center gap-2 rounded-md transition-opacity hover:opacity-80"
@@ -329,24 +327,15 @@ export function Sidebar() {
             Relay
           </span>
         </Link>
-        <div className="flex items-center gap-1">
-          <Popover.Root open={showForm} onOpenChange={setShowForm}>
-            <Tooltip content="New instance">
-              <Popover.Trigger className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text">
-                <Plus size={16} strokeWidth={2} />
-              </Popover.Trigger>
-            </Tooltip>
-            <Popover.Content className="w-72" align="end">
-              <NewInstanceForm onSubmit={handleCreate} onCancel={() => setShowForm(false)} />
-            </Popover.Content>
-          </Popover.Root>
-          <ThemeToggle className="h-7 w-7" />
-          <Tooltip content="Logout">
-            <Button variant="icon" onClick={logout}>
-              <LogOut size={15} strokeWidth={2} />
-            </Button>
-          </Tooltip>
-        </div>
+        <Popover.Root open={showForm} onOpenChange={setShowForm}>
+          <Popover.Trigger className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
+            <Plus size={14} strokeWidth={2.5} />
+            New Project
+          </Popover.Trigger>
+          <Popover.Content className="w-72" align="end">
+            <NewInstanceForm onSubmit={handleCreate} onCancel={() => setShowForm(false)} />
+          </Popover.Content>
+        </Popover.Root>
       </div>
 
       {/* Instance list */}
@@ -374,6 +363,24 @@ export function Sidebar() {
             )}
           </>
         )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex shrink-0 items-center justify-between border-t border-border px-4 py-2">
+        <button
+          onClick={toggleTheme}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+        >
+          {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+          {theme === "dark" ? "Light" : "Dark"}
+        </button>
+        <button
+          onClick={logout}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+        >
+          <LogOut size={13} />
+          Sign out
+        </button>
       </div>
     </aside>
   );
