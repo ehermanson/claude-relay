@@ -4900,7 +4900,7 @@ export class InstanceManager extends EventEmitter {
     for (let i = instance.history.length - 1; i >= 0; i--) {
       const msg = instance.history[i].message;
       if (msg.type === "transcript") continue;
-      if (msg.type === "user" && (msg as UserMessage).text) {
+      if (msg.type === "user" && (msg as UserMessage).text && !(msg as UserMessage).internal) {
         const text = (msg as UserMessage).text;
         if (isTrivialMessage(text)) continue;
         const title = generateTitle(text);
@@ -4946,9 +4946,13 @@ export class InstanceManager extends EventEmitter {
       instance.history.splice(0, instance.history.length - MAX_HISTORY);
     }
 
-    // Track last meaningful message for dashboard preview (skip transcripts)
+    // Track last meaningful message for dashboard preview (skip transcripts + internal)
     if (message.type === "transcript") return;
-    if (message.type === "user" && (message as UserMessage).text) {
+    if (
+      message.type === "user" &&
+      (message as UserMessage).text &&
+      !(message as UserMessage).internal
+    ) {
       instance.info.lastMessage = {
         text: (message as UserMessage).text,
         from: "user",
