@@ -178,7 +178,15 @@ export function ProviderLogo({
   );
 }
 
-export function ContextRing({ stats }: { stats: SessionStats }) {
+export function ContextRing({
+  stats,
+  active,
+  onClick,
+}: {
+  stats: SessionStats;
+  active?: boolean;
+  onClick?: () => void;
+}) {
   const contextWindow =
     stats.contextWindow && stats.contextWindow > 0 ? stats.contextWindow : CONTEXT_WINDOW;
   const rawContextTokens = stats.contextTokens ?? 0;
@@ -214,7 +222,8 @@ export function ContextRing({ stats }: { stats: SessionStats }) {
       delay={200}
     >
       <button
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface-hover ${textColor}`}
+        onClick={onClick}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface-hover ${active ? "bg-accent/10 ring-1 ring-accent/25" : ""} ${textColor}`}
       >
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
           <circle

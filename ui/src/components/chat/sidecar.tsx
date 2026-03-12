@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Tabs } from "../ui/tabs";
 import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
@@ -902,9 +902,9 @@ const ContextPanel = memo(function ContextPanel({
       : [];
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex-1 overflow-y-auto">
       {/* Stats grid */}
-      <div className="shrink-0 px-3.5 py-2.5">
+      <div className="px-3.5 py-2.5">
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <StatRow
             label="Provider"
@@ -1012,9 +1012,9 @@ const ContextPanel = memo(function ContextPanel({
 
       {/* Raw messages */}
       {rawEntries.length > 0 && (
-        <div className="flex min-h-0 flex-1 flex-col border-t border-border/30">
-          <div className="shrink-0 px-3.5 py-2.5 text-[0.6875rem] text-muted">Raw Messages</div>
-          <div className="flex-1 overflow-y-auto px-2 pb-2">
+        <div className="border-t border-border/30">
+          <div className="px-3.5 py-2.5 text-[0.6875rem] text-muted">Raw Messages</div>
+          <div className="px-2 pb-2">
             <div className="flex flex-col gap-0 border border-border/60 rounded-md overflow-hidden">
               {rawEntries.map((entry, i) => (
                 <RawEntryRow key={i} entry={entry} />
@@ -1031,7 +1031,13 @@ const ContextPanel = memo(function ContextPanel({
 // Tab system
 // =============================================================================
 
-type SidecarTab = "team" | "tasks" | "files" | "context";
+export type SidecarTab = "team" | "tasks" | "files" | "context";
+
+function samePanelSets(a: ReadonlySet<SidecarTab>, b: ReadonlySet<SidecarTab>): boolean {
+  if (a.size !== b.size) return false;
+  for (const item of a) if (!b.has(item)) return false;
+  return true;
+}
 
 interface SidecarProps {
   tasks: TaskItem[] | null;
@@ -1047,7 +1053,10 @@ interface SidecarProps {
   createdAt?: number;
   lastActivityAt?: number;
   workingDirectory: string;
-  onClose: () => void;
+  /** Which panels are toggled on from the header. */
+  activePanels: ReadonlySet<SidecarTab>;
+  /** Called when mobile overlay should close. */
+  onClose?: () => void;
   isMobileOverlay?: boolean;
 }
 
@@ -1066,6 +1075,7 @@ export const Sidecar = memo(
     createdAt,
     lastActivityAt,
     workingDirectory,
+    activePanels,
     onClose,
     isMobileOverlay,
   }: SidecarProps) {
@@ -1075,21 +1085,25 @@ export const Sidecar = memo(
     const hasFiles = files && files.length > 0;
     const hasStats = !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
 
-    // Build available tabs in priority order: Team/Agents > Tasks > Files > Context
+    // Build available tabs: must have content AND be in activePanels
     const availableTabs = useMemo(() => {
       const tabs: { key: SidecarTab; label: string; count: number }[] = [];
-      if (hasTeam || hasAgentActivities) {
+      if ((hasTeam || hasAgentActivities) && activePanels.has("team")) {
         tabs.push({
           key: "team",
           label: hasTeam ? "Team" : "Agents",
           count: hasTeam ? team!.members.length : agentActivities!.length,
         });
       }
-      if (hasTasks) tabs.push({ key: "tasks", label: "Tasks", count: tasks.length });
-      if (hasFiles) tabs.push({ key: "files", label: "Files", count: files.length });
-      if (hasStats) tabs.push({ key: "context", label: "Context", count: 0 });
+      if (hasTasks && activePanels.has("tasks"))
+        tabs.push({ key: "tasks", label: "Tasks", count: tasks.length });
+      if (hasFiles && activePanels.has("files"))
+        tabs.push({ key: "files", label: "Files", count: files.length });
+      if (hasStats && activePanels.has("context"))
+        tabs.push({ key: "context", label: "Context", count: 0 });
       return tabs;
     }, [
+      activePanels,
       agentActivities,
       files,
       hasAgentActivities,
@@ -1102,6 +1116,19 @@ export const Sidecar = memo(
     ]);
 
     const [activeTab, setActiveTab] = useState<SidecarTab>("team");
+
+    // Auto-switch to newly added panel when toggled on from the header
+    const prevActivePanelsRef = useRef(activePanels);
+    useEffect(() => {
+      const prev = prevActivePanelsRef.current;
+      prevActivePanelsRef.current = activePanels;
+      for (const panel of activePanels) {
+        if (!prev.has(panel)) {
+          setActiveTab(panel);
+          return;
+        }
+      }
+    }, [activePanels]);
 
     // Resolve effective tab: if activeTab isn't available, fall back to first available
     const effectiveTab =
@@ -1141,21 +1168,23 @@ export const Sidecar = memo(
                 {availableTabs[0]?.label ?? "Sidecar"}
               </h2>
             )}
-            <Button variant="icon" size="icon-sm" onClick={onClose}>
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </Button>
+            {isMobileOverlay && onClose && (
+              <Button variant="icon" size="icon-sm" onClick={onClose}>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1196,6 +1225,7 @@ export const Sidecar = memo(
   },
   (prev, next) => {
     return (
+      samePanelSets(prev.activePanels, next.activePanels) &&
       prev.workingDirectory === next.workingDirectory &&
       prev.isMobileOverlay === next.isMobileOverlay &&
       prev.instanceName === next.instanceName &&

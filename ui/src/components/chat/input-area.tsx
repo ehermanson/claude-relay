@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { ArrowUp, Loader2 } from "lucide-react";
-import type { ProviderKind, SessionStats } from "@shared/types";
+import type { ProviderKind } from "@shared/types";
 import { getProviderDisplayName } from "@shared/provider-catalog";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useWSMethods } from "../../context/websocket-context";
@@ -49,7 +49,6 @@ interface InputAreaProps {
   reasoningBudget?: number;
   activeModel?: string;
   skipPermissions?: boolean;
-  stats?: SessionStats;
   hasMessages?: boolean;
 }
 
@@ -69,7 +68,6 @@ export function InputArea({
   reasoningBudget,
   activeModel,
   skipPermissions,
-  stats,
   hasMessages,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
@@ -365,7 +363,6 @@ export function InputArea({
                 <InputToolbar
                   isMobile={isMobile}
                   disabled={disabled}
-                  stats={stats}
                   controls={toolbarControls}
                   isProcessing={isProcessing}
                   onCancel={onCancel}

@@ -1,14 +1,11 @@
 import { Children, type ReactNode } from "react";
 import { ImagePlus, Square } from "lucide-react";
-import type { SessionStats } from "@shared/types";
 import { Button } from "../../ui/button";
 import { Tooltip } from "../../ui/tooltip";
-import { ContextRing } from "./shared";
 
 interface InputToolbarProps {
   isMobile: boolean;
   disabled: boolean;
-  stats?: SessionStats;
   controls: ReactNode[];
   isProcessing: boolean;
   onCancel: () => void;
@@ -24,7 +21,6 @@ const roundPrimary = "h-8 w-8 shrink-0 !rounded-full !p-0";
 export function InputToolbar({
   isMobile,
   disabled,
-  stats,
   controls,
   isProcessing,
   onCancel,
@@ -64,7 +60,6 @@ export function InputToolbar({
 
       {!isMobile ? <div className="flex-1" /> : null}
       <div className="flex items-center gap-2">
-        {!isMobile && stats ? <ContextRing stats={stats} /> : null}
         {isProcessing ? (
           <Tooltip content={isMobile ? "Cancel" : "Cancel (Esc)"}>
             <button

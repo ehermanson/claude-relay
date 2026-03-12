@@ -1,13 +1,13 @@
-import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { Group, Panel, usePanelRef } from "react-resizable-panels";
+import { Group, Panel } from "react-resizable-panels";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useInstanceMessages } from "../../hooks/use-instance-messages";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { MessageList } from "./message-list";
 import { InputArea } from "./input-area";
-import { Sidecar } from "./sidecar";
+import { Sidecar, type SidecarTab } from "./sidecar";
 import { ResizableHandle } from "../ui/resizable-handle";
 import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
@@ -16,7 +16,8 @@ import { Tooltip } from "../ui/tooltip";
 import { OpenInMenu } from "../project/open-in-menu";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
-import { Bug, ChevronLeft, GitBranch, LayoutGrid } from "lucide-react";
+import { Bug, ChevronLeft, FileText, GitBranch, LayoutGrid, ListChecks, Users } from "lucide-react";
+import { ContextRing } from "./input-area/shared";
 import { shortenPath, formatTokens, formatCost } from "../../lib/utils";
 import { createInstance, fetchInstanceHistory } from "../../lib/api";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
@@ -222,25 +223,41 @@ export function InstanceView() {
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [showDebugPaste, setShowDebugPaste] = useState(false);
   const [sidecarMobileOpen, setSidecarMobileOpen] = useState(false);
-  const sidecarPanelRef = usePanelRef();
   const [retainedAgentActivities, setRetainedAgentActivities] = useState<AgentActivity[] | null>(
     null,
   );
-  const dismissedContentCountRef = useRef(0);
 
-  // Track whether sidecar panel is collapsed (via onResize detecting collapsedSize)
-  const [sidecarCollapsed, setSidecarCollapsed] = useState(false);
+  // --- Sidecar panel toggles ---
+  const [activePanels, setActivePanels] = useState<Set<SidecarTab>>(new Set());
+  const manuallyToggledOff = useRef(new Set<SidecarTab>());
+  const prevHasTeamRef = useRef(false);
+  const prevHasTasksRef = useRef(false);
+  const prevHasFilesRef = useRef(false);
+
+  const togglePanel = useCallback((panel: SidecarTab) => {
+    setActivePanels((prev) => {
+      const next = new Set(prev);
+      if (next.has(panel)) {
+        next.delete(panel);
+        manuallyToggledOff.current.add(panel);
+      } else {
+        next.add(panel);
+        manuallyToggledOff.current.delete(panel);
+      }
+      return next;
+    });
+  }, []);
 
   // Reset when switching instances
   useEffect(() => {
     setSidecarMobileOpen(false);
     setRetainedAgentActivities(null);
-    dismissedContentCountRef.current = 0;
-    // Expand sidecar panel if it was collapsed
-    if (sidecarPanelRef.current?.isCollapsed()) {
-      sidecarPanelRef.current.expand();
-    }
-  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+    setActivePanels(new Set());
+    manuallyToggledOff.current.clear();
+    prevHasTeamRef.current = false;
+    prevHasTasksRef.current = false;
+    prevHasFilesRef.current = false;
+  }, [id]);
 
   const hasLiveAgentActivities = (currentAgentActivities?.length ?? 0) > 0;
   const retainedClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -288,7 +305,34 @@ export function InstanceView() {
   const hasStats =
     !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
 
-  // Content count for sidecar visibility (includes stats so the button/panel appears)
+  // Per-panel content flags
+  const hasTeamContent =
+    (currentTeam?.members?.length ?? 0) > 0 || (sidecarAgentActivities?.length ?? 0) > 0;
+  const hasTasksContent = (currentTasks?.length ?? 0) > 0;
+  const hasFilesContent = (currentFiles?.length ?? 0) > 0;
+
+  // Auto-activate operational panels when content first appears (skip if user manually toggled off)
+  useEffect(() => {
+    const toActivate: SidecarTab[] = [];
+    if (hasTeamContent && !prevHasTeamRef.current && !manuallyToggledOff.current.has("team"))
+      toActivate.push("team");
+    if (hasTasksContent && !prevHasTasksRef.current && !manuallyToggledOff.current.has("tasks"))
+      toActivate.push("tasks");
+    if (hasFilesContent && !prevHasFilesRef.current && !manuallyToggledOff.current.has("files"))
+      toActivate.push("files");
+    prevHasTeamRef.current = hasTeamContent;
+    prevHasTasksRef.current = hasTasksContent;
+    prevHasFilesRef.current = hasFilesContent;
+    if (toActivate.length > 0) {
+      setActivePanels((prev) => {
+        const next = new Set(prev);
+        for (const tab of toActivate) next.add(tab);
+        return next;
+      });
+    }
+  }, [hasTeamContent, hasTasksContent, hasFilesContent]);
+
+  // Total content for mobile sidecar button badge
   const sidecarContentCount =
     (currentTasks?.length ?? 0) +
     (currentFiles?.length ?? 0) +
@@ -296,33 +340,23 @@ export function InstanceView() {
     (sidecarAgentActivities?.length ?? 0) +
     (hasStats ? 1 : 0);
 
-  // Operational content count (excludes stats) — used for auto-undismiss
-  const operationalContentCount =
-    (currentTasks?.length ?? 0) +
-    (currentFiles?.length ?? 0) +
-    (currentTeam?.members?.length ?? 0) +
-    (sidecarAgentActivities?.length ?? 0);
-  useEffect(() => {
-    if (sidecarCollapsed && operationalContentCount > dismissedContentCountRef.current) {
-      sidecarPanelRef.current?.expand();
-    }
-  }, [sidecarCollapsed, operationalContentCount]);
+  // All panels with content — used for mobile overlay (shows everything)
+  const allContentPanels = useMemo(() => {
+    const s = new Set<SidecarTab>();
+    if (hasTeamContent) s.add("team");
+    if (hasTasksContent) s.add("tasks");
+    if (hasFilesContent) s.add("files");
+    if (hasStats) s.add("context");
+    return s;
+  }, [hasTeamContent, hasTasksContent, hasFilesContent, hasStats]);
 
-  const handleDismissSidecar = useCallback(() => {
-    dismissedContentCountRef.current = operationalContentCount;
-    sidecarPanelRef.current?.collapse();
-  }, [operationalContentCount]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSidecarResize = useCallback(() => {
-    const collapsed = sidecarPanelRef.current?.isCollapsed() ?? false;
-    setSidecarCollapsed((prev) => {
-      if (collapsed && !prev) {
-        // Just collapsed — snapshot the content count
-        dismissedContentCountRef.current = operationalContentCount;
-      }
-      return collapsed;
-    });
-  }, [operationalContentCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Desktop sidecar visible when any active panel has content
+  const showDesktopSidecar =
+    !isMobile &&
+    ((activePanels.has("team") && hasTeamContent) ||
+      (activePanels.has("tasks") && hasTasksContent) ||
+      (activePanels.has("files") && hasFilesContent) ||
+      (activePanels.has("context") && hasStats));
 
   const handleMerge = () => {
     if (!id) return;
@@ -515,7 +549,6 @@ export function InstanceView() {
           reasoningBudget={instance.reasoningBudget}
           activeModel={instance.stats?.model}
           skipPermissions={instance.skipPermissions}
-          stats={instance.stats}
           hasMessages={items.length > 0}
         />
       )}
@@ -618,58 +651,89 @@ export function InstanceView() {
             )}
           </div>
         </div>
-        {/* Action buttons */}
+        {/* Action buttons: [Open in X] | [Debug] | [Sidecar Controls] */}
         <div className="flex items-center gap-1">
           <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
-          {sidecarContentCount > 0 && (
-            <Tooltip
-              content={isMobile ? "Sidecar" : sidecarCollapsed ? "Show sidecar" : "Hide sidecar"}
-            >
-              <Button
-                variant="icon"
-                onClick={() => {
-                  if (isMobile) {
-                    setSidecarMobileOpen(true);
-                  } else if (sidecarCollapsed) {
-                    sidecarPanelRef.current?.expand();
-                  } else {
-                    handleDismissSidecar();
-                  }
-                }}
-                className="relative shrink-0"
-              >
-                <LayoutGrid size={15} strokeWidth={2} />
-                {(isMobile || sidecarCollapsed) && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
-                    {sidecarContentCount}
-                  </span>
-                )}
-              </Button>
-            </Tooltip>
-          )}
+          <span aria-hidden="true" className="hidden h-4 w-px shrink-0 bg-border/60 sm:block" />
           <Tooltip content="Debug session data">
             <Button variant="icon" onClick={() => setShowDebugPaste(true)} className="shrink-0">
               <Bug size={15} strokeWidth={2} />
             </Button>
           </Tooltip>
+          {/* Desktop: per-panel toggle buttons (only shown when content exists) */}
+          {!isMobile && (hasTeamContent || hasTasksContent || hasFilesContent || hasStats) && (
+            <>
+              <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
+              {hasTeamContent && (
+                <Tooltip content={activePanels.has("team") ? "Hide team" : "Show team"}>
+                  <Button
+                    variant="icon"
+                    onClick={() => togglePanel("team")}
+                    className={`shrink-0 ${activePanels.has("team") ? "!bg-accent/10 !text-accent" : ""}`}
+                  >
+                    <Users size={15} strokeWidth={2} />
+                  </Button>
+                </Tooltip>
+              )}
+              {hasTasksContent && (
+                <Tooltip content={activePanels.has("tasks") ? "Hide tasks" : "Show tasks"}>
+                  <Button
+                    variant="icon"
+                    onClick={() => togglePanel("tasks")}
+                    className={`shrink-0 ${activePanels.has("tasks") ? "!bg-accent/10 !text-accent" : ""}`}
+                  >
+                    <ListChecks size={15} strokeWidth={2} />
+                  </Button>
+                </Tooltip>
+              )}
+              {hasFilesContent && (
+                <Tooltip content={activePanels.has("files") ? "Hide files" : "Show files"}>
+                  <Button
+                    variant="icon"
+                    onClick={() => togglePanel("files")}
+                    className={`shrink-0 ${activePanels.has("files") ? "!bg-accent/10 !text-accent" : ""}`}
+                  >
+                    <FileText size={15} strokeWidth={2} />
+                  </Button>
+                </Tooltip>
+              )}
+              {hasStats && instance.stats && (
+                <ContextRing
+                  stats={instance.stats}
+                  active={activePanels.has("context")}
+                  onClick={() => togglePanel("context")}
+                />
+              )}
+            </>
+          )}
+          {/* Mobile: single sidecar button */}
+          {isMobile && sidecarContentCount > 0 && (
+            <>
+              <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
+              <Tooltip content="Sidecar">
+                <Button
+                  variant="icon"
+                  onClick={() => setSidecarMobileOpen(true)}
+                  className="relative shrink-0"
+                >
+                  <LayoutGrid size={15} strokeWidth={2} />
+                  <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
+                    {sidecarContentCount}
+                  </span>
+                </Button>
+              </Tooltip>
+            </>
+          )}
         </div>
       </div>
 
-      {!isMobile && sidecarContentCount > 0 ? (
+      {showDesktopSidecar ? (
         <Group orientation="horizontal" className="min-h-0 flex-1">
           <Panel defaultSize="75" minSize="40">
             <div className="flex h-full min-w-0 flex-col overflow-hidden">{chatContent}</div>
           </Panel>
           <ResizableHandle />
-          <Panel
-            panelRef={sidecarPanelRef}
-            defaultSize="25"
-            minSize="15"
-            maxSize="40"
-            collapsible
-            collapsedSize="0"
-            onResize={handleSidecarResize}
-          >
+          <Panel defaultSize="25" minSize="15" maxSize="40">
             <Sidecar
               tasks={currentTasks}
               files={currentFiles}
@@ -684,7 +748,7 @@ export function InstanceView() {
               createdAt={instance.createdAt}
               lastActivityAt={instance.lastActivityAt}
               workingDirectory={instance.workingDirectory}
-              onClose={handleDismissSidecar}
+              activePanels={activePanels}
             />
           </Panel>
         </Group>
@@ -708,6 +772,7 @@ export function InstanceView() {
           createdAt={instance.createdAt}
           lastActivityAt={instance.lastActivityAt}
           workingDirectory={instance.workingDirectory}
+          activePanels={allContentPanels}
           onClose={() => setSidecarMobileOpen(false)}
           isMobileOverlay
         />
