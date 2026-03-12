@@ -335,7 +335,9 @@ function reducer(state: State, action: Action): State {
             description: agentDesc,
             tool: latest?.tool,
             startedAt:
-              state.lastActivity?.tool === latest?.tool ? state.lastActivity.startedAt : now,
+              state.lastActivity && state.lastActivity.tool === latest?.tool
+                ? state.lastActivity.startedAt
+                : now,
           },
         };
       } else {
