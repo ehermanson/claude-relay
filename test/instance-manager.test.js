@@ -275,5 +275,88 @@ describe("InstanceManager", () => {
       assert.equal(instance.info.stats.inputTokens, 10);
       assert.equal(instance.info.stats.outputTokens, 20);
     });
+
+    it("skips instance:user emit from watcher for managed instances", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      // Simulate a managed instance (has a process object)
+      instance.process = { isProcessing: false };
+      instance.watchState = {
+        jsonlPath: "/tmp/test.jsonl",
+        fileOffset: 0,
+        pendingTools: new Map(),
+        pendingTaskCreates: new Map(),
+        stats: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          costUSD: 0,
+        },
+      };
+
+      const emitted = [];
+      manager.on("instance:user", (id, msg) => emitted.push({ id, msg }));
+
+      manager.applyWatcherEntry(info.id, instance, {
+        type: "user",
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "hello from watcher" }],
+        },
+      });
+
+      // User message should be in history (pushHistory still runs)
+      const userEntries = instance.history.filter((h) => h.message.type === "user");
+      assert.equal(userEntries.length, 1);
+
+      // But instance:user should NOT have been emitted (managed instance)
+      assert.equal(emitted.length, 0);
+    });
+
+    it("emits instance:user from watcher for external instances", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      // External instance: no process
+      instance.process = null;
+      instance.watchState = {
+        jsonlPath: "/tmp/test.jsonl",
+        fileOffset: 0,
+        pendingTools: new Map(),
+        pendingTaskCreates: new Map(),
+        stats: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          costUSD: 0,
+        },
+      };
+
+      const emitted = [];
+      manager.on("instance:user", (id, msg) => emitted.push({ id, msg }));
+
+      manager.applyWatcherEntry(info.id, instance, {
+        type: "user",
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "hello from terminal" }],
+        },
+      });
+
+      // User message should be in history
+      const userEntries = instance.history.filter((h) => h.message.type === "user");
+      assert.equal(userEntries.length, 1);
+
+      // instance:user SHOULD be emitted (external instance)
+      assert.equal(emitted.length, 1);
+      assert.equal(emitted[0].msg.text, "hello from terminal");
+    });
   });
 });

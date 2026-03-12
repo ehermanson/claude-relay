@@ -248,21 +248,9 @@ export function createWebSocketServer(
             const hasImages = Array.isArray(message.images) && message.images.length > 0;
             if (hasText || hasImages) {
               try {
-                // Build display text with image markers for the echoed user message
-                let echoText = message.text || "";
-                if (hasImages) {
-                  const markers = message
-                    .images!.map((p: string) => `[Image: source: ${p}]`)
-                    .join("\n");
-                  echoText = echoText.trim() ? `${echoText}\n${markers}` : markers;
-                }
-                // Echo user message to subscribers
-                sendToSubscribers(message.instanceId, {
-                  type: "user",
-                  text: echoText,
-                  images: hasImages ? message.images : undefined,
-                  instanceId: message.instanceId,
-                });
+                // sendMessage emits instance:user which is forwarded to
+                // subscribers — no separate echo needed (avoids duplicates
+                // when the JSONL watcher also picks up the same message).
                 const resumed = instanceManager.sendMessage(
                   message.instanceId,
                   message.text || "",

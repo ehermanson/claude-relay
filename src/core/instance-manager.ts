@@ -1059,6 +1059,7 @@ export class InstanceManager extends EventEmitter {
     const userMessage: UserMessage = { type: "user", text: messageText, images, instanceId: id };
     this.noteManagedProcessActivity(instance);
     this.pushHistory(instance, userMessage);
+    this.emit("instance:user", id, userMessage);
 
     // Immediately reflect processing status
     instance.info.lastActivityAt = Date.now();
@@ -1145,6 +1146,7 @@ export class InstanceManager extends EventEmitter {
       const userMessage: UserMessage = { type: "user", text: retryText, instanceId: id };
       this.noteManagedProcessActivity(instance);
       this.pushHistory(instance, userMessage);
+      this.emit("instance:user", id, userMessage);
       instance.info.lastActivityAt = Date.now();
       this.setStatus(instance, "processing");
       instance.process!.send(retryText);
@@ -3357,7 +3359,11 @@ export class InstanceManager extends EventEmitter {
         this.emit("instance:transcript", instanceId, msg as TranscriptMessage);
       } else if (msg.type === "user") {
         instance.info.pendingTool = undefined;
-        this.emit("instance:user", instanceId, msg as UserMessage);
+        // For managed instances, sendMessage() / pendingRetry already emitted
+        // instance:user — skip the watcher emit to avoid duplicate messages.
+        if (!instance.process) {
+          this.emit("instance:user", instanceId, msg as UserMessage);
+        }
       }
     }
   }
@@ -4434,6 +4440,7 @@ export class InstanceManager extends EventEmitter {
           const userMessage: UserMessage = { type: "user", text: retryText, instanceId: id };
           this.noteManagedProcessActivity(instance);
           this.pushHistory(instance, userMessage);
+          this.emit("instance:user", id, userMessage);
           instance.info.lastActivityAt = Date.now();
           this.setStatus(instance, "processing");
           instance.process!.send(retryText);
