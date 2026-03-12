@@ -1,12 +1,16 @@
 import { createFileRoute, Outlet, useParams, useLocation, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
+import { motion } from "motion/react";
 import { useWSState } from "../../../context/websocket-context";
 import { useMediaQuery } from "../../../hooks/use-media-query";
 import { OpenInMenu } from "../../../components/project/open-in-menu";
+import { RelayLogo } from "../../../components/ui/relay-logo";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { fetchProjectArtifacts } from "../../../lib/api";
 import { formatTokens, formatCost } from "../../../lib/utils";
 import { ProjectContext } from "../../../context/project-context";
+
+const MotionLogo = motion.create(RelayLogo);
 
 function BackButton({ to }: { to: string }) {
   return (
@@ -208,7 +212,14 @@ function ProjectLayout() {
 function ProjectPending() {
   return (
     <div className="flex flex-1 items-center justify-center">
-      <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted border-t-accent" />
+      <MotionLogo
+        size={112}
+        connected
+        showPulseRings
+        initial={{ opacity: 0, scale: 0.82 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", duration: 0.9, bounce: 0.25 }}
+      />
     </div>
   );
 }

@@ -30,6 +30,7 @@ import {
   isPermissionDenial,
   buildToolResultActivity,
   estimateCost,
+  getContextWindow,
 } from "./tools.js";
 
 // =============================================================================
@@ -400,6 +401,12 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this._stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
     this._stats.costUSD += estimateCost(model, u);
     this._stats.model = model;
+    // Snapshot this turn's total input = current context window utilization
+    this._stats.contextTokens =
+      u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+    if (!this._stats.contextWindow) {
+      this._stats.contextWindow = getContextWindow(model);
+    }
     this.emit("stats", { ...this._stats });
   }
 

@@ -347,6 +347,9 @@ export function convertCodexTranscriptEntry(
               : ctx.stats.cacheReadTokens;
           ctx.stats.outputTokens =
             typeof total.output_tokens === "number" ? total.output_tokens : ctx.stats.outputTokens;
+          if (typeof total.reasoning_output_tokens === "number") {
+            ctx.stats.reasoningTokens = total.reasoning_output_tokens;
+          }
         }
 
         if (last) {

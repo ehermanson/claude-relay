@@ -4905,7 +4905,13 @@ export class InstanceManager extends EventEmitter {
 
   private pushHistory(instance: Instance, message: ServerMessage): void {
     const now = Date.now();
-    instance.history.push({ timestamp: now, message });
+    // Extract raw from message into HistoryEntry (don't send raw over WS)
+    const msgAny = message as unknown as Record<string, unknown>;
+    const raw = msgAny.raw;
+    if (raw !== undefined) delete msgAny.raw;
+    const entry: HistoryEntry = { timestamp: now, message };
+    if (raw !== undefined) entry.raw = raw;
+    instance.history.push(entry);
     if (instance.history.length > MAX_HISTORY) {
       instance.history.splice(0, instance.history.length - MAX_HISTORY);
     }

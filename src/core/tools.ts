@@ -40,6 +40,20 @@ const FALLBACK_TIER: PricingTier = {
   cacheRead: 0.3e-6,
 };
 
+/** Known context window sizes by model prefix. */
+const CONTEXT_WINDOWS: { prefix: string; tokens: number }[] = [
+  { prefix: "claude-opus-4", tokens: 200_000 },
+  { prefix: "claude-sonnet-4", tokens: 200_000 },
+  { prefix: "claude-haiku-4", tokens: 200_000 },
+];
+
+/**
+ * Look up the context window size for a model. Returns undefined if unknown.
+ */
+export function getContextWindow(model: string): number | undefined {
+  return CONTEXT_WINDOWS.find((p) => model.startsWith(p.prefix))?.tokens;
+}
+
 /**
  * Estimate the USD cost for a single API response's usage.
  */

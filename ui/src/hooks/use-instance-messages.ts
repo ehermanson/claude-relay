@@ -46,6 +46,8 @@ interface State {
   lastActivity: LiveActivity | null;
   /** When the current processing turn started (user sent a message) */
   processingStartedAt: number | null;
+  /** Raw history entries for debug/context panel display */
+  rawHistory: HistoryEntry[] | null;
 }
 
 type Action =
@@ -76,6 +78,7 @@ const EMPTY_STATE: State = {
   currentAgentActivities: null,
   lastActivity: null,
   processingStartedAt: null,
+  rawHistory: null,
 };
 
 function reducer(state: State, action: Action): State {
@@ -203,6 +206,7 @@ function reducer(state: State, action: Action): State {
         currentAgentActivities,
         lastActivity: null,
         processingStartedAt: null,
+        rawHistory: action.history,
       };
     }
 
@@ -550,6 +554,7 @@ export function useInstanceMessages() {
     currentAgentActivities: state.currentAgentActivities,
     lastActivity: state.lastActivity,
     processingStartedAt: state.processingStartedAt,
+    rawHistory: state.rawHistory,
     handleMessage,
     setInstanceId,
     showThinking,

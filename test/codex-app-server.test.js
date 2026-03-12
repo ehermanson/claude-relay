@@ -454,6 +454,7 @@ describe("CodexAppServerSession", () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
       cwd: "/tmp/project",
+      model: "gpt-5.4",
       logger: noopLogger,
       spawnProcess: harness.spawnProcess,
       codexPath: "codex",
@@ -498,9 +499,11 @@ describe("CodexAppServerSession", () => {
 
     assert.ok(statsEvents.length >= 1, "Expected at least one stats event");
     const lastStats = statsEvents[statsEvents.length - 1][0];
+    assert.equal(lastStats.model, "gpt-5.4");
     assert.equal(lastStats.inputTokens, 60);
     assert.equal(lastStats.cacheReadTokens, 10);
     assert.equal(lastStats.outputTokens, 30);
+    assert.equal(lastStats.contextWindow, 200000);
   });
 
   it("emits task_list activity for turn/plan/updated notifications", async () => {

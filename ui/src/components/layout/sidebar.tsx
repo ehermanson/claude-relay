@@ -81,12 +81,7 @@ export function Sidebar() {
     if (inst.sessionId) sessionIdMap.set(inst.sessionId, inst);
   }
 
-  const handleCreate = (options: {
-    provider?: import("@shared/types").ProviderKind;
-    name?: string;
-    workingDirectory?: string;
-    dangerouslySkipPermissions?: boolean;
-  }) => {
+  const handleCreate = (options: { workingDirectory?: string }) => {
     pendingCreate.current = true;
     send({ type: "create_instance", ...options });
     setShowForm(false);
@@ -210,9 +205,9 @@ export function Sidebar() {
           });
         }}
       >
-        <div className="mb-0.5">
+        <div className="group/project mb-0.5">
           {/* Project header — collapse toggle + quick create as one row */}
-          <div className="group flex items-center rounded-lg mx-2 transition-colors hover:bg-surface-hover">
+          <div className="flex items-center rounded-lg mx-2 transition-colors hover:bg-surface-hover">
             <Collapsible.Trigger className="flex min-w-0 flex-1 items-center gap-1.5 py-2 pl-2 text-left">
               {isOpen ? (
                 <ChevronDown size={12} strokeWidth={3} className="shrink-0 text-text-bright/60" />
@@ -233,9 +228,9 @@ export function Sidebar() {
                   e.stopPropagation();
                   handleQuickCreate(dir);
                 }}
-                className="flex p-2 shrink-0 items-center justify-center rounded-md text-muted/50 opacity-0 transition-all group-hover:opacity-100 hover:text-accent hover:bg-surface-active"
+                className="flex p-2 shrink-0 items-center justify-center rounded-md text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:text-accent hover:bg-surface-active"
               >
-                <Plus className="size-4.5" />
+                <Plus className="size-4" strokeWidth={2.5} />
               </button>
             </Tooltip>
           </div>

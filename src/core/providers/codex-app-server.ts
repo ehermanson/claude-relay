@@ -248,6 +248,9 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this._sessionId = options.resumeSessionId;
     this._preferredModel = options.model ?? null;
     this._bypassPermissions = options.dangerouslySkipPermissions ?? false;
+    if (this._preferredModel) {
+      this._stats.model = this._preferredModel;
+    }
   }
 
   // ===========================================================================
@@ -342,6 +345,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
   setModel(model: string | null): void {
     this._preferredModel = model;
+    this._stats.model = model ?? undefined;
+    this.emit("stats", { ...this._stats });
   }
 
   setReasoningBudget(_budget: number | null): void {
@@ -857,7 +862,11 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           this._stats.inputTokens = usage.total.inputTokens;
           this._stats.cacheReadTokens = usage.total.cachedInputTokens;
           this._stats.outputTokens = usage.total.outputTokens;
+          this._stats.reasoningTokens = usage.total.reasoningOutputTokens;
           this._stats.contextTokens = usage.last?.inputTokens;
+          if (typeof usage.modelContextWindow === "number") {
+            this._stats.contextWindow = usage.modelContextWindow;
+          }
           this.emit("stats", { ...this._stats });
         }
         break;
@@ -911,6 +920,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           detail: cmd,
           input: { command: cmd },
           inputDescription: cmd,
+          raw: item,
         } as ActivityMessage);
         break;
       }
@@ -924,6 +934,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           tool: "Edit",
           description: "Editing files",
           detail: paths || undefined,
+          raw: item,
         } as ActivityMessage);
         break;
       }
@@ -935,6 +946,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           activity: "tool_use",
           tool: mcp.tool,
           description: `Using ${mcp.server}/${mcp.tool}`,
+          raw: item,
         } as ActivityMessage);
         break;
       }
@@ -946,6 +958,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           activity: "tool_use",
           tool: dyn.tool,
           description: `Using ${dyn.tool}`,
+          raw: item,
         } as ActivityMessage);
         break;
       }
@@ -979,6 +992,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           detail: outputText || cmd.command,
           input: { command: cmd.command, exitCode: cmd.exitCode ?? undefined },
           inputDescription: cmd.command,
+          raw: item,
         } as ActivityMessage);
         break;
       }
@@ -1006,6 +1020,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           tool: "Edit",
           description: "Tool completed",
           detail,
+          raw: item,
         } as ActivityMessage);
         break;
       }
@@ -1017,6 +1032,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           activity: "tool_result",
           tool: mcp.tool,
           description: `${mcp.server}/${mcp.tool} completed`,
+          raw: item,
         } as ActivityMessage);
         break;
       }
@@ -1028,6 +1044,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           activity: "tool_result",
           tool: dyn.tool,
           description: `${dyn.tool} completed`,
+          raw: item,
         } as ActivityMessage);
         break;
       }

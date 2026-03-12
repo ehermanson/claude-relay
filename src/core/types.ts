@@ -55,6 +55,8 @@ export interface SessionStats {
   contextTokens?: number;
   /** Provider-reported context window size when available. */
   contextWindow?: number;
+  /** Reasoning/thinking output tokens (Codex/OpenAI models). */
+  reasoningTokens?: number;
 }
 
 export interface LastMessagePreview {
@@ -103,6 +105,8 @@ export interface InstanceInfo {
 export interface HistoryEntry {
   timestamp: number;
   message: ServerMessage;
+  /** Raw SDK/provider message object for debug display. */
+  raw?: unknown;
 }
 
 // =============================================================================
@@ -245,6 +249,8 @@ export interface OutputMessage {
   isWaiting: boolean;
   thinking?: string;
   instanceId?: string;
+  /** Raw SDK/provider message for debug display. */
+  raw?: unknown;
 }
 
 export interface UserMessage {
@@ -335,6 +341,8 @@ export interface ActivityMessage {
   team?: TeamInfo;
   agentActivities?: AgentActivity[];
   inputDescription?: string;
+  /** Raw SDK/provider message for debug display. */
+  raw?: unknown;
 }
 
 export interface InstanceListMessage {

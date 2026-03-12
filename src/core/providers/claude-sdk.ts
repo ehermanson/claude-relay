@@ -33,6 +33,7 @@ import {
   describeToolDetail,
   extractInputDescription,
   estimateCost,
+  getContextWindow,
 } from "../tools.js";
 
 // =============================================================================
@@ -296,6 +297,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private agentActivityMap = new Map<string, AgentActivity>();
   // Map tool_use_id → tool name for tool_result attribution
   private pendingTools = new Map<string, string>();
+  /** Raw assistant message for attaching to emitted events */
+  private _lastRawAssistantMsg: Record<string, unknown> | null = null;
 
   private logger: CoreConfig["logger"];
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -703,6 +706,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   }
 
   private handleAssistant(msg: Record<string, unknown>): void {
+    this._lastRawAssistantMsg = msg;
     const message = msg.message as
       | {
           content?: Array<{
@@ -762,6 +766,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
             type: "output",
             text: block.text,
             isWaiting: false,
+            raw: msg,
           };
           this.emit("output", output);
         }
@@ -1004,6 +1009,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       detail: describeToolDetail(toolName, input),
       input,
       inputDescription: extractInputDescription(toolName, input),
+      raw: { tool: toolName, toolUseId, input },
     };
     this.emit("activity", activity);
   }
@@ -1040,6 +1046,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       description: isError ? "Tool error" : "Tool completed",
       tool: toolName,
       detail: content.slice(0, 200) || undefined,
+      raw: { tool_use_id: toolUseId, tool: toolName, content: block.content, is_error: isError },
     };
     this.emit("activity", activity);
   }
@@ -1242,6 +1249,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // Snapshot total input for this turn = current context window utilization (not cumulative)
     this._stats.contextTokens =
       u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+    if (!this._stats.contextWindow) {
+      this._stats.contextWindow = getContextWindow(model);
+    }
     this.emit("stats", { ...this._stats });
   }
 
@@ -1256,7 +1266,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       type: "output",
       text: "",
       isWaiting: true,
+      raw: this._lastRawAssistantMsg ?? undefined,
     };
+    this._lastRawAssistantMsg = null;
     this.emit("output", done);
   }
 

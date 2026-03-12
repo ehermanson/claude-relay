@@ -1,14 +1,17 @@
-import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "@tanstack/react-router";
+import { motion } from "motion/react";
+import { Group, Panel, usePanelRef } from "react-resizable-panels";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useInstanceMessages } from "../../hooks/use-instance-messages";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { MessageList } from "./message-list";
 import { InputArea } from "./input-area";
 import { Sidecar } from "./sidecar";
+import { ResizableHandle } from "../ui/resizable-handle";
 import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
-import { Spinner } from "../ui/spinner";
+import { RelayLogo } from "../ui/relay-logo";
 import { Tooltip } from "../ui/tooltip";
 import { OpenInMenu } from "../project/open-in-menu";
 import { PermissionBanner } from "./permission-banner";
@@ -21,6 +24,8 @@ import type { ServerMessage } from "@shared/types";
 
 import type { AgentActivity, InstanceInfo, ProviderKind } from "@shared/types";
 import type { ChatItem } from "../../hooks/use-instance-messages";
+
+const MotionLogo = motion.create(RelayLogo);
 
 function DebugModal({
   instance,
@@ -95,6 +100,7 @@ export function InstanceView() {
     currentAgentActivities,
     lastActivity,
     processingStartedAt,
+    rawHistory,
     handleMessage,
     setInstanceId,
     showThinking,
@@ -215,20 +221,26 @@ export function InstanceView() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [showDebugPaste, setShowDebugPaste] = useState(false);
-  const [sidecarDismissed, setSidecarDismissed] = useState(false);
   const [sidecarMobileOpen, setSidecarMobileOpen] = useState(false);
+  const sidecarPanelRef = usePanelRef();
   const [retainedAgentActivities, setRetainedAgentActivities] = useState<AgentActivity[] | null>(
     null,
   );
   const dismissedContentCountRef = useRef(0);
 
-  // Reset dismiss when switching instances
+  // Track whether sidecar panel is collapsed (via onResize detecting collapsedSize)
+  const [sidecarCollapsed, setSidecarCollapsed] = useState(false);
+
+  // Reset when switching instances
   useEffect(() => {
-    setSidecarDismissed(false);
     setSidecarMobileOpen(false);
     setRetainedAgentActivities(null);
     dismissedContentCountRef.current = 0;
-  }, [id]);
+    // Expand sidecar panel if it was collapsed
+    if (sidecarPanelRef.current?.isCollapsed()) {
+      sidecarPanelRef.current.expand();
+    }
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasLiveAgentActivities = (currentAgentActivities?.length ?? 0) > 0;
   const retainedClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -273,26 +285,44 @@ export function InstanceView() {
       : retainedAgentActivities;
   const deferredSidecarAgentActivities = useDeferredValue(sidecarAgentActivities);
 
-  // Un-dismiss if new content is added after dismissal
+  const hasStats =
+    !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
+
+  // Content count for sidecar visibility (includes stats so the button/panel appears)
   const sidecarContentCount =
+    (currentTasks?.length ?? 0) +
+    (currentFiles?.length ?? 0) +
+    (currentTeam?.members?.length ?? 0) +
+    (sidecarAgentActivities?.length ?? 0) +
+    (hasStats ? 1 : 0);
+
+  // Operational content count (excludes stats) — used for auto-undismiss
+  const operationalContentCount =
     (currentTasks?.length ?? 0) +
     (currentFiles?.length ?? 0) +
     (currentTeam?.members?.length ?? 0) +
     (sidecarAgentActivities?.length ?? 0);
   useEffect(() => {
-    if (sidecarDismissed && sidecarContentCount > dismissedContentCountRef.current) {
-      setSidecarDismissed(false);
+    if (sidecarCollapsed && operationalContentCount > dismissedContentCountRef.current) {
+      sidecarPanelRef.current?.expand();
     }
-  }, [sidecarDismissed, sidecarContentCount]);
+  }, [sidecarCollapsed, operationalContentCount]);
 
-  const handleDismissSidecar = () => {
-    dismissedContentCountRef.current =
-      (currentTasks?.length ?? 0) +
-      (currentFiles?.length ?? 0) +
-      (currentTeam?.members?.length ?? 0) +
-      (sidecarAgentActivities?.length ?? 0);
-    setSidecarDismissed(true);
-  };
+  const handleDismissSidecar = useCallback(() => {
+    dismissedContentCountRef.current = operationalContentCount;
+    sidecarPanelRef.current?.collapse();
+  }, [operationalContentCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSidecarResize = useCallback(() => {
+    const collapsed = sidecarPanelRef.current?.isCollapsed() ?? false;
+    setSidecarCollapsed((prev) => {
+      if (collapsed && !prev) {
+        // Just collapsed — snapshot the content count
+        dismissedContentCountRef.current = operationalContentCount;
+      }
+      return collapsed;
+    });
+  }, [operationalContentCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMerge = () => {
     if (!id) return;
@@ -348,9 +378,15 @@ export function InstanceView() {
   const loadingContent = (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
       <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent/10 text-accent">
-          <Spinner size={20} className="text-accent" />
-        </div>
+        <MotionLogo
+          size={112}
+          connected={isConnected}
+          showPulseRings
+          className="mb-5"
+          initial={{ opacity: 0, scale: 0.82 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: "spring", duration: 0.9, bounce: 0.25 }}
+        />
         <p className="text-[0.875rem] font-medium text-text-bright">Loading session</p>
         <p className="mt-1 text-[0.75rem] text-muted">
           Replaying history and restoring live state for this chat.
@@ -587,15 +623,15 @@ export function InstanceView() {
           <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
           {sidecarContentCount > 0 && (
             <Tooltip
-              content={isMobile ? "Sidecar" : sidecarDismissed ? "Show sidecar" : "Hide sidecar"}
+              content={isMobile ? "Sidecar" : sidecarCollapsed ? "Show sidecar" : "Hide sidecar"}
             >
               <Button
                 variant="icon"
                 onClick={() => {
                   if (isMobile) {
                     setSidecarMobileOpen(true);
-                  } else if (sidecarDismissed) {
-                    setSidecarDismissed(false);
+                  } else if (sidecarCollapsed) {
+                    sidecarPanelRef.current?.expand();
                   } else {
                     handleDismissSidecar();
                   }
@@ -603,7 +639,7 @@ export function InstanceView() {
                 className="relative shrink-0"
               >
                 <LayoutGrid size={15} strokeWidth={2} />
-                {(isMobile || sidecarDismissed) && (
+                {(isMobile || sidecarCollapsed) && (
                   <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
                     {sidecarContentCount}
                   </span>
@@ -619,33 +655,58 @@ export function InstanceView() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-1 flex-col">{chatContent}</div>
-        {!isMobile && sidecarContentCount > 0 && (
-          <div
-            className={`shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out ${
-              sidecarDismissed ? "w-0" : "w-80"
-            }`}
+      {!isMobile && sidecarContentCount > 0 ? (
+        <Group orientation="horizontal" className="min-h-0 flex-1">
+          <Panel defaultSize="75" minSize="40">
+            <div className="flex h-full min-w-0 flex-col overflow-hidden">{chatContent}</div>
+          </Panel>
+          <ResizableHandle />
+          <Panel
+            panelRef={sidecarPanelRef}
+            defaultSize="25"
+            minSize="15"
+            maxSize="40"
+            collapsible
+            collapsedSize="0"
+            onResize={handleSidecarResize}
           >
-            <div className="h-full w-80">
-              <Sidecar
-                tasks={currentTasks}
-                files={currentFiles}
-                team={currentTeam}
-                agentActivities={deferredSidecarAgentActivities}
-                workingDirectory={instance.workingDirectory}
-                onClose={handleDismissSidecar}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+            <Sidecar
+              tasks={currentTasks}
+              files={currentFiles}
+              team={currentTeam}
+              agentActivities={deferredSidecarAgentActivities}
+              stats={instance.stats}
+              items={items}
+              rawHistory={rawHistory}
+              provider={instance.provider}
+              preferredModel={instance.preferredModel}
+              instanceName={instance.name}
+              createdAt={instance.createdAt}
+              lastActivityAt={instance.lastActivityAt}
+              workingDirectory={instance.workingDirectory}
+              onClose={handleDismissSidecar}
+            />
+          </Panel>
+        </Group>
+      ) : (
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col">{chatContent}</div>
+        </div>
+      )}
       {isMobile && sidecarMobileOpen && sidecarContentCount > 0 && (
         <Sidecar
           tasks={currentTasks}
           files={currentFiles}
           team={currentTeam}
           agentActivities={deferredSidecarAgentActivities}
+          stats={instance.stats}
+          items={items}
+          rawHistory={rawHistory}
+          provider={instance.provider}
+          preferredModel={instance.preferredModel}
+          instanceName={instance.name}
+          createdAt={instance.createdAt}
+          lastActivityAt={instance.lastActivityAt}
           workingDirectory={instance.workingDirectory}
           onClose={() => setSidecarMobileOpen(false)}
           isMobileOverlay
