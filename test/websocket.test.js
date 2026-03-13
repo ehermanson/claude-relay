@@ -102,6 +102,7 @@ describe("WebSocket Server", () => {
       sessionFile: join(tempDir, "sessions.json"),
       dbPath: join(tempDir, "sessions.db"),
       claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);

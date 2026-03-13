@@ -147,6 +147,7 @@ describe("getGitInfo worktree detection", () => {
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
       claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
     });
     const manager = new InstanceManager(config);
 
@@ -168,6 +169,7 @@ describe("getGitInfo worktree detection", () => {
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
       claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
     });
     const manager = new InstanceManager(config);
 
@@ -244,6 +246,7 @@ describe("scanAllSessions worktree recovery", () => {
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
       claudeDir,
+      codexDir: join(tempDir, ".codex"),
     });
     const manager = new InstanceManager(config);
     manager.restoreAndScan();
@@ -300,6 +303,7 @@ describe("scanAllSessions worktree recovery", () => {
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
       claudeDir,
+      codexDir: join(tempDir, ".codex"),
     });
     const manager = new InstanceManager(config);
     manager.restoreAndScan();
@@ -368,6 +372,7 @@ describe("scanAllSessions archive protection", () => {
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
       claudeDir,
+      codexDir: join(tempDir, ".codex"),
     });
 
     // First scan discovers the session and resolves worktree

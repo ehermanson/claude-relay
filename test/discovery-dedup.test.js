@@ -36,6 +36,7 @@ function makeConfig(overrides = {}) {
       maxProcesses: 10,
       dbPath: join(tempDir, "sessions.db"),
       claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
       ...overrides,
     }),
     tempDir,

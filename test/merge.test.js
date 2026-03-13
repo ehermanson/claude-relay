@@ -172,6 +172,7 @@ describe("InstanceManager.mergeInstance", () => {
       maxProcesses: 5,
       dbPath: join(tempDir, "sessions.db"),
       claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
     });
     manager = new InstanceManager(config);
   });
@@ -234,6 +235,7 @@ describe("POST /api/instances/:id/merge", () => {
       sessionFile: join(tempDir, "sessions.json"),
       dbPath: join(tempDir, "sessions.db"),
       claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
@@ -361,6 +363,7 @@ describe("WebSocket merge_instance", () => {
       sessionFile: join(tempDir, "sessions.json"),
       dbPath: join(tempDir, "sessions.db"),
       claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
