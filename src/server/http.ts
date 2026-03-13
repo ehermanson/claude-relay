@@ -463,16 +463,6 @@ export function createRequestHandler(
         return;
       }
 
-      // GET /api/github-links
-      if (method === "GET" && pathname === "/api/github-links") {
-        if (!isAuthenticated) {
-          sendJson(res, 401, { error: "Unauthorized" });
-          return;
-        }
-        sendJson(res, 200, instanceManager.getGitHubLinks());
-        return;
-      }
-
       // GET /api/beads-projects — directories that have beads issue tracker
       if (method === "GET" && pathname === "/api/beads-projects") {
         if (!isAuthenticated) {

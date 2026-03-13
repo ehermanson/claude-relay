@@ -478,13 +478,6 @@ export interface NativeOpenRequest {
   rememberForProject?: boolean;
 }
 
-export interface McpServerConfig {
-  type: string;
-  url?: string;
-  command?: string;
-  args?: string[];
-}
-
 export interface BeadIssueDep {
   id: string;
   title: string;
@@ -518,10 +511,8 @@ export interface ProjectArtifacts {
   plans: ProjectPlan[];
   /** Aggregated token/cost stats across all sessions in this project */
   stats: ProjectStats;
-  /** GitHub repository URL for this project (from ~/.claude.json) */
+  /** GitHub/GitLab repository URL for this project (from git remote) */
   githubUrl: string | null;
-  /** MCP server configurations for this project (from ~/.claude.json) */
-  mcpServers: Record<string, McpServerConfig> | null;
   /** Open issues from beads (bd) issue tracker, if present in the project */
   beadsIssues: BeadIssue[] | null;
 }

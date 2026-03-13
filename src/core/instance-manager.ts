@@ -60,7 +60,6 @@ import type {
   AgentActivity,
   ProjectArtifacts,
   ProjectPlan,
-  McpServerConfig,
   BeadIssue,
   ProviderKind,
   ProviderRequest,
@@ -79,6 +78,7 @@ import {
 } from "./tools.js";
 import {
   getRepoRoot,
+  getRemoteUrl,
   getCurrentBranch,
   removeWorktree,
   isWorktreeDirty,
@@ -1800,28 +1800,8 @@ export class InstanceManager extends EventEmitter {
     // Aggregate token/cost stats from DB
     const stats = this.db.getProjectStats(directory);
 
-    // .claude.json data — GitHub URL, MCP servers
-    const claudeConfig = this.readClaudeConfig();
-    let githubUrl: string | null = null;
-    let mcpServers: Record<string, McpServerConfig> | null = null;
-
-    if (claudeConfig) {
-      // Reverse lookup: path → "owner/repo"
-      if (claudeConfig.githubRepoPaths) {
-        for (const [repo, paths] of Object.entries(claudeConfig.githubRepoPaths)) {
-          if (Array.isArray(paths) && paths.includes(directory)) {
-            githubUrl = `https://github.com/${repo}`;
-            break;
-          }
-        }
-      }
-
-      // MCP servers from the project entry
-      const projectEntry = claudeConfig.projects?.[directory];
-      if (projectEntry?.mcpServers && Object.keys(projectEntry.mcpServers).length > 0) {
-        mcpServers = projectEntry.mcpServers;
-      }
-    }
+    // GitHub URL from git remote
+    const githubUrl = getRemoteUrl(directory);
 
     // Beads issues
     const beadsIssues = this.getBeadsIssues(directory);
@@ -1835,7 +1815,6 @@ export class InstanceManager extends EventEmitter {
       plans,
       stats,
       githubUrl,
-      mcpServers,
       beadsIssues,
     };
   }
@@ -1876,27 +1855,6 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Read ~/.claude.json and return parsed config.
-   * Re-read on each call (file is small, no watcher needed).
-   */
-  private readClaudeConfig(): {
-    githubRepoPaths?: Record<string, string[]>;
-    projects?: Record<string, { mcpServers?: Record<string, McpServerConfig> }>;
-  } | null {
-    try {
-      const configPath = join(homedir(), ".claude.json");
-      const raw = readFileSync(configPath, "utf-8");
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Return a map of local directory paths → GitHub repository URLs.
-   * Built from the `githubRepoPaths` field in ~/.claude.json.
-   */
-  /**
    * Return a set of working directories that have a .beads/ issue tracker.
    * Checks all known instance directories for a .beads/ subdirectory.
    */
@@ -1909,21 +1867,6 @@ export class InstanceManager extends EventEmitter {
     for (const dir of dirs) {
       if (existsSync(join(dir, ".beads"))) {
         result.push(dir);
-      }
-    }
-    return result;
-  }
-
-  getGitHubLinks(): Record<string, string> {
-    const claudeConfig = this.readClaudeConfig();
-    if (!claudeConfig?.githubRepoPaths) return {};
-
-    const result: Record<string, string> = {};
-    for (const [repo, paths] of Object.entries(claudeConfig.githubRepoPaths)) {
-      if (!Array.isArray(paths)) continue;
-      const url = `https://github.com/${repo}`;
-      for (const p of paths) {
-        if (typeof p === "string") result[p] = url;
       }
     }
     return result;

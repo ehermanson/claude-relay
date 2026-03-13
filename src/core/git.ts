@@ -64,6 +64,30 @@ export function isGitRepo(dir: string): boolean {
 }
 
 /**
+ * Get the GitHub/GitLab URL for a repository by reading git remote origin.
+ * Returns null if not a git repo or no remote URL found.
+ */
+export function getRemoteUrl(dir: string): string | null {
+  try {
+    const raw = execSync("git remote get-url origin", {
+      cwd: dir,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5000,
+    })
+      .toString()
+      .trim();
+    if (!raw) return null;
+    // Normalize SSH URLs (git@github.com:owner/repo.git) to HTTPS
+    const sshMatch = raw.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+    if (sshMatch) return `https://${sshMatch[1]}/${sshMatch[2]}`;
+    // Strip trailing .git from HTTPS URLs
+    return raw.replace(/\.git$/, "");
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get the root directory of the git repository.
  */
 export function getRepoRoot(dir: string): string | null {
