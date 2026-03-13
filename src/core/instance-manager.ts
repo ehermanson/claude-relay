@@ -2139,8 +2139,11 @@ export class InstanceManager extends EventEmitter {
           }
         }
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      this.baseConfig.logger.debug(
+        "[Discovery] Failed to resolve CWDs:",
+        err instanceof Error ? err.message : err,
+      );
     }
     return cwdInfo;
   }
@@ -3078,8 +3081,11 @@ export class InstanceManager extends EventEmitter {
             // skip malformed lines
           }
         }
-      } catch {
-        // File may have been deleted or moved — will be cleaned up by discovery
+      } catch (err) {
+        this.baseConfig.logger.debug(
+          `[Watcher] Read error for ${instanceId}:`,
+          err instanceof Error ? err.message : err,
+        );
       }
     }, WATCH_POLL_INTERVAL);
 

@@ -62,7 +62,17 @@ type Action =
 // Module-level cache — persists across mounts/unmounts within a page session.
 // Switching between sessions restores cached state instantly instead of showing
 // a loading spinner while the WS history replay arrives.
+const MAX_CACHE_SIZE = 50;
 const stateCache = new Map<string, State>();
+
+function setCacheEntry(id: string, state: State) {
+  // Evict oldest entries when cache exceeds limit
+  if (stateCache.size >= MAX_CACHE_SIZE && !stateCache.has(id)) {
+    const oldest = stateCache.keys().next().value;
+    if (oldest) stateCache.delete(oldest);
+  }
+  stateCache.set(id, state);
+}
 
 const EMPTY_STATE: State = {
   items: [],
@@ -499,7 +509,7 @@ export function useInstanceMessages() {
     // Save outgoing instance's state to cache
     const prevId = instanceIdRef.current;
     if (prevId && stateRef.current.hasLoadedHistory) {
-      stateCache.set(prevId, stateRef.current);
+      setCacheEntry(prevId, stateRef.current);
     }
 
     instanceIdRef.current = id;
