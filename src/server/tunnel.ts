@@ -33,12 +33,18 @@ export function startTunnel(localPort: number): void {
 
   // cloudflared prints the URL to stderr
   let stderrBuf = "";
+  let urlFound = false;
   tunnelProcess.stderr?.on("data", (data: Buffer) => {
+    if (urlFound) return;
     stderrBuf += data.toString();
     const match = stderrBuf.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
     if (match) {
       console.log(`\n  Tunnel URL: ${match[0]}\n`);
-      stderrBuf = ""; // stop accumulating
+      stderrBuf = "";
+      urlFound = true;
+    } else if (stderrBuf.length > 32_768) {
+      // Prevent unbounded accumulation if URL never matches
+      stderrBuf = stderrBuf.slice(-8_192);
     }
   });
 

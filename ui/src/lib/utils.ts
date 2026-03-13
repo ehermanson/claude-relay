@@ -12,12 +12,16 @@ export function shortenPath(p: string, home?: string): string {
   return p;
 }
 
-export function formatTimeAgo(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  if (diff < 60000) return "just now";
-  if (diff < 3600000) return Math.floor(diff / 60000) + "m ago";
-  if (diff < 86400000) return Math.floor(diff / 3600000) + "h ago";
-  return Math.floor(diff / 86400000) + "d ago";
+export function formatTimeAgo(timestamp: number | string): string {
+  const ms = typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp;
+  const diff = Date.now() - ms;
+  if (isNaN(diff)) return "";
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return Math.floor(diff / 60_000) + "m ago";
+  if (diff < 86_400_000) return Math.floor(diff / 3_600_000) + "h ago";
+  const days = Math.floor(diff / 86_400_000);
+  if (days < 30) return days + "d ago";
+  return new Date(ms).toLocaleDateString();
 }
 
 export function formatTimestamp(ts: number): string {

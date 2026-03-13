@@ -8,6 +8,7 @@ import { Drawer } from "../components/ui/drawer";
 import { Menu } from "../components/ui/menu";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import type { BeadIssue } from "@shared/types";
+import { formatTimeAgo } from "../lib/utils";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -299,21 +300,6 @@ function StackedDrawer({
       </Drawer.Content>
     </Drawer.Root>
   );
-}
-
-function formatTimeAgo(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = Date.now();
-  const diffMs = now - date.getTime();
-  if (isNaN(diffMs)) return "";
-  const diffMins = Math.floor(diffMs / 60_000);
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
 }
 
 // ─── Kanban Column ──────────────────────────────────────────────────────────

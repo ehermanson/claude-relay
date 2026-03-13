@@ -280,7 +280,13 @@ export function createRequestHandler(
           return;
         }
 
-        const body = (await parseJsonBody(req)) as { password?: string };
+        let body: { password?: string };
+        try {
+          body = (await parseJsonBody(req)) as { password?: string };
+        } catch {
+          sendJson(res, 400, { error: "Invalid JSON" });
+          return;
+        }
 
         if (body.password === config.password) {
           const newSession = auth.createSession();

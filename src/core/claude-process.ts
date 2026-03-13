@@ -82,6 +82,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
   private pendingTaskCreates = new Map<string, { subject: string; activeForm?: string }>();
   private fileMap = new Map<string, FileChange>();
   private _cancelledForPermission = false;
+  private _processTimeout: ReturnType<typeof setTimeout> | null = null;
   private _preferredModel: string | null = null;
   private _reasoningBudget: number | null = null;
   private _planMode = false;
@@ -661,6 +662,10 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
       };
       this.emit("output", doneMessage);
 
+      if (this._processTimeout) {
+        clearTimeout(this._processTimeout);
+        this._processTimeout = null;
+      }
       // Suppress error exit when we intentionally cancelled for permission denial
       if ((code !== 0 || signal) && !wasCancelledForPermission) {
         const trimmedStderr = stderrBuffer.trim().slice(-500) || undefined;
@@ -682,7 +687,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
     // Timeout protection
     if (this.config.processTimeout > 0) {
-      setTimeout(() => {
+      this._processTimeout = setTimeout(() => {
         if (this._isProcessing && this.currentProcess) {
           this.config.logger.warn(
             `[Claude] Process timeout after ${this.config.processTimeout}ms, killing...`,
