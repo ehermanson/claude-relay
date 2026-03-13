@@ -52,7 +52,80 @@ const statusDotColors: Record<string, string> = {
   closed: "bg-accent",
 };
 
-const STATUS_ORDER = ["in_progress", "open", "blocked", "deferred", "closed"] as const;
+function StatusIcon({ status, size = 14 }: { status: string; size?: number }) {
+  switch (status) {
+    case "open":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="text-accent">
+          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth={2.5} />
+        </svg>
+      );
+    case "in_progress":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="text-warning">
+          <circle
+            cx="12"
+            cy="12"
+            r="9"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            strokeDasharray="14 8"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    case "blocked":
+      return (
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-error"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+        </svg>
+      );
+    case "closed":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="text-accent">
+          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth={2.5} />
+          <polyline
+            points="8 12 11 15 16 9"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "deferred":
+      return (
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          className="text-muted"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <line x1="9" y1="12" x2="15" y2="12" />
+        </svg>
+      );
+    default:
+      return <span className={`h-2 w-2 rounded-full ${statusDotColors[status] ?? "bg-muted"}`} />;
+  }
+}
+
+const STATUS_ORDER = ["open", "in_progress", "blocked", "deferred", "closed"] as const;
 
 type SortKey = "priority" | "updated" | "type" | "created";
 
@@ -82,6 +155,12 @@ function sortIssues(issues: BeadIssue[], sortKey: SortKey): BeadIssue[] {
 
 // ─── Issue Card ─────────────────────────────────────────────────────────────
 
+/** Extract the short suffix from an issue ID like "claude-relay-11k" → "11k" */
+function shortId(id: string): string {
+  const last = id.lastIndexOf("-");
+  return last >= 0 ? id.slice(last + 1) : id;
+}
+
 function IssueCard({ issue, onClick }: { issue: BeadIssue; onClick: () => void }) {
   const timeAgo = formatTimeAgo(issue.updated_at);
 
@@ -91,25 +170,25 @@ function IssueCard({ issue, onClick }: { issue: BeadIssue; onClick: () => void }
       onClick={onClick}
       className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-border-bright hover:bg-surface-hover"
     >
-      <div className="flex items-center gap-1.5">
-        <span className="shrink-0 font-mono text-[0.625rem] text-muted">{issue.id}</span>
-        <span className="truncate text-[0.8125rem] font-medium text-text-bright">
-          {issue.title}
-        </span>
+      <div className="mb-1 text-[0.8125rem] font-medium leading-snug text-text-bright">
+        {issue.title}
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-        <Badge variant={priorityVariants[issue.priority] ?? "default"}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="shrink-0 font-mono text-[0.5625rem] text-muted/70">
+          {shortId(issue.id)}
+        </span>
+        <Badge variant={priorityVariants[issue.priority] ?? "default"} size="sm">
           {priorityLabels[issue.priority] ?? `P${issue.priority}`}
         </Badge>
-        <Badge>{issue.issue_type}</Badge>
+        <Badge size="sm">{issue.issue_type}</Badge>
         {issue.dependency_count > 0 && (
           <Tooltip
             content={`Blocked by ${issue.dependency_count} issue${issue.dependency_count !== 1 ? "s" : ""}`}
           >
-            <span className="inline-flex items-center gap-1 text-[0.625rem] text-muted">
+            <span className="inline-flex items-center gap-0.5 text-[0.5625rem] text-muted">
               <svg
-                width="10"
-                height="10"
+                width="9"
+                height="9"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -124,7 +203,7 @@ function IssueCard({ issue, onClick }: { issue: BeadIssue; onClick: () => void }
             </span>
           </Tooltip>
         )}
-        <span className="ml-auto shrink-0 text-[0.625rem] text-muted">{timeAgo}</span>
+        <span className="ml-auto shrink-0 text-[0.5625rem] text-muted/70">{timeAgo}</span>
       </div>
     </button>
   );
@@ -199,9 +278,9 @@ function IssueDrawerBody({
                   onClick={() => onSelectIssue(dep.id)}
                   className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
                 >
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotColors[dep.status] ?? "bg-muted"}`}
-                  />
+                  <span className="shrink-0">
+                    <StatusIcon status={dep.status} size={12} />
+                  </span>
                   <span className="font-mono text-[0.625rem] text-muted">{dep.id}</span>
                   <span className="truncate text-[0.8125rem] text-text-bright">{dep.title}</span>
                 </button>
@@ -224,9 +303,9 @@ function IssueDrawerBody({
                   onClick={() => onSelectIssue(dep.id)}
                   className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
                 >
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotColors[dep.status] ?? "bg-muted"}`}
-                  />
+                  <span className="shrink-0">
+                    <StatusIcon status={dep.status} size={12} />
+                  </span>
                   <span className="font-mono text-[0.625rem] text-muted">{dep.id}</span>
                   <span className="truncate text-[0.8125rem] text-text-bright">{dep.title}</span>
                 </button>
@@ -318,12 +397,11 @@ function KanbanColumn({
   if (issues.length === 0) return null;
 
   const label = statusLabels[status] ?? status;
-  const dotColor = statusDotColors[status] ?? "bg-muted";
 
   return (
-    <div className={mobile ? "flex flex-col" : "flex min-w-[260px] max-w-[260px] flex-col"}>
+    <div className={mobile ? "flex flex-col" : "flex min-w-[280px] max-w-[320px] flex-1 flex-col"}>
       <div className="mb-2 flex items-center gap-2 px-1">
-        <span className={`h-2 w-2 rounded-full ${dotColor}`} />
+        <StatusIcon status={status} size={14} />
         <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
           {label}
         </h3>

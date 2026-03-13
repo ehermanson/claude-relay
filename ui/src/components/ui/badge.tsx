@@ -1,9 +1,11 @@
 import type { ReactNode, HTMLAttributes } from "react";
 
 type BadgeVariant = "default" | "accent" | "warning" | "error" | "claude" | "success";
+type BadgeSize = "default" | "sm";
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;
+  size?: BadgeSize;
   children: ReactNode;
   /** Show a dot indicator before text */
   dot?: boolean;
@@ -20,8 +22,14 @@ const variants: Record<BadgeVariant, string> = {
   success: "bg-accent-dim text-accent",
 };
 
+const sizes: Record<BadgeSize, string> = {
+  default: "px-2.5 py-1 text-xs gap-1.5",
+  sm: "px-1.5 py-0.5 text-[0.625rem] gap-1",
+};
+
 export function Badge({
   variant = "default",
+  size = "default",
   dot,
   dotClass,
   children,
@@ -32,7 +40,7 @@ export function Badge({
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${variants[variant]} ${className}`}
+      className={`inline-flex shrink-0 items-center rounded-full font-medium ${sizes[size]} ${variants[variant]} ${className}`}
       {...props}
     >
       {dot && <span className={`h-1.5 w-1.5 rounded-full ${resolvedDotClass}`} />}
