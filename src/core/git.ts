@@ -5,10 +5,11 @@
  * `which claude`, `ps`, and `lsof` elsewhere in the codebase.
  */
 
-import { execSync, execFileSync } from "child_process";
+import { execSync, execFileSync, execFile as execFileCb } from "child_process";
 import { existsSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { homedir } from "os";
+import { promisify } from "util";
 
 import type { FileChange } from "./types.js";
 
@@ -357,6 +358,148 @@ export function enrichDiffStats(
       if (!line) continue;
       const parts = line.split("\t");
       if (parts.length < 3 || parts[0] === "-") continue; // binary file
+      const absPath = join(repoRoot, parts[2]);
+      const file = files.get(absPath);
+      if (file) {
+        file.additions = parseInt(parts[0], 10);
+        file.deletions = parseInt(parts[1], 10);
+      }
+    }
+  } catch {
+    // git not available or not a repo — silently skip
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Async variants — used to defer git I/O out of the synchronous hydration path
+// ---------------------------------------------------------------------------
+
+const execFileAsync = promisify(execFileCb);
+
+export async function getCurrentBranchAsync(dir: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: dir,
+      timeout: 5000,
+    });
+    return stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function getGitInfoAsync(
+  dir: string,
+): Promise<{ branch: string; isWorktree: boolean } | null> {
+  try {
+    const opts = { cwd: dir, timeout: 2000 };
+    const [branchResult, gitDirResult, commonDirResult] = await Promise.all([
+      execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts),
+      execFileAsync("git", ["rev-parse", "--git-dir"], opts),
+      execFileAsync("git", ["rev-parse", "--git-common-dir"], opts),
+    ]);
+    const branch = branchResult.stdout.trim();
+    const gitDir = resolve(dir, gitDirResult.stdout.trim());
+    const gitCommonDir = resolve(dir, commonDirResult.stdout.trim());
+    return { branch, isWorktree: gitDir !== gitCommonDir };
+  } catch {
+    return null;
+  }
+}
+
+export async function hasWorktreeChangesAsync(
+  worktreePath: string,
+  originalDirectory: string,
+): Promise<boolean> {
+  // Check uncommitted changes first (fast)
+  try {
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
+      cwd: worktreePath,
+      timeout: 10000,
+    });
+    if (stdout.trim().length > 0) return true;
+  } catch {
+    return true;
+  }
+
+  // Check if worktree branch has commits not in the original branch
+  try {
+    const originalBranch = await getCurrentBranchAsync(originalDirectory);
+    if (!originalBranch) return true;
+
+    const { stdout } = await execFileAsync(
+      "git",
+      ["rev-list", "--count", `${originalBranch}..HEAD`],
+      { cwd: worktreePath, timeout: 5000 },
+    );
+    return parseInt(stdout.trim(), 10) > 0;
+  } catch {
+    return true;
+  }
+}
+
+async function getBaseCommitAsync(cwd: string, beforeTimestamp: number): Promise<string | null> {
+  try {
+    const isoDate = new Date(beforeTimestamp).toISOString();
+    const { stdout } = await execFileAsync(
+      "git",
+      ["log", "--before=" + isoDate, "-1", "--format=%H"],
+      { cwd, timeout: 3000 },
+    );
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getRepoRootAsync(dir: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: dir,
+      timeout: 5000,
+    });
+    return stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function enrichDiffStatsAsync(
+  cwd: string,
+  files: Map<string, FileChange>,
+  opts?: { originalBranch?: string; sessionCreatedAt?: number },
+): Promise<void> {
+  try {
+    const repoRoot = await getRepoRootAsync(cwd);
+    if (!repoRoot) return;
+
+    let baseRef = "HEAD";
+    if (opts?.originalBranch) {
+      try {
+        const { stdout } = await execFileAsync("git", ["merge-base", opts.originalBranch, "HEAD"], {
+          cwd,
+          timeout: 3000,
+        });
+        baseRef = stdout.trim();
+      } catch {
+        // fall back
+      }
+    } else if (opts?.sessionCreatedAt) {
+      const base = await getBaseCommitAsync(cwd, opts.sessionCreatedAt);
+      if (base) baseRef = base;
+    }
+
+    const { stdout } = await execFileAsync("git", ["diff", baseRef, "--numstat"], {
+      cwd,
+      timeout: 5000,
+    });
+    const output = stdout.trim();
+    if (!output) return;
+
+    for (const line of output.split("\n")) {
+      if (!line) continue;
+      const parts = line.split("\t");
+      if (parts.length < 3 || parts[0] === "-") continue;
       const absPath = join(repoRoot, parts[2]);
       const file = files.get(absPath);
       if (file) {

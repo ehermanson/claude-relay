@@ -90,6 +90,10 @@ import {
   isRelayWorktreePath,
   resolveWorktreeOrigin,
   enrichDiffStats,
+  enrichDiffStatsAsync,
+  getCurrentBranchAsync,
+  getGitInfoAsync,
+  hasWorktreeChangesAsync,
 } from "./git.js";
 import { searchWorkspaceEntries, type WorkspaceEntry } from "./workspace-entries.js";
 
@@ -1401,17 +1405,6 @@ export class InstanceManager extends EventEmitter {
         instance.info.lastMessage = parsedLastMessage;
       }
 
-      if (instance.files && instance.files.size > 0) {
-        const diffCwd = instance.actualCwd || instance.info.workingDirectory;
-        const origBranch = instance.originalDirectory
-          ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
-          : undefined;
-        enrichDiffStats(diffCwd, instance.files, {
-          originalBranch: origBranch,
-          sessionCreatedAt: instance.info.createdAt,
-        });
-      }
-
       if (!instance.watchState) {
         try {
           instance.watchState = createWatchState(
@@ -1426,18 +1419,60 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    if (!instance.info.gitInfo) {
-      instance.info.gitInfo = instance.info.external
-        ? instance.worktreePath
-          ? (getGitInfo(instance.worktreePath) ?? undefined)
-          : (getGitInfo(instance.info.workingDirectory) ?? undefined)
-        : (getGitInfo(instance.info.workingDirectory) ?? undefined);
-    }
-
-    this.checkWorktreeChanges(instance);
     instance.hydrated = true;
     this.dbSave(instance);
     this.emit("instance:status", id, { ...instance.info });
+
+    // Phase 2: Git enrichment — deferred so history is served immediately.
+    // Runs async; emits a second instance:status when git data arrives.
+    this.enrichGitDataAsync(id, instance).catch((err) => {
+      this.baseConfig.logger.debug(`[InstanceManager] Git enrichment failed for ${id}: ${err}`);
+    });
+  }
+
+  /**
+   * Async git enrichment — deferred from hydrateInstance so that history
+   * delivery isn't blocked by synchronous git subprocess calls.
+   */
+  private async enrichGitDataAsync(id: string, instance: Instance): Promise<void> {
+    let changed = false;
+
+    // Diff stats for files
+    if (instance.files && instance.files.size > 0) {
+      const diffCwd = instance.actualCwd || instance.info.workingDirectory;
+      const origBranch = instance.originalDirectory
+        ? ((await getCurrentBranchAsync(instance.originalDirectory)) ?? undefined)
+        : undefined;
+      await enrichDiffStatsAsync(diffCwd, instance.files, {
+        originalBranch: origBranch,
+        sessionCreatedAt: instance.info.createdAt,
+      });
+      changed = true;
+    }
+
+    // Git branch/worktree info
+    if (!instance.info.gitInfo) {
+      const dir =
+        instance.info.external && instance.worktreePath
+          ? instance.worktreePath
+          : instance.info.workingDirectory;
+      instance.info.gitInfo = (await getGitInfoAsync(dir)) ?? undefined;
+      if (instance.info.gitInfo) changed = true;
+    }
+
+    // Worktree changes check
+    if (instance.worktreePath && instance.originalDirectory) {
+      instance.info.hasChanges = await hasWorktreeChangesAsync(
+        instance.worktreePath,
+        instance.originalDirectory,
+      );
+      changed = true;
+    }
+
+    if (changed) {
+      this.dbSave(instance);
+      this.emit("instance:status", id, { ...instance.info });
+    }
   }
 
   private bootManagedInstance(id: string, instance: Instance): void {
@@ -1977,6 +2012,7 @@ export class InstanceManager extends EventEmitter {
   private async discoverExisting(): Promise<void> {
     if (this.discovering) return; // Prevent overlapping discovery polls
     this.discovering = true;
+    const t0 = performance.now();
     try {
       await this.discoverExistingInner();
     } catch (err) {
@@ -1986,6 +2022,10 @@ export class InstanceManager extends EventEmitter {
       );
     } finally {
       this.discovering = false;
+      const ms = (performance.now() - t0).toFixed(0);
+      if (Number(ms) > 500) {
+        this.baseConfig.logger.warn(`[Discover] slow: ${ms}ms`);
+      }
     }
   }
 
@@ -2478,7 +2518,7 @@ export class InstanceManager extends EventEmitter {
     stats: SessionStats;
   } {
     let cwd = "";
-    const history: HistoryEntry[] = [];
+    let history: HistoryEntry[] = [];
     const zeroStats: SessionStats = {
       inputTokens: 0,
       outputTokens: 0,
@@ -2500,6 +2540,26 @@ export class InstanceManager extends EventEmitter {
       };
     }
 
+    const lines = content.split("\n");
+
+    // Pre-scan backwards for the last compact_boundary to avoid parsing
+    // thousands of lines that would be discarded anyway.
+    let boundaryLineIdx = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (line.includes('"compact_boundary"')) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.type === "system" && entry.subtype === "compact_boundary") {
+            boundaryLineIdx = i;
+            break;
+          }
+        } catch {
+          // not valid JSON, keep scanning
+        }
+      }
+    }
+
     const ctx = {
       pendingTools: new Map<string, string>(),
       pendingTaskCreates: new Map<string, { subject: string; activeForm?: string }>(),
@@ -2507,34 +2567,52 @@ export class InstanceManager extends EventEmitter {
       files: new Map<string, FileChange>(),
       stats: { ...zeroStats },
     };
-    let lastCompactBoundaryIndex = -1;
 
-    for (const line of content.split("\n")) {
-      if (!line.trim()) continue;
+    const fullParseStart = boundaryLineIdx > 0 ? boundaryLineIdx + 1 : 0;
+
+    // Phase 1: Pre-boundary lightweight parse (cwd + stats only, skip convertJsonlEntry)
+    for (let i = 0; i < fullParseStart; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      try {
+        if (!cwd && line.includes('"cwd"')) {
+          const entry = JSON.parse(line);
+          if (entry.cwd) cwd = entry.cwd;
+        }
+        if (line.includes('"assistant"') && line.includes('"usage"')) {
+          const entry = JSON.parse(line);
+          if (entry.type === "assistant" && entry.message?.usage && entry.message?.model) {
+            const u = entry.message.usage;
+            ctx.stats.inputTokens += u.input_tokens ?? 0;
+            ctx.stats.outputTokens += u.output_tokens ?? 0;
+            ctx.stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
+            ctx.stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
+            ctx.stats.costUSD += estimateCost(entry.message.model, u);
+            ctx.stats.model = entry.message.model;
+          }
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    // Phase 2: Post-boundary full parse (history, tasks, files, stats)
+    for (let i = fullParseStart; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
       try {
         const entry = JSON.parse(line);
         if (!cwd && entry.cwd) cwd = entry.cwd;
-
-        // Track compact boundaries — we'll discard everything before the last one
-        if (entry.type === "system" && entry.subtype === "compact_boundary") {
-          lastCompactBoundaryIndex = history.length;
-          continue;
-        }
-
+        if (entry.type === "system" && entry.subtype === "compact_boundary") continue;
         history.push(...this.convertJsonlEntry(entry, ctx));
       } catch {
         // skip malformed lines
       }
     }
 
-    // Discard pre-compact history — it's been summarized and is redundant
-    if (lastCompactBoundaryIndex > 0) {
-      history.splice(0, lastCompactBoundaryIndex);
-    }
-
     // Trim to MAX_HISTORY as a safety net
     if (history.length > MAX_HISTORY) {
-      history.splice(0, history.length - MAX_HISTORY);
+      history = history.slice(-MAX_HISTORY);
     }
 
     return {
@@ -3416,6 +3494,7 @@ export class InstanceManager extends EventEmitter {
    * If the JSONL exists, the session exists — period.
    */
   private scanAllSessions(): void {
+    const scanStart = performance.now();
     const projectsDir = join(this.providerDirs.claude, "projects");
 
     const knownPaths = this.db.getJsonlPaths();
@@ -3656,11 +3735,10 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    if (discovered > 0 || archived > 0) {
-      this.baseConfig.logger.info(
-        `[InstanceManager] Session scan: ${discovered} discovered, ${archived} archived`,
-      );
-    }
+    const scanMs = (performance.now() - scanStart).toFixed(0);
+    this.baseConfig.logger.info(
+      `[ScanAll] ${scanMs}ms — ${discovered} discovered, ${archived} archived, ${diskPaths.size} on disk, ${knownPaths.size} in DB`,
+    );
   }
 
   /** Recursively scan ~/.codex/sessions/ for Codex JSONL transcripts. */
@@ -4802,7 +4880,7 @@ export class InstanceManager extends EventEmitter {
     if (raw !== undefined) entry.raw = raw;
     instance.history.push(entry);
     if (instance.history.length > MAX_HISTORY) {
-      instance.history.splice(0, instance.history.length - MAX_HISTORY);
+      instance.history = instance.history.slice(-MAX_HISTORY);
     }
 
     // Track last meaningful message for dashboard preview (skip transcripts + internal)
