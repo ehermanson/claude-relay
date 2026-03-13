@@ -112,9 +112,15 @@ export function Sidebar() {
     const isActiveProject = currentProjectId === dirName;
     const isPlansActive = isActiveProject && location.pathname.includes("/plans");
     const isIssuesActive = isActiveProject && location.pathname.includes("/issues");
+    const isSkillsActive = isActiveProject && location.pathname.includes("/skills");
     const isChatsActive = isActiveProject && location.pathname.includes("/chats") && !currentId;
     const isOverviewActive =
-      isActiveProject && !currentId && !isPlansActive && !isIssuesActive && !isChatsActive;
+      isActiveProject &&
+      !currentId &&
+      !isPlansActive &&
+      !isIssuesActive &&
+      !isSkillsActive &&
+      !isChatsActive;
     const isOpen = !collapsedDirs.has(dir);
     // Build parent/child ordered list: children appear right after their parent
     const childIds = new Set<string>();
@@ -272,6 +278,17 @@ export function Sidebar() {
                   Issues
                 </Link>
               )}
+              <Link
+                to="/projects/$projectId/skills"
+                params={{ projectId: dirName }}
+                className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
+                  isSkillsActive
+                    ? "bg-accent-dim text-accent"
+                    : "text-muted hover:bg-surface-hover hover:text-text"
+                }`}
+              >
+                Skills
+              </Link>
               <Link
                 to="/projects/$projectId/chats"
                 params={{ projectId: dirName }}

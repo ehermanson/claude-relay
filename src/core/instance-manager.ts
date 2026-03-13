@@ -41,6 +41,7 @@ import {
 } from "./providers/codex-transcript.js";
 import { SessionDB } from "./db.js";
 import type { SessionRow, ManagedInstanceRow } from "./db.js";
+import { discoverSkills } from "./skills.js";
 import type { CoreConfig } from "./config.js";
 import type {
   ServerMessage,
@@ -1811,6 +1812,9 @@ export class InstanceManager extends EventEmitter {
     // Beads issues
     const beadsIssues = this.getBeadsIssues(directory);
 
+    // Skills
+    const skills = discoverSkills(directory || undefined);
+
     return {
       projectId: resolvedId,
       directory,
@@ -1821,6 +1825,7 @@ export class InstanceManager extends EventEmitter {
       stats,
       githubUrl,
       beadsIssues,
+      skills,
     };
   }
 

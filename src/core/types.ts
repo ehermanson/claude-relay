@@ -475,6 +475,19 @@ export interface BeadIssue {
   dependents?: BeadIssueDep[];
 }
 
+export interface SkillInfo {
+  /** Skill name from SKILL.md frontmatter (or directory name fallback) */
+  name: string;
+  /** Description / trigger text from SKILL.md frontmatter */
+  description: string;
+  /** Where the skill was discovered (highest-priority location wins) */
+  source: "project" | "user" | "system";
+  /** Absolute path to the skill directory (highest-priority location) */
+  path: string;
+  /** Which providers can use this skill (based on which directories it was found in) */
+  providers: ProviderKind[];
+}
+
 export interface ProjectArtifacts {
   projectId: string;
   directory: string;
@@ -490,4 +503,6 @@ export interface ProjectArtifacts {
   githubUrl: string | null;
   /** Open issues from beads (bd) issue tracker, if present in the project */
   beadsIssues: BeadIssue[] | null;
+  /** Installed skills discovered from .claude/skills/, ~/.claude/skills/, etc. */
+  skills: SkillInfo[];
 }

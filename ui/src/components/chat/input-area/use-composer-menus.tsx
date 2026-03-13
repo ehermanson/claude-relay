@@ -1,4 +1,5 @@
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+import type { SkillInfo } from "@shared/types";
 import { fetchWorkspaceEntries } from "../../../lib/api";
 import { detectMentionTrigger, replacePromptRange } from "../../../lib/composer-mentions";
 import { MentionMenu, SlashMenu } from "./overlay-menus";
@@ -22,6 +23,7 @@ interface UseComposerMenusParams {
   instanceId: string;
   isExternal?: boolean;
   isMobile: boolean;
+  skills?: SkillInfo[];
   draftText: string;
   composerSelectionOffset: number;
   mentionEntries: MentionEntry[];
@@ -77,6 +79,7 @@ export function useComposerMenus({
   instanceId,
   isExternal,
   isMobile,
+  skills,
   draftText,
   composerSelectionOffset,
   mentionEntries,
@@ -160,13 +163,18 @@ export function useComposerMenus({
     resetMentionMenu();
   };
 
-  const slashContext = !isExternal && !slashMenuDismissed ? getSlashContext(draftText) : null;
+  const rawSlashContext = !isExternal && !slashMenuDismissed ? getSlashContext(draftText) : null;
+  // Suppress the menu when the user is typing arguments after a skill name
+  const slashContext =
+    rawSlashContext?.hasArgument && skills?.some((s) => s.name === rawSlashContext.commandQuery)
+      ? null
+      : rawSlashContext;
 
   const slashMenuItems: SlashMenuItem[] = (() => {
     if (!slashContext) return [];
 
     if (!slashContext.hasArgument) {
-      return SLASH_COMMANDS.filter((command) => {
+      const commandItems: SlashMenuItem[] = SLASH_COMMANDS.filter((command) => {
         if (command.id === "model" && !supportsModelSelection) return false;
         if (command.id === "reasoning" && !supportsReasoningSelection) {
           return false;
@@ -181,6 +189,22 @@ export function useComposerMenus({
         actionHint: "Tab",
         onSelect: () => setComposerValue(`${command.title} `),
       }));
+
+      const skillItems: SlashMenuItem[] = (skills ?? [])
+        .filter((skill) => matchesQuery(slashContext.commandQuery, [skill.name]))
+        .map((skill) => ({
+          key: `skill-${skill.name}`,
+          category: "Skill",
+          title: `/${skill.name}`,
+          description:
+            skill.description.length > 80
+              ? skill.description.slice(0, 77) + "..."
+              : skill.description,
+          actionHint: "Enter",
+          onSelect: () => setComposerValue(`/${skill.name} `),
+        }));
+
+      return [...commandItems, ...skillItems];
     }
 
     if (slashContext.commandQuery === "model" && supportsModelSelection) {

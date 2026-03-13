@@ -75,7 +75,10 @@ export {
   enrichDiffStats,
 } from "./git.js";
 
+export { discoverSkills } from "./skills.js";
+
 export type {
+  SkillInfo,
   SessionStats,
   ProviderKind,
   ProviderRequest,

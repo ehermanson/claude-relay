@@ -92,12 +92,14 @@ function ProjectLayout() {
   const pathname = location.pathname;
   const isPlansTab = pathname.includes("/plans");
   const isIssuesTab = pathname.includes("/issues");
+  const isSkillsTab = pathname.includes("/skills");
   const isChatsTab = pathname.includes("/chats");
-  const isOverviewTab = !isPlansTab && !isIssuesTab && !isChatsTab;
+  const isOverviewTab = !isPlansTab && !isIssuesTab && !isSkillsTab && !isChatsTab;
 
   const dirName = artifacts.directory.split("/").pop() || projectId;
   const planCount = artifacts.plans.length;
   const issueCount = artifacts.beadsIssues?.length ?? 0;
+  const skillCount = artifacts.skills.length;
 
   const ctxValue = useMemo(() => ({ artifacts }), [artifacts]);
 
@@ -193,6 +195,11 @@ function ProjectLayout() {
           {issueCount > 0 && (
             <NavTab to="/projects/$projectId/issues" params={{ projectId }} active={isIssuesTab}>
               Issues ({issueCount})
+            </NavTab>
+          )}
+          {skillCount > 0 && (
+            <NavTab to="/projects/$projectId/skills" params={{ projectId }} active={isSkillsTab}>
+              Skills ({skillCount})
             </NavTab>
           )}
           <NavTab to="/projects/$projectId/chats" params={{ projectId }} active={isChatsTab}>

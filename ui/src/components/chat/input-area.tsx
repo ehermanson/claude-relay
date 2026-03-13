@@ -1,7 +1,8 @@
-import { useRef } from "react";
+import { useContext, useMemo, useRef } from "react";
 import { ArrowUp, Loader2 } from "lucide-react";
 import type { ProviderKind } from "@shared/types";
 import { getProviderDisplayName } from "@shared/provider-catalog";
+import { ProjectContext } from "../../context/project-context";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useWSMethods } from "../../context/websocket-context";
 import { formatModel } from "../../lib/utils";
@@ -79,6 +80,11 @@ export function InputArea({
   const slashListRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const projectCtx = useContext(ProjectContext);
+  const providerSkills = useMemo(
+    () => projectCtx?.artifacts.skills.filter((s) => s.providers.includes(provider)),
+    [projectCtx?.artifacts.skills, provider],
+  );
   const { send } = useWSMethods();
   const { images, uploading, addImages, removeImage, clearImages, uploadAttachedImages } =
     useAttachmentState();
@@ -207,6 +213,7 @@ export function InputArea({
     instanceId,
     isExternal,
     isMobile,
+    skills: providerSkills,
     draftText,
     composerSelectionOffset,
     mentionEntries,
