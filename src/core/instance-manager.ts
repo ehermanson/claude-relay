@@ -2646,6 +2646,7 @@ export class InstanceManager extends EventEmitter {
     entry: {
       type?: string;
       timestamp?: string;
+      data?: Record<string, unknown>;
       message?: {
         role?: string;
         model?: string;
@@ -2678,267 +2679,337 @@ export class InstanceManager extends EventEmitter {
       stats?: SessionStats;
     },
   ): HistoryEntry[] {
-    const pendingTools = ctx?.pendingTools;
-    const results: HistoryEntry[] = [];
     const rawTimestamp = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
     const timestamp = isNaN(rawTimestamp) ? Date.now() : rawTimestamp;
 
     if (entry.type === "user" && entry.message?.content) {
-      const content = entry.message.content;
-      let text = "";
-      if (typeof content === "string") {
-        text = content;
-      } else if (Array.isArray(content)) {
-        const parts: string[] = [];
-        for (const c of content) {
-          if (c.type === "text" && c.text) {
-            parts.push(c.text);
-          } else if (c.type === "image") {
-            const source = (c as Record<string, unknown>).source as
-              | { type?: string; file_path?: string; url?: string; data?: string }
-              | undefined;
-            if (source?.file_path) {
-              parts.push(`[Image: source: ${source.file_path}]`);
-            } else if (source?.url) {
-              parts.push(`[Image: source: ${source.url}]`);
-            }
-            // Skip base64 data images — too large for history
-          } else if (c.type === "tool_result" && ctx) {
-            // In Claude API format, tool_result blocks are in user messages.
-            // Convert them to activity entries so the UI can show tool outcomes.
-            this.handleToolResultBlock(c, timestamp, ctx, results);
+      return this.convertUserEntry(entry.message.content, timestamp, ctx);
+    }
+    if (entry.type === "assistant" && entry.message?.content) {
+      return this.convertAssistantEntry(entry.message, timestamp, ctx);
+    }
+    if (entry.type === "progress" && entry.data) {
+      return this.convertProgressEntry(entry.data, timestamp);
+    }
+    return [];
+  }
+
+  /** Parse a user JSONL entry into history entries. */
+  private convertUserEntry(
+    content:
+      | string
+      | Array<{
+          type: string;
+          text?: string;
+          tool_use_id?: string;
+          is_error?: boolean;
+          content?: string;
+        }>,
+    timestamp: number,
+    ctx?: {
+      pendingTools?: Map<string, string>;
+      pendingTaskCreates?: Map<string, { subject: string; activeForm?: string }>;
+      tasks?: Map<string, TaskItem>;
+    },
+  ): HistoryEntry[] {
+    const results: HistoryEntry[] = [];
+    let text = "";
+    if (typeof content === "string") {
+      text = content;
+    } else if (Array.isArray(content)) {
+      const parts: string[] = [];
+      for (const c of content) {
+        if (c.type === "text" && c.text) {
+          parts.push(c.text);
+        } else if (c.type === "image") {
+          const source = (c as Record<string, unknown>).source as
+            | { type?: string; file_path?: string; url?: string; data?: string }
+            | undefined;
+          if (source?.file_path) {
+            parts.push(`[Image: source: ${source.file_path}]`);
+          } else if (source?.url) {
+            parts.push(`[Image: source: ${source.url}]`);
           }
+          // Skip base64 data images — too large for history
+        } else if (c.type === "tool_result" && ctx) {
+          // In Claude API format, tool_result blocks are in user messages.
+          this.handleToolResultBlock(c, timestamp, ctx, results);
         }
-        text = parts.join("\n");
       }
-      // Strip internal CLI tags; skip if nothing meaningful remains
-      text = stripInternalTags(text);
-      if (text && !text.startsWith("[Request interrupted")) {
-        // Check for background agent transcript completion messages
-        const transcriptMatch = TRANSCRIPT_AVAILABLE_RE.exec(text);
-        if (transcriptMatch) {
-          const transcript = extractTranscriptResult(transcriptMatch[1]);
-          if (transcript) {
-            results.push({
-              timestamp,
-              message: {
-                type: "transcript",
-                title: transcript.title,
-                result: transcript.result,
-              } as TranscriptMessage,
-            });
-          }
-          // Suppress the raw "Full transcript available at:" message entirely
-        } else {
-          const internal = text === AUTO_CONTINUE_MSG ? true : undefined;
-          results.push({
-            timestamp,
-            message: { type: "user", text, internal } as UserMessage,
-          });
-        }
-      }
-    } else if (entry.type === "assistant" && entry.message?.content) {
-      const content = entry.message.content;
-      if (Array.isArray(content)) {
-        let textParts: string[] = [];
-
-        for (const block of content) {
-          if (block.type === "thinking" && block.thinking) {
-            results.push({
-              timestamp,
-              message: {
-                type: "activity",
-                activity: "thinking",
-                description: "Reasoning...",
-                detail: block.thinking.slice(0, 500) + (block.thinking.length > 500 ? "..." : ""),
-              } as ActivityMessage,
-            });
-          } else if (block.type === "tool_use") {
-            // Flush accumulated text first
-            const flushed = stripInternalTags(textParts.join(""));
-            if (flushed) {
-              results.push({
-                timestamp,
-                message: {
-                  type: "output",
-                  text: flushed,
-                  isWaiting: false,
-                } as OutputMessage,
-              });
-            }
-            textParts = [];
-            if (block.id && block.name && pendingTools) {
-              pendingTools.set(block.id, block.name);
-            }
-
-            const isTaskTool = TASK_TOOLS.has(block.name || "");
-            if (isTaskTool && ctx) {
-              // Handle task tools — emit consolidated task_list instead of individual activities
-              const input = block.input as Record<string, unknown> | undefined;
-              if (block.name === "TodoWrite" && input && ctx.tasks) {
-                const todos = input.todos as
-                  | Array<{ content?: string; status?: string; activeForm?: string }>
-                  | undefined;
-                if (Array.isArray(todos)) {
-                  ctx.tasks.clear();
-                  for (let i = 0; i < todos.length; i++) {
-                    const t = todos[i];
-                    if (!t.content) continue;
-                    const id = `todo-${i}`;
-                    ctx.tasks.set(id, {
-                      id,
-                      subject: t.content,
-                      status: (t.status as TaskItem["status"]) || "pending",
-                      activeForm: t.activeForm,
-                    });
-                  }
-                  results.push({
-                    timestamp,
-                    message: {
-                      type: "activity",
-                      activity: "task_list",
-                      description: "Tasks",
-                      tasks: Array.from(ctx.tasks.values()).map((t) => ({ ...t })),
-                    } as ActivityMessage,
-                  });
-                }
-              } else if (block.name === "TaskCreate" && input && block.id) {
-                ctx.pendingTaskCreates?.set(block.id, {
-                  subject: (input.subject as string) || "Untitled task",
-                  activeForm: input.activeForm as string | undefined,
-                });
-              } else if (block.name === "TaskUpdate" && input) {
-                const taskId = input.taskId as string;
-                const status = input.status as string | undefined;
-                if (taskId && status === "deleted") {
-                  ctx.tasks?.delete(taskId);
-                  results.push({
-                    timestamp,
-                    message: {
-                      type: "activity",
-                      activity: "task_list",
-                      description: "Tasks",
-                      tasks: Array.from(ctx.tasks?.values() ?? []).map((t) => ({ ...t })),
-                    } as ActivityMessage,
-                  });
-                } else if (taskId && status && ctx.tasks?.has(taskId)) {
-                  const task = ctx.tasks.get(taskId)!;
-                  task.status = status as TaskItem["status"];
-                  if (input.subject) task.subject = input.subject as string;
-                  if (input.activeForm) task.activeForm = input.activeForm as string;
-                  results.push({
-                    timestamp,
-                    message: {
-                      type: "activity",
-                      activity: "task_list",
-                      description: "Tasks",
-                      tasks: Array.from(ctx.tasks.values()).map((t) => ({ ...t })),
-                    } as ActivityMessage,
-                  });
-                }
-              }
-              // TaskList and TaskGet — skip entirely (no activity emitted)
-            } else {
-              // Track file changes for Edit/Write/NotebookEdit
-              if (ctx?.files && block.name && FILE_WRITE_TOOLS.has(block.name)) {
-                const input = block.input as Record<string, unknown> | undefined;
-                const filePath = (input?.file_path || input?.path || input?.notebook_path) as
-                  | string
-                  | undefined;
-                if (filePath) {
-                  const existing = ctx.files.get(filePath);
-                  if (existing) {
-                    existing.editCount++;
-                  } else {
-                    ctx.files.set(filePath, {
-                      path: filePath,
-                      editCount: 1,
-                      type: block.name === "Write" ? "added" : "edited",
-                    });
-                  }
-                  results.push({
-                    timestamp,
-                    message: {
-                      type: "activity",
-                      activity: "file_list",
-                      description: "Files changed",
-                      files: Array.from(ctx.files.values()).map((f) => ({ ...f })),
-                    } as ActivityMessage,
-                  });
-                }
-              }
-
-              results.push({
-                timestamp,
-                message: {
-                  type: "activity",
-                  activity: "tool_use",
-                  tool: block.name,
-                  description: describeToolUse(block.name || "Unknown", block.input),
-                  detail: describeToolDetail(block.name || "Unknown", block.input),
-                  input: block.input as Record<string, unknown> | undefined,
-                  inputDescription: extractInputDescription(block.name || "Unknown", block.input),
-                } as ActivityMessage,
-              });
-            }
-          } else if (block.type === "tool_result" && ctx) {
-            this.handleToolResultBlock(block, timestamp, ctx, results);
-          } else if (block.type === "text" && block.text) {
-            textParts.push(block.text);
-          }
-        }
-
-        // Flush remaining text
-        const remaining = stripInternalTags(textParts.join(""));
-        if (remaining) {
+      text = parts.join("\n");
+    }
+    // Strip internal CLI tags; skip if nothing meaningful remains
+    text = stripInternalTags(text);
+    if (text && !text.startsWith("[Request interrupted")) {
+      const transcriptMatch = TRANSCRIPT_AVAILABLE_RE.exec(text);
+      if (transcriptMatch) {
+        const transcript = extractTranscriptResult(transcriptMatch[1]);
+        if (transcript) {
           results.push({
             timestamp,
             message: {
-              type: "output",
-              text: remaining,
-              isWaiting: false,
-            } as OutputMessage,
+              type: "transcript",
+              title: transcript.title,
+              result: transcript.result,
+            } as TranscriptMessage,
           });
         }
-
-        // Mark end of assistant turn
+      } else {
+        const internal = text === AUTO_CONTINUE_MSG ? true : undefined;
         results.push({
           timestamp,
-          message: { type: "output", text: "", isWaiting: true } as OutputMessage,
+          message: { type: "user", text, internal } as UserMessage,
+        });
+      }
+    }
+    return results;
+  }
+
+  /** Parse an assistant JSONL entry into history entries. */
+  private convertAssistantEntry(
+    message: {
+      model?: string;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      };
+      content?:
+        | string
+        | Array<{
+            type: string;
+            text?: string;
+            thinking?: string;
+            name?: string;
+            id?: string;
+            input?: Record<string, unknown>;
+            is_error?: boolean;
+            content?: string;
+            tool_use_id?: string;
+          }>;
+    },
+    timestamp: number,
+    ctx?: {
+      pendingTools?: Map<string, string>;
+      pendingTaskCreates?: Map<string, { subject: string; activeForm?: string }>;
+      tasks?: Map<string, TaskItem>;
+      files?: Map<string, FileChange>;
+      stats?: SessionStats;
+    },
+  ): HistoryEntry[] {
+    const results: HistoryEntry[] = [];
+    const content = message.content;
+    if (Array.isArray(content)) {
+      let textParts: string[] = [];
+
+      for (const block of content) {
+        if (block.type === "thinking" && block.thinking) {
+          results.push({
+            timestamp,
+            message: {
+              type: "activity",
+              activity: "thinking",
+              description: "Reasoning...",
+              detail: block.thinking.slice(0, 500) + (block.thinking.length > 500 ? "..." : ""),
+            } as ActivityMessage,
+          });
+        } else if (block.type === "tool_use") {
+          // Flush accumulated text before tool_use
+          const flushed = stripInternalTags(textParts.join(""));
+          if (flushed) {
+            results.push({
+              timestamp,
+              message: { type: "output", text: flushed, isWaiting: false } as OutputMessage,
+            });
+          }
+          textParts = [];
+          if (block.id && block.name && ctx?.pendingTools) {
+            ctx.pendingTools.set(block.id, block.name);
+          }
+          this.convertToolUseBlock(block, timestamp, ctx, results);
+        } else if (block.type === "tool_result" && ctx) {
+          this.handleToolResultBlock(block, timestamp, ctx, results);
+        } else if (block.type === "text" && block.text) {
+          textParts.push(block.text);
+        }
+      }
+
+      // Flush remaining text
+      const remaining = stripInternalTags(textParts.join(""));
+      if (remaining) {
+        results.push({
+          timestamp,
+          message: { type: "output", text: remaining, isWaiting: false } as OutputMessage,
         });
       }
 
-      // Accumulate token usage from this assistant entry
-      if (ctx?.stats && entry.message?.usage && entry.message?.model) {
-        const usage = entry.message.usage;
-        const u = {
-          input_tokens: usage.input_tokens ?? 0,
-          output_tokens: usage.output_tokens ?? 0,
-          cache_creation_input_tokens: usage.cache_creation_input_tokens,
-          cache_read_input_tokens: usage.cache_read_input_tokens,
-        };
-        ctx.stats.inputTokens += u.input_tokens;
-        ctx.stats.outputTokens += u.output_tokens;
-        ctx.stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
-        ctx.stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
-        ctx.stats.costUSD += estimateCost(entry.message.model, u);
-        ctx.stats.model = entry.message.model;
-        // Snapshot this turn's total input = current context window utilization (not cumulative)
-        ctx.stats.contextTokens =
-          u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-      }
+      // Mark end of assistant turn
+      results.push({
+        timestamp,
+        message: { type: "output", text: "", isWaiting: true } as OutputMessage,
+      });
     }
 
-    // Handle progress events (bash_progress only)
-    const entryAny = entry as Record<string, unknown>;
-    if (entryAny.type === "progress" && entryAny.data && ctx) {
-      const data = entryAny.data as Record<string, unknown>;
-      const dataType = data.type as string | undefined;
-      if (dataType === "bash_progress") {
-        const elapsed = data.elapsed_seconds as number | undefined;
-        const output = data.output as string | undefined;
-        if (elapsed != null) {
+    // Accumulate token usage
+    if (ctx?.stats && message.usage && message.model) {
+      const usage = message.usage;
+      const u = {
+        input_tokens: usage.input_tokens ?? 0,
+        output_tokens: usage.output_tokens ?? 0,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens,
+      };
+      ctx.stats.inputTokens += u.input_tokens;
+      ctx.stats.outputTokens += u.output_tokens;
+      ctx.stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
+      ctx.stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
+      ctx.stats.costUSD += estimateCost(message.model, u);
+      ctx.stats.model = message.model;
+      ctx.stats.contextTokens =
+        u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+    }
+
+    return results;
+  }
+
+  /** Handle a single tool_use block within an assistant entry. */
+  private convertToolUseBlock(
+    block: {
+      name?: string;
+      id?: string;
+      input?: Record<string, unknown>;
+    },
+    timestamp: number,
+    ctx:
+      | {
+          pendingTaskCreates?: Map<string, { subject: string; activeForm?: string }>;
+          tasks?: Map<string, TaskItem>;
+          files?: Map<string, FileChange>;
+        }
+      | undefined,
+    results: HistoryEntry[],
+  ): void {
+    const isTaskTool = TASK_TOOLS.has(block.name || "");
+    if (isTaskTool && ctx) {
+      const input = block.input as Record<string, unknown> | undefined;
+      if (block.name === "TodoWrite" && input && ctx.tasks) {
+        const todos = input.todos as
+          | Array<{ content?: string; status?: string; activeForm?: string }>
+          | undefined;
+        if (Array.isArray(todos)) {
+          ctx.tasks.clear();
+          for (let i = 0; i < todos.length; i++) {
+            const t = todos[i];
+            if (!t.content) continue;
+            const id = `todo-${i}`;
+            ctx.tasks.set(id, {
+              id,
+              subject: t.content,
+              status: (t.status as TaskItem["status"]) || "pending",
+              activeForm: t.activeForm,
+            });
+          }
           results.push({
+            timestamp,
+            message: {
+              type: "activity",
+              activity: "task_list",
+              description: "Tasks",
+              tasks: Array.from(ctx.tasks.values()).map((t) => ({ ...t })),
+            } as ActivityMessage,
+          });
+        }
+      } else if (block.name === "TaskCreate" && input && block.id) {
+        ctx.pendingTaskCreates?.set(block.id, {
+          subject: (input.subject as string) || "Untitled task",
+          activeForm: input.activeForm as string | undefined,
+        });
+      } else if (block.name === "TaskUpdate" && input) {
+        const taskId = input.taskId as string;
+        const status = input.status as string | undefined;
+        if (taskId && status === "deleted") {
+          ctx.tasks?.delete(taskId);
+          results.push({
+            timestamp,
+            message: {
+              type: "activity",
+              activity: "task_list",
+              description: "Tasks",
+              tasks: Array.from(ctx.tasks?.values() ?? []).map((t) => ({ ...t })),
+            } as ActivityMessage,
+          });
+        } else if (taskId && status && ctx.tasks?.has(taskId)) {
+          const task = ctx.tasks.get(taskId)!;
+          task.status = status as TaskItem["status"];
+          if (input.subject) task.subject = input.subject as string;
+          if (input.activeForm) task.activeForm = input.activeForm as string;
+          results.push({
+            timestamp,
+            message: {
+              type: "activity",
+              activity: "task_list",
+              description: "Tasks",
+              tasks: Array.from(ctx.tasks.values()).map((t) => ({ ...t })),
+            } as ActivityMessage,
+          });
+        }
+      }
+      // TaskList and TaskGet — skip entirely (no activity emitted)
+    } else {
+      // Track file changes for Edit/Write/NotebookEdit
+      if (ctx?.files && block.name && FILE_WRITE_TOOLS.has(block.name)) {
+        const input = block.input as Record<string, unknown> | undefined;
+        const filePath = (input?.file_path || input?.path || input?.notebook_path) as
+          | string
+          | undefined;
+        if (filePath) {
+          const existing = ctx.files.get(filePath);
+          if (existing) {
+            existing.editCount++;
+          } else {
+            ctx.files.set(filePath, {
+              path: filePath,
+              editCount: 1,
+              type: block.name === "Write" ? "added" : "edited",
+            });
+          }
+          results.push({
+            timestamp,
+            message: {
+              type: "activity",
+              activity: "file_list",
+              description: "Files changed",
+              files: Array.from(ctx.files.values()).map((f) => ({ ...f })),
+            } as ActivityMessage,
+          });
+        }
+      }
+
+      results.push({
+        timestamp,
+        message: {
+          type: "activity",
+          activity: "tool_use",
+          tool: block.name,
+          description: describeToolUse(block.name || "Unknown", block.input),
+          detail: describeToolDetail(block.name || "Unknown", block.input),
+          input: block.input as Record<string, unknown> | undefined,
+          inputDescription: extractInputDescription(block.name || "Unknown", block.input),
+        } as ActivityMessage,
+      });
+    }
+  }
+
+  /** Parse a progress JSONL entry (bash_progress only). */
+  private convertProgressEntry(data: Record<string, unknown>, timestamp: number): HistoryEntry[] {
+    const dataType = data.type as string | undefined;
+    if (dataType === "bash_progress") {
+      const elapsed = data.elapsed_seconds as number | undefined;
+      const output = data.output as string | undefined;
+      if (elapsed != null) {
+        return [
+          {
             timestamp,
             message: {
               type: "activity",
@@ -2947,13 +3018,12 @@ export class InstanceManager extends EventEmitter {
               description: `Running... ${Math.round(elapsed)}s`,
               detail: output ? (output.length > 300 ? output.slice(-300) : output) : undefined,
             } as ActivityMessage,
-          });
-        }
+          },
+        ];
       }
-      // hook_progress: skip
     }
-
-    return results;
+    // hook_progress: skip
+    return [];
   }
 
   // ===========================================================================
