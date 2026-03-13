@@ -182,7 +182,7 @@ export function createWebSocketServer(
                 provider: message.provider,
                 name: message.name,
                 workingDirectory: message.workingDirectory,
-                dangerouslySkipPermissions: message.dangerouslySkipPermissions ?? true,
+                dangerouslySkipPermissions: message.dangerouslySkipPermissions ?? false,
                 resumeSessionId: message.resumeSessionId,
                 model: message.model,
               });
@@ -344,10 +344,10 @@ export function createWebSocketServer(
                 subs.delete(message.instanceId);
               }
               broadcast({ type: "instance_removed", instanceId: message.instanceId });
-              // Notify the requesting client of success
               sendMessage(ws, {
-                type: "error", // Reuse error type for client-side notification
+                type: "notification",
                 message: `Merged into ${targetBranch} successfully`,
+                instanceId: message.instanceId,
               });
             } catch (err) {
               sendMessage(ws, {

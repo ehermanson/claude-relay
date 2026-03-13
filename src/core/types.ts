@@ -286,6 +286,12 @@ export interface ErrorMessage {
   instanceId?: string;
 }
 
+export interface NotificationMessage {
+  type: "notification";
+  message: string;
+  instanceId?: string;
+}
+
 export interface TaskItem {
   id: string;
   subject: string;
@@ -366,6 +372,7 @@ export type ServerMessage =
   | UserMessage
   | ExitMessage
   | ErrorMessage
+  | NotificationMessage
   | ActivityMessage
   | InstanceListMessage
   | InstanceCreatedMessage

@@ -56,6 +56,7 @@ type Action =
   | { type: "transcript"; title: string; result: string }
   | { type: "exit"; code: number; signal?: string; stderr?: string }
   | { type: "error"; message: string }
+  | { type: "notification"; message: string }
   | { type: "show_thinking" };
 
 // Module-level cache — persists across mounts/unmounts within a page session.
@@ -404,6 +405,12 @@ function reducer(state: State, action: Action): State {
       };
     }
 
+    case "notification": {
+      const items = [...state.items];
+      items.push({ kind: "system", text: action.message });
+      return { ...state, items };
+    }
+
     case "show_thinking": {
       const now = Date.now();
       return {
@@ -478,6 +485,11 @@ export function useInstanceMessages() {
       case "error":
         if (!message.instanceId || message.instanceId === instanceId) {
           dispatch({ type: "error", message: message.message });
+        }
+        break;
+      case "notification":
+        if (!message.instanceId || message.instanceId === instanceId) {
+          dispatch({ type: "notification", message: message.message });
         }
         break;
     }

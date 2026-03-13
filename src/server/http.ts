@@ -716,9 +716,11 @@ export function createRequestHandler(
 
         const chunks: Buffer[] = [];
         let size = 0;
+        let responded = false;
         req.on("data", (chunk: Buffer) => {
           size += chunk.length;
-          if (size > MAX_UPLOAD) {
+          if (size > MAX_UPLOAD && !responded) {
+            responded = true;
             sendJson(res, 413, { error: "File too large (10MB limit)" });
             req.destroy();
             return;
@@ -726,6 +728,8 @@ export function createRequestHandler(
           chunks.push(chunk);
         });
         req.on("end", () => {
+          if (responded) return;
+          responded = true;
           const data = Buffer.concat(chunks);
           const uploadsDir = path.join(homedir(), ".relay", "uploads");
           fs.mkdirSync(uploadsDir, { recursive: true });
@@ -735,6 +739,8 @@ export function createRequestHandler(
           sendJson(res, 200, { path: filePath });
         });
         req.on("error", () => {
+          if (responded) return;
+          responded = true;
           sendJson(res, 500, { error: "Upload failed" });
         });
         return;
