@@ -4,7 +4,15 @@
  */
 
 import { Link } from "@tanstack/react-router";
-import { Bug, ChevronLeft, FileText, GitBranch, LayoutGrid, ListChecks } from "lucide-react";
+import {
+  Bug,
+  ChevronLeft,
+  Columns2,
+  FileText,
+  GitBranch,
+  LayoutGrid,
+  ListChecks,
+} from "lucide-react";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { OpenInMenu } from "../project/open-in-menu";
@@ -106,6 +114,7 @@ interface InstanceHeaderProps {
   onTogglePanel: (panel: SidecarTab) => void;
   onOpenDebug: () => void;
   onOpenMobileSidecar: () => void;
+  onSplit?: () => void;
 }
 
 export function InstanceHeader({
@@ -119,6 +128,7 @@ export function InstanceHeader({
   onTogglePanel,
   onOpenDebug,
   onOpenMobileSidecar,
+  onSplit,
 }: InstanceHeaderProps) {
   const isStopped = instance.status === "stopped";
 
@@ -218,6 +228,13 @@ export function InstanceHeader({
       {/* Action buttons: [Open in X] | [Debug] | [Sidecar Controls] */}
       <div className="flex items-center gap-1">
         <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
+        {onSplit && !isMobile && (
+          <Tooltip content="Split view">
+            <Button variant="icon" onClick={onSplit} className="shrink-0">
+              <Columns2 size={15} strokeWidth={2} />
+            </Button>
+          </Tooltip>
+        )}
         <Tooltip content="Debug chat data">
           <Button variant="icon" onClick={onOpenDebug} className="shrink-0">
             <Bug size={15} strokeWidth={2} />

@@ -130,6 +130,7 @@ export function SidebarProjectGroup({
       onRename={(name) => onRename(inst.id, name)}
       onRefreshTitle={() => onRefreshTitle(inst.id)}
       onMerge={inst.gitBranch && inst.hasChanges ? () => onMerge(inst.id) : undefined}
+      activeChatId={currentId}
     />
   );
 

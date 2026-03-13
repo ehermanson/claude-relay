@@ -23,11 +23,19 @@ import type { ServerMessage, ProviderKind } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
 
-export function InstanceView() {
-  const { chatId: id, projectId } = useParams({ strict: false }) as {
+interface InstanceViewProps {
+  /** Override the instance ID instead of reading from URL params. */
+  instanceId?: string;
+  /** Compact mode: hide header and sidecar (used in split view). */
+  compact?: boolean;
+}
+
+export function InstanceView({ instanceId: propId, compact }: InstanceViewProps = {}) {
+  const { chatId: paramId, projectId } = useParams({ strict: false }) as {
     chatId?: string;
     projectId?: string;
   };
+  const id = propId ?? paramId;
   const navigate = useNavigate();
   const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
   const { isConnected, connectionId, instances } = useWSState();
@@ -75,12 +83,13 @@ export function InstanceView() {
     return addMessageHandler(handler);
   }, [id, handleMessage, addMessageHandler]);
 
-  // Navigate away if instance doesn't exist
+  // Navigate away if instance doesn't exist (skip in compact/split mode — parent handles it)
   useEffect(() => {
+    if (compact) return;
     if (isConnected && instances.length > 0 && id && !instance) {
       navigate({ to: "/", replace: true });
     }
-  }, [isConnected, instances, id, instance, navigate]);
+  }, [compact, isConnected, instances, id, instance, navigate]);
 
   const handleSend = (text: string, images?: string[]) => {
     if (!id) return;
@@ -317,6 +326,14 @@ export function InstanceView() {
     </>
   );
 
+  if (compact) {
+    return (
+      <div className="flex h-full flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col">{chatContent}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <InstanceHeader
@@ -330,6 +347,7 @@ export function InstanceView() {
         onTogglePanel={togglePanel}
         onOpenDebug={() => setShowDebugPaste(true)}
         onOpenMobileSidecar={() => setSidecarMobileOpen(true)}
+        onSplit={() => navigate({ search: { split: "pick" } })}
       />
 
       {showDesktopSidecar ? (

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
+  Columns2,
   GitBranch,
   GitMerge,
   MoreVertical,
@@ -27,6 +28,8 @@ interface SidebarItemProps {
   onRefreshTitle?: () => void;
   onRename?: (name: string) => void;
   onMerge?: () => void;
+  /** Currently active chatId — used to offer "Open in split view". */
+  activeChatId?: string;
 }
 
 export function SidebarItem({
@@ -41,6 +44,7 @@ export function SidebarItem({
   onRefreshTitle,
   onRename,
   onMerge,
+  activeChatId,
 }: SidebarItemProps) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -48,7 +52,8 @@ export function SidebarItem({
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const hasMenu = !!onDelete || !!onRefreshTitle || !!onRename || !!onMerge;
+  const canSplit = !!activeChatId && activeChatId !== instance.id;
+  const hasMenu = !!onDelete || !!onRefreshTitle || !!onRename || !!onMerge || canSplit;
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -247,6 +252,22 @@ export function SidebarItem({
                 >
                   <GitMerge size={13} strokeWidth={2} className="text-muted" />
                   Merge to main
+                </Menu.Item>
+              )}
+              {canSplit && (
+                <Menu.Item
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    navigate({
+                      search: (prev: Record<string, unknown>) => ({
+                        ...prev,
+                        split: instance.id,
+                      }),
+                    });
+                  }}
+                >
+                  <Columns2 size={13} strokeWidth={2} className="text-muted" />
+                  Open in split view
                 </Menu.Item>
               )}
               {onDelete && (
