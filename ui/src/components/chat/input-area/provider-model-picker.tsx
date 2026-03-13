@@ -1,4 +1,12 @@
-import { BrainIcon, Check, ChevronRight, LockIcon, LockOpenIcon } from "lucide-react";
+import {
+  BrainIcon,
+  Check,
+  ChevronRight,
+  HammerIcon,
+  LockIcon,
+  LockOpenIcon,
+  MapIcon,
+} from "lucide-react";
 import type { ProviderKind, ProviderModelOption } from "@shared/types";
 import { BUILTIN_PROVIDER_MODELS, getProviderDisplayName } from "@shared/provider-catalog";
 import { Menu } from "../../ui/menu";
@@ -170,8 +178,8 @@ export function PermissionsToggle({
             ? "Full access — click to use the workspace sandbox"
             : "Workspace sandbox — click for full access"
           : skipPermissions
-            ? "Full access — click to require approvals"
-            : "Limited — click for full access"
+            ? "Full access — click to ask permission"
+            : "Ask permission — click for full access"
       }
     >
       <button
@@ -193,9 +201,65 @@ export function PermissionsToggle({
               : "Sandboxed"
             : skipPermissions
               ? "Full access"
-              : "Limited"}
+              : "Ask Permission"}
         </span>
       </button>
     </Tooltip>
+  );
+}
+
+interface PlanModePickerProps {
+  isProcessing: boolean;
+  planMode?: boolean;
+  onTogglePlanMode: (planMode: boolean) => void;
+}
+
+export function PlanModePicker({ isProcessing, planMode, onTogglePlanMode }: PlanModePickerProps) {
+  const label = planMode ? "Plan" : "Build";
+
+  return (
+    <Menu.Root>
+      <Tooltip
+        content={
+          planMode
+            ? "Plan mode is active for this session"
+            : "Switch between build and planning mode"
+        }
+      >
+        <Menu.Trigger
+          disabled={isProcessing}
+          className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
+            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
+          } ${planMode ? "text-warning" : "text-muted"}`}
+        >
+          {planMode ? (
+            <MapIcon size={11} strokeWidth={2} />
+          ) : (
+            <HammerIcon size={11} strokeWidth={2} />
+          )}
+          <span>{label}</span>
+        </Menu.Trigger>
+      </Tooltip>
+      <Menu.Content side="top" align="start">
+        <Menu.Item onClick={() => onTogglePlanMode(false)}>
+          <HammerIcon size={13} strokeWidth={2} className="shrink-0" />
+          <span className="flex flex-1 flex-col">
+            <span>Build</span>
+            <span className="text-[0.6875rem] text-muted">Standard working mode</span>
+          </span>
+          {!planMode && <Check size={13} strokeWidth={2.5} />}
+        </Menu.Item>
+        <Menu.Item onClick={() => onTogglePlanMode(true)}>
+          <MapIcon size={13} strokeWidth={2} className="shrink-0" />
+          <span className="flex flex-1 flex-col">
+            <span>Plan</span>
+            <span className="text-[0.6875rem] text-muted">
+              Stay in planning mode for this session
+            </span>
+          </span>
+          {planMode && <Check size={13} strokeWidth={2.5} />}
+        </Menu.Item>
+      </Menu.Content>
+    </Menu.Root>
   );
 }

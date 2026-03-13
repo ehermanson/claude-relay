@@ -72,6 +72,9 @@ export interface ProviderSession extends EventEmitter {
   /** Change the reasoning budget for subsequent turns. Pass null to clear. */
   setReasoningBudget(budget: number | null): void;
 
+  /** Toggle provider plan mode for subsequent turns when supported. */
+  setPlanMode?(planMode: boolean): void;
+
   /** Add a tool to the auto-allowed list (CLI: --allowedTools, SDK: updatedPermissions). */
   addAllowedTool(tool: string): void;
 

@@ -278,6 +278,7 @@ For Claude specifically:
 - new sessions may still capture a transcript path after the first turn
 - transcript paths are used for history replay and external-session discovery
 - approval prompts are routed as provider requests with stable request IDs over WebSocket
+- managed Claude and Codex chats expose a `Build` / `Plan` mode picker in the composer, and plan mode is persisted with the session runtime binding for restore
 
 For Codex specifically:
 
@@ -287,7 +288,7 @@ For Codex specifically:
 - provider switching from the chat input creates a new managed session instead of rewriting the current one, with optional recent-context carryover
 - Codex sessions keep model switching via the shared provider/model picker in the chat input
 - Codex sessions also show the shared reasoning control in the composer, and the permission toggle is presented as sandbox/full-access mode
-- project and chat headers expose an `Open in` menu backed by `/api/open-targets` and `/api/open`, which remembers the chosen app per project directory
+- project and chat headers expose a split `Open in` control backed by `/api/open-targets` and `/api/open`; the primary button opens the current target immediately, while the menu updates the remembered app selection
 - external Codex session discovery is supported (historical scan on startup); live `ps`-based discovery and approval-request parity are still follow-up work
 
 ## Security

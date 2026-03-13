@@ -326,6 +326,11 @@ export function createWebSocketServer(
             break;
           }
 
+          case "set_plan_mode": {
+            instanceManager.setPlanMode(message.instanceId, message.planMode);
+            break;
+          }
+
           case "set_provider": {
             instanceManager.setProvider(message.instanceId, message.provider);
             break;

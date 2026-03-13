@@ -27,11 +27,9 @@ interface AppCandidate {
 }
 
 const DEFAULT_TARGET_ID = "system-default";
-const FINDER_TARGET_ID = "finder";
-const FILE_MANAGER_TARGET_ID = "file-manager";
 
 const MAC_TARGETS: AppCandidate[] = [
-  { id: DEFAULT_TARGET_ID, label: "Default app", kind: "default" },
+  { id: DEFAULT_TARGET_ID, label: "Finder", kind: "default" },
   {
     id: "cursor",
     label: "Cursor",
@@ -96,18 +94,10 @@ const MAC_TARGETS: AppCandidate[] = [
     appName: "Ghostty",
     bundleNames: ["Ghostty.app"],
   },
-  {
-    id: FINDER_TARGET_ID,
-    label: "Finder",
-    kind: "finder",
-    description: "Reveal this project in Finder",
-    appName: "Finder",
-    bundleNames: ["Finder.app"],
-  },
 ];
 
 const LINUX_TARGETS: AppCandidate[] = [
-  { id: DEFAULT_TARGET_ID, label: "Default app", kind: "default" },
+  { id: DEFAULT_TARGET_ID, label: "Files", kind: "default" },
   {
     id: "cursor",
     label: "Cursor",
@@ -136,16 +126,10 @@ const LINUX_TARGETS: AppCandidate[] = [
     description: "Open this project in a terminal",
     command: "x-terminal-emulator",
   },
-  {
-    id: FILE_MANAGER_TARGET_ID,
-    label: "Files",
-    kind: "file-manager",
-    description: "Reveal this project in the file manager",
-  },
 ];
 
 const WINDOWS_TARGETS: AppCandidate[] = [
-  { id: DEFAULT_TARGET_ID, label: "Default app", kind: "default" },
+  { id: DEFAULT_TARGET_ID, label: "Explorer", kind: "default" },
   {
     id: "cursor",
     label: "Cursor",
@@ -173,12 +157,6 @@ const WINDOWS_TARGETS: AppCandidate[] = [
     kind: "terminal",
     description: "Open this project in Windows Terminal",
     command: "wt",
-  },
-  {
-    id: "explorer",
-    label: "Explorer",
-    kind: "file-manager",
-    description: "Reveal this project in Explorer",
   },
 ];
 
@@ -357,7 +335,7 @@ async function launchTarget(targetPath: string, targetId: string): Promise<void>
 
   if (process.platform === "win32") {
     const normalizedPath = targetPath.replaceAll("/", "\\");
-    if (targetId === DEFAULT_TARGET_ID || targetId === "explorer") {
+    if (targetId === DEFAULT_TARGET_ID) {
       await runCommand("explorer.exe", [normalizedPath]);
       return;
     }
@@ -371,7 +349,7 @@ async function launchTarget(targetPath: string, targetId: string): Promise<void>
     return;
   }
 
-  if (targetId === DEFAULT_TARGET_ID || targetId === FILE_MANAGER_TARGET_ID) {
+  if (targetId === DEFAULT_TARGET_ID) {
     await runCommand("xdg-open", [targetPath]);
     return;
   }

@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { Group, Panel } from "react-resizable-panels";
@@ -16,14 +16,14 @@ import { Tooltip } from "../ui/tooltip";
 import { OpenInMenu } from "../project/open-in-menu";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
-import { Bug, ChevronLeft, FileText, GitBranch, LayoutGrid, ListChecks, Users } from "lucide-react";
+import { Bug, ChevronLeft, FileText, GitBranch, LayoutGrid, ListChecks } from "lucide-react";
 import { ContextRing } from "./input-area/shared";
 import { shortenPath, formatTokens, formatCost } from "../../lib/utils";
 import { createInstance, fetchInstanceHistory } from "../../lib/api";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
 import type { ServerMessage } from "@shared/types";
 
-import type { AgentActivity, InstanceInfo, ProviderKind } from "@shared/types";
+import type { InstanceInfo, ProviderKind } from "@shared/types";
 import type { ChatItem } from "../../hooks/use-instance-messages";
 
 const MotionLogo = motion.create(RelayLogo);
@@ -97,8 +97,6 @@ export function InstanceView() {
     showThinkingIndicator,
     currentTasks,
     currentFiles,
-    currentTeam,
-    currentAgentActivities,
     lastActivity,
     processingStartedAt,
     rawHistory,
@@ -223,14 +221,10 @@ export function InstanceView() {
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [showDebugPaste, setShowDebugPaste] = useState(false);
   const [sidecarMobileOpen, setSidecarMobileOpen] = useState(false);
-  const [retainedAgentActivities, setRetainedAgentActivities] = useState<AgentActivity[] | null>(
-    null,
-  );
 
   // --- Sidecar panel toggles ---
   const [activePanels, setActivePanels] = useState<Set<SidecarTab>>(new Set());
   const manuallyToggledOff = useRef(new Set<SidecarTab>());
-  const prevHasTeamRef = useRef(false);
   const prevHasTasksRef = useRef(false);
   const prevHasFilesRef = useRef(false);
 
@@ -251,76 +245,26 @@ export function InstanceView() {
   // Reset when switching instances
   useEffect(() => {
     setSidecarMobileOpen(false);
-    setRetainedAgentActivities(null);
     setActivePanels(new Set());
     manuallyToggledOff.current.clear();
-    prevHasTeamRef.current = false;
     prevHasTasksRef.current = false;
     prevHasFilesRef.current = false;
   }, [id]);
-
-  const hasLiveAgentActivities = (currentAgentActivities?.length ?? 0) > 0;
-  const retainedClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Agent activity arrives as a high-frequency, non-persistent stream.
-  // Once we have agent activity for a loaded chat, keep showing it for the
-  // rest of that chat session instead of treating it like a temporary pulse.
-  // When live activities go empty during processing, hold retained for 2s
-  // to avoid sub-second flicker between tabbed and non-tabbed sidecar.
-  useEffect(() => {
-    if (hasLiveAgentActivities) {
-      // New live data — update retained and cancel any pending clear
-      if (retainedClearTimerRef.current) {
-        clearTimeout(retainedClearTimerRef.current);
-        retainedClearTimerRef.current = null;
-      }
-      setRetainedAgentActivities(currentAgentActivities);
-    } else if (!isProcessing && retainedAgentActivities) {
-      // Processing ended — clear retained after a short hold
-      if (!retainedClearTimerRef.current) {
-        retainedClearTimerRef.current = setTimeout(() => {
-          setRetainedAgentActivities(null);
-          retainedClearTimerRef.current = null;
-        }, 2000);
-      }
-    }
-    // During processing with no live activities — keep retained as-is (no timer)
-  }, [currentAgentActivities, hasLiveAgentActivities, isProcessing, retainedAgentActivities]);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (retainedClearTimerRef.current) {
-        clearTimeout(retainedClearTimerRef.current);
-      }
-    };
-  }, []);
-
-  const sidecarAgentActivities =
-    hasLiveAgentActivities && currentAgentActivities
-      ? currentAgentActivities
-      : retainedAgentActivities;
-  const deferredSidecarAgentActivities = useDeferredValue(sidecarAgentActivities);
 
   const hasStats =
     !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
 
   // Per-panel content flags
-  const hasTeamContent =
-    (currentTeam?.members?.length ?? 0) > 0 || (sidecarAgentActivities?.length ?? 0) > 0;
   const hasTasksContent = (currentTasks?.length ?? 0) > 0;
   const hasFilesContent = (currentFiles?.length ?? 0) > 0;
 
   // Auto-activate operational panels when content first appears (skip if user manually toggled off)
   useEffect(() => {
     const toActivate: SidecarTab[] = [];
-    if (hasTeamContent && !prevHasTeamRef.current && !manuallyToggledOff.current.has("team"))
-      toActivate.push("team");
     if (hasTasksContent && !prevHasTasksRef.current && !manuallyToggledOff.current.has("tasks"))
       toActivate.push("tasks");
     if (hasFilesContent && !prevHasFilesRef.current && !manuallyToggledOff.current.has("files"))
       toActivate.push("files");
-    prevHasTeamRef.current = hasTeamContent;
     prevHasTasksRef.current = hasTasksContent;
     prevHasFilesRef.current = hasFilesContent;
     if (toActivate.length > 0) {
@@ -330,31 +274,25 @@ export function InstanceView() {
         return next;
       });
     }
-  }, [hasTeamContent, hasTasksContent, hasFilesContent]);
+  }, [hasTasksContent, hasFilesContent]);
 
   // Total content for mobile sidecar button badge
   const sidecarContentCount =
-    (currentTasks?.length ?? 0) +
-    (currentFiles?.length ?? 0) +
-    (currentTeam?.members?.length ?? 0) +
-    (sidecarAgentActivities?.length ?? 0) +
-    (hasStats ? 1 : 0);
+    (currentTasks?.length ?? 0) + (currentFiles?.length ?? 0) + (hasStats ? 1 : 0);
 
   // All panels with content — used for mobile overlay (shows everything)
   const allContentPanels = useMemo(() => {
     const s = new Set<SidecarTab>();
-    if (hasTeamContent) s.add("team");
     if (hasTasksContent) s.add("tasks");
     if (hasFilesContent) s.add("files");
     if (hasStats) s.add("context");
     return s;
-  }, [hasTeamContent, hasTasksContent, hasFilesContent, hasStats]);
+  }, [hasTasksContent, hasFilesContent, hasStats]);
 
   // Desktop sidecar visible when any active panel has content
   const showDesktopSidecar =
     !isMobile &&
-    ((activePanels.has("team") && hasTeamContent) ||
-      (activePanels.has("tasks") && hasTasksContent) ||
+    ((activePanels.has("tasks") && hasTasksContent) ||
       (activePanels.has("files") && hasFilesContent) ||
       (activePanels.has("context") && hasStats));
 
@@ -547,6 +485,7 @@ export function InstanceView() {
           provider={instance.provider}
           preferredModel={instance.preferredModel}
           reasoningBudget={instance.reasoningBudget}
+          planMode={instance.planMode}
           activeModel={instance.stats?.model}
           skipPermissions={instance.skipPermissions}
           hasMessages={items.length > 0}
@@ -661,20 +600,9 @@ export function InstanceView() {
             </Button>
           </Tooltip>
           {/* Desktop: per-panel toggle buttons (only shown when content exists) */}
-          {!isMobile && (hasTeamContent || hasTasksContent || hasFilesContent || hasStats) && (
+          {!isMobile && (hasTasksContent || hasFilesContent || hasStats) && (
             <>
               <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
-              {hasTeamContent && (
-                <Tooltip content={activePanels.has("team") ? "Hide team" : "Show team"}>
-                  <Button
-                    variant="icon"
-                    onClick={() => togglePanel("team")}
-                    className={`shrink-0 ${activePanels.has("team") ? "!bg-accent/10 !text-accent" : ""}`}
-                  >
-                    <Users size={15} strokeWidth={2} />
-                  </Button>
-                </Tooltip>
-              )}
               {hasTasksContent && (
                 <Tooltip content={activePanels.has("tasks") ? "Hide tasks" : "Show tasks"}>
                   <Button
@@ -737,8 +665,6 @@ export function InstanceView() {
             <Sidecar
               tasks={currentTasks}
               files={currentFiles}
-              team={currentTeam}
-              agentActivities={deferredSidecarAgentActivities}
               stats={instance.stats}
               items={items}
               rawHistory={rawHistory}
@@ -761,8 +687,6 @@ export function InstanceView() {
         <Sidecar
           tasks={currentTasks}
           files={currentFiles}
-          team={currentTeam}
-          agentActivities={deferredSidecarAgentActivities}
           stats={instance.stats}
           items={items}
           rawHistory={rawHistory}

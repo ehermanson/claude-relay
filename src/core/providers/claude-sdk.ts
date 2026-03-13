@@ -21,8 +21,6 @@ import type {
   TaskItem,
   FileChange,
   SessionStats,
-  TeamInfo,
-  AgentActivity,
   ProviderRequest,
   ProviderRuntimeBinding,
 } from "../types.js";
@@ -60,6 +58,9 @@ interface SDKMessageBase {
 /** Minimal subset of the Query interface we use */
 interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   interrupt(): Promise<void>;
+  setPermissionMode(
+    mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk",
+  ): Promise<void>;
   setModel(model?: string): Promise<void>;
   setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
   close(): void;
@@ -201,6 +202,8 @@ export interface ClaudeSdkSessionOptions {
   model?: string;
   /** Maximum extended-thinking token budget */
   maxThinkingTokens?: number;
+  /** Whether Claude should run in plan mode */
+  planMode?: boolean;
   /** Session ID to resume */
   resumeSessionId?: string;
   /** Whether to bypass all permissions */
@@ -286,6 +289,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private pendingPermission: PendingPermission | null = null;
   private allowedToolSet: Set<string>;
   private _bypassPermissions = false;
+  private _planMode = false;
   private pendingStreamMessage: PendingStreamMessage | null = null;
   private _autoContinueCount = 0;
 
@@ -293,8 +297,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private taskMap = new Map<string, TaskItem>();
   private pendingTaskCreates = new Map<string, { subject: string; activeForm?: string }>();
   private fileMap = new Map<string, FileChange>();
-  private teamState: TeamInfo | null = null;
-  private agentActivityMap = new Map<string, AgentActivity>();
   // Map tool_use_id → tool name for tool_result attribution
   private pendingTools = new Map<string, string>();
   /** Raw assistant message for attaching to emitted events */
@@ -310,6 +312,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this.logger = options.logger;
     this.cwd = options.cwd;
     this.currentModel = options.model ?? null;
+    this._planMode = options.planMode ?? false;
     this.allowedToolSet = new Set(options.allowedTools || []);
     this.promptQueue = new PromptQueue();
 
@@ -328,6 +331,12 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     if (options.dangerouslySkipPermissions) {
       this._bypassPermissions = true;
+    }
+
+    if (this._bypassPermissions) {
+      sdkOptions.permissionMode = "bypassPermissions";
+    } else if (this._planMode) {
+      sdkOptions.permissionMode = "plan";
     }
 
     // Always set canUseTool so we can toggle bypass at runtime.
@@ -387,7 +396,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         cwd: this.cwd,
         model: this.currentModel ?? undefined,
       },
-      runtimeMode: this._bypassPermissions ? "full-access" : "approval-required",
+      runtimeMode: this._planMode
+        ? "plan"
+        : this._bypassPermissions
+          ? "full-access"
+          : "approval-required",
     };
   }
 
@@ -479,7 +492,15 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
   setBypassPermissions(bypass: boolean): void {
     this._bypassPermissions = bypass;
+    if (bypass) {
+      this._planMode = false;
+    }
     this.logger.info(`[SdkSession] Bypass permissions: ${bypass}`);
+    this.query
+      .setPermissionMode(bypass ? "bypassPermissions" : this._planMode ? "plan" : "default")
+      .catch((err) => {
+        this.logger.warn(`[SdkSession] setPermissionMode error: ${err}`);
+      });
     // If switching to bypass and there's a pending permission, auto-approve it
     if (bypass && this.pendingPermission) {
       this.logger.info(
@@ -492,6 +513,21 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       });
       this.pendingPermission = null;
     }
+  }
+
+  setPlanMode(planMode: boolean): void {
+    if (this._stopped) return;
+    this._planMode = planMode;
+    if (planMode) {
+      this._bypassPermissions = false;
+    }
+    this.query
+      .setPermissionMode(
+        planMode ? "plan" : this._bypassPermissions ? "bypassPermissions" : "default",
+      )
+      .catch((err) => {
+        this.logger.warn(`[SdkSession] setPermissionMode(plan) error: ${err}`);
+      });
   }
 
   respondToRequest(requestId: string, decision: "accept" | "decline"): boolean {
@@ -679,15 +715,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         this.logger.debug(
           `[SdkSession] Init: model=${msg.model}, cwd=${msg.cwd}, tools=${(msg.tools as string[])?.length}`,
         );
-        break;
-      case "task_started":
-        this.handleTaskStarted(msg);
-        break;
-      case "task_progress":
-        this.handleTaskProgress(msg);
-        break;
-      case "task_notification":
-        this.handleTaskNotification(msg);
         break;
       case "hook_started":
       case "hook_progress":
@@ -998,9 +1025,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       return;
     }
 
-    // Team tools
-    if (this.handleTeamTool(toolName, input)) return;
-
     // File change tracking
     this.trackFileChange(toolName, input);
 
@@ -1053,49 +1077,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       raw: { tool_use_id: toolUseId, tool: toolName, content: block.content, is_error: isError },
     };
     this.emit("activity", activity);
-  }
-
-  // ===========================================================================
-  // Task event handlers (SDK system subtypes)
-  // ===========================================================================
-
-  private handleTaskStarted(msg: Record<string, unknown>): void {
-    const taskId = msg.task_id as string;
-    const description = msg.description as string;
-    // SDK task_started maps to agent progress
-    this.agentActivityMap.set(taskId, {
-      agentId: taskId,
-      description,
-      updatedAt: Date.now(),
-    });
-    this.emitAgentActivity();
-  }
-
-  private handleTaskProgress(msg: Record<string, unknown>): void {
-    const taskId = msg.task_id as string;
-    const description = msg.description as string;
-    const existing = this.agentActivityMap.get(taskId) || {
-      agentId: taskId,
-      updatedAt: Date.now(),
-    };
-    existing.description = description;
-    if (msg.last_tool_name) existing.tool = msg.last_tool_name as string;
-    existing.updatedAt = Date.now();
-    this.agentActivityMap.set(taskId, existing);
-    this.emitAgentActivity();
-  }
-
-  private handleTaskNotification(msg: Record<string, unknown>): void {
-    const taskId = msg.task_id as string;
-    const status = msg.status as string;
-    const summary = msg.summary as string;
-    const existing = this.agentActivityMap.get(taskId);
-    if (existing) {
-      existing.description = `${status}: ${summary || ""}`.trim();
-      existing.updatedAt = Date.now();
-      this.agentActivityMap.set(taskId, existing);
-      this.emitAgentActivity();
-    }
   }
 
   // ===========================================================================
@@ -1155,75 +1136,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       activity: "file_list",
       description: "Files changed",
       files: Array.from(this.fileMap.values()).map((f) => ({ ...f })),
-    };
-    this.emit("activity", activity);
-  }
-
-  private handleTeamTool(toolName: string, input: Record<string, unknown> | undefined): boolean {
-    if (!input) return false;
-
-    if (toolName === "TeamCreate") {
-      this.teamState = {
-        name: (input.team_name as string) || "team",
-        description: input.description as string | undefined,
-        members: [],
-      };
-      this.emitTeamInfo();
-      return true;
-    }
-
-    if (toolName === "Task" && input.team_name && this.teamState) {
-      this.teamState.members.push({
-        name: (input.name as string) || "agent",
-        subagentType: (input.subagent_type as string) || "agent",
-        description: (input.description as string) || "",
-        status: "running",
-        spawnedAt: Date.now(),
-      });
-      this.emitTeamInfo();
-      return true;
-    }
-
-    if (toolName === "SendMessage" && input.type === "shutdown_request" && this.teamState) {
-      const recipient = input.recipient as string | undefined;
-      if (recipient) {
-        const member = this.teamState.members.find((m) => m.name === recipient);
-        if (member) {
-          member.status = "shutting_down";
-          this.emitTeamInfo();
-        }
-      }
-      return false; // Still show SendMessage as activity
-    }
-
-    if (toolName === "TeamDelete" && this.teamState) {
-      for (const member of this.teamState.members) {
-        member.status = "shutdown";
-      }
-      this.emitTeamInfo();
-      return true;
-    }
-
-    return false;
-  }
-
-  private emitTeamInfo(): void {
-    if (!this.teamState) return;
-    const activity: ActivityMessage = {
-      type: "activity",
-      activity: "team_info",
-      description: "Team",
-      team: { ...this.teamState, members: this.teamState.members.map((m) => ({ ...m })) },
-    };
-    this.emit("activity", activity);
-  }
-
-  private emitAgentActivity(): void {
-    const activity: ActivityMessage = {
-      type: "activity",
-      activity: "agent_activity",
-      description: "Agent activity",
-      agentActivities: Array.from(this.agentActivityMap.values()).map((a) => ({ ...a })),
     };
     this.emit("activity", activity);
   }

@@ -12,6 +12,7 @@ class FakeQuery {
     this.resolvers = [];
     this.done = false;
     this.interruptCalls = 0;
+    this.setPermissionModeCalls = [];
     this.setModelCalls = [];
     this.setMaxThinkingTokensCalls = [];
     this.closeCalls = 0;
@@ -37,6 +38,10 @@ class FakeQuery {
 
   async interrupt() {
     this.interruptCalls++;
+  }
+
+  async setPermissionMode(mode) {
+    this.setPermissionModeCalls.push(mode);
   }
 
   async setModel(model) {
@@ -196,8 +201,23 @@ describe("ClaudeSdkSession", () => {
       });
       // canUseTool is always set (auto-approves when bypass is on)
       assert.ok(typeof capturedOptions.canUseTool === "function");
-      // permissionMode/allowDangerouslySkipPermissions are no longer set
-      assert.equal(capturedOptions.permissionMode, undefined);
+      assert.equal(capturedOptions.permissionMode, "bypassPermissions");
+      session.close();
+    });
+
+    it("passes plan permission mode when requested", async () => {
+      let capturedOptions;
+      const fakeQuery = new FakeQuery();
+      const session = await createSdkSession({
+        cwd: "/test",
+        planMode: true,
+        logger: noopLogger,
+        queryFn: ({ prompt, options }) => {
+          capturedOptions = options;
+          return fakeQuery;
+        },
+      });
+      assert.equal(capturedOptions.permissionMode, "plan");
       session.close();
     });
 
@@ -720,98 +740,17 @@ describe("ClaudeSdkSession", () => {
     });
   });
 
-  describe("team tracking", () => {
-    it("tracks team creation and member spawning", async () => {
+  describe("plan mode", () => {
+    it("setPlanMode() calls query.setPermissionMode()", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);
-      const activities = collectEvents(session, "activity");
 
-      // TeamCreate
-      harness.fakeQuery.emit({
-        type: "assistant",
-        session_id: "sess-1",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              name: "TeamCreate",
-              id: "tu-1",
-              input: { team_name: "builders", description: "Build team" },
-            },
-          ],
-        },
-      });
+      session.setPlanMode(true);
+      session.setPlanMode(false);
 
       await tick();
 
-      // Spawn agent via Task with team_name
-      harness.fakeQuery.emit({
-        type: "assistant",
-        session_id: "sess-1",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              name: "Task",
-              id: "tu-2",
-              input: {
-                team_name: "builders",
-                name: "agent-1",
-                subagent_type: "coder",
-                description: "Write code",
-              },
-            },
-          ],
-        },
-      });
-
-      await tick();
-
-      const teamActs = activities.filter(([a]) => a.activity === "team_info");
-      assert.ok(teamActs.length >= 2);
-      const lastTeam = teamActs[teamActs.length - 1][0].team;
-      assert.equal(lastTeam.name, "builders");
-      assert.equal(lastTeam.members.length, 1);
-      assert.equal(lastTeam.members[0].name, "agent-1");
-      assert.equal(lastTeam.members[0].status, "running");
-      session.close();
-    });
-  });
-
-  describe("agent progress (task lifecycle)", () => {
-    it("tracks task_started and task_progress", async () => {
-      const harness = makeHarness();
-      const session = await createTestSession(harness);
-      const activities = collectEvents(session, "activity");
-
-      harness.fakeQuery.emit({
-        type: "system",
-        subtype: "task_started",
-        session_id: "sess-1",
-        task_id: "task-1",
-        description: "Writing tests",
-      });
-
-      await tick();
-
-      harness.fakeQuery.emit({
-        type: "system",
-        subtype: "task_progress",
-        session_id: "sess-1",
-        task_id: "task-1",
-        description: "Running vitest",
-        usage: { total_tokens: 500, tool_uses: 3, duration_ms: 2000 },
-        last_tool_name: "Bash",
-      });
-
-      await tick();
-
-      const agentActs = activities.filter(([a]) => a.activity === "agent_activity");
-      assert.ok(agentActs.length >= 2);
-      const lastActs = agentActs[agentActs.length - 1][0].agentActivities;
-      assert.equal(lastActs[0].agentId, "task-1");
-      assert.equal(lastActs[0].description, "Running vitest");
-      assert.equal(lastActs[0].tool, "Bash");
+      assert.deepEqual(harness.fakeQuery.setPermissionModeCalls, ["plan", "default"]);
       session.close();
     });
   });

@@ -21,6 +21,8 @@ interface OpenInMenuProps {
   className?: string;
 }
 
+const OPEN_TARGET_STORAGE_KEY = "relay.open-target";
+
 const GHOSTTY_ICON_PATH =
   "M12 0C6.7 0 2.4 4.3 2.4 9.6v11.146c0 1.772 1.45 3.267 3.222 3.254a3.18 3.18 0 0 0 1.955-.686 1.96 1.96 0 0 1 2.444 0 3.18 3.18 0 0 0 1.976.686c.75 0 1.436-.257 1.98-.686.715-.563 1.71-.587 2.419-.018.59.476 1.355.743 2.182.699 1.705-.094 3.022-1.537 3.022-3.244V9.601C21.6 4.3 17.302 0 12 0M6.069 6.562a1 1 0 0 1 .46.131l3.578 2.065v.002a.974.974 0 0 1 0 1.687L6.53 12.512a.975.975 0 0 1-.976-1.687L7.67 9.602 5.553 8.38a.975.975 0 0 1 .515-1.818m7.438 2.063h4.7a.975.975 0 1 1 0 1.95h-4.7a.975.975 0 0 1 0-1.95";
 const VSCODE_ICON_PATH =
@@ -65,7 +67,10 @@ function OpenTargetIcon({ target, className }: { target: NativeOpenTarget; class
     case "finder":
       return <FolderOpen size={14} strokeWidth={2} className={`shrink-0 ${className}`} />;
     case "system-default":
-      return <SimpleIconGlyph pathData={siApple.path} className={className} />;
+      if (target.label === "Finder") {
+        return <SimpleIconGlyph pathData={siApple.path} className={className} />;
+      }
+      return <FolderOpen size={14} strokeWidth={2} className={`shrink-0 ${className}`} />;
     default:
       if (target.kind === "terminal") {
         return <TerminalSquare size={14} strokeWidth={2} className={`shrink-0 ${className}`} />;
@@ -81,6 +86,7 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
   const { theme } = useTheme();
   const [targets, setTargets] = useState<NativeOpenTarget[]>([]);
   const [preferredTargetId, setPreferredTargetId] = useState<string | null>(null);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [openingTargetId, setOpeningTargetId] = useState<string | null>(null);
 
@@ -90,6 +96,7 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
     if (!path) {
       setTargets([]);
       setPreferredTargetId(null);
+      setSelectedTargetId(null);
       return;
     }
 
@@ -104,6 +111,7 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
         if (cancelled) return;
         setTargets([]);
         setPreferredTargetId(null);
+        setSelectedTargetId(null);
         toast.error(err instanceof Error ? err.message : "Failed to load open targets");
       })
       .finally(() => {
@@ -117,12 +125,35 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
     };
   }, [path]);
 
+  useEffect(() => {
+    if (!path || targets.length === 0) {
+      setSelectedTargetId(null);
+      return;
+    }
+
+    const validIds = new Set(targets.map((target) => target.id));
+    let storedTargetId: string | null = null;
+    try {
+      storedTargetId = window.localStorage.getItem(`${OPEN_TARGET_STORAGE_KEY}:${path}`);
+    } catch {
+      storedTargetId = null;
+    }
+
+    const nextTargetId =
+      (storedTargetId && validIds.has(storedTargetId) ? storedTargetId : null) ||
+      (preferredTargetId && validIds.has(preferredTargetId) ? preferredTargetId : null) ||
+      targets[0]?.id ||
+      null;
+
+    setSelectedTargetId(nextTargetId);
+  }, [path, preferredTargetId, targets]);
+
   const selectedTarget = useMemo(() => {
-    if (preferredTargetId) {
-      return targets.find((target) => target.id === preferredTargetId) ?? null;
+    if (selectedTargetId) {
+      return targets.find((target) => target.id === selectedTargetId) ?? null;
     }
     return targets[0] ?? null;
-  }, [preferredTargetId, targets]);
+  }, [selectedTargetId, targets]);
 
   if (!path || (!loading && targets.length === 0)) {
     return null;
@@ -131,42 +162,71 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
   const triggerLabel = selectedTarget ? `Open in ${selectedTarget.label}` : "Open in";
   const iconClassName = theme === "light" ? "text-black/70" : "text-white/80";
 
+  const rememberSelection = (targetId: string) => {
+    setSelectedTargetId(targetId);
+    try {
+      if (path) {
+        window.localStorage.setItem(`${OPEN_TARGET_STORAGE_KEY}:${path}`, targetId);
+      }
+    } catch {
+      // Ignore storage failures in private mode or restrictive browsers.
+    }
+  };
+
+  const handleOpenTarget = async (targetId: string) => {
+    if (!path) return;
+    setOpeningTargetId(targetId);
+    try {
+      await openNativePath({
+        path,
+        targetId,
+        rememberForProject: true,
+      });
+      setPreferredTargetId(targetId);
+      rememberSelection(targetId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to open path");
+    } finally {
+      setOpeningTargetId(null);
+    }
+  };
+
   return (
     <Menu.Root>
       <Tooltip content="Open this project in another app">
-        <Menu.Trigger
-          disabled={loading || openingTargetId !== null}
-          className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+        <div
+          className={`flex h-7 items-center overflow-hidden rounded-md border border-border/70 bg-transparent text-xs text-muted ${className}`}
         >
-          <span className="max-w-[9rem] truncate flex items-center gap-2">
-            {selectedTarget && <OpenTargetIcon target={selectedTarget} />}
-            Open
-          </span>
-          <ChevronDown size={12} strokeWidth={2} />
-        </Menu.Trigger>
+          <button
+            type="button"
+            disabled={loading || openingTargetId !== null || !selectedTarget}
+            onClick={() => {
+              if (selectedTarget) void handleOpenTarget(selectedTarget.id);
+            }}
+            className="flex h-full min-w-0 items-center gap-2 px-2.5 transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {selectedTarget && <OpenTargetIcon target={selectedTarget} className={iconClassName} />}
+            <span className="max-w-[11rem] truncate">{triggerLabel}</span>
+          </button>
+          <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
+          <Menu.Trigger
+            disabled={loading || openingTargetId !== null}
+            className="flex h-full w-7 items-center justify-center transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronDown size={12} strokeWidth={2} />
+          </Menu.Trigger>
+        </div>
       </Tooltip>
       <Menu.Content align="end" className="min-w-[15rem]">
         {targets.map((target) => {
-          const isSelected = preferredTargetId === target.id;
+          const isSelected = selectedTargetId === target.id;
           const isOpening = openingTargetId === target.id;
           return (
             <Menu.Item
               key={target.id}
               disabled={isOpening}
-              onClick={async () => {
-                setOpeningTargetId(target.id);
-                try {
-                  await openNativePath({
-                    path,
-                    targetId: target.id,
-                    rememberForProject: true,
-                  });
-                  setPreferredTargetId(target.id);
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Failed to open path");
-                } finally {
-                  setOpeningTargetId(null);
-                }
+              onClick={() => {
+                void handleOpenTarget(target.id);
               }}
             >
               <OpenTargetIcon target={target} className={iconClassName} />

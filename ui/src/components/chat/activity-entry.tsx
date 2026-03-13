@@ -62,7 +62,7 @@ function highlightCode(code: string, lang?: string): string | undefined {
 }
 
 interface ActivityEntryProps {
-  activity: "tool_use" | "tool_result" | "thinking" | "task_list" | "file_list" | "team_info";
+  activity: "tool_use" | "tool_result" | "thinking" | "task_list" | "file_list";
   description: string;
   tool?: string;
   detail?: string;

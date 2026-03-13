@@ -222,6 +222,33 @@ describe("CodexAppServerSession", () => {
     // Check turn/start has the message
     const turnStart = msgs.find((m) => m.method === "turn/start");
     assert.equal(turnStart.params.input[0].text, "hello");
+    assert.equal(turnStart.params.collaborationMode.mode, "default");
+    assert.equal(turnStart.params.collaborationMode.settings.model, "gpt-5.4");
+
+    session.close();
+  });
+
+  it("passes collaborationMode=plan when plan mode is enabled", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      planMode: true,
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+
+    session.send("plan this change");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    const msgs = child.getStdinMessages();
+    const turnStart = msgs.find((m) => m.method === "turn/start");
+    assert.equal(turnStart.params.collaborationMode.mode, "plan");
+    assert.equal(turnStart.params.collaborationMode.settings.model, "gpt-5.4");
 
     session.close();
   });

@@ -1,5 +1,4 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Tabs } from "../ui/tabs";
 import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
@@ -8,15 +7,7 @@ import { Collapsible } from "../ui/collapsible";
 import { FileIcon } from "../ui/file-icon";
 import hljs from "../../lib/markdown";
 import { escapeHtml, formatTokens, formatModel, formatTimestamp } from "../../lib/utils";
-import type {
-  TaskItem,
-  FileChange,
-  TeamInfo,
-  TeamMember,
-  AgentActivity,
-  SessionStats,
-  HistoryEntry,
-} from "@shared/types";
+import type { TaskItem, FileChange, SessionStats, HistoryEntry } from "@shared/types";
 import type { ChatItem } from "../../hooks/use-instance-messages";
 
 function StatusIcon({ status }: { status: TaskItem["status"] }) {
@@ -53,53 +44,6 @@ function StatusIcon({ status }: { status: TaskItem["status"] }) {
   }
 }
 
-function MemberStatusIcon({ status }: { status: TeamMember["status"] }) {
-  switch (status) {
-    case "running":
-      return (
-        <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-          <Spinner size={14} />
-        </div>
-      );
-    case "shutting_down":
-      return (
-        <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-warning">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="15" y1="9" x2="9" y2="15" />
-            <line x1="9" y1="9" x2="15" y2="15" />
-          </svg>
-        </div>
-      );
-    case "shutdown":
-      return (
-        <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-accent-dim text-accent">
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </div>
-      );
-  }
-}
-
 /** Strip the working directory prefix to show project-relative paths. */
 function relativePath(filePath: string, cwd: string): string {
   if (cwd && filePath.startsWith(cwd)) {
@@ -108,86 +52,6 @@ function relativePath(filePath: string, cwd: string): string {
     return rel.startsWith("/") ? rel.slice(1) : rel;
   }
   return filePath;
-}
-
-function looksLikeOpaqueAgentId(value: string): boolean {
-  return /^[a-f0-9]{12,}$/i.test(value);
-}
-
-function getAgentLabel(value: string, index: number, fallback?: string): string {
-  if (!looksLikeOpaqueAgentId(value)) return value;
-  return fallback || `Agent ${index + 1}`;
-}
-
-function isCompletedAgentActivity(activity: AgentActivity): boolean {
-  const text = activity.description?.trim().toLowerCase() || "";
-  return text.startsWith("completed:") || text.startsWith("complete:");
-}
-
-function AgentRowIcon({ completed }: { completed: boolean }) {
-  if (completed) {
-    return (
-      <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-accent-dim text-accent">
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={3}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-      <Spinner size={14} />
-    </div>
-  );
-}
-
-function sameAgentActivities(
-  prev: AgentActivity[] | null | undefined,
-  next: AgentActivity[] | null | undefined,
-): boolean {
-  const prevList = prev ?? [];
-  const nextList = next ?? [];
-  if (prevList.length !== nextList.length) return false;
-  for (let i = 0; i < prevList.length; i++) {
-    const a = prevList[i];
-    const b = nextList[i];
-    if (!b) return false;
-    if (a.agentId !== b.agentId || a.description !== b.description || a.tool !== b.tool) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function sameTeam(prev: TeamInfo | null, next: TeamInfo | null): boolean {
-  if (prev === next) return true;
-  if (!prev || !next) return false;
-  if (prev.name !== next.name || prev.description !== next.description) return false;
-  if (prev.members.length !== next.members.length) return false;
-  for (let i = 0; i < prev.members.length; i++) {
-    const a = prev.members[i];
-    const b = next.members[i];
-    if (!b) return false;
-    if (
-      a.name !== b.name ||
-      a.subagentType !== b.subagentType ||
-      a.description !== b.description ||
-      a.status !== b.status
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function sameTasks(prev: TaskItem[] | null, next: TaskItem[] | null): boolean {
@@ -230,126 +94,6 @@ function sameFiles(prev: FileChange[] | null, next: FileChange[] | null): boolea
   }
   return true;
 }
-
-const TeamPanel = memo(
-  function TeamPanel({
-    team,
-    agentActivities,
-  }: {
-    team: TeamInfo | null;
-    agentActivities?: AgentActivity[] | null;
-  }) {
-    const members = team?.members ?? [];
-    const running = useMemo(
-      () => members.filter((member) => member.status === "running").length,
-      [members],
-    );
-    const total = members.length;
-
-    const { activityByName, unmatchedActivities } = useMemo(() => {
-      const nextActivityByName = new Map<string, AgentActivity>();
-      const nextUnmatchedActivities: AgentActivity[] = [];
-      if (agentActivities) {
-        const memberNames = new Set(members.map((member) => member.name));
-        for (const activity of agentActivities) {
-          if (memberNames.has(activity.agentId)) {
-            nextActivityByName.set(activity.agentId, activity);
-          } else {
-            nextUnmatchedActivities.push(activity);
-          }
-        }
-      }
-      return {
-        activityByName: nextActivityByName,
-        unmatchedActivities: nextUnmatchedActivities,
-      };
-    }, [agentActivities, members]);
-
-    const unmatchedActiveCount = useMemo(
-      () => unmatchedActivities.filter((activity) => !isCompletedAgentActivity(activity)).length,
-      [unmatchedActivities],
-    );
-
-    return (
-      <>
-        {/* Team header */}
-        <div className="shrink-0 px-3.5 py-2.5">
-          <div className="flex items-center gap-2">
-            <div className="text-[0.8125rem] font-semibold text-text-bright">
-              {team?.name ?? "Agents"}
-            </div>
-            <span className="rounded-full bg-accent-dim px-1.5 py-px text-[0.625rem] font-semibold tabular-nums text-accent">
-              {total > 0 ? `${running}/${total}` : unmatchedActiveCount}
-            </span>
-          </div>
-          {team?.description && (
-            <div className="mt-0.5 text-[0.75rem] text-muted">{team.description}</div>
-          )}
-        </div>
-
-        {/* Member list */}
-        <div className="flex-1 overflow-y-auto px-2 pb-2">
-          <div className="flex flex-col gap-0.5">
-            {members.map((member, index) => {
-              const activity = activityByName.get(member.name);
-              const memberLabel = getAgentLabel(member.name, index, member.subagentType);
-              return (
-                <div
-                  key={member.name}
-                  className="flex items-start gap-2.5 rounded-lg bg-surface px-2.5 py-2 text-[0.8125rem] leading-snug"
-                >
-                  <div className="mt-px">
-                    <MemberStatusIcon status={member.status} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div
-                      className={`truncate font-medium ${
-                        member.status === "shutdown" ? "text-muted line-through" : "text-text"
-                      }`}
-                    >
-                      {memberLabel}
-                    </div>
-                    <div className="truncate text-[0.75rem] text-muted">
-                      {activity?.description || activity?.tool || member.subagentType}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Unmatched agent activities (agentId doesn't match any member name) */}
-            {unmatchedActivities.map((a, index) => {
-              const completed = isCompletedAgentActivity(a);
-              return (
-                <div
-                  key={a.agentId}
-                  className="flex items-start gap-2.5 rounded-lg bg-surface px-2.5 py-2 text-[0.8125rem] leading-snug"
-                >
-                  <div className="mt-px">
-                    <AgentRowIcon completed={completed} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div
-                      className={`truncate font-medium ${completed ? "text-muted" : "text-text"}`}
-                    >
-                      {getAgentLabel(a.agentId, index)}
-                    </div>
-                    <div className="truncate text-[0.75rem] text-muted">
-                      {a.description || a.tool || "Working..."}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </>
-    );
-  },
-  (prev, next) =>
-    sameTeam(prev.team, next.team) &&
-    sameAgentActivities(prev.agentActivities, next.agentActivities),
-);
 
 const TasksPanel = memo(function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
   const completed = tasks.filter((t) => t.status === "completed").length;
@@ -1031,7 +775,7 @@ const ContextPanel = memo(function ContextPanel({
 // Tab system
 // =============================================================================
 
-export type SidecarTab = "team" | "tasks" | "files" | "context";
+export type SidecarTab = "tasks" | "files" | "context";
 
 function samePanelSets(a: ReadonlySet<SidecarTab>, b: ReadonlySet<SidecarTab>): boolean {
   if (a.size !== b.size) return false;
@@ -1042,8 +786,6 @@ function samePanelSets(a: ReadonlySet<SidecarTab>, b: ReadonlySet<SidecarTab>): 
 interface SidecarProps {
   tasks: TaskItem[] | null;
   files: FileChange[] | null;
-  team: TeamInfo | null;
-  agentActivities?: AgentActivity[] | null;
   stats?: SessionStats | null;
   items?: ChatItem[];
   rawHistory?: HistoryEntry[] | null;
@@ -1064,8 +806,6 @@ export const Sidecar = memo(
   function Sidecar({
     tasks,
     files,
-    team,
-    agentActivities,
     stats,
     items,
     rawHistory,
@@ -1079,8 +819,6 @@ export const Sidecar = memo(
     onClose,
     isMobileOverlay,
   }: SidecarProps) {
-    const hasTeam = !!team && team.members.length > 0;
-    const hasAgentActivities = (agentActivities?.length ?? 0) > 0;
     const hasTasks = tasks && tasks.length > 0;
     const hasFiles = files && files.length > 0;
     const hasStats = !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
@@ -1088,13 +826,6 @@ export const Sidecar = memo(
     // Build available tabs: must have content AND be in activePanels
     const availableTabs = useMemo(() => {
       const tabs: { key: SidecarTab; label: string; count: number }[] = [];
-      if ((hasTeam || hasAgentActivities) && activePanels.has("team")) {
-        tabs.push({
-          key: "team",
-          label: hasTeam ? "Team" : "Agents",
-          count: hasTeam ? team!.members.length : agentActivities!.length,
-        });
-      }
       if (hasTasks && activePanels.has("tasks"))
         tabs.push({ key: "tasks", label: "Tasks", count: tasks.length });
       if (hasFiles && activePanels.has("files"))
@@ -1102,20 +833,9 @@ export const Sidecar = memo(
       if (hasStats && activePanels.has("context"))
         tabs.push({ key: "context", label: "Context", count: 0 });
       return tabs;
-    }, [
-      activePanels,
-      agentActivities,
-      files,
-      hasAgentActivities,
-      hasFiles,
-      hasTasks,
-      hasTeam,
-      hasStats,
-      tasks,
-      team,
-    ]);
+    }, [activePanels, files, hasFiles, hasTasks, hasStats, tasks]);
 
-    const [activeTab, setActiveTab] = useState<SidecarTab>("team");
+    const [activeTab, setActiveTab] = useState<SidecarTab>("tasks");
 
     // Auto-switch to newly added panel when toggled on from the header
     const prevActivePanelsRef = useRef(activePanels);
@@ -1138,38 +858,49 @@ export const Sidecar = memo(
       <div
         className={
           isMobileOverlay
-            ? "animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col rounded-l-2xl border-l border-border bg-surface shadow-2xl"
-            : "flex h-full w-full flex-col border-l border-border/50 bg-surface"
+            ? "animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col overflow-hidden rounded-l-2xl border-l border-border bg-surface shadow-2xl"
+            : "flex h-full w-full flex-col overflow-hidden border-l border-border/50 bg-surface"
         }
       >
         {/* Header */}
-        <div className="shrink-0 px-3.5 pt-3 pb-2.5">
+        <div className="shrink-0 border-b border-border/60">
           <div className="flex items-center justify-between">
             {availableTabs.length > 1 ? (
-              <Tabs.Root value={effectiveTab} onValueChange={(v) => setActiveTab(v as SidecarTab)}>
-                <Tabs.List>
-                  {availableTabs.map((tab) => (
-                    <Tabs.Tab key={tab.key} value={tab.key}>
-                      {tab.label}
+              <div className="flex min-w-0 flex-1 items-stretch">
+                {availableTabs.map((tab) => {
+                  const isActive = tab.key === effectiveTab;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setActiveTab(tab.key)}
+                      className={`relative flex min-w-0 flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-[0.8125rem] font-semibold transition-colors ${
+                        isActive
+                          ? "border-accent text-text-bright"
+                          : "border-transparent text-muted hover:text-text"
+                      }`}
+                    >
+                      <span className="truncate">{tab.label}</span>
                       {tab.count > 0 && (
-                        <>
-                          {" "}
-                          <span className="inline-block min-w-[2ch] text-right tabular-nums opacity-60">
-                            {tab.count}
-                          </span>
-                        </>
+                        <span
+                          className={`shrink-0 text-[0.75rem] tabular-nums ${
+                            isActive ? "text-text" : "text-muted/70"
+                          }`}
+                        >
+                          {tab.count}
+                        </span>
                       )}
-                    </Tabs.Tab>
-                  ))}
-                </Tabs.List>
-              </Tabs.Root>
+                    </button>
+                  );
+                })}
+              </div>
             ) : (
-              <h2 className="text-[0.8125rem] font-semibold text-text-bright">
+              <h2 className="px-3.5 py-2.5 text-[0.8125rem] font-semibold text-text-bright">
                 {availableTabs[0]?.label ?? "Sidecar"}
               </h2>
             )}
             {isMobileOverlay && onClose && (
-              <Button variant="icon" size="icon-sm" onClick={onClose}>
+              <Button variant="icon" size="icon-sm" onClick={onClose} className="mr-2 shrink-0">
                 <svg
                   width="14"
                   height="14"
@@ -1189,9 +920,6 @@ export const Sidecar = memo(
         </div>
 
         {/* Panel content */}
-        {effectiveTab === "team" && (hasTeam || hasAgentActivities) && (
-          <TeamPanel team={team} agentActivities={agentActivities} />
-        )}
         {effectiveTab === "tasks" && hasTasks && <TasksPanel tasks={tasks} />}
         {effectiveTab === "files" && hasFiles && (
           <FilesPanel files={files} cwd={workingDirectory} />
@@ -1236,9 +964,7 @@ export const Sidecar = memo(
       prev.rawHistory === next.rawHistory &&
       prev.preferredModel === next.preferredModel &&
       sameTasks(prev.tasks, next.tasks) &&
-      sameFiles(prev.files, next.files) &&
-      sameTeam(prev.team, next.team) &&
-      sameAgentActivities(prev.agentActivities, next.agentActivities)
+      sameFiles(prev.files, next.files)
     );
   },
 );

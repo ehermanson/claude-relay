@@ -138,7 +138,7 @@ ui/
 
 `server/http.ts` uses `import.meta.dirname` to locate `ui/dist/` and `package.json`. The compiled output lives at `dist/server/http.js`, so the path to project root is `../..`. If this file ever moves, update those paths.
 
-### Sidecar Panel (Tasks + Files + Team/Agents)
+### Sidecar Panel (Tasks + Files + Context)
 
 - **Tasks:** ClaudeProcess accumulates task state: `taskMap` + `pendingTaskCreates` intercept TaskCreate/TaskUpdate/TaskList/TaskGet tool events
 - TaskCreate tool_use stores pending info; tool_result extracts ID via `Task #(\d+)` and creates TaskItem
@@ -150,24 +150,13 @@ ui/
 - Managed Codex sessions also synthesize `file_list` activity from `apply_patch` custom-tool calls, and Codex transcript replay rebuilds the same file state from `custom_tool_call` / `custom_tool_call_output` entries
 - InstanceManager syncs `file_list` activities from process onto `instance.files`; JSONL `convertJsonlEntry` also tracks file changes
 - UI: `Sidecar` renders changed files and directories with `FileIcon` + `file-icons.ts`; generic file/folder glyphs use the app's neutral style while framework/language files use `simple-icons` brand marks (React, Svelte, Vue, Astro, HTML, CSS, etc.)
-- **Team:** ClaudeProcess tracks `teamState` — intercepts TeamCreate, Task (with `team_name`), SendMessage (shutdown_request), TeamDelete tool events
-- `TeamCreate` → initializes `TeamInfo` with name/description, emits consolidated `team_info` activity, suppressed from chat
-- `Task` with `team_name` → adds `TeamMember` (status: "running"), emits `team_info`, suppressed from chat
-- `SendMessage` with `type: "shutdown_request"` → updates member status to "shutting_down", emits `team_info`, NOT suppressed (still shows as activity)
-- `TeamDelete` → marks all members "shutdown", emits `team_info`, suppressed from chat
-- InstanceManager syncs `team_info` activities from process onto `instance.team`; `handleJsonlTeamTool` handles JSONL replay
-- JSONL watcher also syncs `team_info` activities back to `instance.team`
-- UI: `useInstanceMessages` exposes `currentTasks`, `currentFiles`, and `currentTeam` (separate from chat items); all persist across turns
+- **Context:** `Sidecar` also exposes a session context panel driven by `SessionStats` plus recent history metadata. It shows token/cost breakdown, context-window usage when available, model info, and session timing details.
+- UI: `useInstanceMessages` exposes `currentTasks` and `currentFiles` (separate from chat items); both persist across turns
 - UI: `Sidecar` component renders as a `w-72` panel to the right of the chat, hidden on mobile
-- Generalized N-tab support: available tabs built from content (Team/Agents > Tasks > Files priority order)
+- Generalized N-tab support: available tabs are built from visible content (`Tasks`, `Files`, `Context`)
 - 0 tabs → hidden, 1 tab → no tab bar (just header), 2-3 tabs → tab bar with counts
-- Layout: `[Sidebar] [Chat | Sidecar]` — sidecar appears when tasks, files, team, or standalone agent activity exist; dismiss/un-dismiss based on combined content count
-- **Agent Progress:** Codex emits `progress` JSONL events (v2.1.42+) with subtypes `agent_progress`, `bash_progress`, `hook_progress`
-- `agent_progress`: Parsed by ClaudeProcess (`handleAgentProgress`) and `convertJsonlEntry`. Extracts tool descriptions and text output from `data.message.message.content` blocks. Stored in `agentActivityMap` (ClaudeProcess) / `instance.agentActivities` (InstanceManager). Emits `agent_activity` ActivityMessage with `AgentActivity[]`.
-- `bash_progress`: Emits a `tool_use` activity with elapsed time description (e.g. "Running... 15s")
-- `hook_progress`: Silently skipped — no user value
-- Agent activities are high-frequency — skipped from history storage but synced to instance state and emitted to WS subscribers
-- UI: `useInstanceMessages` exposes `currentAgentActivities`; the sidecar opens for live agent activity even without `team_info`. `TeamPanel` shows descriptions under matched team members and falls back to an "Agents" view for unmatched standalone agent activity
+- Layout: `[Sidebar] [Chat | Sidecar]` — sidecar appears when tasks, files, or context stats are available; dismiss/un-dismiss is based on that combined content count
+- Sidecar tabs are pinned to the top edge of the panel, render full width with no pill padding, and use an underline state instead of rounded segmented pills
 
 ### Resizable Panels
 
@@ -190,21 +179,23 @@ ui/
 
 ### Composer Controls
 
-- `InstanceInfo` carries both `preferredModel?: string` and `reasoningBudget?: number`
+- `InstanceInfo` carries `preferredModel?: string`, `reasoningBudget?: number`, and `planMode?: boolean`
 - UI: `InputArea` shows a combined provider/model picker for managed instances; models stay switchable, while choosing another provider starts a new managed chat instead of rewriting the current session
 - UI: provider switching can optionally carry over recent portable context (recent user/assistant turns, transcript results, and changed files) via `session-handoff.ts`
 - Managed sessions expose preset reasoning effort controls in the shared toolbar
+- Managed Claude and Codex sessions expose a `Build` / `Plan` dropdown in the shared toolbar; it sends `set_plan_mode` over WebSocket, persists through provider runtime bindings, and is mutually exclusive with full-access permission bypass
 - Codex sessions expose curated model selection and the shared reasoning picker through the composer controls
 - `GET /api/provider-models?provider=...` returns provider-scoped model metadata for the picker. Codex uses a built-in catalog filtered by best-effort `codex app-server` discovery when available, and falls back to the built-in list on discovery failure
 - UI: `InputArea` now uses a Lexical-based `ComposerEditor` so inline path mentions can render as atomic chips without giving up plain-text message semantics
 - UI: markdown-rendered absolute local file links in assistant messages are intercepted client-side and sent to `POST /api/open`, which asks the OS to open the path natively instead of routing the SPA to that pathname
-- `project-opener.ts` backs `GET /api/open-targets?path=...` and target-aware `POST /api/open`; chat/project headers use it for a remembered per-project `Open in` menu (preferred app persisted in `project-open-preferences.json` next to the relay DB)
+- `project-opener.ts` backs `GET /api/open-targets?path=...` and target-aware `POST /api/open`; chat/project headers use it for a split `Open in` control whose primary button opens the current target immediately while the menu updates the remembered preference
 - UI: the composer supports slash commands: `/model ...` for provider-appropriate model choices and `/reasoning <default|low|medium|high|max>` for managed sessions
 - UI: typing `@` opens a workspace search palette backed by `GET /api/workspace-entries`; selecting a result inserts an inline mention chip but still sends plain `@path/to/file` text to Codex
 - Reasoning presets are shown as effort levels (low/medium/high/max), mapped to underlying token budgets and sent over WS as `set_reasoning_budget`
-- `InstanceManager.setModel()` and `InstanceManager.setReasoningBudget()` persist both preferences to SQLite and rebroadcast `instance:status`
+- `InstanceManager.setModel()`, `InstanceManager.setReasoningBudget()`, and `InstanceManager.setPlanMode()` persist preferences to SQLite and rebroadcast `instance:status`
 - CLI provider: `ClaudeProcess.send()` applies `--model <id>` and `--max-thinking-tokens <budget>` on each turn
-- SDK provider: `ClaudeSdkSession` forwards changes with `query.setModel(...)` and `query.setMaxThinkingTokens(...)`
+- CLI provider: `ClaudeProcess.send()` also applies `--permission-mode plan` when Claude plan mode is active
+- SDK provider: `ClaudeSdkSession` forwards changes with `query.setModel(...)`, `query.setMaxThinkingTokens(...)`, and `query.setPermissionMode(...)`
 - SQLite persistence: schema v6 adds `reasoning_budget` alongside `preferred_model`
 - Workspace search: `workspace-entries.ts` indexes the active instance CWD via `git ls-files` when possible, falls back to a bounded recursive walk, caches results for 15 seconds, and returns scored file/folder matches
 

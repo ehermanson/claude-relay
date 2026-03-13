@@ -15,8 +15,6 @@ import type {
   TaskItem,
   FileChange,
   SessionStats,
-  TeamInfo,
-  AgentActivity,
   ProviderRequest,
   ProviderRuntimeBinding,
 } from "./types.js";
@@ -84,11 +82,10 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
   private taskMap = new Map<string, TaskItem>();
   private pendingTaskCreates = new Map<string, { subject: string; activeForm?: string }>();
   private fileMap = new Map<string, FileChange>();
-  private teamState: TeamInfo | null = null;
-  private agentActivityMap = new Map<string, AgentActivity>();
   private _cancelledForPermission = false;
   private _preferredModel: string | null = null;
   private _reasoningBudget: number | null = null;
+  private _planMode = false;
   private _bypassPermissions: boolean;
   private _stats: SessionStats = {
     inputTokens: 0,
@@ -108,13 +105,19 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
   constructor(
     config: CoreConfig,
-    options?: { resumeSessionId?: string; model?: string; reasoningBudget?: number },
+    options?: {
+      resumeSessionId?: string;
+      model?: string;
+      reasoningBudget?: number;
+      planMode?: boolean;
+    },
   ) {
     super();
     this.config = config;
     this.resumeSessionId = options?.resumeSessionId ?? null;
     this._preferredModel = options?.model ?? null;
     this._reasoningBudget = options?.reasoningBudget ?? null;
+    this._planMode = options?.planMode ?? false;
     this._bypassPermissions = config.dangerouslySkipPermissions;
     this.claudePath = this.findClaudeBinary();
     this.cwd = config.workingDirectory;
@@ -143,7 +146,11 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
         cwd: this.cwd,
         model: this._preferredModel ?? undefined,
       },
-      runtimeMode: this._bypassPermissions ? "full-access" : "approval-required",
+      runtimeMode: this._planMode
+        ? "plan"
+        : this._bypassPermissions
+          ? "full-access"
+          : "approval-required",
     };
   }
 
@@ -168,6 +175,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
   setBypassPermissions(bypass: boolean): void {
     this._bypassPermissions = bypass;
+    if (bypass) this._planMode = false;
   }
 
   /**
@@ -182,6 +190,13 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
    */
   setReasoningBudget(budget: number | null): void {
     this._reasoningBudget = budget;
+  }
+
+  setPlanMode(planMode: boolean): void {
+    this._planMode = planMode;
+    if (planMode) {
+      this._bypassPermissions = false;
+    }
   }
 
   /**
@@ -257,62 +272,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this.emit("activity", activity);
   }
 
-  private emitTeamInfo(): void {
-    if (!this.teamState) return;
-    const activity: ActivityMessage = {
-      type: "activity",
-      activity: "team_info",
-      description: "Team",
-      team: { ...this.teamState, members: this.teamState.members.map((m) => ({ ...m })) },
-    };
-    this.emit("activity", activity);
-  }
-
-  private emitAgentActivity(): void {
-    const activity: ActivityMessage = {
-      type: "activity",
-      activity: "agent_activity",
-      description: "Agent activity",
-      agentActivities: Array.from(this.agentActivityMap.values()).map((a) => ({ ...a })),
-    };
-    this.emit("activity", activity);
-  }
-
-  private handleAgentProgress(agentId: string, data: Record<string, unknown>): void {
-    if (!agentId) return;
-    const existing = this.agentActivityMap.get(agentId) || {
-      agentId,
-      updatedAt: Date.now(),
-    };
-
-    // Extract info from data.message.message.content blocks (same structure as assistant messages)
-    const message = data.message as
-      | {
-          message?: {
-            content?: Array<{ type: string; name?: string; text?: string; input?: unknown }>;
-          };
-        }
-      | undefined;
-    const content = message?.message?.content;
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block.type === "tool_use" && block.name) {
-          existing.tool = block.name;
-          existing.description = describeToolUse(
-            block.name,
-            block.input as Record<string, unknown> | undefined,
-          );
-        } else if (block.type === "text" && block.text) {
-          existing.lastOutput = block.text.length > 200 ? block.text.slice(-200) : block.text;
-        }
-      }
-    }
-
-    existing.updatedAt = Date.now();
-    this.agentActivityMap.set(agentId, existing);
-    this.emitAgentActivity();
-  }
-
   private handleBashProgress(data: Record<string, unknown>): void {
     const elapsed = data.elapsed_seconds as number | undefined;
     const output = data.output as string | undefined;
@@ -325,58 +284,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
       detail: output ? (output.length > 300 ? output.slice(-300) : output) : undefined,
     };
     this.emit("activity", activity);
-  }
-
-  /**
-   * Handle team-related tools. Returns true if the tool was handled and should
-   * be suppressed from the normal tool_use activity stream.
-   */
-  private handleTeamTool(toolName: string, input: Record<string, unknown> | undefined): boolean {
-    if (!input) return false;
-
-    if (toolName === "TeamCreate") {
-      this.teamState = {
-        name: (input.team_name as string) || "team",
-        description: input.description as string | undefined,
-        members: [],
-      };
-      this.emitTeamInfo();
-      return true;
-    }
-
-    if (toolName === "Task" && input.team_name && this.teamState) {
-      this.teamState.members.push({
-        name: (input.name as string) || "agent",
-        subagentType: (input.subagent_type as string) || "agent",
-        description: (input.description as string) || "",
-        status: "running",
-        spawnedAt: Date.now(),
-      });
-      this.emitTeamInfo();
-      return true;
-    }
-
-    if (toolName === "SendMessage" && input.type === "shutdown_request" && this.teamState) {
-      const recipient = input.recipient as string | undefined;
-      if (recipient) {
-        const member = this.teamState.members.find((m) => m.name === recipient);
-        if (member) {
-          member.status = "shutting_down";
-          this.emitTeamInfo();
-        }
-      }
-      return false; // Still show SendMessage as activity
-    }
-
-    if (toolName === "TeamDelete" && this.teamState) {
-      for (const member of this.teamState.members) {
-        member.status = "shutdown";
-      }
-      this.emitTeamInfo();
-      return true;
-    }
-
-    return false;
   }
 
   private accumulateUsage(
@@ -451,6 +358,10 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
     if (this._bypassPermissions) {
       args.push("--dangerously-skip-permissions");
+    }
+
+    if (this._planMode) {
+      args.push("--permission-mode", "plan");
     }
 
     if (this.allowedTools.length > 0) {
@@ -545,10 +456,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
                     }
                   }
                   // TaskList/TaskGet: suppress — no activity emitted
-                } else if (
-                  this.handleTeamTool(toolName, block.input as Record<string, unknown> | undefined)
-                ) {
-                  // Team tool handled — suppressed from chat
                 } else {
                   this.trackFileChange(
                     toolName,
@@ -605,10 +512,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
                   this.emitTaskList();
                 }
               }
-            } else if (
-              this.handleTeamTool(toolName, event.input as Record<string, unknown> | undefined)
-            ) {
-              // Team tool handled — suppressed from chat
             } else {
               this.trackFileChange(toolName, event.input as Record<string, unknown> | undefined);
               const activity: ActivityMessage = {
@@ -715,9 +618,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
             }
           } else if (event.type === "progress" && event.data) {
             const dataType = (event.data as Record<string, unknown>).type;
-            if (dataType === "agent_progress") {
-              this.handleAgentProgress(event.agentId, event.data as Record<string, unknown>);
-            } else if (dataType === "bash_progress") {
+            if (dataType === "bash_progress") {
               this.handleBashProgress(event.data as Record<string, unknown>);
             }
             // hook_progress: skip

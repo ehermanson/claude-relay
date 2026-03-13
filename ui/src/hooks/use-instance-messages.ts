@@ -5,8 +5,6 @@ import type {
   HistoryEntry,
   TaskItem,
   FileChange,
-  TeamInfo,
-  AgentActivity,
 } from "@shared/types";
 
 const IMAGE_ONLY_PATTERN = /^\s*(\[Image: source: [^\]]+\]\s*)+$/;
@@ -40,8 +38,6 @@ interface State {
   showThinkingIndicator: boolean;
   currentTasks: TaskItem[] | null;
   currentFiles: FileChange[] | null;
-  currentTeam: TeamInfo | null;
-  currentAgentActivities: AgentActivity[] | null;
   /** Most recent activity for the live status strip */
   lastActivity: LiveActivity | null;
   /** When the current processing turn started (user sent a message) */
@@ -74,8 +70,6 @@ const EMPTY_STATE: State = {
   showThinkingIndicator: false,
   currentTasks: null,
   currentFiles: null,
-  currentTeam: null,
-  currentAgentActivities: null,
   lastActivity: null,
   processingStartedAt: null,
   rawHistory: null,
@@ -97,8 +91,6 @@ function reducer(state: State, action: Action): State {
       let currentActivities: ActivityMessage[] = [];
       let currentTasks: TaskItem[] | null = null;
       let currentFiles: FileChange[] | null = null;
-      let currentTeam: TeamInfo | null = null;
-      let currentAgentActivities: AgentActivity[] | null = null;
 
       const flushActivities = () => {
         if (currentActivities.length > 0) {
@@ -161,10 +153,6 @@ function reducer(state: State, action: Action): State {
               currentTasks = msg.tasks;
             } else if (msg.activity === "file_list" && msg.files) {
               currentFiles = msg.files;
-            } else if (msg.activity === "team_info" && msg.team) {
-              currentTeam = msg.team;
-            } else if (msg.activity === "agent_activity" && msg.agentActivities) {
-              currentAgentActivities = msg.agentActivities;
             } else {
               flushAssistant();
               currentActivities.push(msg);
@@ -204,8 +192,6 @@ function reducer(state: State, action: Action): State {
         showThinkingIndicator: false,
         currentTasks,
         currentFiles,
-        currentTeam,
-        currentAgentActivities,
         lastActivity: null,
         processingStartedAt: null,
         rawHistory: action.history,
@@ -312,33 +298,6 @@ function reducer(state: State, action: Action): State {
           showThinkingIndicator: true,
           currentFiles: action.message.files,
           lastActivity: { description: "Writing files...", startedAt: now },
-        };
-      } else if (action.message.activity === "team_info" && action.message.team) {
-        return {
-          ...state,
-          isProcessing: true,
-          showThinkingIndicator: true,
-          currentTeam: action.message.team,
-          lastActivity: { description: "Managing team...", startedAt: now },
-        };
-      } else if (action.message.activity === "agent_activity" && action.message.agentActivities) {
-        // Pick the most recently updated agent for the status strip
-        const sorted = [...action.message.agentActivities].sort(
-          (a, b) => b.updatedAt - a.updatedAt,
-        );
-        const latest = sorted[0];
-        const agentDesc = latest?.description || latest?.tool || "Working...";
-        return {
-          ...state,
-          currentAgentActivities: action.message.agentActivities,
-          lastActivity: {
-            description: agentDesc,
-            tool: latest?.tool,
-            startedAt:
-              state.lastActivity && state.lastActivity.tool === latest?.tool
-                ? state.lastActivity.startedAt
-                : now,
-          },
         };
       } else {
         const items = [...state.items];
@@ -556,8 +515,6 @@ export function useInstanceMessages() {
     showThinkingIndicator: state.showThinkingIndicator,
     currentTasks: state.currentTasks,
     currentFiles: state.currentFiles,
-    currentTeam: state.currentTeam,
-    currentAgentActivities: state.currentAgentActivities,
     lastActivity: state.lastActivity,
     processingStartedAt: state.processingStartedAt,
     rawHistory: state.rawHistory,

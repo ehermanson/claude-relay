@@ -29,6 +29,7 @@ import type { CoreConfig } from "../config.js";
 import type { ProviderSession } from "../provider.js";
 import { buildTaskListActivityFromPlan } from "../tools.js";
 import { findCodexBinary } from "./codex-cli.js";
+import { getBuiltinProviderModels } from "../provider-catalog.js";
 
 type SpawnFn = typeof spawn;
 
@@ -157,6 +158,7 @@ type ThreadItem =
 export interface CodexAppServerSessionOptions {
   cwd: string;
   model?: string;
+  planMode?: boolean;
   resumeSessionId?: string;
   dangerouslySkipPermissions?: boolean;
   logger: CoreConfig["logger"];
@@ -198,6 +200,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private _isProcessing = false;
   private _sessionId: string | undefined;
   private _preferredModel: string | null;
+  private _planMode: boolean;
   private _bypassPermissions: boolean;
   private _stats: SessionStats = {
     inputTokens: 0,
@@ -247,6 +250,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
     this._sessionId = options.resumeSessionId;
     this._preferredModel = options.model ?? null;
+    this._planMode = options.planMode ?? false;
     this._bypassPermissions = options.dangerouslySkipPermissions ?? false;
     if (this._preferredModel) {
       this._stats.model = this._preferredModel;
@@ -282,7 +286,11 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         cwd: this.cwd,
         model: this._preferredModel ?? undefined,
       },
-      runtimeMode: this._bypassPermissions ? "full-access" : "approval-required",
+      runtimeMode: this._planMode
+        ? "plan"
+        : this._bypassPermissions
+          ? "full-access"
+          : "approval-required",
     };
   }
 
@@ -355,6 +363,14 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
   setBypassPermissions(bypass: boolean): void {
     this._bypassPermissions = bypass;
+    if (bypass) this._planMode = false;
+  }
+
+  setPlanMode(planMode: boolean): void {
+    this._planMode = planMode;
+    if (planMode) {
+      this._bypassPermissions = false;
+    }
   }
 
   respondToRequest(requestId: string, decision: "accept" | "decline"): boolean {
@@ -455,10 +471,25 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       input: [{ type: "text", text: message, text_elements: [] }],
       model: this._preferredModel ?? undefined,
       approvalPolicy: this.resolveApprovalPolicy(),
+      collaborationMode: {
+        mode: this._planMode ? "plan" : "default",
+        settings: {
+          model: this.resolveCollaborationModel(),
+        },
+      },
     }).catch((err) => {
       this.logger.error(`[CodexAppServer] turn/start failed: ${err}`);
       this.finishTurn();
     });
+  }
+
+  private resolveCollaborationModel(): string {
+    return (
+      this._preferredModel ??
+      getBuiltinProviderModels("codex").find((model) => model.isDefault)?.id ??
+      getBuiltinProviderModels("codex")[0]?.id ??
+      "gpt-5.4"
+    );
   }
 
   // ===========================================================================

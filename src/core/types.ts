@@ -11,7 +11,7 @@
 
 export type InstanceStatus = "idle" | "processing" | "error" | "stopped";
 export type ProviderKind = "claude" | "codex" | "gemini";
-export type ProviderRuntimeMode = "approval-required" | "full-access";
+export type ProviderRuntimeMode = "approval-required" | "full-access" | "plan";
 
 export interface ProviderRequest {
   requestId: string;
@@ -98,6 +98,8 @@ export interface InstanceInfo {
   preferredModel?: string;
   /** Budget tokens for extended thinking, or null to use default */
   reasoningBudget?: number;
+  /** Whether provider plan mode is active for this instance */
+  planMode?: boolean;
   /** Whether this instance bypasses permission prompts (full access mode) */
   skipPermissions?: boolean;
 }
@@ -209,6 +211,13 @@ export interface SetPermissionsPayload {
   skipPermissions: boolean;
 }
 
+export interface SetPlanModePayload {
+  type: "set_plan_mode";
+  instanceId: string;
+  /** Whether provider plan mode should be active */
+  planMode: boolean;
+}
+
 export interface SetProviderPayload {
   type: "set_provider";
   instanceId: string;
@@ -233,6 +242,7 @@ export type ClientMessage =
   | SetModelPayload
   | SetReasoningBudgetPayload
   | SetPermissionsPayload
+  | SetPlanModePayload
   | SetProviderPayload;
 
 // =============================================================================
@@ -294,42 +304,9 @@ export interface FileChange {
   deletions?: number;
 }
 
-export interface TeamMember {
-  name: string;
-  subagentType: string;
-  description: string;
-  status: "running" | "shutting_down" | "shutdown";
-  spawnedAt: number;
-}
-
-export interface TeamInfo {
-  name: string;
-  description?: string;
-  members: TeamMember[];
-}
-
-export interface AgentActivity {
-  agentId: string;
-  /** Latest activity description (e.g. "Reading auth.ts") */
-  description?: string;
-  /** Latest tool name */
-  tool?: string;
-  /** Latest output text (truncated) */
-  lastOutput?: string;
-  /** Timestamp of last progress event */
-  updatedAt: number;
-}
-
 export interface ActivityMessage {
   type: "activity";
-  activity:
-    | "tool_use"
-    | "tool_result"
-    | "thinking"
-    | "task_list"
-    | "file_list"
-    | "team_info"
-    | "agent_activity";
+  activity: "tool_use" | "tool_result" | "thinking" | "task_list" | "file_list";
   tool?: string;
   description: string;
   detail?: string;
@@ -340,8 +317,6 @@ export interface ActivityMessage {
   resolution?: "approved" | "dismissed" | "feedback";
   tasks?: TaskItem[];
   files?: FileChange[];
-  team?: TeamInfo;
-  agentActivities?: AgentActivity[];
   inputDescription?: string;
   /** Raw SDK/provider message for debug display. */
   raw?: unknown;

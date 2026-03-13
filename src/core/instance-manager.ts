@@ -56,8 +56,6 @@ import type {
   TaskItem,
   FileChange,
   SessionStats,
-  TeamInfo,
-  AgentActivity,
   ProjectArtifacts,
   ProjectPlan,
   BeadIssue,
@@ -142,10 +140,6 @@ interface Instance {
   tasks?: Map<string, TaskItem>;
   /** Accumulated file change state for file_list activity rendering */
   files?: Map<string, FileChange>;
-  /** Team orchestration state for team_info activity rendering */
-  team?: TeamInfo;
-  /** Agent activity state from progress events */
-  agentActivities?: Map<string, AgentActivity>;
   /** Queued retry message when tool approval arrives while process is still running */
   pendingRetry?: string;
   /** Path to the git worktree (if this instance runs in isolation) */
@@ -562,7 +556,11 @@ function createWatchState(
   };
 }
 
-function normalizeRuntimeMode(skipPermissions: boolean | undefined): ProviderRuntimeMode {
+function normalizeRuntimeMode(
+  skipPermissions: boolean | undefined,
+  planMode: boolean | undefined,
+): ProviderRuntimeMode {
+  if (planMode) return "plan";
   return skipPermissions ? "full-access" : "approval-required";
 }
 
@@ -704,6 +702,7 @@ export class InstanceManager extends EventEmitter {
       resumeSessionId?: string;
       model?: string;
       reasoningBudget?: number;
+      planMode?: boolean;
       allowedTools?: string[];
     },
   ): ProviderSession {
@@ -729,6 +728,7 @@ export class InstanceManager extends EventEmitter {
           cwd: config.workingDirectory,
           model: options?.model,
           maxThinkingTokens: options?.reasoningBudget,
+          planMode: options?.planMode,
           resumeSessionId: options?.resumeSessionId,
           dangerouslySkipPermissions: config.dangerouslySkipPermissions,
           logger: config.logger,
@@ -747,10 +747,12 @@ export class InstanceManager extends EventEmitter {
           resumeSessionId: options.resumeSessionId,
           model: options?.model,
           reasoningBudget: options?.reasoningBudget,
+          planMode: options?.planMode,
         })
       : new ClaudeProcess(config, {
           model: options?.model,
           reasoningBudget: options?.reasoningBudget,
+          planMode: options?.planMode,
         });
 
     if (options?.allowedTools) {
@@ -781,6 +783,7 @@ export class InstanceManager extends EventEmitter {
     resumeSessionId?: string;
     model?: string;
     reasoningBudget?: number;
+    planMode?: boolean;
   }): InstanceInfo {
     const activeCount = [...this.instances.values()].filter(
       (i) => i.process && !i.info.external,
@@ -809,6 +812,7 @@ export class InstanceManager extends EventEmitter {
       resumeSessionId: resumeId,
       model,
       reasoningBudget: options?.reasoningBudget,
+      planMode: options?.planMode,
     });
 
     // Resolve name: explicit > session summary > auto-title from first message
@@ -831,6 +835,7 @@ export class InstanceManager extends EventEmitter {
       gitInfo: getGitInfo(workingDirectory) ?? undefined,
       preferredModel: model,
       reasoningBudget: options?.reasoningBudget,
+      planMode: options?.planMode,
       skipPermissions: skipPerms,
     };
 
@@ -863,14 +868,16 @@ export class InstanceManager extends EventEmitter {
         providerSessionId: resumeId,
         resumeCursor: { sessionId: resumeId },
         transcriptPath,
-        runtimeMode: normalizeRuntimeMode(skipPerms),
+        runtimeMode: normalizeRuntimeMode(skipPerms, info.planMode),
       };
       proc.setSessionId?.(resumeId);
 
       // Parse existing history so the UI shows the full conversation
       if (transcriptPath && existsSync(transcriptPath)) {
-        const { history, tasks, files, team, agentActivities, stats } =
-          this.parseProviderTranscript(provider, transcriptPath);
+        const { history, tasks, files, stats } = this.parseProviderTranscript(
+          provider,
+          transcriptPath,
+        );
         instance.history = history;
         if (tasks.size > 0) instance.tasks = tasks;
         if (files.size > 0) {
@@ -884,8 +891,6 @@ export class InstanceManager extends EventEmitter {
             sessionCreatedAt: instance.info.createdAt,
           });
         }
-        if (team) instance.team = team;
-        if (agentActivities.size > 0) instance.agentActivities = agentActivities;
         if (hasSessionStats(stats)) info.stats = stats;
 
         // Start JSONL watcher
@@ -1213,6 +1218,7 @@ export class InstanceManager extends EventEmitter {
       proc = this.createProviderSession(instanceConfig, {
         provider: instance.info.provider,
         resumeSessionId: sessionId,
+        planMode: instance.info.planMode,
       });
     } catch (err) {
       this.baseConfig.logger.error(`[InstanceManager] Failed to create process for resume: ${err}`);
@@ -1281,6 +1287,7 @@ export class InstanceManager extends EventEmitter {
       proc = this.createProviderSession(instanceConfig, {
         provider: instance.info.provider,
         resumeSessionId: sessionId,
+        planMode: instance.info.planMode,
       });
     } catch (err) {
       this.baseConfig.logger.error(`[InstanceManager] Failed to create process for revive: ${err}`);
@@ -1382,9 +1389,6 @@ export class InstanceManager extends EventEmitter {
       instance.history = parsed.history;
       instance.tasks = parsed.tasks.size > 0 ? parsed.tasks : undefined;
       instance.files = parsed.files.size > 0 ? parsed.files : undefined;
-      instance.team = parsed.team ?? undefined;
-      instance.agentActivities =
-        parsed.agentActivities.size > 0 ? parsed.agentActivities : undefined;
 
       const parsedStats = hasSessionStats(parsed.stats) ? parsed.stats : undefined;
       if (parsedStats) {
@@ -1459,6 +1463,7 @@ export class InstanceManager extends EventEmitter {
       resumeSessionId,
       model: instance.info.preferredModel,
       reasoningBudget: instance.info.reasoningBudget,
+      planMode: instance.info.planMode,
       allowedTools: this.getPersistedAllowedTools(resumeSessionId),
     });
 
@@ -2262,7 +2267,7 @@ export class InstanceManager extends EventEmitter {
     parentSessionId?: string,
     pid?: number,
   ): void {
-    const { cwd, history, tasks, files, team, agentActivities, stats } = this.parseJsonl(jsonlPath);
+    const { cwd, history, tasks, files, stats } = this.parseJsonl(jsonlPath);
     if (!cwd) return; // Can't determine working directory
 
     // Detect relay worktree paths and resolve the original project directory
@@ -2337,8 +2342,6 @@ export class InstanceManager extends EventEmitter {
       watchState: createWatchState(jsonlPath, fileSize, info.stats),
       tasks: tasks.size > 0 ? tasks : undefined,
       files: files.size > 0 ? files : undefined,
-      team: team ?? undefined,
-      agentActivities: agentActivities.size > 0 ? agentActivities : undefined,
       worktreePath,
       gitBranch,
       originalDirectory,
@@ -2459,8 +2462,6 @@ export class InstanceManager extends EventEmitter {
     history: HistoryEntry[];
     tasks: Map<string, TaskItem>;
     files: Map<string, FileChange>;
-    team: TeamInfo | null;
-    agentActivities: Map<string, AgentActivity>;
     stats: SessionStats;
   } {
     let cwd = "";
@@ -2482,8 +2483,6 @@ export class InstanceManager extends EventEmitter {
         history,
         tasks: new Map(),
         files: new Map(),
-        team: null,
-        agentActivities: new Map(),
         stats: zeroStats,
       };
     }
@@ -2493,8 +2492,6 @@ export class InstanceManager extends EventEmitter {
       pendingTaskCreates: new Map<string, { subject: string; activeForm?: string }>(),
       tasks: new Map<string, TaskItem>(),
       files: new Map<string, FileChange>(),
-      team: null as TeamInfo | null,
-      agentActivities: new Map<string, AgentActivity>(),
       stats: { ...zeroStats },
     };
     let lastCompactBoundaryIndex = -1;
@@ -2511,17 +2508,7 @@ export class InstanceManager extends EventEmitter {
           continue;
         }
 
-        const converted = this.convertJsonlEntry(entry, ctx);
-        for (const h of converted) {
-          // Agent activity is high-frequency — tracked in ctx.agentActivities, skip history
-          if (
-            h.message.type === "activity" &&
-            (h.message as ActivityMessage).activity === "agent_activity"
-          ) {
-            continue;
-          }
-          history.push(h);
-        }
+        history.push(...this.convertJsonlEntry(entry, ctx));
       } catch {
         // skip malformed lines
       }
@@ -2542,8 +2529,6 @@ export class InstanceManager extends EventEmitter {
       history,
       tasks: ctx.tasks,
       files: ctx.files,
-      team: ctx.team,
-      agentActivities: ctx.agentActivities,
       stats: ctx.stats,
     };
   }
@@ -2556,8 +2541,6 @@ export class InstanceManager extends EventEmitter {
     history: HistoryEntry[];
     tasks: Map<string, TaskItem>;
     files: Map<string, FileChange>;
-    team: TeamInfo | null;
-    agentActivities: Map<string, AgentActivity>;
     stats: SessionStats;
   } {
     if (provider === "codex") {
@@ -2567,8 +2550,6 @@ export class InstanceManager extends EventEmitter {
         history: parsed.history,
         tasks: parsed.tasks,
         files: parsed.files,
-        team: null,
-        agentActivities: new Map(),
         stats: parsed.stats,
       };
     }
@@ -2689,8 +2670,6 @@ export class InstanceManager extends EventEmitter {
       pendingTaskCreates?: Map<string, { subject: string; activeForm?: string }>;
       tasks?: Map<string, TaskItem>;
       files?: Map<string, FileChange>;
-      team?: TeamInfo | null;
-      agentActivities?: Map<string, AgentActivity>;
       stats?: SessionStats;
     },
   ): HistoryEntry[] {
@@ -2854,17 +2833,6 @@ export class InstanceManager extends EventEmitter {
                 }
               }
               // TaskList and TaskGet — skip entirely (no activity emitted)
-            } else if (
-              ctx &&
-              this.handleJsonlTeamTool(
-                block.name || "",
-                block.input as Record<string, unknown> | undefined,
-                ctx,
-                timestamp,
-                results,
-              )
-            ) {
-              // Team tool handled — suppressed from chat
             } else {
               // Track file changes for Edit/Write/NotebookEdit
               if (ctx?.files && block.name && FILE_WRITE_TOOLS.has(block.name)) {
@@ -2956,53 +2924,12 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Handle progress events (agent_progress, bash_progress)
+    // Handle progress events (bash_progress only)
     const entryAny = entry as Record<string, unknown>;
     if (entryAny.type === "progress" && entryAny.data && ctx) {
       const data = entryAny.data as Record<string, unknown>;
       const dataType = data.type as string | undefined;
-      if (dataType === "agent_progress" && entryAny.agentId && ctx.agentActivities) {
-        const agentId = entryAny.agentId as string;
-        const existing = ctx.agentActivities.get(agentId) || {
-          agentId,
-          updatedAt: timestamp,
-        };
-
-        // Extract info from data.message.message.content blocks
-        const msg = data.message as
-          | {
-              message?: {
-                content?: Array<{ type: string; name?: string; text?: string; input?: unknown }>;
-              };
-            }
-          | undefined;
-        const content = msg?.message?.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === "tool_use" && block.name) {
-              existing.tool = block.name;
-              existing.description = describeToolUse(
-                block.name,
-                block.input as Record<string, unknown> | undefined,
-              );
-            } else if (block.type === "text" && block.text) {
-              existing.lastOutput = block.text.length > 200 ? block.text.slice(-200) : block.text;
-            }
-          }
-        }
-
-        existing.updatedAt = timestamp;
-        ctx.agentActivities.set(agentId, existing);
-        results.push({
-          timestamp,
-          message: {
-            type: "activity",
-            activity: "agent_activity",
-            description: "Agent activity",
-            agentActivities: Array.from(ctx.agentActivities.values()).map((a) => ({ ...a })),
-          } as ActivityMessage,
-        });
-      } else if (dataType === "bash_progress") {
+      if (dataType === "bash_progress") {
         const elapsed = data.elapsed_seconds as number | undefined;
         const output = data.output as string | undefined;
         if (elapsed != null) {
@@ -3022,97 +2949,6 @@ export class InstanceManager extends EventEmitter {
     }
 
     return results;
-  }
-
-  /**
-   * Handle team-related tools during JSONL replay. Mirrors ClaudeProcess.handleTeamTool.
-   * Returns true if the tool was handled and should be suppressed from chat.
-   */
-  private handleJsonlTeamTool(
-    toolName: string,
-    input: Record<string, unknown> | undefined,
-    ctx: { team?: TeamInfo | null },
-    timestamp: number,
-    results: HistoryEntry[],
-  ): boolean {
-    if (!input) return false;
-
-    if (toolName === "TeamCreate") {
-      const team: TeamInfo = {
-        name: (input.team_name as string) || "team",
-        description: input.description as string | undefined,
-        members: [],
-      };
-      ctx.team = team;
-      results.push({
-        timestamp,
-        message: {
-          type: "activity",
-          activity: "team_info",
-          description: "Team",
-          team: { ...team, members: [] },
-        } as ActivityMessage,
-      });
-      return true;
-    }
-
-    if (toolName === "Task" && input.team_name && ctx.team) {
-      ctx.team.members.push({
-        name: (input.name as string) || "agent",
-        subagentType: (input.subagent_type as string) || "agent",
-        description: (input.description as string) || "",
-        status: "running",
-        spawnedAt: timestamp,
-      });
-      results.push({
-        timestamp,
-        message: {
-          type: "activity",
-          activity: "team_info",
-          description: "Team",
-          team: { ...ctx.team, members: ctx.team.members.map((m) => ({ ...m })) },
-        } as ActivityMessage,
-      });
-      return true;
-    }
-
-    if (toolName === "SendMessage" && input.type === "shutdown_request" && ctx.team) {
-      const recipient = input.recipient as string | undefined;
-      if (recipient) {
-        const member = ctx.team.members.find((m) => m.name === recipient);
-        if (member) {
-          member.status = "shutting_down";
-          results.push({
-            timestamp,
-            message: {
-              type: "activity",
-              activity: "team_info",
-              description: "Team",
-              team: { ...ctx.team, members: ctx.team.members.map((m) => ({ ...m })) },
-            } as ActivityMessage,
-          });
-        }
-      }
-      return false; // Still show SendMessage as activity
-    }
-
-    if (toolName === "TeamDelete" && ctx.team) {
-      for (const member of ctx.team.members) {
-        member.status = "shutdown";
-      }
-      results.push({
-        timestamp,
-        message: {
-          type: "activity",
-          activity: "team_info",
-          description: "Team",
-          team: { ...ctx.team, members: ctx.team.members.map((m) => ({ ...m })) },
-        } as ActivityMessage,
-      });
-      return true;
-    }
-
-    return false;
   }
 
   // ===========================================================================
@@ -3220,7 +3056,6 @@ export class InstanceManager extends EventEmitter {
 
     if (!instance.tasks) instance.tasks = new Map();
     if (!instance.files) instance.files = new Map();
-    if (!instance.agentActivities) instance.agentActivities = new Map();
 
     const prevStats = { ...instance.watchState.stats };
     const converted =
@@ -3236,7 +3071,6 @@ export class InstanceManager extends EventEmitter {
             pendingTaskCreates: instance.watchState.pendingTaskCreates,
             tasks: instance.tasks,
             files: instance.files,
-            agentActivities: instance.agentActivities,
             stats: instance.watchState.stats,
           });
     if (statsChanged(prevStats, instance.watchState.stats)) {
@@ -3246,22 +3080,6 @@ export class InstanceManager extends EventEmitter {
 
     for (const histEntry of converted) {
       const msg = histEntry.message;
-
-      // Agent activity is high-frequency — skip history, just update state and emit
-      if (
-        msg.type === "activity" &&
-        (msg as ActivityMessage).activity === "agent_activity" &&
-        (msg as ActivityMessage).agentActivities
-      ) {
-        const activity = msg as ActivityMessage;
-        if (!instance.agentActivities) instance.agentActivities = new Map();
-        instance.agentActivities.clear();
-        for (const a of activity.agentActivities!) {
-          instance.agentActivities.set(a.agentId, { ...a });
-        }
-        this.emit("instance:activity", instanceId, activity);
-        continue;
-      }
 
       this.pushHistory(instance, msg);
       instance.info.lastActivityAt = Date.now();
@@ -3293,11 +3111,6 @@ export class InstanceManager extends EventEmitter {
             sessionCreatedAt: instance.info.createdAt,
           });
           activity.files = Array.from(instance.files.values()).map((f) => ({ ...f }));
-        } else if (activity.activity === "team_info" && activity.team) {
-          instance.team = {
-            ...activity.team,
-            members: activity.team.members.map((m) => ({ ...m })),
-          };
         }
         this.setStatus(instance, "processing");
         this.emit("instance:activity", instanceId, activity);
@@ -3388,7 +3201,7 @@ export class InstanceManager extends EventEmitter {
       preferred_model: instance.info.preferredModel ?? null,
       reasoning_budget: instance.info.reasoningBudget ?? null,
       skip_permissions: instance.info.skipPermissions ? 1 : 0,
-      runtime_mode: normalizeRuntimeMode(instance.info.skipPermissions),
+      runtime_mode: normalizeRuntimeMode(instance.info.skipPermissions, instance.info.planMode),
       resume_cursor_json: binding?.resumeCursor ? JSON.stringify(binding.resumeCursor) : null,
       runtime_payload_json: binding?.runtimePayload ? JSON.stringify(binding.runtimePayload) : null,
       transcript_path: binding?.transcriptPath ?? instance.jsonlPath ?? null,
@@ -3928,7 +3741,7 @@ export class InstanceManager extends EventEmitter {
           preferred_model: row.preferred_model,
           reasoning_budget: row.reasoning_budget,
           skip_permissions: row.skip_permissions,
-          runtime_mode: normalizeRuntimeMode(row.skip_permissions === 1),
+          runtime_mode: normalizeRuntimeMode(row.skip_permissions === 1, false),
           resume_cursor_json: JSON.stringify({ sessionId: row.session_id }),
           runtime_payload_json: JSON.stringify({ cwd: row.working_directory }),
           transcript_path: row.jsonl_path,
@@ -3988,6 +3801,7 @@ export class InstanceManager extends EventEmitter {
       parentSessionId: entry.parent_session_id ?? undefined,
       preferredModel: entry.preferred_model ?? undefined,
       reasoningBudget: entry.reasoning_budget ?? undefined,
+      planMode: false,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
     };
 
@@ -4000,7 +3814,7 @@ export class InstanceManager extends EventEmitter {
         resumeCursor: { sessionId: entry.session_id },
         runtimePayload: { cwd: entry.working_directory },
         transcriptPath: entry.jsonl_path,
-        runtimeMode: normalizeRuntimeMode(entry.skip_permissions === 1),
+        runtimeMode: normalizeRuntimeMode(entry.skip_permissions === 1, false),
       },
       history: [], // deferred until hydration
       sessionId: entry.session_id,
@@ -4009,7 +3823,7 @@ export class InstanceManager extends EventEmitter {
         jsonlPath: entry.jsonl_path,
         sessionId: entry.session_id,
       },
-      // tasks, files, team, agentActivities deferred until hydration
+      // tasks and files deferred until hydration
       worktreePath: extWorktreePath,
       gitBranch: extGitBranch,
       originalDirectory: extOriginalDir,
@@ -4095,6 +3909,7 @@ export class InstanceManager extends EventEmitter {
       parentSessionId: entry.parent_session_id ?? undefined,
       preferredModel: entry.preferred_model ?? undefined,
       reasoningBudget: entry.reasoning_budget ?? undefined,
+      planMode: entry.runtime_mode === "plan" ? true : undefined,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
     };
 
@@ -4112,7 +3927,7 @@ export class InstanceManager extends EventEmitter {
       history: [], // deferred until hydration
       sessionId: resumeSessionId,
       jsonlPath: transcriptPath,
-      // watchState, tasks, files, team, agentActivities deferred until hydration
+      // watchState, tasks, and files deferred until hydration
       worktreePath: restoreWorktreePath,
       gitBranch: restoreGitBranch,
       originalDirectory: restoreOriginalDirectory,
@@ -4433,21 +4248,6 @@ export class InstanceManager extends EventEmitter {
         // Update the activity message with enriched data
         message.files = Array.from(instance.files.values()).map((f) => ({ ...f }));
       }
-      // Sync team state from process to instance
-      if (message.activity === "team_info" && message.team) {
-        instance.team = { ...message.team, members: message.team.members.map((m) => ({ ...m })) };
-      }
-      // Sync agent activity state from process to instance
-      if (message.activity === "agent_activity" && message.agentActivities) {
-        if (!instance.agentActivities) instance.agentActivities = new Map();
-        instance.agentActivities.clear();
-        for (const a of message.agentActivities) {
-          instance.agentActivities.set(a.agentId, { ...a });
-        }
-        // Agent activity is high-frequency — skip history, just emit to subscribers
-        this.emit("instance:activity", id, message);
-        return;
-      }
       // Track permission denials for the banner
       if (message.permissionDenied) {
         instance.info.pendingPermission = {
@@ -4612,7 +4412,7 @@ export class InstanceManager extends EventEmitter {
       providerSessionId: sessionId,
       resumeCursor: { sessionId },
       transcriptPath: jsonlPath,
-      runtimeMode: normalizeRuntimeMode(instance.info.skipPermissions),
+      runtimeMode: normalizeRuntimeMode(instance.info.skipPermissions, instance.info.planMode),
     };
 
     // Feed session ID back to the CLI process so subsequent sends use
@@ -4762,6 +4562,10 @@ export class InstanceManager extends EventEmitter {
     if (!instance || instance.info.external) return false;
 
     instance.info.skipPermissions = skipPermissions;
+    if (skipPermissions) {
+      instance.info.planMode = undefined;
+      instance.process?.setPlanMode?.(false);
+    }
     instance.process?.setBypassPermissions(skipPermissions);
 
     // If switching to full access, clear any pending permission
@@ -4773,6 +4577,25 @@ export class InstanceManager extends EventEmitter {
     this.dbSave(instance);
     const sid = instance.sessionId || instance.info.sessionId;
     if (sid) this.db.updateSkipPermissions(sid, skipPermissions);
+    return true;
+  }
+
+  setPlanMode(id: string, planMode: boolean): boolean {
+    const instance = this.instances.get(id);
+    if (!instance || instance.info.external || !instance.process?.setPlanMode) return false;
+
+    instance.info.planMode = planMode ? true : undefined;
+    if (planMode) {
+      instance.info.skipPermissions = false;
+      instance.process?.setBypassPermissions(false);
+      if (instance.info.pendingPermission) {
+        instance.info.pendingPermission = undefined;
+      }
+    }
+    instance.process?.setPlanMode?.(planMode);
+
+    this.emit("instance:status", instance.info.id, { ...instance.info });
+    this.dbSave(instance);
     return true;
   }
 
@@ -4799,6 +4622,7 @@ export class InstanceManager extends EventEmitter {
     // Clear model preference — may not be valid for the new provider
     instance.info.preferredModel = undefined;
     instance.info.reasoningBudget = undefined;
+    instance.info.planMode = undefined;
     instance.info.provider = provider;
 
     // Create new process for the target provider
@@ -4809,7 +4633,10 @@ export class InstanceManager extends EventEmitter {
         instance.info.skipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
     };
 
-    const proc = this.createProviderSession(instanceConfig, { provider });
+    const proc = this.createProviderSession(instanceConfig, {
+      provider,
+      planMode: instance.info.planMode,
+    });
     instance.process = proc;
     instance.providerBinding = proc.getRuntimeBinding();
 

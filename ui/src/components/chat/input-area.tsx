@@ -9,6 +9,7 @@ import { ComposerPanel } from "./input-area/composer-panel";
 import { ImageAttachmentStrip } from "./input-area/image-attachment-strip";
 import { InputToolbar } from "./input-area/input-toolbar";
 import {
+  PlanModePicker,
   PermissionsToggle,
   ProviderModelPicker,
   ReasoningPicker,
@@ -47,6 +48,7 @@ interface InputAreaProps {
   provider: ProviderKind;
   preferredModel?: string;
   reasoningBudget?: number;
+  planMode?: boolean;
   activeModel?: string;
   skipPermissions?: boolean;
   hasMessages?: boolean;
@@ -66,6 +68,7 @@ export function InputArea({
   provider,
   preferredModel,
   reasoningBudget,
+  planMode,
   activeModel,
   skipPermissions,
   hasMessages,
@@ -150,6 +153,7 @@ export function InputArea({
   const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
   const supportsModelSelection = true;
   const supportsReasoningSelection = true;
+  const supportsPlanMode = (provider === "claude" || provider === "codex") && !isExternal;
   const providerLabel = provider === "claude" ? "Claude" : getProviderDisplayName(provider);
   const providerSwitchLabel = providerSwitchTarget
     ? providerSwitchTarget === "claude"
@@ -163,6 +167,10 @@ export function InputArea({
 
   const setReasoningBudget = (budget: number | null) => {
     send({ type: "set_reasoning_budget", instanceId, budget });
+  };
+
+  const setPlanMode = (nextPlanMode: boolean) => {
+    send({ type: "set_plan_mode", instanceId, planMode: nextPlanMode });
   };
 
   const togglePermissions = () => {
@@ -292,6 +300,14 @@ export function InputArea({
         onSelectReasoningBudget={setReasoningBudget}
       />
     ) : null,
+    supportsPlanMode ? (
+      <PlanModePicker
+        key="plan-mode-toggle"
+        isProcessing={isProcessing || !!isExternal}
+        planMode={planMode}
+        onTogglePlanMode={setPlanMode}
+      />
+    ) : null,
     !isExternal ? (
       <PermissionsToggle
         key="permissions-toggle"
@@ -342,7 +358,9 @@ export function InputArea({
 
           <div
             ref={composerContainerRef}
-            className="relative rounded-2xl border border-border bg-surface"
+            className={`relative rounded-2xl border ${
+              planMode ? "border-amber-500/40 bg-amber-500/[0.05]" : "border-border bg-surface"
+            }`}
           >
             <ImageAttachmentStrip images={images} onRemove={removeImage} />
             <ComposerPanel
