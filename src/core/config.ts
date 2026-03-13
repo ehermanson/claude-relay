@@ -8,6 +8,7 @@
 import { join } from "path";
 import { homedir } from "os";
 import { defaultLogger, type Logger } from "./logger.js";
+import type { ProviderKind } from "./types.js";
 
 /**
  * Core configuration — the subset needed by ClaudeProcess and InstanceManager.
@@ -30,9 +31,11 @@ export interface CoreConfig {
   defaultModel?: string;
   /** Legacy manifest file path — used only for one-time migration to SQLite */
   manifestFile?: string;
-  /** Override for ~/.claude directory (used in tests) */
+  /** Provider-specific data directories (e.g. { claude: "~/.claude", codex: "~/.codex" }) */
+  providerDirs?: Partial<Record<ProviderKind, string>>;
+  /** @deprecated Use providerDirs.claude instead */
   claudeDir?: string;
-  /** Override for ~/.codex directory (used in tests and Codex transcript restore) */
+  /** @deprecated Use providerDirs.codex instead */
   codexDir?: string;
 }
 
@@ -45,15 +48,22 @@ export type CoreOptions = Partial<CoreConfig>;
  * Merge user options with defaults to produce a full core config.
  */
 export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
+  const home = homedir();
   return {
     workingDirectory: options.workingDirectory ?? process.cwd(),
     dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? false,
     processTimeout: options.processTimeout ?? 10 * 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? defaultLogger,
-    dbPath: options.dbPath ?? join(homedir(), ".relay", "sessions.db"),
+    dbPath: options.dbPath ?? join(home, ".relay", "sessions.db"),
     defaultModel: options.defaultModel,
     manifestFile: options.manifestFile,
+    providerDirs: options.providerDirs ?? {
+      claude: options.claudeDir ?? join(home, ".claude"),
+      codex: options.codexDir ?? join(home, ".codex"),
+      gemini: join(home, ".gemini"),
+    },
+    claudeDir: options.claudeDir,
     codexDir: options.codexDir,
   };
 }

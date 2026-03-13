@@ -660,8 +660,7 @@ export class InstanceManager extends EventEmitter {
   private staleCounts = new Map<string, number>();
   /** Instance IDs that were auto-continued after a restart — excluded from the next processing-at-shutdown save to prevent restart loops */
   private recentlyAutoContinued = new Set<string>();
-  private claudeDir: string;
-  private codexDir: string;
+  private providerDirs: Record<ProviderKind, string>;
   /** Pre-resolved SDK query function — null if SDK not available (falls back to CLI) */
   private _sdkQueryFn: ((params: { prompt: unknown; options?: unknown }) => unknown) | null = null;
   /** True once the background filesystem scan has completed */
@@ -672,8 +671,12 @@ export class InstanceManager extends EventEmitter {
   constructor(config: CoreConfig) {
     super();
     this.baseConfig = config;
-    this.claudeDir = config.claudeDir ?? join(homedir(), ".claude");
-    this.codexDir = config.codexDir ?? join(homedir(), ".codex");
+    const home = homedir();
+    this.providerDirs = {
+      claude: config.providerDirs?.claude ?? config.claudeDir ?? join(home, ".claude"),
+      codex: config.providerDirs?.codex ?? config.codexDir ?? join(home, ".codex"),
+      gemini: config.providerDirs?.gemini ?? join(home, ".gemini"),
+    };
     this.db = new SessionDB(config.dbPath, config.logger);
   }
 
@@ -1485,7 +1488,7 @@ export class InstanceManager extends EventEmitter {
    * Scans ~/.claude/projects/ and decodes the encoded directory names.
    */
   getKnownDirectories(): { path: string; lastUsed: number }[] {
-    const projectsDir = join(this.claudeDir, "projects");
+    const projectsDir = join(this.providerDirs.claude, "projects");
     if (!existsSync(projectsDir)) return [];
 
     try {
@@ -1551,7 +1554,7 @@ export class InstanceManager extends EventEmitter {
    * Returns the directory name or null if not found.
    */
   resolveProjectId(slug: string): string | null {
-    const projectsDir = join(this.claudeDir, "projects");
+    const projectsDir = join(this.providerDirs.claude, "projects");
 
     // Exact match first
     const exact = join(projectsDir, slug);
@@ -1619,7 +1622,7 @@ export class InstanceManager extends EventEmitter {
     const resolvedId = this.resolveProjectId(projectId);
     if (!resolvedId) return null;
 
-    const projectDir = join(this.claudeDir, "projects", resolvedId);
+    const projectDir = join(this.providerDirs.claude, "projects", resolvedId);
 
     // Resolve real path — JSONL cwd is authoritative, with instance-based fallback.
     let directory = "";
@@ -1707,7 +1710,7 @@ export class InstanceManager extends EventEmitter {
         const slug = this.extractSlugFromJsonl(jsonlPath);
         if (slug && !seenSlugs.has(slug)) {
           seenSlugs.add(slug);
-          const planPath = join(this.claudeDir, "plans", `${slug}.md`);
+          const planPath = join(this.providerDirs.claude, "plans", `${slug}.md`);
           try {
             const content = readFileSync(planPath, "utf-8");
             // Use the JSONL session mtime (when the plan was last used) rather than
@@ -1735,7 +1738,7 @@ export class InstanceManager extends EventEmitter {
       // Pass 2: discover plans with custom filenames (not matching session slug).
       // Check plan files on disk that weren't found via slug, then search JSONL
       // content for references to them (Write/Edit tool calls to ~/.claude/plans/).
-      const plansDir = join(this.claudeDir, "plans");
+      const plansDir = join(this.providerDirs.claude, "plans");
       try {
         const undiscovered = readdirSync(plansDir)
           .filter((f) => f.endsWith(".md"))
@@ -2029,7 +2032,7 @@ export class InstanceManager extends EventEmitter {
   }
 
   private async discoverExistingInner(): Promise<void> {
-    const projectsDir = join(this.claudeDir, "projects");
+    const projectsDir = join(this.providerDirs.claude, "projects");
     if (!existsSync(projectsDir)) return;
 
     // Collect PIDs of managed instances' active processes so discovery skips them
@@ -2078,7 +2081,7 @@ export class InstanceManager extends EventEmitter {
       if (instance.info.external || instance.jsonlPath) continue;
       const cwd = instance.actualCwd || instance.info.workingDirectory;
       const encoded = cwd.replace(/\//g, "-");
-      const projectDir = join(this.claudeDir, "projects", encoded);
+      const projectDir = join(this.providerDirs.claude, "projects", encoded);
       if (!existsSync(projectDir)) continue;
       // Find the newest JSONL in the managed instance's project dir that isn't already known
       const candidates = this.findRecentJsonls(projectDir, 5);
@@ -2647,7 +2650,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     if (provider === "codex") {
-      return findCodexTranscriptPath(this.codexDir, options.sessionId);
+      return findCodexTranscriptPath(this.providerDirs.codex, options.sessionId);
     }
 
     if (!options.workingDirectory) {
@@ -2655,7 +2658,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     const encoded = options.workingDirectory.replace(/\//g, "-");
-    return join(this.claudeDir, "projects", encoded, `${options.sessionId}.jsonl`);
+    return join(this.providerDirs.claude, "projects", encoded, `${options.sessionId}.jsonl`);
   }
 
   /**
@@ -3571,7 +3574,7 @@ export class InstanceManager extends EventEmitter {
    * If the JSONL exists, the session exists — period.
    */
   private scanAllSessions(): void {
-    const projectsDir = join(this.claudeDir, "projects");
+    const projectsDir = join(this.providerDirs.claude, "projects");
 
     const knownPaths = this.db.getJsonlPaths();
     const diskPaths = new Set<string>();
@@ -3780,7 +3783,7 @@ export class InstanceManager extends EventEmitter {
 
     // Archive sessions whose JSONL no longer exists on disk
     // Only consider paths under scanned directories (Claude projects + Codex sessions)
-    const codexSessionsDir = join(this.codexDir, "sessions");
+    const codexSessionsDir = join(this.providerDirs.codex, "sessions");
     let archived = 0;
     for (const knownPath of knownPaths) {
       if (!knownPath.startsWith(projectsDir) && !knownPath.startsWith(codexSessionsDir)) continue;
@@ -3820,7 +3823,7 @@ export class InstanceManager extends EventEmitter {
 
   /** Recursively scan ~/.codex/sessions/ for Codex JSONL transcripts. */
   private scanCodexSessions(knownPaths: Set<string>, diskPaths: Set<string>): void {
-    const sessionsDir = join(this.codexDir, "sessions");
+    const sessionsDir = join(this.providerDirs.codex, "sessions");
     if (!existsSync(sessionsDir)) return;
 
     const rows: SessionRow[] = [];
@@ -4587,7 +4590,7 @@ export class InstanceManager extends EventEmitter {
             instance.sessionId;
           if (!sessionId) return;
 
-          const transcriptPath = findCodexTranscriptPath(this.codexDir, sessionId);
+          const transcriptPath = findCodexTranscriptPath(this.providerDirs.codex, sessionId);
           this.finalizeSessionCapture(id, instance, proc, sessionId, transcriptPath);
         } catch (err) {
           this.baseConfig.logger.debug(
@@ -4605,7 +4608,7 @@ export class InstanceManager extends EventEmitter {
 
       const cwd = instance.actualCwd || instance.info.workingDirectory;
       const encoded = cwd.replace(/\//g, "-");
-      const projectDir = join(this.claudeDir, "projects", encoded);
+      const projectDir = join(this.providerDirs.claude, "projects", encoded);
 
       if (!existsSync(projectDir)) return;
 
@@ -4732,7 +4735,7 @@ export class InstanceManager extends EventEmitter {
    */
   private getSessionSummary(sessionId: string, cwd: string): string | null {
     const encoded = cwd.replace(/\//g, "-");
-    const indexPath = join(this.claudeDir, "projects", encoded, "sessions-index.json");
+    const indexPath = join(this.providerDirs.claude, "projects", encoded, "sessions-index.json");
     try {
       const indexData = JSON.parse(readFileSync(indexPath, "utf-8"));
       if (indexData.entries && Array.isArray(indexData.entries)) {

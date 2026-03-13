@@ -15,7 +15,7 @@ describe("resolveConfig", () => {
     assert.equal(config.port, 7777);
     assert.equal(config.sessionMaxAge, 7 * 24 * 60 * 60 * 1000);
     assert.equal(config.dangerouslySkipPermissions, false);
-    assert.equal(config.processTimeout, 5 * 60 * 1000);
+    assert.equal(config.processTimeout, 10 * 60 * 1000);
     assert.equal(config.serveUI, true);
     assert.equal(config.rateLimitMax, 5);
     assert.equal(config.rateLimitWindow, 60_000);

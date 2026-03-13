@@ -43,22 +43,28 @@ export type RelayOptions = Partial<Omit<RelayConfig, "password">> & {
  * Merge user options with defaults to produce a full config.
  */
 export function resolveConfig(options: RelayOptions): RelayConfig {
+  const home = homedir();
   return {
     port: options.port ?? 7777,
     password: options.password,
     sessionMaxAge: options.sessionMaxAge ?? 7 * 24 * 60 * 60 * 1000,
     dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? false,
-    processTimeout: options.processTimeout ?? 5 * 60 * 1000,
+    processTimeout: options.processTimeout ?? 10 * 60 * 1000,
     workingDirectory: options.workingDirectory ?? options.defaultWorkingDirectory ?? process.cwd(),
     serveUI: options.serveUI ?? true,
     logger: options.logger ?? defaultLogger,
     rateLimitMax: options.rateLimitMax ?? 5,
     rateLimitWindow: options.rateLimitWindow ?? 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
-    sessionFile: options.sessionFile ?? join(homedir(), ".relay", "sessions.json"),
-    dbPath: options.dbPath ?? join(homedir(), ".relay", "sessions.db"),
+    sessionFile: options.sessionFile ?? join(home, ".relay", "sessions.json"),
+    dbPath: options.dbPath ?? join(home, ".relay", "sessions.db"),
     defaultModel: options.defaultModel,
     manifestFile: options.manifestFile,
+    providerDirs: options.providerDirs ?? {
+      claude: options.claudeDir ?? join(home, ".claude"),
+      codex: options.codexDir ?? join(home, ".codex"),
+      gemini: join(home, ".gemini"),
+    },
     claudeDir: options.claudeDir,
     codexDir: options.codexDir,
   };
