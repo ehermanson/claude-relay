@@ -3043,7 +3043,7 @@ export class InstanceManager extends EventEmitter {
     if (this.watchIntervals.has(instanceId)) return; // Already watching
 
     const interval = setInterval(() => {
-      if (!instance.watchState) return;
+      if (!instance.watchState || !this.instances.has(instanceId)) return;
 
       try {
         const stat = statSync(instance.watchState.jsonlPath);

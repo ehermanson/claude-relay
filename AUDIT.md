@@ -11,9 +11,9 @@
 - [x] Split `convertJsonlEntry` (312 lines) into 4 focused sub-methods
 - [x] Deduplicate TASK_TOOLS/FILE_WRITE_TOOLS/FILE_WRITE_GROUP into tools.ts
 - [x] Extract DebugModal and TerminalPermissionBar from instance-view.tsx
-- [ ] Further instance-view splits (header, send handlers hook, sidecar logic hook)
-- [ ] Split sidebar.tsx, message-list.tsx, input-area.tsx, activity-entry.tsx
-- [ ] Split `useInstanceMessages` hook into focused hooks
+- [x] Further instance-view splits (InstanceHeader + SidecarToggles, useSidecarPanels hook)
+- [x] Split sidebar.tsx (SidebarProjectGroup), activity-entry.tsx (activity-code.tsx)
+- [ ] Split `useInstanceMessages` hook into focused hooks (message-list.tsx and input-area.tsx already well-structured)
 
 ## P2: Missing Test Coverage
 
@@ -32,7 +32,7 @@
 - [x] Dead code audit: ProviderRequest/BeadIssueDep/stopped all confirmed IN USE
 - [x] Silent catch blocks — added debug logging to watcher + discovery
 - [x] Unbounded stateCache in useInstanceMessages — LRU eviction at 50 entries
-- [ ] JSONL watch interval fires after instance deleted
+- [x] JSONL watch interval fires after instance deleted — guard on `instances.has()`
 
 ## P4: Performance & Polish
 
