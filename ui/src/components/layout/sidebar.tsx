@@ -235,58 +235,58 @@ export function Sidebar() {
 
           {/* Content */}
           <Collapsible.Content>
-            <div className="pl-6 pr-2">
-              {/* Compact nav pills */}
-              <div className="flex flex-wrap items-center gap-1 px-2 pb-1.5">
+            {/* Compact nav pills */}
+            <div className="flex flex-wrap items-center gap-1 pl-8 pr-4 pb-1.5">
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId: dirName }}
+                className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
+                  isOverviewActive
+                    ? "bg-accent-dim text-accent"
+                    : "text-muted hover:bg-surface-hover hover:text-text"
+                }`}
+              >
+                Overview
+              </Link>
+              <Link
+                to="/projects/$projectId/plans"
+                params={{ projectId: dirName }}
+                className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
+                  isPlansActive
+                    ? "bg-accent-dim text-accent"
+                    : "text-muted hover:bg-surface-hover hover:text-text"
+                }`}
+              >
+                Plans
+              </Link>
+              {beadsDirs.has(dir) && (
                 <Link
-                  to="/projects/$projectId"
+                  to="/projects/$projectId/issues"
                   params={{ projectId: dirName }}
                   className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-                    isOverviewActive
+                    isIssuesActive
                       ? "bg-accent-dim text-accent"
                       : "text-muted hover:bg-surface-hover hover:text-text"
                   }`}
                 >
-                  Overview
+                  Issues
                 </Link>
-                <Link
-                  to="/projects/$projectId/plans"
-                  params={{ projectId: dirName }}
-                  className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-                    isPlansActive
-                      ? "bg-accent-dim text-accent"
-                      : "text-muted hover:bg-surface-hover hover:text-text"
-                  }`}
-                >
-                  Plans
-                </Link>
-                {beadsDirs.has(dir) && (
-                  <Link
-                    to="/projects/$projectId/issues"
-                    params={{ projectId: dirName }}
-                    className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-                      isIssuesActive
-                        ? "bg-accent-dim text-accent"
-                        : "text-muted hover:bg-surface-hover hover:text-text"
-                    }`}
-                  >
-                    Issues
-                  </Link>
-                )}
-                <Link
-                  to="/projects/$projectId/chats"
-                  params={{ projectId: dirName }}
-                  className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-                    isChatsActive
-                      ? "bg-accent-dim text-accent"
-                      : "text-muted hover:bg-surface-hover hover:text-text"
-                  }`}
-                >
-                  Sessions
-                </Link>
-              </div>
+              )}
+              <Link
+                to="/projects/$projectId/chats"
+                params={{ projectId: dirName }}
+                className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
+                  isChatsActive
+                    ? "bg-accent-dim text-accent"
+                    : "text-muted hover:bg-surface-hover hover:text-text"
+                }`}
+              >
+                Sessions
+              </Link>
+            </div>
 
-              {/* Session items */}
+            {/* Session items */}
+            <div className="px-2">
               {visible.map(renderSessionItem)}
 
               {/* Show all link */}

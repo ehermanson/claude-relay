@@ -110,43 +110,37 @@ export function SidebarItem({
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
-      className={`group relative flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2 transition-colors ${
+      className={`group relative flex cursor-pointer items-start rounded-lg px-3 py-2 transition-colors ${
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
     >
-      {/* Status indicator — fixed 12px column so titles align regardless of icon/dot */}
-      <Tooltip content={statusTip} side="right">
-        <span className="mt-[3px] flex h-3 w-3 shrink-0 items-center justify-center">
-          {instance.external ? (
-            <SquareTerminal
-              size={12}
-              strokeWidth={2}
-              className={
-                instance.status === "idle" || instance.status === "processing"
-                  ? "text-muted"
-                  : "text-muted/50"
-              }
-            />
-          ) : (
+      {/* Status indicator — absolutely positioned in the left padding */}
+      <span className="absolute left-2.5 top-2.5 flex h-3 w-3 items-center justify-center">
+        {instance.external ? (
+          instance.status === "idle" || instance.status === "processing" ? (
+            <Tooltip content={statusTip} side="right">
+              <SquareTerminal size={12} strokeWidth={2} className="text-muted" />
+            </Tooltip>
+          ) : null
+        ) : instance.status !== "stopped" ? (
+          <Tooltip content={statusTip} side="right">
             <span
               className={`h-[6px] w-[6px] rounded-full ${
                 hasPendingTool
                   ? "animate-pulse-dot bg-warning"
                   : instance.status === "processing"
                     ? "animate-pulse-dot bg-warning"
-                    : instance.status === "idle"
-                      ? "bg-text/30"
-                      : instance.status === "error"
-                        ? "bg-error"
-                        : "bg-muted/50"
+                    : instance.status === "error"
+                      ? "bg-error"
+                      : "bg-text/30"
               }`}
             />
-          )}
-        </span>
-      </Tooltip>
+          </Tooltip>
+        ) : null}
+      </span>
 
       {/* Name + preview */}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 pl-5">
         {editing ? (
           <input
             ref={inputRef}
@@ -159,16 +153,12 @@ export function SidebarItem({
           />
         ) : (
           <div className="flex items-start gap-2">
-            <div
-              className={`min-w-0 flex-1 truncate text-[0.8125rem] font-medium leading-tight ${
-                isActive ? "text-accent" : "text-text-bright"
-              }`}
-            >
+            <div className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium leading-tight text-text-bright">
               {instance.name}
             </div>
             <ProviderLogo
               provider={instance.provider}
-              className="mt-0.5 h-3 w-3 shrink-0 text-muted/55"
+              className="mt-0.5 h-3 w-3 shrink-0 text-muted/55 opacity-0 transition-opacity group-hover:opacity-100"
               muted
             />
           </div>
@@ -281,7 +271,7 @@ export function SidebarItem({
               e.stopPropagation();
               setMenuOpen(true);
             }}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-40 transition-all hover:!opacity-70 hover:!text-text"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-0 transition-all group-hover:opacity-60 hover:!opacity-100 hover:!text-text"
           >
             <MoreVertical size={12} />
           </button>
