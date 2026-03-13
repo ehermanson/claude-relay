@@ -253,14 +253,6 @@ export function LiveStatusStrip({
           {formatElapsed(elapsedMs)}
         </span>
       )}
-
-      {/* Pulsing dot indicator */}
-      {!isVeryStale && (
-        <span className="relative flex h-1.5 w-1.5 shrink-0">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-claude/60" />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-claude" />
-        </span>
-      )}
     </div>
   );
 }
