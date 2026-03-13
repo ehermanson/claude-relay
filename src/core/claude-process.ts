@@ -29,6 +29,8 @@ import {
   buildToolResultActivity,
   estimateCost,
   getContextWindow,
+  TASK_TOOLS,
+  FILE_WRITE_TOOLS,
 } from "./tools.js";
 
 // =============================================================================
@@ -57,9 +59,6 @@ export interface ClaudeProcess {
     listener: (...args: ClaudeProcessEvents[E]) => void,
   ): this;
 }
-
-const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite"]);
-const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
 // =============================================================================
 // ClaudeProcess Class

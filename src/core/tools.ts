@@ -8,6 +8,19 @@
 import type { ActivityMessage, TaskItem } from "./types.js";
 
 // =============================================================================
+// Shared tool sets
+// =============================================================================
+
+/** Tools that manage tasks/todos — intercepted for sidecar task tracking. */
+export const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite"]);
+
+/** Tools that write files — intercepted for sidecar file tracking. */
+export const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
+
+/** File-write tools grouped for permission approval (approving one approves all). */
+export const FILE_WRITE_GROUP = ["Edit", "Write", "NotebookEdit"];
+
+// =============================================================================
 // Cost estimation
 // =============================================================================
 

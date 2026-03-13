@@ -32,6 +32,8 @@ import {
   extractInputDescription,
   estimateCost,
   getContextWindow,
+  TASK_TOOLS,
+  FILE_WRITE_TOOLS,
 } from "../tools.js";
 
 // =============================================================================
@@ -187,9 +189,6 @@ interface PendingStreamMessage {
 
 /** Max auto-continue attempts per user message to prevent runaway loops */
 const MAX_AUTO_CONTINUES = 25;
-
-const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite"]);
-const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
 // =============================================================================
 // ClaudeSdkSession

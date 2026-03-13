@@ -74,6 +74,9 @@ import {
   INTERACTIVE_TOOLS,
   buildToolResultActivity,
   estimateCost,
+  TASK_TOOLS,
+  FILE_WRITE_TOOLS,
+  FILE_WRITE_GROUP,
 } from "./tools.js";
 import {
   getRepoRoot,
@@ -192,9 +195,6 @@ const STALE_THRESHOLD = 3; // 3 × 10s = 30s grace period
 const MAX_TITLE_LENGTH = 50;
 const PLAN_TRANSCRIPT_RE = /read the full transcript at:\s*(\S+\.jsonl)/;
 const TRANSCRIPT_AVAILABLE_RE = /^Full transcript available at:\s+(\S+)$/;
-const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite"]);
-const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
-const FILE_WRITE_GROUP = ["Edit", "Write", "NotebookEdit"];
 
 /**
  * Strip internal Claude CLI XML tags from message text.
