@@ -593,7 +593,6 @@ export function InstanceView() {
         {/* Action buttons: [Open in X] | [Debug] | [Sidecar Controls] */}
         <div className="flex items-center gap-1">
           <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
-          <span aria-hidden="true" className="hidden h-4 w-px shrink-0 bg-border/60 sm:block" />
           <Tooltip content="Debug session data">
             <Button variant="icon" onClick={() => setShowDebugPaste(true)} className="shrink-0">
               <Bug size={15} strokeWidth={2} />
