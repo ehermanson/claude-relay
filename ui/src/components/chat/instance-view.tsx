@@ -16,6 +16,8 @@ import { Tooltip } from "../ui/tooltip";
 import { OpenInMenu } from "../project/open-in-menu";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
+import { DebugModal } from "./debug-modal";
+import { TerminalPermissionBar } from "./terminal-permission-bar";
 import { Bug, ChevronLeft, FileText, GitBranch, LayoutGrid, ListChecks } from "lucide-react";
 import { ContextRing } from "./input-area/shared";
 import { shortenPath, formatTokens, formatCost } from "../../lib/utils";
@@ -27,59 +29,6 @@ import type { InstanceInfo, ProviderKind } from "@shared/types";
 import type { ChatItem } from "../../hooks/use-instance-messages";
 
 const MotionLogo = motion.create(RelayLogo);
-
-function DebugModal({
-  instance,
-  items,
-  isProcessing,
-  onClose,
-}: {
-  instance: InstanceInfo;
-  items: ChatItem[];
-  isProcessing: boolean;
-  onClose: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const debugDump = JSON.stringify({ instance, items, isProcessing }, null, 2);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(debugDump).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
-
-  return (
-    <Dialog.Root
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <Dialog.Content>
-        <Dialog.Header>
-          <Dialog.Title>Debug</Dialog.Title>
-          <Dialog.Close />
-        </Dialog.Header>
-        <pre
-          className="flex-1 overflow-auto rounded-lg border border-border bg-bg p-3.5 font-mono text-[0.75rem] leading-relaxed text-text"
-          style={{ maxHeight: "55vh" }}
-        >
-          {debugDump}
-        </pre>
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            onClick={handleCopy}
-            className={copied ? "bg-accent/15 text-accent hover:bg-accent/25" : ""}
-          >
-            {copied ? "Copied!" : "Copy to Clipboard"}
-          </Button>
-        </div>
-      </Dialog.Content>
-    </Dialog.Root>
-  );
-}
 
 export function InstanceView() {
   const { chatId: id, projectId } = useParams({ strict: false }) as {
@@ -429,39 +378,7 @@ export function InstanceView() {
       )}
 
       {pendingTerminalTool && (
-        <div className="animate-fade-in shrink-0 border-t border-warning/25 bg-warning/5">
-          <div className="mx-auto flex max-w-3xl items-center gap-3 px-6 py-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/15">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-warning"
-              >
-                <path d="M4 17l6-6-6-6" />
-                <line x1="12" y1="19" x2="20" y2="19" />
-              </svg>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[0.8125rem] font-medium text-warning">
-                Waiting for your response in the terminal
-              </p>
-              <p className="text-[0.75rem] text-muted">
-                {instance.provider === "codex" ? "Codex" : "Claude"} is waiting for approval to use{" "}
-                {pendingTerminalTool}. Switch to your terminal to respond.
-              </p>
-            </div>
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-pulse-dot rounded-full bg-warning opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-warning" />
-            </span>
-          </div>
-        </div>
+        <TerminalPermissionBar provider={instance.provider} pendingTool={pendingTerminalTool} />
       )}
 
       {instance.gitBranch &&

@@ -1979,6 +1979,11 @@ export class InstanceManager extends EventEmitter {
     this.discovering = true;
     try {
       await this.discoverExistingInner();
+    } catch (err) {
+      this.baseConfig.logger.debug(
+        "[Discovery] Error during discovery poll:",
+        err instanceof Error ? err.message : err,
+      );
     } finally {
       this.discovering = false;
     }
