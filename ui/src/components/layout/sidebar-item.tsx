@@ -87,10 +87,10 @@ export function SidebarItem({
   if (instance.external) {
     statusTip =
       instance.status === "stopped"
-        ? "External session (ended)"
+        ? "External chat (ended)"
         : instance.status === "processing"
-          ? "External session (active)"
-          : "External session";
+          ? "External chat (active)"
+          : "External chat";
   } else if (hasPendingTool) {
     statusTip = "Waiting for permission";
   } else if (instance.status === "processing") {

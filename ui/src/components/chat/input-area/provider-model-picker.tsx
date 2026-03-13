@@ -221,9 +221,7 @@ export function PlanModePicker({ isProcessing, planMode, onTogglePlanMode }: Pla
     <Menu.Root>
       <Tooltip
         content={
-          planMode
-            ? "Plan mode is active for this session"
-            : "Switch between build and planning mode"
+          planMode ? "Plan mode is active for this chat" : "Switch between build and planning mode"
         }
       >
         <Menu.Trigger
@@ -253,9 +251,7 @@ export function PlanModePicker({ isProcessing, planMode, onTogglePlanMode }: Pla
           <MapIcon size={13} strokeWidth={2} className="shrink-0" />
           <span className="flex flex-1 flex-col">
             <span>Plan</span>
-            <span className="text-[0.6875rem] text-muted">
-              Stay in planning mode for this session
-            </span>
+            <span className="text-[0.6875rem] text-muted">Stay in planning mode for this chat</span>
           </span>
           {planMode && <Check size={13} strokeWidth={2.5} />}
         </Menu.Item>

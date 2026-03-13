@@ -29,14 +29,14 @@ function ProjectRow({
       <Link to="/projects/$projectId" params={{ projectId }} className="min-w-0 flex-1">
         <div className="truncate text-[0.8125rem] font-medium text-text-bright">{dirName}</div>
         <div className="text-[0.6875rem] text-muted">
-          {instances.length} session{instances.length !== 1 ? "s" : ""}
+          {instances.length} chat{instances.length !== 1 ? "s" : ""}
           {activeCount > 0 && <span className="text-accent"> &middot; {activeCount} active</span>}
         </div>
       </Link>
 
       <div className="shrink-0 text-[0.6875rem] text-muted">{formatTimeAgo(lastActivity)}</div>
 
-      <Tooltip content={`New session in ${dirName}`}>
+      <Tooltip content={`New chat in ${dirName}`}>
         <button
           type="button"
           onClick={(e) => {
@@ -154,7 +154,7 @@ export function Dashboard() {
               Create an instance to get started
             </p>
             <span className="text-[0.75rem] text-muted">
-              Use the + button in the sidebar to create a new session
+              Use the + button in the sidebar to create a new chat
             </span>
           </div>
         )}

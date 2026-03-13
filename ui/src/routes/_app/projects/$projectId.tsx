@@ -110,7 +110,7 @@ function ProjectLayout() {
   }
 
   // Format session tab label
-  let sessionLabel = "Sessions";
+  let sessionLabel = "Chats";
   if (sessionStats.total > 0) {
     sessionLabel += ` (${sessionStats.total}`;
     if (sessionStats.activeCount > 0) {

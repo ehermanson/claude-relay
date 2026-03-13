@@ -173,8 +173,8 @@ function reducer(state: State, action: Action): State {
             flushAssistant();
             if (msg.code !== 0) {
               let text = msg.signal
-                ? `Session process killed by ${msg.signal}`
-                : `Session process exited with code ${msg.code}`;
+                ? `Chat process killed by ${msg.signal}`
+                : `Chat process exited with code ${msg.code}`;
               if (msg.stderr) text += `\n${msg.stderr}`;
               items.push({ kind: "system", text, isError: true });
             }

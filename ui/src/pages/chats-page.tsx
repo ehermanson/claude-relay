@@ -173,9 +173,9 @@ export function ChatsPage() {
     <div className="flex-1 overflow-y-auto">
       {projectInstances.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="mb-1 text-sm text-muted">No sessions found</p>
+          <p className="mb-1 text-sm text-muted">No chats found</p>
           <span className="text-xs text-muted opacity-60">
-            Sessions for this project will appear here
+            Chats for this project will appear here
           </span>
         </div>
       ) : (

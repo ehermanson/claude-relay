@@ -675,18 +675,18 @@ const ContextPanel = memo(function ContextPanel({
           )}
           <StatRow
             label="Total Tokens"
-            help="Session total based on the provider's reported input plus output usage. Cache reads may already be folded into input."
+            help="Chat total based on the provider's reported input plus output usage. Cache reads may already be folded into input."
             value={formatTokens(totalTokens)}
           />
           <StatRow label="Messages" value={totalMessages} />
           <StatRow
             label="Input Tokens"
-            help="Tokens sent in requests during this session. Some providers include cache-hit tokens here."
+            help="Tokens sent in requests during this chat. Some providers include cache-hit tokens here."
             value={formatTokens(stats.inputTokens)}
           />
           <StatRow
             label="Output Tokens"
-            help="Tokens generated in model responses during this session."
+            help="Tokens generated in model responses during this chat."
             value={formatTokens(stats.outputTokens)}
           />
           {reasoning > 0 && (
@@ -704,7 +704,7 @@ const ContextPanel = memo(function ContextPanel({
           <StatRow label="User Messages" value={userCount} />
           <StatRow label="Assistant Messages" value={assistantCount} />
           <div className="col-span-2 border-t border-border/30" />
-          <StatRow label="Session Created" value={formatTimestamp(createdAt)} />
+          <StatRow label="Chat Created" value={formatTimestamp(createdAt)} />
           <StatRow label="Last Activity" value={formatTimestamp(lastActivityAt)} />
         </div>
 

@@ -76,7 +76,7 @@ export function ProjectPage() {
     docTabs.push({
       key: "memory",
       label: "Memory",
-      description: "Persistent notes Claude remembers across sessions.",
+      description: "Persistent notes Claude remembers across chats.",
       content: artifacts.memory,
     });
   }

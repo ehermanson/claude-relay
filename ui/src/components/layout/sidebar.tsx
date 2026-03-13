@@ -229,7 +229,7 @@ export function Sidebar() {
               className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
             >
               <Plus size={12} strokeWidth={2.5} />
-              New Session
+              New Chat
             </button>
           </div>
 
@@ -281,7 +281,7 @@ export function Sidebar() {
                     : "text-muted hover:bg-surface-hover hover:text-text"
                 }`}
               >
-                Sessions
+                Chats
               </Link>
             </div>
 
@@ -343,7 +343,7 @@ export function Sidebar() {
         {instances.length === 0 && isSyncing ? (
           <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
             <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin text-muted" />
-            <p className="text-sm text-muted">Syncing sessions...</p>
+            <p className="text-sm text-muted">Syncing chats...</p>
           </div>
         ) : instances.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">

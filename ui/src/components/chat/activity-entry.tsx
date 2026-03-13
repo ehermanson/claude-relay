@@ -392,7 +392,7 @@ function PlanApprovalContent({
                 params={{ projectId, chatId: planChildId }}
                 className="text-[0.75rem] font-medium text-accent hover:underline"
               >
-                Continued in {planChildName || "child session"}
+                Continued in {planChildName || "child chat"}
               </Link>
             )}
           </div>

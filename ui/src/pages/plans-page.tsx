@@ -170,7 +170,7 @@ export function PlansPage() {
       <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
         <p className="mb-1 text-sm text-muted">No plans found</p>
         <span className="text-xs text-muted opacity-60">
-          Implementation plans generated during sessions will appear here
+          Implementation plans generated during chats will appear here
         </span>
       </div>
     );

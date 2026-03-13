@@ -359,7 +359,7 @@ export function InstanceView() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ type: "spring", duration: 0.9, bounce: 0.25 }}
         />
-        <p className="text-[0.875rem] font-medium text-text-bright">Loading session</p>
+        <p className="text-[0.875rem] font-medium text-text-bright">Loading chat</p>
         <p className="mt-1 text-[0.75rem] text-muted">
           Replaying history and restoring live state for this chat.
         </p>
@@ -401,10 +401,10 @@ export function InstanceView() {
       {/* Takeover confirmation for external sessions */}
       <Dialog.Root open={!!takeoverPending} onOpenChange={() => setTakeoverPending(null)}>
         <Dialog.Content maxWidth="max-w-md">
-          <Dialog.Title>Take over terminal session?</Dialog.Title>
+          <Dialog.Title>Take over terminal chat?</Dialog.Title>
           <p className="text-sm text-muted">
-            This will stop the Claude process running in your terminal and continue the session here
-            in Relay. You won't be able to resume it in the terminal afterward.
+            This will stop the Claude process running in your terminal and continue the chat here in
+            Relay. You won't be able to resume it in the terminal afterward.
           </p>
           <div className="mt-2 flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setTakeoverPending(null)}>
@@ -499,13 +499,13 @@ export function InstanceView() {
   let statusLabel: string;
   if (isStopped) {
     dotClass = "bg-muted";
-    statusLabel = instance.external ? "External session (ended)" : "Ended";
+    statusLabel = instance.external ? "External chat (ended)" : "Ended";
   } else if (instance.status === "processing") {
     dotClass = "animate-pulse-dot bg-warning";
-    statusLabel = instance.external ? "External session (active)" : "Processing";
+    statusLabel = instance.external ? "External chat (active)" : "Processing";
   } else if (instance.external) {
     dotClass = "bg-accent";
-    statusLabel = "External session";
+    statusLabel = "External chat";
   } else {
     dotClass = "bg-accent";
     statusLabel = "Idle";
@@ -593,7 +593,7 @@ export function InstanceView() {
         {/* Action buttons: [Open in X] | [Debug] | [Sidecar Controls] */}
         <div className="flex items-center gap-1">
           <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
-          <Tooltip content="Debug session data">
+          <Tooltip content="Debug chat data">
             <Button variant="icon" onClick={() => setShowDebugPaste(true)} className="shrink-0">
               <Bug size={15} strokeWidth={2} />
             </Button>
