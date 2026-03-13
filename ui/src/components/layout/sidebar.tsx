@@ -1,19 +1,16 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Loader2, LogOut, Moon, Plus, Sun } from "lucide-react";
+import { Loader2, LogOut, Moon, Plus, Sun } from "lucide-react";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
-import { SidebarItem } from "./sidebar-item";
 import { useTheme } from "../../context/theme-context";
 import { RelayLogo } from "../ui/relay-logo";
 import { Popover } from "../ui/popover";
-import { Collapsible } from "../ui/collapsible";
+import { SidebarProjectGroup } from "./sidebar-project-group";
 
 import { NewInstanceForm } from "../forms/new-instance-form";
 import { fetchBeadsProjects } from "../../lib/api";
 import type { InstanceInfo } from "@shared/types";
-
-const MAX_SIDEBAR_SESSIONS = 10;
 
 export function Sidebar() {
   const { send } = useWSMethods();
@@ -74,7 +71,7 @@ export function Sidebar() {
     ([, a], [, b]) => b[0].lastActivityAt - a[0].lastActivityAt,
   );
 
-  // Build a sessionId→instance lookup for parent linking
+  // Build a sessionId->instance lookup for parent linking
   const sessionIdMap = new Map<string, InstanceInfo>();
   for (const inst of instances) {
     if (inst.sessionId) sessionIdMap.set(inst.sessionId, inst);
@@ -105,223 +102,6 @@ export function Sidebar() {
 
   const handleMerge = (instanceId: string) => {
     send({ type: "merge_instance", instanceId });
-  };
-
-  const renderGroup = (dir: string, groupInstances: InstanceInfo[]) => {
-    const dirName = dir.split("/").pop() || dir;
-    const isActiveProject = currentProjectId === dirName;
-    const isPlansActive = isActiveProject && location.pathname.includes("/plans");
-    const isIssuesActive = isActiveProject && location.pathname.includes("/issues");
-    const isSkillsActive = isActiveProject && location.pathname.includes("/skills");
-    const isChatsActive = isActiveProject && location.pathname.includes("/chats") && !currentId;
-    const isOverviewActive =
-      isActiveProject &&
-      !currentId &&
-      !isPlansActive &&
-      !isIssuesActive &&
-      !isSkillsActive &&
-      !isChatsActive;
-    const isOpen = !collapsedDirs.has(dir);
-    // Build parent/child ordered list: children appear right after their parent
-    const childIds = new Set<string>();
-    const parentChildren = new Map<string, InstanceInfo[]>();
-    for (const inst of groupInstances) {
-      if (inst.parentSessionId) {
-        const parent = sessionIdMap.get(inst.parentSessionId);
-        if (parent && parent.workingDirectory === inst.workingDirectory) {
-          childIds.add(inst.id);
-          const children = parentChildren.get(parent.id) || [];
-          children.push(inst);
-          parentChildren.set(parent.id, children);
-        }
-      }
-    }
-
-    const ordered: Array<{
-      inst: InstanceInfo;
-      isChild: boolean;
-      parentInst?: InstanceInfo;
-    }> = [];
-    for (const inst of groupInstances) {
-      if (childIds.has(inst.id)) continue;
-      ordered.push({ inst, isChild: false });
-      const children = parentChildren.get(inst.id);
-      if (children) {
-        for (const child of children) {
-          ordered.push({ inst: child, isChild: true, parentInst: inst });
-        }
-      }
-    }
-
-    // Determine visible sessions: active + recent up to MAX
-    let visible = ordered;
-    let hiddenCount = 0;
-    {
-      const activeSessions = ordered.filter((o) => o.inst.status !== "stopped");
-      const stoppedSessions = ordered.filter((o) => o.inst.status === "stopped");
-      const slotsForStopped = Math.max(0, MAX_SIDEBAR_SESSIONS - activeSessions.length);
-      const visibleIds = new Set([
-        ...activeSessions.map((o) => o.inst.id),
-        ...stoppedSessions.slice(0, slotsForStopped).map((o) => o.inst.id),
-      ]);
-      if (currentId) visibleIds.add(currentId);
-      visible = ordered.filter((o) => visibleIds.has(o.inst.id));
-      hiddenCount = ordered.length - visible.length;
-    }
-
-    const renderSessionItem = ({
-      inst,
-      isChild,
-      parentInst,
-    }: {
-      inst: InstanceInfo;
-      isChild: boolean;
-      parentInst?: InstanceInfo;
-    }) => (
-      <SidebarItem
-        key={inst.id}
-        instance={inst}
-        isActive={inst.id === currentId}
-        isChild={isChild}
-        parentInstance={parentInst ? { id: parentInst.id, name: parentInst.name } : undefined}
-        to="/projects/$projectId/chats/$chatId"
-        params={{
-          projectId: inst.workingDirectory.split("/").pop() || inst.workingDirectory,
-          chatId: inst.id,
-        }}
-        onDelete={() => handleDelete(inst.id)}
-        deleteDisabled={inst.external === true && inst.status !== "stopped"}
-        onRename={(name) => handleRename(inst.id, name)}
-        onRefreshTitle={() => handleRefreshTitle(inst.id)}
-        onMerge={inst.gitBranch && inst.hasChanges ? () => handleMerge(inst.id) : undefined}
-      />
-    );
-
-    return (
-      <Collapsible.Root
-        key={dir}
-        open={isOpen}
-        onOpenChange={(open) => {
-          setCollapsedDirs((prev) => {
-            const next = new Set(prev);
-            if (open) next.delete(dir);
-            else next.add(dir);
-            return next;
-          });
-        }}
-      >
-        <div className="group/project mb-0.5">
-          {/* Project header — collapse toggle + quick create as one row */}
-          <div className="flex items-center rounded-lg mx-2 transition-colors hover:bg-surface-hover">
-            <Collapsible.Trigger className="flex min-w-0 flex-1 items-center gap-1.5 py-2 pl-2 text-left">
-              {isOpen ? (
-                <ChevronDown size={12} strokeWidth={3} className="shrink-0 text-text-bright/60" />
-              ) : (
-                <ChevronRight size={12} strokeWidth={3} className="shrink-0 text-text-bright/60" />
-              )}
-              <span
-                className={`min-w-0 flex-1 truncate text-[0.8125rem] font-semibold ${
-                  isActiveProject ? "text-accent" : "text-text-bright"
-                }`}
-              >
-                {dirName}
-              </span>
-            </Collapsible.Trigger>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleQuickCreate(dir);
-              }}
-              className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
-            >
-              <Plus size={12} strokeWidth={2.5} />
-              New Chat
-            </button>
-          </div>
-
-          {/* Content */}
-          <Collapsible.Content>
-            {/* Compact nav pills */}
-            <div className="flex flex-wrap items-center gap-1 pl-8 pr-4 pb-1.5">
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: dirName }}
-                className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-                  isOverviewActive
-                    ? "bg-accent-dim text-accent"
-                    : "text-muted hover:bg-surface-hover hover:text-text"
-                }`}
-              >
-                Overview
-              </Link>
-              <Link
-                to="/projects/$projectId/plans"
-                params={{ projectId: dirName }}
-                className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-                  isPlansActive
-                    ? "bg-accent-dim text-accent"
-                    : "text-muted hover:bg-surface-hover hover:text-text"
-                }`}
-              >
-                Plans
-              </Link>
-              {beadsDirs.has(dir) && (
-                <Link
-                  to="/projects/$projectId/issues"
-                  params={{ projectId: dirName }}
-                  className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-                    isIssuesActive
-                      ? "bg-accent-dim text-accent"
-                      : "text-muted hover:bg-surface-hover hover:text-text"
-                  }`}
-                >
-                  Issues
-                </Link>
-              )}
-              <Link
-                to="/projects/$projectId/skills"
-                params={{ projectId: dirName }}
-                className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-                  isSkillsActive
-                    ? "bg-accent-dim text-accent"
-                    : "text-muted hover:bg-surface-hover hover:text-text"
-                }`}
-              >
-                Skills
-              </Link>
-              <Link
-                to="/projects/$projectId/chats"
-                params={{ projectId: dirName }}
-                className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-                  isChatsActive
-                    ? "bg-accent-dim text-accent"
-                    : "text-muted hover:bg-surface-hover hover:text-text"
-                }`}
-              >
-                Chats
-              </Link>
-            </div>
-
-            {/* Session items */}
-            <div className="px-2">
-              {visible.map(renderSessionItem)}
-
-              {/* Show all link */}
-              {hiddenCount > 0 && (
-                <Link
-                  to="/projects/$projectId/chats"
-                  params={{ projectId: dirName }}
-                  className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
-                >
-                  +{hiddenCount} more
-                  <ChevronRight size={10} strokeWidth={2.5} />
-                </Link>
-              )}
-            </div>
-          </Collapsible.Content>
-        </div>
-      </Collapsible.Root>
-    );
   };
 
   return (
@@ -369,7 +149,32 @@ export function Sidebar() {
           </div>
         ) : (
           <>
-            {groups.map(([dir, groupInstances]) => renderGroup(dir, groupInstances))}
+            {groups.map(([dir, groupInstances]) => (
+              <SidebarProjectGroup
+                key={dir}
+                dir={dir}
+                groupInstances={groupInstances}
+                currentId={currentId}
+                currentProjectId={currentProjectId}
+                locationPathname={location.pathname}
+                isOpen={!collapsedDirs.has(dir)}
+                onToggle={(open) => {
+                  setCollapsedDirs((prev) => {
+                    const next = new Set(prev);
+                    if (open) next.delete(dir);
+                    else next.add(dir);
+                    return next;
+                  });
+                }}
+                sessionIdMap={sessionIdMap}
+                hasBeads={beadsDirs.has(dir)}
+                onQuickCreate={handleQuickCreate}
+                onDelete={handleDelete}
+                onRename={handleRename}
+                onRefreshTitle={handleRefreshTitle}
+                onMerge={handleMerge}
+              />
+            ))}
 
             {/* Subtle syncing indicator when instances already loaded but scan in progress */}
             {isSyncing && (

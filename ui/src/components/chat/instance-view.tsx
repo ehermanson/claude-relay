@@ -1,32 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { useParams, useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { Group, Panel } from "react-resizable-panels";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useInstanceMessages } from "../../hooks/use-instance-messages";
 import { useMediaQuery } from "../../hooks/use-media-query";
+import { useSidecarPanels } from "../../hooks/use-sidecar-panels";
 import { MessageList } from "./message-list";
 import { InputArea } from "./input-area";
-import { Sidecar, type SidecarTab } from "./sidecar";
+import { Sidecar } from "./sidecar";
 import { ResizableHandle } from "../ui/resizable-handle";
 import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { RelayLogo } from "../ui/relay-logo";
-import { Tooltip } from "../ui/tooltip";
-import { OpenInMenu } from "../project/open-in-menu";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
 import { DebugModal } from "./debug-modal";
 import { TerminalPermissionBar } from "./terminal-permission-bar";
-import { Bug, ChevronLeft, FileText, GitBranch, LayoutGrid, ListChecks } from "lucide-react";
-import { ContextRing } from "./input-area/shared";
-import { shortenPath, formatTokens, formatCost } from "../../lib/utils";
+import { InstanceHeader } from "./instance-header";
 import { createInstance, fetchInstanceHistory } from "../../lib/api";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
-import type { ServerMessage } from "@shared/types";
-
-import type { InstanceInfo, ProviderKind } from "@shared/types";
-import type { ChatItem } from "../../hooks/use-instance-messages";
+import type { ServerMessage, ProviderKind } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
 
@@ -67,8 +61,6 @@ export function InstanceView() {
   }, [id, setInstanceId]);
 
   // Subscribe/unsubscribe — re-runs on each new WS connection (connectionId)
-  // rather than on isConnected, so re-subscription fires even during the
-  // disconnect grace period.
   useEffect(() => {
     if (!id || connectionId === 0) return;
     subscribe(id);
@@ -98,7 +90,6 @@ export function InstanceView() {
 
   const handleSend = (text: string, images?: string[]) => {
     if (!id) return;
-    // If this is an external session, confirm before taking over
     if (instance?.external) {
       setTakeoverPending({ text, images });
       return;
@@ -169,81 +160,27 @@ export function InstanceView() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [showDebugPaste, setShowDebugPaste] = useState(false);
-  const [sidecarMobileOpen, setSidecarMobileOpen] = useState(false);
-
-  // --- Sidecar panel toggles ---
-  const [activePanels, setActivePanels] = useState<Set<SidecarTab>>(new Set());
-  const manuallyToggledOff = useRef(new Set<SidecarTab>());
-  const prevHasTasksRef = useRef(false);
-  const prevHasFilesRef = useRef(false);
-
-  const togglePanel = useCallback((panel: SidecarTab) => {
-    setActivePanels((prev) => {
-      const next = new Set(prev);
-      if (next.has(panel)) {
-        next.delete(panel);
-        manuallyToggledOff.current.add(panel);
-      } else {
-        next.add(panel);
-        manuallyToggledOff.current.delete(panel);
-      }
-      return next;
-    });
-  }, []);
-
-  // Reset when switching instances
-  useEffect(() => {
-    setSidecarMobileOpen(false);
-    setActivePanels(new Set());
-    manuallyToggledOff.current.clear();
-    prevHasTasksRef.current = false;
-    prevHasFilesRef.current = false;
-  }, [id]);
 
   const hasStats =
     !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
-
-  // Per-panel content flags
   const hasTasksContent = (currentTasks?.length ?? 0) > 0;
   const hasFilesContent = (currentFiles?.length ?? 0) > 0;
 
-  // Auto-activate operational panels when content first appears (skip if user manually toggled off)
-  useEffect(() => {
-    const toActivate: SidecarTab[] = [];
-    if (hasTasksContent && !prevHasTasksRef.current && !manuallyToggledOff.current.has("tasks"))
-      toActivate.push("tasks");
-    if (hasFilesContent && !prevHasFilesRef.current && !manuallyToggledOff.current.has("files"))
-      toActivate.push("files");
-    prevHasTasksRef.current = hasTasksContent;
-    prevHasFilesRef.current = hasFilesContent;
-    if (toActivate.length > 0) {
-      setActivePanels((prev) => {
-        const next = new Set(prev);
-        for (const tab of toActivate) next.add(tab);
-        return next;
-      });
-    }
-  }, [hasTasksContent, hasFilesContent]);
-
-  // Total content for mobile sidecar button badge
-  const sidecarContentCount =
-    (currentTasks?.length ?? 0) + (currentFiles?.length ?? 0) + (hasStats ? 1 : 0);
-
-  // All panels with content — used for mobile overlay (shows everything)
-  const allContentPanels = useMemo(() => {
-    const s = new Set<SidecarTab>();
-    if (hasTasksContent) s.add("tasks");
-    if (hasFilesContent) s.add("files");
-    if (hasStats) s.add("context");
-    return s;
-  }, [hasTasksContent, hasFilesContent, hasStats]);
-
-  // Desktop sidecar visible when any active panel has content
-  const showDesktopSidecar =
-    !isMobile &&
-    ((activePanels.has("tasks") && hasTasksContent) ||
-      (activePanels.has("files") && hasFilesContent) ||
-      (activePanels.has("context") && hasStats));
+  const {
+    activePanels,
+    mobileOpen: sidecarMobileOpen,
+    setMobileOpen: setSidecarMobileOpen,
+    togglePanel,
+    sidecarContentCount,
+    allContentPanels,
+    showDesktopSidecar,
+  } = useSidecarPanels({
+    instanceId: id,
+    isMobile,
+    hasTasksContent,
+    hasFilesContent,
+    hasStats,
+  });
 
   const handleMerge = () => {
     if (!id) return;
@@ -281,8 +218,6 @@ export function InstanceView() {
   }
 
   const isStopped = instance.status === "stopped";
-
-  // Server tracks pendingTool on InstanceInfo — no client-side scanning needed
   const pendingTerminalTool = instance.pendingTool ?? null;
   const rawPermission = instance.pendingPermission ?? null;
   const pendingPermissionTool = rawPermission
@@ -411,165 +346,20 @@ export function InstanceView() {
     </>
   );
 
-  // Status dot + label
-  let dotClass: string;
-  let statusLabel: string;
-  if (isStopped) {
-    dotClass = "bg-muted";
-    statusLabel = instance.external ? "External chat (ended)" : "Ended";
-  } else if (instance.status === "processing") {
-    dotClass = "animate-pulse-dot bg-warning";
-    statusLabel = instance.external ? "External chat (active)" : "Processing";
-  } else if (instance.external) {
-    dotClass = "bg-accent";
-    statusLabel = "External chat";
-  } else {
-    dotClass = "bg-accent";
-    statusLabel = "Idle";
-  }
-
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
-        <Tooltip content="Back">
-          <Link
-            to="/projects/$projectId/chats"
-            params={{
-              projectId: instance.workingDirectory.split("/").pop() || "",
-            }}
-            className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
-          >
-            <ChevronLeft size={16} strokeWidth={2} />
-          </Link>
-        </Tooltip>
-        {/* Title area with inline status dot */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Tooltip content={statusLabel}>
-              <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
-            </Tooltip>
-            <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
-              {instance.name}
-            </h1>
-          </div>
-          {/* Metadata line: project · branch · tokens */}
-          <div className="hidden items-center gap-1 pl-4 text-[0.6875rem] text-muted sm:flex">
-            <Tooltip content={instance.workingDirectory} side="bottom">
-              <Link
-                to="/projects/$projectId/chats"
-                params={{
-                  projectId:
-                    instance.workingDirectory.split("/").pop() || instance.workingDirectory,
-                }}
-                className="truncate transition-colors hover:text-accent"
-              >
-                {instance.workingDirectory.split("/").pop() || instance.workingDirectory}
-              </Link>
-            </Tooltip>
-            {(instance.gitBranch || instance.gitInfo?.branch) && (
-              <>
-                <span className="text-border">·</span>
-                <Tooltip
-                  content={
-                    instance.gitBranch
-                      ? `Working in worktree on branch ${instance.gitBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
-                      : `On branch ${instance.gitInfo!.branch}`
-                  }
-                >
-                  <span className="flex shrink-0 items-center gap-1 text-accent/70">
-                    <GitBranch size={10} strokeWidth={2.5} />
-                    {instance.gitBranch || instance.gitInfo!.branch}
-                  </span>
-                </Tooltip>
-              </>
-            )}
-            {instance.stats && instance.stats.costUSD > 0 && (
-              <>
-                <span className="text-border">·</span>
-                <Tooltip
-                  content={
-                    <div className="flex flex-col gap-0.5">
-                      <div className="font-medium">{instance.stats.model ?? "Unknown model"}</div>
-                      <div>Input: {formatTokens(instance.stats.inputTokens)}</div>
-                      <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
-                      <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
-                      <div>Cache read: {formatTokens(instance.stats.cacheReadTokens)}</div>
-                    </div>
-                  }
-                >
-                  <span className="shrink-0">
-                    {formatTokens(instance.stats.inputTokens + instance.stats.outputTokens)} tokens
-                    · ~{formatCost(instance.stats.costUSD)}
-                  </span>
-                </Tooltip>
-              </>
-            )}
-          </div>
-        </div>
-        {/* Action buttons: [Open in X] | [Debug] | [Sidecar Controls] */}
-        <div className="flex items-center gap-1">
-          <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
-          <Tooltip content="Debug chat data">
-            <Button variant="icon" onClick={() => setShowDebugPaste(true)} className="shrink-0">
-              <Bug size={15} strokeWidth={2} />
-            </Button>
-          </Tooltip>
-          {/* Desktop: per-panel toggle buttons (only shown when content exists) */}
-          {!isMobile && (hasTasksContent || hasFilesContent || hasStats) && (
-            <>
-              <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
-              {hasTasksContent && (
-                <Tooltip content={activePanels.has("tasks") ? "Hide tasks" : "Show tasks"}>
-                  <Button
-                    variant="icon"
-                    onClick={() => togglePanel("tasks")}
-                    className={`shrink-0 ${activePanels.has("tasks") ? "!bg-accent/10 !text-accent" : ""}`}
-                  >
-                    <ListChecks size={15} strokeWidth={2} />
-                  </Button>
-                </Tooltip>
-              )}
-              {hasFilesContent && (
-                <Tooltip content={activePanels.has("files") ? "Hide files" : "Show files"}>
-                  <Button
-                    variant="icon"
-                    onClick={() => togglePanel("files")}
-                    className={`shrink-0 ${activePanels.has("files") ? "!bg-accent/10 !text-accent" : ""}`}
-                  >
-                    <FileText size={15} strokeWidth={2} />
-                  </Button>
-                </Tooltip>
-              )}
-              {hasStats && instance.stats && (
-                <ContextRing
-                  stats={instance.stats}
-                  active={activePanels.has("context")}
-                  onClick={() => togglePanel("context")}
-                />
-              )}
-            </>
-          )}
-          {/* Mobile: single sidecar button */}
-          {isMobile && sidecarContentCount > 0 && (
-            <>
-              <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
-              <Tooltip content="Sidecar">
-                <Button
-                  variant="icon"
-                  onClick={() => setSidecarMobileOpen(true)}
-                  className="relative shrink-0"
-                >
-                  <LayoutGrid size={15} strokeWidth={2} />
-                  <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
-                    {sidecarContentCount}
-                  </span>
-                </Button>
-              </Tooltip>
-            </>
-          )}
-        </div>
-      </div>
+      <InstanceHeader
+        instance={instance}
+        isMobile={isMobile}
+        activePanels={activePanels}
+        hasTasksContent={hasTasksContent}
+        hasFilesContent={hasFilesContent}
+        hasStats={hasStats}
+        sidecarContentCount={sidecarContentCount}
+        onTogglePanel={togglePanel}
+        onOpenDebug={() => setShowDebugPaste(true)}
+        onOpenMobileSidecar={() => setSidecarMobileOpen(true)}
+      />
 
       {showDesktopSidecar ? (
         <Group orientation="horizontal" className="min-h-0 flex-1">
