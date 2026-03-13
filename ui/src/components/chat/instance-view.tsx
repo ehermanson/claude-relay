@@ -7,11 +7,10 @@ import { useInstanceMessages } from "../../hooks/use-instance-messages";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useSidecarPanels } from "../../hooks/use-sidecar-panels";
 import { MessageList } from "./message-list";
+import { ExternalSessionBar } from "./external-session-bar";
 import { InputArea } from "./input-area";
 import { Sidecar } from "./sidecar";
 import { ResizableHandle } from "../ui/resizable-handle";
-import { Dialog } from "../ui/dialog";
-import { Button } from "../ui/button";
 import { RelayLogo } from "../ui/relay-logo";
 import { PermissionBanner } from "./permission-banner";
 import { MergeBanner } from "./merge-banner";
@@ -83,31 +82,16 @@ export function InstanceView() {
     }
   }, [isConnected, instances, id, instance, navigate]);
 
-  const [takeoverPending, setTakeoverPending] = useState<{
-    text: string;
-    images?: string[];
-  } | null>(null);
-
   const handleSend = (text: string, images?: string[]) => {
     if (!id) return;
-    if (instance?.external) {
-      setTakeoverPending({ text, images });
-      return;
-    }
     send({ type: "instance_message", instanceId: id, text, images });
     showThinking();
   };
 
-  const confirmTakeover = () => {
-    if (!id || !takeoverPending) return;
-    send({
-      type: "instance_message",
-      instanceId: id,
-      text: takeoverPending.text,
-      images: takeoverPending.images,
-    });
+  const handleTakeover = () => {
+    if (!id) return;
+    send({ type: "instance_message", instanceId: id, text: "Continue." });
     showThinking();
-    setTakeoverPending(null);
   };
 
   const handleCancel = () => {
@@ -282,25 +266,6 @@ export function InstanceView() {
         />
       )}
 
-      {/* Takeover confirmation for external sessions */}
-      <Dialog.Root open={!!takeoverPending} onOpenChange={() => setTakeoverPending(null)}>
-        <Dialog.Content maxWidth="max-w-md">
-          <Dialog.Title>Take over terminal chat?</Dialog.Title>
-          <p className="text-sm text-muted">
-            This will stop the Claude process running in your terminal and continue the chat here in
-            Relay. You won't be able to resume it in the terminal afterward.
-          </p>
-          <div className="mt-2 flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setTakeoverPending(null)}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={confirmTakeover}>
-              Take over
-            </Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Root>
-
       {pendingPermissionTool && pendingPermissionRequestId && !instance.external && (
         <PermissionBanner
           key={pendingPermissionRequestId}
@@ -322,27 +287,33 @@ export function InstanceView() {
         !instance.external &&
         items.length > 0 && <MergeBanner onMerge={handleMerge} />}
 
-      {!isLoadingSession && (
-        <InputArea
-          onSend={handleSend}
-          onCancel={handleCancel}
-          onSwitchProvider={handleSwitchProvider}
-          isProcessing={isProcessing}
-          isConnected={isConnected}
-          instanceId={id!}
-          sessionId={instance.sessionId}
-          isStopped={isStopped}
-          isExternal={!!instance.external}
-          isPendingInTerminal={!!pendingTerminalTool}
-          provider={instance.provider}
-          preferredModel={instance.preferredModel}
-          reasoningBudget={instance.reasoningBudget}
-          planMode={instance.planMode}
-          activeModel={instance.stats?.model}
-          skipPermissions={instance.skipPermissions}
-          hasMessages={items.length > 0}
-        />
-      )}
+      {!isLoadingSession &&
+        (instance.external ? (
+          <ExternalSessionBar
+            isStopped={isStopped}
+            isConnected={isConnected}
+            onTakeover={handleTakeover}
+          />
+        ) : (
+          <InputArea
+            onSend={handleSend}
+            onCancel={handleCancel}
+            onSwitchProvider={handleSwitchProvider}
+            isProcessing={isProcessing}
+            isConnected={isConnected}
+            instanceId={id!}
+            sessionId={instance.sessionId}
+            isStopped={isStopped}
+            isPendingInTerminal={!!pendingTerminalTool}
+            provider={instance.provider}
+            preferredModel={instance.preferredModel}
+            reasoningBudget={instance.reasoningBudget}
+            planMode={instance.planMode}
+            activeModel={instance.stats?.model}
+            skipPermissions={instance.skipPermissions}
+            hasMessages={items.length > 0}
+          />
+        ))}
     </>
   );
 

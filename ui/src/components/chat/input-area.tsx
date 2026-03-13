@@ -44,7 +44,6 @@ interface InputAreaProps {
   instanceId: string;
   sessionId?: string;
   isStopped?: boolean;
-  isExternal?: boolean;
   isPendingInTerminal?: boolean;
   provider: ProviderKind;
   preferredModel?: string;
@@ -64,7 +63,6 @@ export function InputArea({
   instanceId,
   sessionId,
   isStopped,
-  isExternal,
   isPendingInTerminal,
   provider,
   preferredModel,
@@ -88,10 +86,7 @@ export function InputArea({
   const { send } = useWSMethods();
   const { images, uploading, addImages, removeImage, clearImages, uploadAttachedImages } =
     useAttachmentState();
-  const { showModelMenu, setShowModelMenu, availableProviderModels } = useProviderModels(
-    provider,
-    isExternal,
-  );
+  const { showModelMenu, setShowModelMenu, availableProviderModels } = useProviderModels(provider);
   const {
     showProviderSwitchDialog,
     providerSwitchTarget,
@@ -159,7 +154,7 @@ export function InputArea({
   const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
   const supportsModelSelection = true;
   const supportsReasoningSelection = true;
-  const supportsPlanMode = (provider === "claude" || provider === "codex") && !isExternal;
+  const supportsPlanMode = provider === "claude" || provider === "codex";
   const providerLabel = provider === "claude" ? "Claude" : getProviderDisplayName(provider);
   const providerSwitchLabel = providerSwitchTarget
     ? providerSwitchTarget === "claude"
@@ -211,7 +206,6 @@ export function InputArea({
   };
   const { composerMenu, handleComposerKeyDown } = useComposerMenus({
     instanceId,
-    isExternal,
     isMobile,
     skills: providerSkills,
     draftText,
@@ -279,9 +273,9 @@ export function InputArea({
     supportsModelSelection ? (
       <ProviderModelPicker
         key="model-picker"
-        open={isExternal ? false : showModelMenu}
-        onOpenChange={isExternal ? undefined : setShowModelMenu}
-        isProcessing={isProcessing || !!isExternal}
+        open={showModelMenu}
+        onOpenChange={setShowModelMenu}
+        isProcessing={isProcessing}
         provider={provider}
         preferredModel={preferredModel}
         currentProviderModels={currentProviderModels}
@@ -301,7 +295,7 @@ export function InputArea({
     supportsReasoningSelection ? (
       <ReasoningPicker
         key="reasoning-picker"
-        isProcessing={isProcessing || !!isExternal}
+        isProcessing={isProcessing}
         reasoningBudget={reasoningBudget}
         reasoningLabel={reasoningLabel}
         onSelectReasoningBudget={setReasoningBudget}
@@ -310,20 +304,18 @@ export function InputArea({
     supportsPlanMode ? (
       <PlanModePicker
         key="plan-mode-toggle"
-        isProcessing={isProcessing || !!isExternal}
+        isProcessing={isProcessing}
         planMode={planMode}
         onTogglePlanMode={setPlanMode}
       />
     ) : null,
-    !isExternal ? (
-      <PermissionsToggle
-        key="permissions-toggle"
-        provider={provider}
-        isProcessing={isProcessing}
-        skipPermissions={skipPermissions}
-        onToggle={togglePermissions}
-      />
-    ) : null,
+    <PermissionsToggle
+      key="permissions-toggle"
+      provider={provider}
+      isProcessing={isProcessing}
+      skipPermissions={skipPermissions}
+      onToggle={togglePermissions}
+    />,
   ];
 
   return (

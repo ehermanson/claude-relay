@@ -21,7 +21,6 @@ interface ModelOption {
 
 interface UseComposerMenusParams {
   instanceId: string;
-  isExternal?: boolean;
   isMobile: boolean;
   skills?: SkillInfo[];
   draftText: string;
@@ -77,7 +76,6 @@ function groupSlashMenuItems(items: SlashMenuItem[]) {
 
 export function useComposerMenus({
   instanceId,
-  isExternal,
   isMobile,
   skills,
   draftText,
@@ -163,7 +161,7 @@ export function useComposerMenus({
     resetMentionMenu();
   };
 
-  const rawSlashContext = !isExternal && !slashMenuDismissed ? getSlashContext(draftText) : null;
+  const rawSlashContext = !slashMenuDismissed ? getSlashContext(draftText) : null;
   // Suppress the menu when the user is typing arguments after a skill name
   const slashContext =
     rawSlashContext?.hasArgument && skills?.some((s) => s.name === rawSlashContext.commandQuery)

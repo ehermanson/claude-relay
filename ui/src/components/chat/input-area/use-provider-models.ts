@@ -2,17 +2,12 @@ import { useEffect, useState } from "react";
 import type { ProviderKind, ProviderModelOption } from "@shared/types";
 import { fetchProviderModels } from "../../../lib/api";
 
-export function useProviderModels(provider: ProviderKind, isExternal?: boolean) {
+export function useProviderModels(provider: ProviderKind) {
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [availableProviderModels, setAvailableProviderModels] = useState<ProviderModelOption[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-
-    if (isExternal) {
-      setAvailableProviderModels([]);
-      return;
-    }
 
     fetchProviderModels(provider)
       .then((models) => {
@@ -29,7 +24,7 @@ export function useProviderModels(provider: ProviderKind, isExternal?: boolean) 
     return () => {
       cancelled = true;
     };
-  }, [isExternal, provider]);
+  }, [provider]);
 
   return {
     showModelMenu,
