@@ -73,7 +73,6 @@ import {
   isPermissionDenial,
   INTERACTIVE_TOOLS,
   buildToolResultActivity,
-  estimateCost,
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
   FILE_WRITE_GROUP,
@@ -556,7 +555,6 @@ function createWatchState(
           outputTokens: 0,
           cacheCreationTokens: 0,
           cacheReadTokens: 0,
-          costUSD: 0,
         },
   };
 }
@@ -582,7 +580,6 @@ function hasSessionStats(stats: SessionStats | undefined): stats is SessionStats
     stats.outputTokens > 0 ||
     stats.cacheCreationTokens > 0 ||
     stats.cacheReadTokens > 0 ||
-    stats.costUSD > 0 ||
     typeof stats.model === "string" ||
     typeof stats.contextTokens === "number" ||
     typeof stats.contextWindow === "number"
@@ -616,14 +613,12 @@ function dbStatsToSessionStats(entry: {
   output_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
-  cost_usd: number;
 }): SessionStats | undefined {
   const stats: SessionStats = {
     inputTokens: entry.input_tokens,
     outputTokens: entry.output_tokens,
     cacheCreationTokens: entry.cache_creation_tokens,
     cacheReadTokens: entry.cache_read_tokens,
-    costUSD: entry.cost_usd,
   };
   return hasSessionStats(stats) ? stats : undefined;
 }
@@ -645,7 +640,6 @@ function statsChanged(before: SessionStats, after: SessionStats): boolean {
     before.outputTokens !== after.outputTokens ||
     before.cacheCreationTokens !== after.cacheCreationTokens ||
     before.cacheReadTokens !== after.cacheReadTokens ||
-    before.costUSD !== after.costUSD ||
     before.model !== after.model ||
     before.contextTokens !== after.contextTokens ||
     before.contextWindow !== after.contextWindow
@@ -1656,7 +1650,6 @@ export class InstanceManager extends EventEmitter {
     outputTokens: number;
     cacheCreationTokens: number;
     cacheReadTokens: number;
-    costUSD: number;
   } {
     return this.db.getGlobalStats();
   }
@@ -2648,7 +2641,6 @@ export class InstanceManager extends EventEmitter {
       outputTokens: 0,
       cacheCreationTokens: 0,
       cacheReadTokens: 0,
-      costUSD: 0,
     };
 
     let content: string;
@@ -2711,7 +2703,6 @@ export class InstanceManager extends EventEmitter {
             ctx.stats.outputTokens += u.output_tokens ?? 0;
             ctx.stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
             ctx.stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
-            ctx.stats.costUSD += estimateCost(entry.message.model, u);
             ctx.stats.model = entry.message.model;
           }
         }
@@ -3074,7 +3065,6 @@ export class InstanceManager extends EventEmitter {
       ctx.stats.outputTokens += u.output_tokens;
       ctx.stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
       ctx.stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
-      ctx.stats.costUSD += estimateCost(message.model, u);
       ctx.stats.model = message.model;
       ctx.stats.contextTokens =
         u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
@@ -3438,7 +3428,7 @@ export class InstanceManager extends EventEmitter {
       output_tokens: stats?.outputTokens ?? 0,
       cache_creation_tokens: stats?.cacheCreationTokens ?? 0,
       cache_read_tokens: stats?.cacheReadTokens ?? 0,
-      cost_usd: stats?.costUSD ?? 0,
+
       summary: null,
       first_prompt: null,
       git_branch: instance.gitBranch ?? null,
@@ -3481,7 +3471,7 @@ export class InstanceManager extends EventEmitter {
       output_tokens: stats?.outputTokens ?? 0,
       cache_creation_tokens: stats?.cacheCreationTokens ?? 0,
       cache_read_tokens: stats?.cacheReadTokens ?? 0,
-      cost_usd: stats?.costUSD ?? 0,
+
       git_branch: instance.gitBranch ?? null,
       worktree_path: instance.worktreePath ?? null,
       original_directory: instance.originalDirectory ?? null,
@@ -3580,7 +3570,7 @@ export class InstanceManager extends EventEmitter {
           output_tokens: 0,
           cache_creation_tokens: 0,
           cache_read_tokens: 0,
-          cost_usd: 0,
+
           summary: null,
           first_prompt: null,
           git_branch: null,
@@ -3796,7 +3786,7 @@ export class InstanceManager extends EventEmitter {
             output_tokens: 0,
             cache_creation_tokens: 0,
             cache_read_tokens: 0,
-            cost_usd: 0,
+
             summary: indexEntry?.summary ?? null,
             first_prompt: null,
             git_branch: scanGitBranch,
@@ -3914,7 +3904,7 @@ export class InstanceManager extends EventEmitter {
               output_tokens: 0,
               cache_creation_tokens: 0,
               cache_read_tokens: 0,
-              cost_usd: 0,
+
               summary: null,
               first_prompt: null,
               git_branch: null,
@@ -4021,7 +4011,6 @@ export class InstanceManager extends EventEmitter {
           output_tokens: row.output_tokens,
           cache_creation_tokens: row.cache_creation_tokens,
           cache_read_tokens: row.cache_read_tokens,
-          cost_usd: row.cost_usd,
           git_branch: row.git_branch,
           worktree_path: row.worktree_path,
           original_directory: row.original_directory,

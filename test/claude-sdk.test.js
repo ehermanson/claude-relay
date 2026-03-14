@@ -491,7 +491,6 @@ describe("ClaudeSdkSession", () => {
             outputTokens: 50,
             cacheReadInputTokens: 0,
             cacheCreationInputTokens: 0,
-            costUSD: 0.001,
           },
         },
       });
@@ -519,7 +518,6 @@ describe("ClaudeSdkSession", () => {
             outputTokens: 50,
             cacheReadInputTokens: 10,
             cacheCreationInputTokens: 5,
-            costUSD: 0.002,
           },
         },
       });
@@ -530,7 +528,6 @@ describe("ClaudeSdkSession", () => {
       assert.equal(lastStats.inputTokens, 100);
       assert.equal(lastStats.outputTokens, 50);
       assert.equal(lastStats.model, "claude-sonnet-4-6");
-      assert.ok(lastStats.costUSD > 0);
       session.close();
     });
 

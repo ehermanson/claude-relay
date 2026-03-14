@@ -17,7 +17,7 @@ import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { OpenInMenu } from "../project/open-in-menu";
 import { ContextRing } from "./input-area/shared";
-import { formatTokens, formatCost } from "../../lib/utils";
+import { formatTokens } from "../../lib/utils";
 import type { InstanceInfo, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
 
@@ -202,7 +202,7 @@ export function InstanceHeader({
               </Tooltip>
             </>
           )}
-          {instance.stats && instance.stats.costUSD > 0 && (
+          {instance.stats && instance.stats.inputTokens + instance.stats.outputTokens > 0 && (
             <>
               <span className="text-border">&middot;</span>
               <Tooltip
@@ -217,8 +217,7 @@ export function InstanceHeader({
                 }
               >
                 <span className="shrink-0">
-                  {formatTokens(instance.stats.inputTokens + instance.stats.outputTokens)} tokens ·
-                  ~{formatCost(instance.stats.costUSD)}
+                  {formatTokens(instance.stats.inputTokens + instance.stats.outputTokens)} tokens
                 </span>
               </Tooltip>
             </>

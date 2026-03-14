@@ -45,12 +45,6 @@ export function formatTokens(n: number): string {
   return String(n);
 }
 
-export function formatCost(usd: number): string {
-  if (usd < 0.005) return "$0.00";
-  if (usd < 10) return "$" + usd.toFixed(2);
-  return "$" + usd.toFixed(1);
-}
-
 /** Turn a model ID like "claude-opus-4-6" into a short display name like "Opus 4.6" */
 export function formatModel(model: string): string {
   // Match "claude-{family}-{major}-{minor}" or "claude-{family}-{major}"

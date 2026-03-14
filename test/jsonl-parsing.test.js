@@ -225,7 +225,7 @@ function seedDB(tempDir, entries) {
       output_tokens: 0,
       cache_creation_tokens: 0,
       cache_read_tokens: 0,
-      cost_usd: 0,
+
       summary: null,
       first_prompt: null,
       git_branch: null,

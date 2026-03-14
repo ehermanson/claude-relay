@@ -4,7 +4,7 @@ import { useWSState } from "../context/websocket-context";
 import { useMediaQuery } from "../hooks/use-media-query";
 import { Tooltip } from "../components/ui/tooltip";
 import { Badge } from "../components/ui/badge";
-import { formatTimeAgo, formatTokens, formatCost, formatModel } from "../lib/utils";
+import { formatTimeAgo, formatTokens, formatModel } from "../lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
 function StatusDot({ instance }: { instance: InstanceInfo }) {
@@ -62,11 +62,10 @@ function SessionCard({
           </div>
         )}
 
-        {/* Mobile: inline model + cost */}
-        {isMobile && instance.stats && (
+        {/* Mobile: inline model */}
+        {isMobile && instance.stats?.model && (
           <div className="mt-1 flex items-center gap-2 text-[0.625rem] text-muted">
-            {instance.stats.model && <span>{formatModel(instance.stats.model)}</span>}
-            {instance.stats.costUSD > 0 && <span>~{formatCost(instance.stats.costUSD)}</span>}
+            <span>{formatModel(instance.stats.model)}</span>
           </div>
         )}
       </div>
@@ -116,7 +115,6 @@ function SessionCard({
           >
             <div className="text-[0.6875rem] text-muted">
               {formatTokens(instance.stats.inputTokens + instance.stats.outputTokens)} tokens
-              {instance.stats.costUSD > 0 && <> · ~{formatCost(instance.stats.costUSD)}</>}
             </div>
           </Tooltip>
         </div>

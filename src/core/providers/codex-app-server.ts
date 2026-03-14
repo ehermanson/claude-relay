@@ -207,7 +207,6 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     outputTokens: 0,
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
-    costUSD: 0,
   };
 
   private readonly fileMap = new Map<string, FileChange>();

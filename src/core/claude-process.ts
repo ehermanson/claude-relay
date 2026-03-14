@@ -27,7 +27,6 @@ import {
   extractToolResultText,
   isPermissionDenial,
   buildToolResultActivity,
-  estimateCost,
   getContextWindow,
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
@@ -92,7 +91,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     outputTokens: 0,
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
-    costUSD: 0,
   };
 
   get stats(): SessionStats {
@@ -306,7 +304,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this._stats.outputTokens += u.output_tokens;
     this._stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
     this._stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
-    this._stats.costUSD += estimateCost(model, u);
     this._stats.model = model;
     // Snapshot this turn's total input = current context window utilization
     this._stats.contextTokens =

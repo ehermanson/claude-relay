@@ -20,39 +20,6 @@ export const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 /** File-write tools grouped for permission approval (approving one approves all). */
 export const FILE_WRITE_GROUP = ["Edit", "Write", "NotebookEdit"];
 
-// =============================================================================
-// Cost estimation
-// =============================================================================
-
-interface PricingTier {
-  input: number; // per token
-  output: number;
-  cacheWrite: number;
-  cacheRead: number;
-}
-
-const PRICING: { prefix: string; tier: PricingTier }[] = [
-  {
-    prefix: "claude-opus-4",
-    tier: { input: 5e-6, output: 25e-6, cacheWrite: 6.25e-6, cacheRead: 0.5e-6 },
-  },
-  {
-    prefix: "claude-sonnet-4",
-    tier: { input: 3e-6, output: 15e-6, cacheWrite: 3.75e-6, cacheRead: 0.3e-6 },
-  },
-  {
-    prefix: "claude-haiku-4",
-    tier: { input: 1e-6, output: 5e-6, cacheWrite: 1.25e-6, cacheRead: 0.1e-6 },
-  },
-];
-
-const FALLBACK_TIER: PricingTier = {
-  input: 3e-6,
-  output: 15e-6,
-  cacheWrite: 3.75e-6,
-  cacheRead: 0.3e-6,
-};
-
 /** Known context window sizes by model prefix. */
 const CONTEXT_WINDOWS: { prefix: string; tokens: number }[] = [
   { prefix: "claude-opus-4", tokens: 200_000 },
@@ -65,27 +32,6 @@ const CONTEXT_WINDOWS: { prefix: string; tokens: number }[] = [
  */
 export function getContextWindow(model: string): number | undefined {
   return CONTEXT_WINDOWS.find((p) => model.startsWith(p.prefix))?.tokens;
-}
-
-/**
- * Estimate the USD cost for a single API response's usage.
- */
-export function estimateCost(
-  model: string,
-  usage: {
-    input_tokens: number;
-    output_tokens: number;
-    cache_creation_input_tokens?: number;
-    cache_read_input_tokens?: number;
-  },
-): number {
-  const tier = PRICING.find((p) => model.startsWith(p.prefix))?.tier ?? FALLBACK_TIER;
-  return (
-    usage.input_tokens * tier.input +
-    usage.output_tokens * tier.output +
-    (usage.cache_creation_input_tokens ?? 0) * tier.cacheWrite +
-    (usage.cache_read_input_tokens ?? 0) * tier.cacheRead
-  );
 }
 
 /**

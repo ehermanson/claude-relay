@@ -45,7 +45,6 @@ export interface SessionStats {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
-  costUSD: number;
   /** Model identifier from the most recent API response (e.g. "claude-opus-4-6") */
   model?: string;
   /**
@@ -403,7 +402,6 @@ export interface ProjectStats {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
-  costUSD: number;
 }
 
 export interface DashboardStats {
@@ -416,7 +414,6 @@ export interface DashboardStats {
   };
   currentSessions: {
     tokens: number;
-    costUSD: number;
   };
   allTime: {
     sessionCount: number;
@@ -425,7 +422,6 @@ export interface DashboardStats {
     cacheCreationTokens: number;
     cacheReadTokens: number;
     tokens: number;
-    costUSD: number;
   };
   uptime: number;
   connections: number;

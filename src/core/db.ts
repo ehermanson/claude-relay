@@ -28,7 +28,6 @@ export interface SessionRow {
   output_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
-  cost_usd: number;
   summary: string | null;
   first_prompt: string | null;
   git_branch: string | null;
@@ -61,7 +60,6 @@ export interface ManagedInstanceRow {
   output_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
-  cost_usd: number;
   git_branch: string | null;
   worktree_path: string | null;
   original_directory: string | null;
@@ -173,7 +171,6 @@ export class SessionDB {
           output_tokens INTEGER NOT NULL DEFAULT 0,
           cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
           cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-          cost_usd REAL NOT NULL DEFAULT 0,
           summary TEXT,
           first_prompt TEXT,
           git_branch TEXT,
@@ -266,7 +263,6 @@ export class SessionDB {
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-        cost_usd REAL NOT NULL DEFAULT 0,
         git_branch TEXT,
         worktree_path TEXT,
         original_directory TEXT,
@@ -334,7 +330,7 @@ export class SessionDB {
         session_id, instance_id, provider_name, name, working_directory, jsonl_path,
         created_at, last_activity_at, type, archived, custom_title,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-        cost_usd, summary, first_prompt, git_branch, message_count, allowed_tools,
+        summary, first_prompt, git_branch, message_count, allowed_tools,
         worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, skip_permissions,
         last_message_text, last_message_from, last_message_at,
         git_info_branch, git_info_is_worktree
@@ -342,7 +338,7 @@ export class SessionDB {
         @session_id, @instance_id, @provider_name, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
-        @cost_usd, @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
+        @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
         @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @skip_permissions,
         @last_message_text, @last_message_from, @last_message_at,
         @git_info_branch, @git_info_is_worktree
@@ -361,7 +357,6 @@ export class SessionDB {
         output_tokens = excluded.output_tokens,
         cache_creation_tokens = excluded.cache_creation_tokens,
         cache_read_tokens = excluded.cache_read_tokens,
-        cost_usd = excluded.cost_usd,
         summary = excluded.summary,
         first_prompt = excluded.first_prompt,
         git_branch = excluded.git_branch,
@@ -384,7 +379,7 @@ export class SessionDB {
       INSERT INTO managed_sessions (
         instance_id, provider_name, provider_session_id, name, working_directory,
         created_at, last_activity_at, archived, custom_title,
-        input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd,
+        input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         git_branch, worktree_path, original_directory, parent_session_id,
         preferred_model, reasoning_budget, skip_permissions, runtime_mode,
         resume_cursor_json, runtime_payload_json, transcript_path,
@@ -393,7 +388,7 @@ export class SessionDB {
       ) VALUES (
         @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
         @created_at, @last_activity_at, @archived, @custom_title,
-        @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens, @cost_usd,
+        @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @git_branch, @worktree_path, @original_directory, @parent_session_id,
         @preferred_model, @reasoning_budget, @skip_permissions, @runtime_mode,
         @resume_cursor_json, @runtime_payload_json, @transcript_path,
@@ -412,7 +407,6 @@ export class SessionDB {
         output_tokens = excluded.output_tokens,
         cache_creation_tokens = excluded.cache_creation_tokens,
         cache_read_tokens = excluded.cache_read_tokens,
-        cost_usd = excluded.cost_usd,
         git_branch = excluded.git_branch,
         worktree_path = excluded.worktree_path,
         original_directory = excluded.original_directory,
@@ -470,8 +464,7 @@ export class SessionDB {
         input_tokens = @input_tokens,
         output_tokens = @output_tokens,
         cache_creation_tokens = @cache_creation_tokens,
-        cache_read_tokens = @cache_read_tokens,
-        cost_usd = @cost_usd
+        cache_read_tokens = @cache_read_tokens
       WHERE session_id = @session_id
     `);
 
@@ -513,16 +506,14 @@ export class SessionDB {
         COALESCE(SUM(input_tokens), 0) as input_tokens,
         COALESCE(SUM(output_tokens), 0) as output_tokens,
         COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-        COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-        COALESCE(SUM(cost_usd), 0) as cost_usd
+        COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens
       FROM (
         SELECT
           COUNT(*) as session_count,
           COALESCE(SUM(input_tokens), 0) as input_tokens,
           COALESCE(SUM(output_tokens), 0) as output_tokens,
           COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-          COALESCE(SUM(cost_usd), 0) as cost_usd
+          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens
         FROM sessions
         WHERE archived = 0 AND type = 'external' AND working_directory = ?
         UNION ALL
@@ -531,8 +522,7 @@ export class SessionDB {
           COALESCE(SUM(input_tokens), 0) as input_tokens,
           COALESCE(SUM(output_tokens), 0) as output_tokens,
           COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-          COALESCE(SUM(cost_usd), 0) as cost_usd
+          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens
         FROM managed_sessions
         WHERE archived = 0 AND working_directory = ?
       )
@@ -544,16 +534,14 @@ export class SessionDB {
         COALESCE(SUM(input_tokens), 0) as input_tokens,
         COALESCE(SUM(output_tokens), 0) as output_tokens,
         COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-        COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-        COALESCE(SUM(cost_usd), 0) as cost_usd
+        COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens
       FROM (
         SELECT
           COUNT(*) as session_count,
           COALESCE(SUM(input_tokens), 0) as input_tokens,
           COALESCE(SUM(output_tokens), 0) as output_tokens,
           COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-          COALESCE(SUM(cost_usd), 0) as cost_usd
+          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens
         FROM sessions
         WHERE archived = 0 AND type = 'external'
         UNION ALL
@@ -562,8 +550,7 @@ export class SessionDB {
           COALESCE(SUM(input_tokens), 0) as input_tokens,
           COALESCE(SUM(output_tokens), 0) as output_tokens,
           COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-          COALESCE(SUM(cost_usd), 0) as cost_usd
+          COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens
         FROM managed_sessions
         WHERE archived = 0
       )
@@ -637,7 +624,6 @@ export class SessionDB {
       outputTokens: number;
       cacheCreationTokens: number;
       cacheReadTokens: number;
-      costUSD: number;
     },
   ): void {
     this.stmtUpdateStats.run({
@@ -646,7 +632,6 @@ export class SessionDB {
       output_tokens: stats.outputTokens,
       cache_creation_tokens: stats.cacheCreationTokens,
       cache_read_tokens: stats.cacheReadTokens,
-      cost_usd: stats.costUSD,
     });
   }
 
@@ -695,7 +680,6 @@ export class SessionDB {
     outputTokens: number;
     cacheCreationTokens: number;
     cacheReadTokens: number;
-    costUSD: number;
   } {
     const row = this.stmtGetProjectStats.get(workingDirectory, workingDirectory) as {
       session_count: number;
@@ -703,7 +687,6 @@ export class SessionDB {
       output_tokens: number;
       cache_creation_tokens: number;
       cache_read_tokens: number;
-      cost_usd: number;
     };
     return {
       sessionCount: row.session_count,
@@ -711,7 +694,6 @@ export class SessionDB {
       outputTokens: row.output_tokens,
       cacheCreationTokens: row.cache_creation_tokens,
       cacheReadTokens: row.cache_read_tokens,
-      costUSD: row.cost_usd,
     };
   }
 
@@ -721,7 +703,6 @@ export class SessionDB {
     outputTokens: number;
     cacheCreationTokens: number;
     cacheReadTokens: number;
-    costUSD: number;
   } {
     const row = this.stmtGetGlobalStats.get() as {
       session_count: number;
@@ -729,7 +710,6 @@ export class SessionDB {
       output_tokens: number;
       cache_creation_tokens: number;
       cache_read_tokens: number;
-      cost_usd: number;
     };
     return {
       sessionCount: row.session_count,
@@ -737,7 +717,6 @@ export class SessionDB {
       outputTokens: row.output_tokens,
       cacheCreationTokens: row.cache_creation_tokens,
       cacheReadTokens: row.cache_read_tokens,
-      costUSD: row.cost_usd,
     };
   }
 

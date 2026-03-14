@@ -190,7 +190,6 @@ describe("InstanceManager", () => {
           outputTokens: 2,
           cacheCreationTokens: 3,
           cacheReadTokens: 4,
-          costUSD: 5,
         },
       };
       instance.info.stats = { ...instance.watchState.stats };
@@ -216,14 +215,12 @@ describe("InstanceManager", () => {
         outputTokens: 2,
         cacheCreationTokens: 3,
         cacheReadTokens: 4,
-        costUSD: 5,
       });
       assert.deepEqual(instance.info.stats, {
         inputTokens: 1,
         outputTokens: 2,
         cacheCreationTokens: 3,
         cacheReadTokens: 4,
-        costUSD: 5,
       });
     });
 
@@ -244,7 +241,6 @@ describe("InstanceManager", () => {
           outputTokens: 0,
           cacheCreationTokens: 0,
           cacheReadTokens: 0,
-          costUSD: 0,
         },
       };
       instance.info.stats = { ...instance.watchState.stats };
@@ -294,7 +290,6 @@ describe("InstanceManager", () => {
           outputTokens: 0,
           cacheCreationTokens: 0,
           cacheReadTokens: 0,
-          costUSD: 0,
         },
       };
 
@@ -335,7 +330,6 @@ describe("InstanceManager", () => {
           outputTokens: 0,
           cacheCreationTokens: 0,
           cacheReadTokens: 0,
-          costUSD: 0,
         },
       };
 

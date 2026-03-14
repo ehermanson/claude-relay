@@ -76,7 +76,6 @@ function injectExternalInstance(manager, instanceId, jsonlPath, sessionId) {
         outputTokens: 0,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
-        costUSD: 0,
       },
     },
   };

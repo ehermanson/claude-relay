@@ -431,11 +431,9 @@ export function createRequestHandler(
 
         // Aggregate token/cost stats from current (live) instances
         let currentTokens = 0;
-        let currentCost = 0;
         for (const inst of allInstances) {
           if (inst.stats) {
             currentTokens += inst.stats.inputTokens + inst.stats.outputTokens;
-            currentCost += inst.stats.costUSD;
           }
         }
 
@@ -452,7 +450,6 @@ export function createRequestHandler(
           },
           currentSessions: {
             tokens: currentTokens,
-            costUSD: currentCost,
           },
           allTime: {
             sessionCount: allTime.sessionCount,
@@ -461,7 +458,6 @@ export function createRequestHandler(
             cacheCreationTokens: allTime.cacheCreationTokens,
             cacheReadTokens: allTime.cacheReadTokens,
             tokens: allTime.inputTokens + allTime.outputTokens,
-            costUSD: allTime.costUSD,
           },
           uptime: uptimeSeconds,
           connections: getConnectionCount ? getConnectionCount() : 0,

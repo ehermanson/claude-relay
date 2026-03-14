@@ -24,7 +24,6 @@ function makeRow(overrides = {}) {
     output_tokens: 200,
     cache_creation_tokens: 50,
     cache_read_tokens: 30,
-    cost_usd: 0.05,
     summary: null,
     first_prompt: null,
     git_branch: null,
@@ -179,14 +178,12 @@ describe("SessionDB", () => {
         outputTokens: 888,
         cacheCreationTokens: 777,
         cacheReadTokens: 666,
-        costUSD: 1.23,
       });
       const row = db.getBySessionId("sess-1");
       assert.equal(row.input_tokens, 999);
       assert.equal(row.output_tokens, 888);
       assert.equal(row.cache_creation_tokens, 777);
       assert.equal(row.cache_read_tokens, 666);
-      assert.equal(row.cost_usd, 1.23);
     });
   });
 

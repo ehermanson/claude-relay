@@ -30,7 +30,6 @@ import {
   describeToolUse,
   describeToolDetail,
   extractInputDescription,
-  estimateCost,
   getContextWindow,
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
@@ -280,7 +279,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     outputTokens: 0,
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
-    costUSD: 0,
   };
 
   private promptQueue: PromptQueue;
@@ -870,7 +868,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
             outputTokens: number;
             cacheReadInputTokens: number;
             cacheCreationInputTokens: number;
-            costUSD: number;
           }
         >
       | undefined;
@@ -881,7 +878,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         this._stats.outputTokens += usage.outputTokens || 0;
         this._stats.cacheReadTokens += usage.cacheReadInputTokens || 0;
         this._stats.cacheCreationTokens += usage.cacheCreationInputTokens || 0;
-        this._stats.costUSD += usage.costUSD || 0;
         this._stats.model = model;
         this.emit("stats", { ...this._stats });
       }
@@ -1159,7 +1155,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this._stats.outputTokens += u.output_tokens;
     this._stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
     this._stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
-    this._stats.costUSD += estimateCost(model, u);
     this._stats.model = model;
     // Snapshot total input for this turn = current context window utilization (not cumulative)
     this._stats.contextTokens =

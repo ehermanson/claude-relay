@@ -33,7 +33,6 @@ describe("ClaudeProcess state management", () => {
     assert.equal(stats.outputTokens, 0);
     assert.equal(stats.cacheCreationTokens, 0);
     assert.equal(stats.cacheReadTokens, 0);
-    assert.equal(stats.costUSD, 0);
     assert.equal(stats.model, undefined);
   });
 

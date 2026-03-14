@@ -40,7 +40,6 @@ function createZeroStats(): SessionStats {
     outputTokens: 0,
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
-    costUSD: 0,
   };
 }
 

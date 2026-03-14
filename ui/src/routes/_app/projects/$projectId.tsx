@@ -7,7 +7,7 @@ import { OpenInMenu } from "../../../components/project/open-in-menu";
 import { RelayLogo } from "../../../components/ui/relay-logo";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { fetchProjectArtifacts } from "../../../lib/api";
-import { formatTokens, formatCost } from "../../../lib/utils";
+import { formatTokens } from "../../../lib/utils";
 import { ProjectContext } from "../../../context/project-context";
 
 const MotionLogo = motion.create(RelayLogo);
@@ -136,7 +136,7 @@ function ProjectLayout() {
               <Tooltip content={artifacts.directory} side="bottom">
                 <span className="hidden truncate sm:inline">{artifacts.directory}</span>
               </Tooltip>
-              {artifacts.stats.costUSD > 0 && (
+              {artifacts.stats.inputTokens + artifacts.stats.outputTokens > 0 && (
                 <>
                   <span className="hidden text-border sm:inline">·</span>
                   <Tooltip
@@ -156,8 +156,8 @@ function ProjectLayout() {
                     }
                   >
                     <span className="shrink-0">
-                      ~{formatCost(artifacts.stats.costUSD)} across {artifacts.stats.sessionCount}{" "}
-                      session
+                      {formatTokens(artifacts.stats.inputTokens + artifacts.stats.outputTokens)}{" "}
+                      tokens across {artifacts.stats.sessionCount} session
                       {artifacts.stats.sessionCount !== 1 ? "s" : ""}
                     </span>
                   </Tooltip>
