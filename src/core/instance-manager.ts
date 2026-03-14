@@ -1663,41 +1663,44 @@ export class InstanceManager extends EventEmitter {
 
   getProjectArtifacts(projectId: string): ProjectArtifacts | null {
     const resolvedId = this.resolveProjectId(projectId);
-    if (!resolvedId) return null;
 
-    const projectDir = join(this.providerDirs.claude, "projects", resolvedId);
+    // projectDir is the provider-specific metadata directory (e.g. ~/.claude/projects/...).
+    // May not exist for projects that only have sessions from other providers (e.g. Codex-only).
+    const projectDir = resolvedId ? join(this.providerDirs.claude, "projects", resolvedId) : null;
 
     // Resolve real path — JSONL cwd is authoritative, with instance-based fallback.
     let directory = "";
-    try {
-      const jsonlFiles = readdirSync(projectDir)
-        .filter((f) => f.endsWith(".jsonl"))
-        .map((f) => {
-          const fullPath = join(projectDir, f);
-          try {
-            return { path: fullPath, mtime: statSync(fullPath).mtimeMs };
-          } catch {
-            return null;
-          }
-        })
-        .filter((f): f is { path: string; mtime: number } => f !== null);
+    if (projectDir) {
+      try {
+        const jsonlFiles = readdirSync(projectDir)
+          .filter((f) => f.endsWith(".jsonl"))
+          .map((f) => {
+            const fullPath = join(projectDir, f);
+            try {
+              return { path: fullPath, mtime: statSync(fullPath).mtimeMs };
+            } catch {
+              return null;
+            }
+          })
+          .filter((f): f is { path: string; mtime: number } => f !== null);
 
-      if (jsonlFiles.length > 0) {
-        jsonlFiles.sort((a, b) => b.mtime - a.mtime);
-        try {
-          const head = readFileSync(jsonlFiles[0].path, "utf-8").split("\n")[0];
-          const parsed = JSON.parse(head);
-          if (parsed.cwd) directory = parsed.cwd;
-        } catch {
-          /* fall back below */
+        if (jsonlFiles.length > 0) {
+          jsonlFiles.sort((a, b) => b.mtime - a.mtime);
+          try {
+            const head = readFileSync(jsonlFiles[0].path, "utf-8").split("\n")[0];
+            const parsed = JSON.parse(head);
+            if (parsed.cwd) directory = parsed.cwd;
+          } catch {
+            /* fall back below */
+          }
         }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
     }
 
     // Fallback: check active instances whose encoded workingDirectory matches
-    if (!directory) {
+    if (!directory && resolvedId) {
       for (const instance of this.instances.values()) {
         if (instance.info.workingDirectory.replace(/\//g, "-") === resolvedId) {
           directory = instance.info.workingDirectory;
@@ -1706,18 +1709,33 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Last resort: filesystem-validated decode
+    // Fallback: match instances by directory basename (for non-Claude providers like Codex)
     if (!directory) {
+      for (const instance of this.instances.values()) {
+        const basename = instance.info.workingDirectory.split("/").pop() || "";
+        if (basename === projectId) {
+          directory = instance.info.workingDirectory;
+          break;
+        }
+      }
+    }
+
+    if (!directory && !resolvedId) return null;
+
+    // Last resort: filesystem-validated decode
+    if (!directory && resolvedId) {
       directory = decodeProjectDir(resolvedId);
     }
 
     // Memory
     let memory: string | null = null;
-    const memoryPath = join(projectDir, "memory", "MEMORY.md");
-    try {
-      memory = readFileSync(memoryPath, "utf-8");
-    } catch {
-      /* no memory file */
+    if (projectDir) {
+      const memoryPath = join(projectDir, "memory", "MEMORY.md");
+      try {
+        memory = readFileSync(memoryPath, "utf-8");
+      } catch {
+        /* no memory file */
+      }
     }
 
     // CLAUDE.md from project root
@@ -1743,102 +1761,103 @@ export class InstanceManager extends EventEmitter {
     // Plans — collect slugs from JSONL files, then check ~/.claude/plans/
     const plans: ProjectPlan[] = [];
     const seenSlugs = new Set<string>();
-    try {
-      const jsonlFiles = readdirSync(projectDir)
-        .filter((f) => f.endsWith(".jsonl"))
-        .map((f) => join(projectDir, f));
-
-      // Pass 1: slug-based discovery (fast — reads first 32KB of each JSONL)
-      for (const jsonlPath of jsonlFiles) {
-        const slug = this.extractSlugFromJsonl(jsonlPath);
-        if (slug && !seenSlugs.has(slug)) {
-          seenSlugs.add(slug);
-          const planPath = join(this.providerDirs.claude, "plans", `${slug}.md`);
-          try {
-            const content = readFileSync(planPath, "utf-8");
-            // Use the JSONL session mtime (when the plan was last used) rather than
-            // the plan file mtime (when the plan was written — often a one-time event)
-            let mtime: number;
-            try {
-              mtime = statSync(jsonlPath).mtimeMs;
-            } catch {
-              mtime = statSync(planPath).mtimeMs;
-            }
-            let title = slug;
-            for (const line of content.split("\n")) {
-              if (line.startsWith("# ")) {
-                title = line.slice(2).trim();
-                break;
-              }
-            }
-            plans.push({ slug, title, modifiedAt: mtime, content });
-          } catch {
-            /* plan file missing */
-          }
-        }
-      }
-
-      // Pass 2: discover plans with custom filenames (not matching session slug).
-      // Check plan files on disk that weren't found via slug, then search JSONL
-      // content for references to them (Write/Edit tool calls to ~/.claude/plans/).
-      const plansDir = join(this.providerDirs.claude, "plans");
+    if (projectDir)
       try {
-        const undiscovered = readdirSync(plansDir)
-          .filter((f) => f.endsWith(".md"))
-          .map((f) => f.slice(0, -3))
-          .filter((s) => !seenSlugs.has(s));
+        const jsonlFiles = readdirSync(projectDir)
+          .filter((f) => f.endsWith(".jsonl"))
+          .map((f) => join(projectDir, f));
 
-        if (undiscovered.length > 0) {
-          for (const jsonlPath of jsonlFiles) {
-            if (undiscovered.length === 0) break;
+        // Pass 1: slug-based discovery (fast — reads first 32KB of each JSONL)
+        for (const jsonlPath of jsonlFiles) {
+          const slug = this.extractSlugFromJsonl(jsonlPath);
+          if (slug && !seenSlugs.has(slug)) {
+            seenSlugs.add(slug);
+            const planPath = join(this.providerDirs.claude, "plans", `${slug}.md`);
             try {
-              const raw = readFileSync(jsonlPath, "utf-8");
-              if (!raw.includes(".claude/plans/")) continue;
-              for (let i = undiscovered.length - 1; i >= 0; i--) {
-                const planSlug = undiscovered[i];
-                if (raw.includes(`plans/${planSlug}.md`)) {
-                  seenSlugs.add(planSlug);
-                  undiscovered.splice(i, 1);
-                  const planPath = join(plansDir, `${planSlug}.md`);
-                  try {
-                    const content = readFileSync(planPath, "utf-8");
-                    let mtime: number;
-                    try {
-                      mtime = statSync(jsonlPath).mtimeMs;
-                    } catch {
-                      mtime = statSync(planPath).mtimeMs;
-                    }
-                    let title = planSlug;
-                    for (const line of content.split("\n")) {
-                      if (line.startsWith("# ")) {
-                        title = line.slice(2).trim();
-                        break;
-                      }
-                    }
-                    plans.push({
-                      slug: planSlug,
-                      title,
-                      modifiedAt: mtime,
-                      content,
-                    });
-                  } catch {
-                    /* plan file missing */
-                  }
+              const content = readFileSync(planPath, "utf-8");
+              // Use the JSONL session mtime (when the plan was last used) rather than
+              // the plan file mtime (when the plan was written — often a one-time event)
+              let mtime: number;
+              try {
+                mtime = statSync(jsonlPath).mtimeMs;
+              } catch {
+                mtime = statSync(planPath).mtimeMs;
+              }
+              let title = slug;
+              for (const line of content.split("\n")) {
+                if (line.startsWith("# ")) {
+                  title = line.slice(2).trim();
+                  break;
                 }
               }
+              plans.push({ slug, title, modifiedAt: mtime, content });
             } catch {
-              /* read error */
+              /* plan file missing */
             }
           }
         }
-      } catch {
-        /* plans dir missing */
-      }
 
-      plans.sort((a, b) => a.modifiedAt - b.modifiedAt);
-    } catch {
-      /* ignore */
-    }
+        // Pass 2: discover plans with custom filenames (not matching session slug).
+        // Check plan files on disk that weren't found via slug, then search JSONL
+        // content for references to them (Write/Edit tool calls to ~/.claude/plans/).
+        const plansDir = join(this.providerDirs.claude, "plans");
+        try {
+          const undiscovered = readdirSync(plansDir)
+            .filter((f) => f.endsWith(".md"))
+            .map((f) => f.slice(0, -3))
+            .filter((s) => !seenSlugs.has(s));
+
+          if (undiscovered.length > 0) {
+            for (const jsonlPath of jsonlFiles) {
+              if (undiscovered.length === 0) break;
+              try {
+                const raw = readFileSync(jsonlPath, "utf-8");
+                if (!raw.includes(".claude/plans/")) continue;
+                for (let i = undiscovered.length - 1; i >= 0; i--) {
+                  const planSlug = undiscovered[i];
+                  if (raw.includes(`plans/${planSlug}.md`)) {
+                    seenSlugs.add(planSlug);
+                    undiscovered.splice(i, 1);
+                    const planPath = join(plansDir, `${planSlug}.md`);
+                    try {
+                      const content = readFileSync(planPath, "utf-8");
+                      let mtime: number;
+                      try {
+                        mtime = statSync(jsonlPath).mtimeMs;
+                      } catch {
+                        mtime = statSync(planPath).mtimeMs;
+                      }
+                      let title = planSlug;
+                      for (const line of content.split("\n")) {
+                        if (line.startsWith("# ")) {
+                          title = line.slice(2).trim();
+                          break;
+                        }
+                      }
+                      plans.push({
+                        slug: planSlug,
+                        title,
+                        modifiedAt: mtime,
+                        content,
+                      });
+                    } catch {
+                      /* plan file missing */
+                    }
+                  }
+                }
+              } catch {
+                /* read error */
+              }
+            }
+          }
+        } catch {
+          /* plans dir missing */
+        }
+
+        plans.sort((a, b) => a.modifiedAt - b.modifiedAt);
+      } catch {
+        /* ignore */
+      }
 
     // Aggregate token/cost stats from DB
     const stats = this.db.getProjectStats(directory);
@@ -1853,7 +1872,7 @@ export class InstanceManager extends EventEmitter {
     const skills = discoverSkills(directory || undefined);
 
     return {
-      projectId: resolvedId,
+      projectId: resolvedId || projectId,
       directory,
       memory,
       claudeMd,
