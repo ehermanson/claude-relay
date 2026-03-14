@@ -52,6 +52,7 @@
   --animate-fade-in: fade-in 0.15s ease-out forwards;
   --animate-ring-pulse: ring-pulse 2s ease-in-out infinite;
   --animate-slide-in-right: slide-in-right 0.2s ease-out forwards;
+  --animate-slide-in-left: slide-in-left 0.15s ease-out forwards;
 
   @keyframes pulse-dot {
     0%,
@@ -101,6 +102,17 @@
     from {
       opacity: 0;
       transform: translateX(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slide-in-left {
+    from {
+      opacity: 0;
+      transform: translateX(-8px);
     }
     to {
       opacity: 1;

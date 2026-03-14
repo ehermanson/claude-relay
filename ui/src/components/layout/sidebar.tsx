@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
-import { Loader2, LogOut, Moon, Plus, Sun } from "lucide-react";
+import { Loader2, LogOut, Moon, PanelLeftClose, Plus, Sun } from "lucide-react";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
 import { useTheme } from "../../context/theme-context";
@@ -12,7 +12,7 @@ import { NewInstanceForm } from "../forms/new-instance-form";
 import { fetchBeadsProjects } from "../../lib/api";
 import type { InstanceInfo } from "@shared/types";
 
-export function Sidebar() {
+export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { send } = useWSMethods();
   const { isConnected, isSyncing, instances } = useWSState();
   const { logout } = useAuthContext();
@@ -124,15 +124,25 @@ export function Sidebar() {
             Relay
           </span>
         </Link>
-        <Popover.Root open={showForm} onOpenChange={setShowForm}>
-          <Popover.Trigger className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
-            <Plus size={14} strokeWidth={2.5} />
-            New Project
-          </Popover.Trigger>
-          <Popover.Content className="w-72" align="end">
-            <NewInstanceForm onSubmit={handleCreate} onCancel={() => setShowForm(false)} />
-          </Popover.Content>
-        </Popover.Root>
+        <div className="flex items-center gap-1">
+          <Popover.Root open={showForm} onOpenChange={setShowForm}>
+            <Popover.Trigger className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
+              <Plus size={14} strokeWidth={2.5} />
+              New Project
+            </Popover.Trigger>
+            <Popover.Content className="w-72" align="end">
+              <NewInstanceForm onSubmit={handleCreate} onCancel={() => setShowForm(false)} />
+            </Popover.Content>
+          </Popover.Root>
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <PanelLeftClose size={15} strokeWidth={2} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Instance list */}

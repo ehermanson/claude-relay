@@ -112,6 +112,12 @@ export async function fetchBeadsProjects(): Promise<string[]> {
   return res.json();
 }
 
+export async function fetchProjectIcons(): Promise<Record<string, string>> {
+  const res = await fetch("/api/project-icons");
+  if (!res.ok) return {};
+  return res.json();
+}
+
 export async function fetchProjectArtifacts(projectId: string): Promise<ProjectArtifacts> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`);
   if (!res.ok) throw new Error("Failed to fetch project");

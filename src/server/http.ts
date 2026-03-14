@@ -479,6 +479,16 @@ export function createRequestHandler(
         return;
       }
 
+      // GET /api/project-icons — cached project directory icon paths
+      if (method === "GET" && pathname === "/api/project-icons") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        sendJson(res, 200, instanceManager.getProjectIcons());
+        return;
+      }
+
       // GET /api/directories
       if (method === "GET" && pathname === "/api/directories") {
         if (!isAuthenticated) {
@@ -782,6 +792,7 @@ export function createRequestHandler(
           ".svg",
           ".bmp",
           ".avif",
+          ".ico",
         ]);
         if (!IMAGE_EXTS.has(ext)) {
           sendJson(res, 400, { error: "Only image files are supported" });

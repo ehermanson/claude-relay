@@ -352,11 +352,11 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
 
       {showDesktopSidecar ? (
         <Group orientation="horizontal" className="min-h-0 flex-1">
-          <Panel defaultSize="75" minSize="40">
+          <Panel defaultSize="70" minSize="40">
             <div className="flex h-full min-w-0 flex-col overflow-hidden">{chatContent}</div>
           </Panel>
           <ResizableHandle />
-          <Panel defaultSize="25" minSize="15" maxSize="40">
+          <Panel defaultSize="30" minSize="15" maxSize="45">
             <Sidecar
               tasks={currentTasks}
               files={currentFiles}

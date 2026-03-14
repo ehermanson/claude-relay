@@ -666,6 +666,8 @@ export class InstanceManager extends EventEmitter {
   private providerDirs: Record<ProviderKind, string>;
   /** Pre-resolved SDK query function — null if SDK not available (falls back to CLI) */
   private _sdkQueryFn: ((params: { prompt: unknown; options?: unknown }) => unknown) | null = null;
+  /** Cached project icon paths: dir → absolute file path (null = scanned, not found) */
+  private projectIconCache = new Map<string, string | null>();
   /** True once the background filesystem scan has completed */
   scanComplete = false;
   /** Guard to prevent concurrent discovery polls from overlapping */
@@ -1903,6 +1905,109 @@ export class InstanceManager extends EventEmitter {
    * Return a set of working directories that have a .beads/ issue tracker.
    * Checks all known instance directories for a .beads/ subdirectory.
    */
+  /**
+   * Scan a project directory for a favicon/icon file.
+   * Returns the absolute path of the first match, or null.
+   */
+  /**
+   * Read an Xcode AppIcon.appiconset directory and return the path to the
+   * first image file referenced in Contents.json.
+   */
+  private readAppIconSet(appIconSetDir: string): string | null {
+    try {
+      const contentsPath = join(appIconSetDir, "Contents.json");
+      if (!existsSync(contentsPath)) return null;
+      const contents = JSON.parse(readFileSync(contentsPath, "utf-8"));
+      const images = contents?.images;
+      if (!Array.isArray(images)) return null;
+      // Pick the first entry that has a filename
+      for (const img of images) {
+        if (img.filename) {
+          const fullPath = join(appIconSetDir, img.filename);
+          if (existsSync(fullPath)) return fullPath;
+        }
+      }
+    } catch {
+      /* parse error or missing */
+    }
+    return null;
+  }
+
+  private scanProjectIcon(dir: string): string | null {
+    // Only scan git repos
+    if (!existsSync(join(dir, ".git"))) return null;
+
+    const ICON_NAMES = [
+      "favicon.svg",
+      "favicon.png",
+      "apple-touch-icon.png",
+      "icon.svg",
+      "icon.png",
+      "favicon.ico",
+    ];
+
+    // Standard locations (covers most frameworks)
+    const PREFIXES = ["public", "static", "assets", "src/app", "app", ""];
+    for (const prefix of PREFIXES) {
+      for (const name of ICON_NAMES) {
+        const fullPath = prefix ? join(dir, prefix, name) : join(dir, name);
+        if (existsSync(fullPath)) return fullPath;
+      }
+    }
+
+    // For monorepos or nested app dirs (e.g. ui/public/, frontend/public/),
+    // check one level of subdirectories with a public/ or static/ folder.
+    // Also check for Xcode projects (Assets.xcassets/AppIcon.appiconset/).
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") {
+          continue;
+        }
+        // Web: nested public/static dirs
+        for (const sub of ["public", "static", "src/app"]) {
+          for (const name of ICON_NAMES) {
+            const fullPath = join(dir, entry.name, sub, name);
+            if (existsSync(fullPath)) return fullPath;
+          }
+        }
+        // Xcode: <Target>/Assets.xcassets/AppIcon.appiconset/
+        const appIconSet = join(dir, entry.name, "Assets.xcassets", "AppIcon.appiconset");
+        const found = this.readAppIconSet(appIconSet);
+        if (found) return found;
+      }
+    } catch {
+      /* permission error */
+    }
+
+    // Also check root-level Assets.xcassets (single-target Xcode projects)
+    const rootAppIconSet = join(dir, "Assets.xcassets", "AppIcon.appiconset");
+    const rootIcon = this.readAppIconSet(rootAppIconSet);
+    if (rootIcon) return rootIcon;
+
+    return null;
+  }
+
+  /**
+   * Return a map of project directory → icon file path for all known projects.
+   * Scans lazily (once per directory) and caches the result.
+   */
+  getProjectIcons(): Record<string, string> {
+    const dirs = new Set<string>();
+    for (const instance of this.instances.values()) {
+      dirs.add(instance.info.workingDirectory);
+    }
+    const result: Record<string, string> = {};
+    for (const dir of dirs) {
+      if (!this.projectIconCache.has(dir)) {
+        this.projectIconCache.set(dir, this.scanProjectIcon(dir));
+      }
+      const icon = this.projectIconCache.get(dir);
+      if (icon) result[dir] = icon;
+    }
+    return result;
+  }
+
   getBeadsDirectories(): string[] {
     const dirs = new Set<string>();
     for (const instance of this.instances.values()) {
