@@ -357,9 +357,7 @@ export function InputArea({
 
           <div
             ref={composerContainerRef}
-            className={`relative rounded-2xl border ${
-              planMode ? "border-amber-500/40 bg-amber-500/[0.05]" : "border-border bg-surface"
-            }`}
+            className="relative rounded-2xl border border-border bg-surface"
           >
             <ImageAttachmentStrip images={images} onRemove={removeImage} />
             <ComposerPanel
