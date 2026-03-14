@@ -492,4 +492,48 @@ describe("HTTP Routes — Additional Coverage", () => {
       assert.equal(res.body.instances.external, 0);
     });
   });
+
+  describe("GET /api/instances/:id/diff", () => {
+    it("requires authentication", async () => {
+      const res = await request(
+        server,
+        "GET",
+        "/api/instances/00000000-0000-0000-0000-000000000000/diff",
+      );
+      assert.equal(res.status, 401);
+    });
+
+    it("returns 404 for unknown instance", async () => {
+      const session = auth.createSession();
+      const res = await request(
+        server,
+        "GET",
+        "/api/instances/00000000-0000-0000-0000-000000000000/diff",
+        {
+          headers: { Cookie: `session=${session.id}` },
+        },
+      );
+      assert.equal(res.status, 404);
+    });
+
+    it("returns diff object for a valid instance", async () => {
+      const session = auth.createSession();
+      const createRes = await request(server, "POST", "/api/instances", {
+        headers: { Cookie: `session=${session.id}` },
+        body: { name: "diff-test" },
+      });
+      assert.equal(createRes.status, 201);
+      const id = createRes.body.id;
+
+      const res = await request(server, "GET", `/api/instances/${id}/diff`, {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      // The working directory may or may not be a git repo — either 200 with diff or 404
+      assert.ok(res.status === 200 || res.status === 404);
+      if (res.status === 200) {
+        assert.ok("diff" in res.body);
+        assert.equal(typeof res.body.diff, "string");
+      }
+    });
+  });
 });

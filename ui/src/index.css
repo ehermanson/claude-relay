@@ -477,6 +477,12 @@ body {
   border-color: var(--color-accent);
 }
 
+/* ── Diff Drawer (@pierre/diffs overrides) ─────────────────────────── */
+.diff-drawer diffs-container {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* ── Reduced Motion ────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *,

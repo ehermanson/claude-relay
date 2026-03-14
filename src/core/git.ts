@@ -438,6 +438,80 @@ export async function hasWorktreeChangesAsync(
   }
 }
 
+/**
+ * Resolve the base ref for diffing an instance's changes.
+ * Reuses the same logic as enrichDiffStats:
+ * - Worktree: merge-base with original branch
+ * - Non-worktree: commit at session start
+ * - Fallback: HEAD
+ */
+function resolveBaseRef(
+  cwd: string,
+  opts?: { originalBranch?: string; sessionCreatedAt?: number },
+): string {
+  let baseRef = "HEAD";
+  if (opts?.originalBranch) {
+    try {
+      baseRef = execFileSync("git", ["merge-base", opts.originalBranch, "HEAD"], {
+        cwd,
+        timeout: 3000,
+        encoding: "utf8" as const,
+      }).trim();
+    } catch {
+      // fall back
+    }
+  } else if (opts?.sessionCreatedAt) {
+    const base = getBaseCommit(cwd, opts.sessionCreatedAt);
+    if (base) baseRef = base;
+  }
+  return baseRef;
+}
+
+/**
+ * Get the unified diff for all changed files relative to the session baseline.
+ * Returns the raw `git diff` output string, or null if not a git repo.
+ */
+export function getFullDiff(
+  cwd: string,
+  opts?: { originalBranch?: string; sessionCreatedAt?: number },
+): string | null {
+  try {
+    if (!getRepoRoot(cwd)) return null;
+    const baseRef = resolveBaseRef(cwd, opts);
+    return execFileSync("git", ["diff", baseRef], {
+      cwd,
+      timeout: 10000,
+      encoding: "utf8" as const,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the unified diff for a single file relative to the session baseline.
+ * Returns the raw `git diff` output string, or null if not a git repo.
+ */
+export function getFileDiff(
+  cwd: string,
+  filePath: string,
+  opts?: { originalBranch?: string; sessionCreatedAt?: number },
+): string | null {
+  try {
+    if (!getRepoRoot(cwd)) return null;
+    const baseRef = resolveBaseRef(cwd, opts);
+    return execFileSync("git", ["diff", baseRef, "--", filePath], {
+      cwd,
+      timeout: 10000,
+      encoding: "utf8" as const,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function getBaseCommitAsync(cwd: string, beforeTimestamp: number): Promise<string | null> {
   try {
     const isoDate = new Date(beforeTimestamp).toISOString();

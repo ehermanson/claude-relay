@@ -72,6 +72,8 @@ export {
   isRelayWorktreePath,
   resolveWorktreeOrigin,
   enrichDiffStats,
+  getFullDiff,
+  getFileDiff,
 } from "./git.js";
 
 export { discoverSkills } from "./skills.js";

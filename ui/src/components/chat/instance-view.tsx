@@ -366,6 +366,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
               provider={instance.provider}
               preferredModel={instance.preferredModel}
               instanceName={instance.name}
+              instanceId={id}
               createdAt={instance.createdAt}
               lastActivityAt={instance.lastActivityAt}
               workingDirectory={instance.workingDirectory}
@@ -388,6 +389,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
           provider={instance.provider}
           preferredModel={instance.preferredModel}
           instanceName={instance.name}
+          instanceId={id}
           createdAt={instance.createdAt}
           lastActivityAt={instance.lastActivityAt}
           workingDirectory={instance.workingDirectory}

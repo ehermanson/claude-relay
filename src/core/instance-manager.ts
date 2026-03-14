@@ -93,6 +93,8 @@ import {
   getCurrentBranchAsync,
   getGitInfoAsync,
   hasWorktreeChangesAsync,
+  getFullDiff,
+  getFileDiff,
 } from "./git.js";
 import { searchWorkspaceEntries, type WorkspaceEntry } from "./workspace-entries.js";
 
@@ -1057,6 +1059,20 @@ export class InstanceManager extends EventEmitter {
     if (!instance) return null;
     const root = instance.actualCwd || instance.info.workingDirectory;
     return searchWorkspaceEntries(root, query);
+  }
+
+  getInstanceDiff(id: string, filePath?: string): string | null {
+    const instance = this.instances.get(id);
+    if (!instance) return null;
+    const cwd = instance.actualCwd || instance.info.workingDirectory;
+    const origBranch = instance.originalDirectory
+      ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
+      : undefined;
+    const opts = {
+      originalBranch: origBranch,
+      sessionCreatedAt: instance.info.createdAt,
+    };
+    return filePath ? getFileDiff(cwd, filePath, opts) : getFullDiff(cwd, opts);
   }
 
   /**

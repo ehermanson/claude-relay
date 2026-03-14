@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { FileDiff } from "lucide-react";
 import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
@@ -9,6 +10,8 @@ import hljs from "../../lib/markdown";
 import { escapeHtml, formatTokens, formatModel, formatTimestamp } from "../../lib/utils";
 import type { TaskItem, FileChange, SessionStats, HistoryEntry } from "@shared/types";
 import type { ChatItem } from "../../hooks/use-instance-messages";
+
+const DiffDrawer = lazy(() => import("./diff-drawer").then((m) => ({ default: m.DiffDrawer })));
 
 function StatusIcon({ status }: { status: TaskItem["status"] }) {
   switch (status) {
@@ -231,7 +234,17 @@ function groupFilesByDir(files: FileChange[], cwd: string): DirGroup[] {
     });
 }
 
-const FilesPanel = memo(function FilesPanel({ files, cwd }: { files: FileChange[]; cwd: string }) {
+const FilesPanel = memo(function FilesPanel({
+  files,
+  cwd,
+  onViewChanges,
+  onFileClick,
+}: {
+  files: FileChange[];
+  cwd: string;
+  onViewChanges?: () => void;
+  onFileClick?: (filePath: string) => void;
+}) {
   const groups = useMemo(() => groupFilesByDir(files, cwd), [files, cwd]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleDir = (dir: string) => {
@@ -261,6 +274,16 @@ const FilesPanel = memo(function FilesPanel({ files, cwd }: { files: FileChange[
               <span className="text-muted/40"> / </span>
               <span className="text-red-400">-{totalDeletions}</span>
             </span>
+          )}
+          {onViewChanges && (
+            <button
+              type="button"
+              onClick={onViewChanges}
+              className="ml-auto flex items-center gap-1 rounded-md border border-accent/30 bg-accent/8 px-2 py-0.5 text-[0.6875rem] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/15"
+            >
+              <FileDiff size={12} className="shrink-0" />
+              Full Diff
+            </button>
           )}
         </div>
       </div>
@@ -300,7 +323,14 @@ const FilesPanel = memo(function FilesPanel({ files, cwd }: { files: FileChange[
                   <div className={showDir ? "ml-5" : ""}>
                     {group.files.map(({ basename, file }) => (
                       <Tooltip key={file.path} content={relativePath(file.path, cwd)} side="left">
-                        <div className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover">
+                        <div
+                          className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover${onFileClick ? " cursor-pointer" : ""}`}
+                          onClick={
+                            onFileClick
+                              ? () => onFileClick(relativePath(file.path, cwd))
+                              : undefined
+                          }
+                        >
                           <FileIcon path={file.path} size={15} />
                           <span className="min-w-0 flex-1 truncate text-text">{basename}</span>
                           {file.additions != null || file.deletions != null ? (
@@ -792,6 +822,7 @@ interface SidecarProps {
   provider?: string;
   preferredModel?: string;
   instanceName?: string;
+  instanceId?: string;
   createdAt?: number;
   lastActivityAt?: number;
   workingDirectory: string;
@@ -812,6 +843,7 @@ export const Sidecar = memo(
     provider,
     preferredModel,
     instanceName,
+    instanceId,
     createdAt,
     lastActivityAt,
     workingDirectory,
@@ -822,6 +854,14 @@ export const Sidecar = memo(
     const hasTasks = tasks && tasks.length > 0;
     const hasFiles = files && files.length > 0;
     const hasStats = !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
+
+    const [diffDrawerOpen, setDiffDrawerOpen] = useState(false);
+    const [diffScrollToFile, setDiffScrollToFile] = useState<string | undefined>();
+
+    const openDiffDrawer = (scrollTo?: string) => {
+      setDiffScrollToFile(scrollTo);
+      setDiffDrawerOpen(true);
+    };
 
     // Build available tabs: must have content AND be in activePanels
     const availableTabs = useMemo(() => {
@@ -922,7 +962,12 @@ export const Sidecar = memo(
         {/* Panel content */}
         {effectiveTab === "tasks" && hasTasks && <TasksPanel tasks={tasks} />}
         {effectiveTab === "files" && hasFiles && (
-          <FilesPanel files={files} cwd={workingDirectory} />
+          <FilesPanel
+            files={files}
+            cwd={workingDirectory}
+            onViewChanges={instanceId ? () => openDiffDrawer() : undefined}
+            onFileClick={instanceId ? (path) => openDiffDrawer(path) : undefined}
+          />
         )}
         {effectiveTab === "context" && hasStats && (
           <ContextPanel
@@ -938,24 +983,45 @@ export const Sidecar = memo(
       </div>
     );
 
+    const diffDrawer = diffDrawerOpen && instanceId && (
+      <Suspense>
+        <DiffDrawer
+          instanceId={instanceId}
+          knownFiles={files ?? undefined}
+          workingDirectory={workingDirectory}
+          onClose={() => setDiffDrawerOpen(false)}
+          scrollToFile={diffScrollToFile}
+        />
+      </Suspense>
+    );
+
     if (isMobileOverlay) {
       return (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
-          <div className="animate-fade-in absolute inset-0 bg-black/60 backdrop-blur-sm" />
-          <div className="relative h-full" onClick={(e) => e.stopPropagation()}>
-            {panel}
+        <>
+          <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+            <div className="animate-fade-in absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <div className="relative h-full" onClick={(e) => e.stopPropagation()}>
+              {panel}
+            </div>
           </div>
-        </div>
+          {diffDrawer}
+        </>
       );
     }
 
-    return panel;
+    return (
+      <>
+        {panel}
+        {diffDrawer}
+      </>
+    );
   },
   (prev, next) => {
     return (
       samePanelSets(prev.activePanels, next.activePanels) &&
       prev.workingDirectory === next.workingDirectory &&
       prev.isMobileOverlay === next.isMobileOverlay &&
+      prev.instanceId === next.instanceId &&
       prev.instanceName === next.instanceName &&
       prev.createdAt === next.createdAt &&
       prev.lastActivityAt === next.lastActivityAt &&

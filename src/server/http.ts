@@ -149,6 +149,7 @@ const instancesRoutePattern = /^\/api\/instances$/;
 const instanceByIdPattern = /^\/api\/instances\/([a-f0-9-]+)$/;
 const instanceHistoryPattern = /^\/api\/instances\/([a-f0-9-]+)\/history$/;
 const instanceMergePattern = /^\/api\/instances\/([a-f0-9-]+)\/merge$/;
+const instanceDiffPattern = /^\/api\/instances\/([a-f0-9-]+)\/diff$/;
 
 interface RequestHandlerOverrides {
   getProviderModels?: (provider: ProviderKind) => Promise<ProviderModelOption[]>;
@@ -404,6 +405,24 @@ export function createRequestHandler(
         } catch {
           sendJson(res, 404, { error: "Instance not found" });
         }
+        return;
+      }
+
+      // GET /api/instances/:id/diff?path=<file>
+      const diffMatch = pathname.match(instanceDiffPattern);
+      if (method === "GET" && diffMatch) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        const id = diffMatch[1];
+        const filePath = parsedUrl.searchParams.get("path") || undefined;
+        const diff = instanceManager.getInstanceDiff(id, filePath);
+        if (diff === null) {
+          sendJson(res, 404, { error: "Instance not found or not a git repo" });
+          return;
+        }
+        sendJson(res, 200, { diff });
         return;
       }
 

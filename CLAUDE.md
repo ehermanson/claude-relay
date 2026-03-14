@@ -40,7 +40,7 @@ Relay is a bridge between remote devices and local AI coding agents. It manages 
 - **Server**: Raw `node:http` + `ws` library. No Express/Fastify/etc.
 - **UI**: React 18 + Vite + Tailwind CSS v4 + React Router
 - **Tests**: Node.js built-in test runner (`node --test`)
-- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI)
+- **Dependencies**: `better-sqlite3`, `cookie`, `ws`, `react-resizable-panels` (UI), `@base-ui/react` (UI), `@pierre/diffs` (UI diff viewer)
 
 ## Build & Test
 
@@ -84,7 +84,7 @@ ui/
     context/                 auth-context, websocket-context, theme-context, project-context
     hooks/                   use-auth, use-web-socket, use-instance-messages, use-auto-scroll, use-directory-browser, use-media-query, use-terminal-pending-toasts
     pages/                   chat-page, login-page, project-page, plans-page, plan-page, issues-page
-    components/chat/         instance-view, message-list, claude-message, user-message, input-area, activity-group, sidecar, permission-banner, etc.
+    components/chat/         instance-view, message-list, claude-message, user-message, input-area, activity-group, sidecar, diff-drawer, permission-banner, etc.
     components/ui/           resizable-handle, badge, button, checkbox, collapsible, dialog, input, menu, popover, progress, spinner, switch, tabs, textarea, tooltip (backed by @base-ui/react)
     components/layout/       app-layout, sidebar, sidebar-item
     components/forms/        new-instance-form, directory-picker
@@ -332,6 +332,7 @@ All routes except `/health` and `/auth` require authentication (session cookie).
 | POST   | `/api/instances`             | Create new instance (optional `resumeSessionId` to resume existing session) |
 | DELETE | `/api/instances/:id`         | Remove instance                                                             |
 | POST   | `/api/instances/:id/merge`   | Merge worktree branch into main and remove instance                         |
+| GET    | `/api/instances/:id/diff`    | Get unified diff for an instance (optional `?path=<file>` for single file)  |
 | GET    | `/api/instances/:id/history` | Get conversation history                                                    |
 | GET    | `/api/stats`                 | Server stats                                                                |
 | GET    | `/api/github-links`          | Map of local directory paths to GitHub repo URLs (from `~/.claude.json`)    |

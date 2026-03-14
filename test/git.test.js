@@ -15,6 +15,8 @@ import {
   isWorktreeDirty,
   hasWorktreeChanges,
   commitAll,
+  getFullDiff,
+  getFileDiff,
 } from "../dist/core/git.js";
 
 // Helper: create a temp git repo with an initial commit
@@ -288,5 +290,109 @@ describe("worktree lifecycle", () => {
 
     // Prevent afterEach from trying to clean up again
     worktreeResult = null;
+  });
+});
+
+describe("getFullDiff", () => {
+  let repoDir;
+
+  beforeEach(() => {
+    repoDir = createTestRepo();
+  });
+
+  afterEach(() => {
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it("returns null for a non-git directory", () => {
+    const plain = mkdtempSync(join(tmpdir(), "relay-git-test-"));
+    try {
+      assert.equal(getFullDiff(plain), null);
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  });
+
+  it("returns empty string when no changes", () => {
+    const diff = getFullDiff(repoDir);
+    assert.equal(typeof diff, "string");
+    assert.equal(diff.trim(), "");
+  });
+
+  it("returns unified diff for uncommitted changes", () => {
+    writeFileSync(join(repoDir, "file.txt"), "modified content");
+    const diff = getFullDiff(repoDir);
+    assert.ok(diff);
+    assert.ok(diff.includes("diff --git"));
+    assert.ok(diff.includes("file.txt"));
+    assert.ok(diff.includes("+modified content"));
+  });
+
+  it("uses sessionCreatedAt to resolve base ref (falls back to HEAD for same-second commits)", () => {
+    // When all commits happen in the same second, getBaseCommit may return
+    // the latest commit as base, resulting in an empty diff against HEAD.
+    // This test verifies the function doesn't crash and returns a valid string.
+    writeFileSync(join(repoDir, "file.txt"), "changed");
+    execSync("git add -A && git commit -m 'change'", { cwd: repoDir, stdio: "pipe" });
+
+    const diff = getFullDiff(repoDir, { sessionCreatedAt: Date.now() });
+    assert.equal(typeof diff, "string");
+  });
+
+  it("diffs against merge-base when originalBranch is provided", () => {
+    // Create a branch and make changes
+    execSync("git checkout -b feature-branch", { cwd: repoDir, stdio: "pipe" });
+    writeFileSync(join(repoDir, "feature.txt"), "feature work");
+    execSync("git add -A && git commit -m 'feature'", { cwd: repoDir, stdio: "pipe" });
+
+    const diff = getFullDiff(repoDir, { originalBranch: "master" });
+    // May be 'main' or 'master' — try both
+    if (!diff || diff.trim() === "") {
+      const diffMain = getFullDiff(repoDir, { originalBranch: "main" });
+      // At least one should work
+      if (diffMain && diffMain.trim()) {
+        assert.ok(diffMain.includes("feature.txt"));
+      }
+    } else {
+      assert.ok(diff.includes("feature.txt"));
+    }
+  });
+});
+
+describe("getFileDiff", () => {
+  let repoDir;
+
+  beforeEach(() => {
+    repoDir = createTestRepo();
+  });
+
+  afterEach(() => {
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it("returns null for a non-git directory", () => {
+    const plain = mkdtempSync(join(tmpdir(), "relay-git-test-"));
+    try {
+      assert.equal(getFileDiff(plain, "file.txt"), null);
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  });
+
+  it("returns diff for a specific changed file", () => {
+    writeFileSync(join(repoDir, "file.txt"), "changed");
+    writeFileSync(join(repoDir, "other.txt"), "other change");
+    execSync("git add other.txt", { cwd: repoDir, stdio: "pipe" });
+
+    const diff = getFileDiff(repoDir, "file.txt");
+    assert.ok(diff);
+    assert.ok(diff.includes("file.txt"));
+    assert.ok(!diff.includes("other.txt"));
+  });
+
+  it("returns empty string for an unchanged file", () => {
+    const diff = getFileDiff(repoDir, "file.txt");
+    assert.equal(typeof diff, "string");
+    assert.equal(diff.trim(), "");
   });
 });

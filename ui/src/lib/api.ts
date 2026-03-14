@@ -151,4 +151,18 @@ export async function fetchOpenTargets(targetPath: string): Promise<NativeOpenTa
   return res.json();
 }
 
+export async function fetchInstanceDiff(instanceId: string, filePath?: string): Promise<string> {
+  const params = new URLSearchParams();
+  if (filePath) params.set("path", filePath);
+  const qs = params.toString();
+  const url = `/api/instances/${encodeURIComponent(instanceId)}/diff${qs ? `?${qs}` : ""}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to fetch diff" }));
+    throw new Error(data.error || "Failed to fetch diff");
+  }
+  const data = await res.json();
+  return data.diff;
+}
+
 export type { NativeOpenTarget };
