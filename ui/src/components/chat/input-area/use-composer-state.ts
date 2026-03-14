@@ -119,14 +119,12 @@ function reducer(state: ComposerState, action: ComposerAction): ComposerState {
         ...state,
         mentionEntries: action.entries,
       };
-    case "set_selected_mention_key":
-      return {
-        ...state,
-        selectedMentionKey:
-          typeof action.value === "function"
-            ? action.value(state.selectedMentionKey)
-            : action.value,
-      };
+    case "set_selected_mention_key": {
+      const next =
+        typeof action.value === "function" ? action.value(state.selectedMentionKey) : action.value;
+      if (next === state.selectedMentionKey) return state;
+      return { ...state, selectedMentionKey: next };
+    }
     case "dismiss_mentions":
       return {
         ...state,
@@ -141,12 +139,12 @@ function reducer(state: ComposerState, action: ComposerAction): ComposerState {
         selectedMentionKey: null,
         mentionMenuDismissed: false,
       };
-    case "set_selected_slash_key":
-      return {
-        ...state,
-        selectedSlashKey:
-          typeof action.value === "function" ? action.value(state.selectedSlashKey) : action.value,
-      };
+    case "set_selected_slash_key": {
+      const next =
+        typeof action.value === "function" ? action.value(state.selectedSlashKey) : action.value;
+      if (next === state.selectedSlashKey) return state;
+      return { ...state, selectedSlashKey: next };
+    }
     case "dismiss_slash":
       return {
         ...state,
