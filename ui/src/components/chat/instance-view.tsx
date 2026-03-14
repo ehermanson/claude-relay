@@ -60,6 +60,10 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     ? instances.find((i) => i.parentSessionId === instance.sessionId)
     : undefined;
 
+  // Combine local message-driven state with server-side status so the cancel
+  // button shows even on fresh navigation or WS reconnect to an active instance.
+  const isActive = isProcessing || instance?.status === "processing";
+
   // Track which instance we're viewing (independent of connection)
   useEffect(() => {
     if (!id) return;
@@ -104,7 +108,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   };
 
   const handleCancel = () => {
-    if (!id || !isProcessing) return;
+    if (!id || !isActive) return;
     send({ type: "instance_cancel", instanceId: id });
   };
 
@@ -252,7 +256,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         <MessageList
           key={id}
           items={items}
-          isProcessing={isProcessing}
+          isProcessing={isActive}
           showThinkingIndicator={showThinkingIndicator}
           instanceStatus={instance.status}
           lastActivity={lastActivity}
@@ -270,7 +274,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         <DebugModal
           instance={instance}
           items={items}
-          isProcessing={isProcessing}
+          isProcessing={isActive}
           onClose={() => setShowDebugPaste(false)}
         />
       )}
@@ -308,7 +312,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
             onSend={handleSend}
             onCancel={handleCancel}
             onSwitchProvider={handleSwitchProvider}
-            isProcessing={isProcessing}
+            isProcessing={isActive}
             isConnected={isConnected}
             instanceId={id!}
             sessionId={instance.sessionId}

@@ -81,6 +81,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
   private pendingTaskCreates = new Map<string, { subject: string; activeForm?: string }>();
   private fileMap = new Map<string, FileChange>();
   private _cancelledForPermission = false;
+  private _cancelledByUser = false;
   private _processTimeout: ReturnType<typeof setTimeout> | null = null;
   private _preferredModel: string | null = null;
   private _reasoningBudget: number | null = null;
@@ -676,7 +677,9 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this.currentProcess.on("close", (code, signal) => {
       this.config.logger.info(`[Claude] Process exited with code: ${code}, signal: ${signal}`);
       const wasCancelledForPermission = this._cancelledForPermission;
+      const wasCancelledByUser = this._cancelledByUser;
       this._cancelledForPermission = false;
+      this._cancelledByUser = false;
       this._isProcessing = false;
       this.currentProcess = null;
       this.isFirstMessage = false;
@@ -692,8 +695,8 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
         clearTimeout(this._processTimeout);
         this._processTimeout = null;
       }
-      // Suppress error exit when we intentionally cancelled for permission denial
-      if ((code !== 0 || signal) && !wasCancelledForPermission) {
+      // Suppress error exit when we intentionally cancelled (user or permission denial)
+      if ((code !== 0 || signal) && !wasCancelledForPermission && !wasCancelledByUser) {
         const trimmedStderr = stderrBuffer.trim().slice(-500) || undefined;
         const exitMessage: ExitMessage = {
           type: "exit",
@@ -728,10 +731,12 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
   /**
    * Cancel the current operation (SIGINT).
+   * The session is preserved — the next sendMessage() resumes via --resume.
    */
   cancel(): void {
     if (this.currentProcess) {
       this.config.logger.info("[Claude] Cancelling...");
+      this._cancelledByUser = true;
       this.currentProcess.kill("SIGINT");
       this._isProcessing = false;
       this.currentProcess = null;
