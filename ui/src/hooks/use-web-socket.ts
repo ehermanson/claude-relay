@@ -46,6 +46,7 @@ export function useWebSocket() {
   // independently of the visual isConnected state (which has a grace period).
   const [connectionId, setConnectionId] = useState(0);
   const [instances, dispatch] = useReducer(instanceReducer, []);
+  const [hiddenDirectories, setHiddenDirectories] = useState<string[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
@@ -133,6 +134,11 @@ export function useWebSocket() {
               instance: message.instance,
             });
             break;
+          case "hidden_directories":
+            setHiddenDirectories(
+              (message as { type: "hidden_directories"; directories: string[] }).directories,
+            );
+            break;
         }
 
         // Forward all messages to registered handlers
@@ -187,6 +193,7 @@ export function useWebSocket() {
     isSyncing,
     connectionId,
     instances,
+    hiddenDirectories,
     send,
     subscribe,
     unsubscribe,

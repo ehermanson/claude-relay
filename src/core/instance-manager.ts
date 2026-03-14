@@ -171,6 +171,7 @@ export interface InstanceManagerEvents {
   "instance:user": [instanceId: string, message: UserMessage];
   "instance:transcript": [instanceId: string, message: TranscriptMessage];
   "scan:complete": [];
+  "directory:visibility": [];
 }
 
 export interface InstanceManager {
@@ -666,6 +667,8 @@ export class InstanceManager extends EventEmitter {
   scanComplete = false;
   /** Guard to prevent concurrent discovery polls from overlapping */
   private discovering = false;
+  /** Cached hidden directories set — null means needs reload from DB */
+  private _hiddenDirs: Set<string> | null = null;
 
   constructor(config: CoreConfig) {
     super();
@@ -1010,8 +1013,38 @@ export class InstanceManager extends EventEmitter {
     return { targetBranch };
   }
 
+  private _getHiddenDirs(): Set<string> {
+    if (!this._hiddenDirs) {
+      try {
+        this._hiddenDirs = this.db.getHiddenDirectories();
+      } catch {
+        return new Set();
+      }
+    }
+    return this._hiddenDirs;
+  }
+
+  hideDirectory(path: string): void {
+    this.db.hideDirectory(path);
+    this._hiddenDirs = null;
+    this.emit("directory:visibility");
+  }
+
+  unhideDirectory(path: string): void {
+    this.db.unhideDirectory(path);
+    this._hiddenDirs = null;
+    this.emit("directory:visibility");
+  }
+
+  getHiddenDirectories(): string[] {
+    return [...this._getHiddenDirs()];
+  }
+
   listInstances(): InstanceInfo[] {
-    return Array.from(this.instances.values()).map((i) => ({ ...i.info }));
+    const hidden = this._getHiddenDirs();
+    return Array.from(this.instances.values())
+      .filter((i) => !hidden.has(i.info.workingDirectory))
+      .map((i) => ({ ...i.info }));
   }
 
   getInstance(id: string): InstanceInfo | undefined {
@@ -1527,6 +1560,7 @@ export class InstanceManager extends EventEmitter {
   getKnownDirectories(): { path: string; lastUsed: number }[] {
     const projectsDir = join(this.providerDirs.claude, "projects");
     if (!existsSync(projectsDir)) return [];
+    const hidden = this._getHiddenDirs();
 
     try {
       return readdirSync(projectsDir)
@@ -1573,6 +1607,7 @@ export class InstanceManager extends EventEmitter {
           return { path: resolvedPath, lastUsed };
         })
         .filter((d) => existsSync(d.path)) // only include dirs that still exist
+        .filter((d) => !hidden.has(d.path)) // exclude hidden directories
         .sort((a, b) => b.lastUsed - a.lastUsed);
     } catch {
       return [];

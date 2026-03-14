@@ -16,6 +16,7 @@ interface WSStateContextValue {
   isSyncing: boolean;
   connectionId: number;
   instances: InstanceInfo[];
+  hiddenDirectories: string[];
 }
 
 const WSMethodsContext = createContext<WSMethodsContextValue | null>(null);
@@ -27,6 +28,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     isSyncing,
     connectionId,
     instances,
+    hiddenDirectories,
     send,
     subscribe,
     unsubscribe,
@@ -34,7 +36,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   } = useWebSocket();
 
   const methods = { send, subscribe, unsubscribe, addMessageHandler };
-  const state = { isConnected, isSyncing, connectionId, instances };
+  const state = { isConnected, isSyncing, connectionId, instances, hiddenDirectories };
 
   return (
     <WSMethodsContext.Provider value={methods}>

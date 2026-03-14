@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 10;
+const CURRENT_SCHEMA_VERSION = 11;
 
 export interface SessionRow {
   session_id: string;
@@ -111,6 +111,9 @@ export class SessionDB {
   private stmtUpdateSkipPermissions!: Database.Statement;
   private stmtGetProjectStats!: Database.Statement;
   private stmtGetGlobalStats!: Database.Statement;
+  private stmtHideDir!: Database.Statement;
+  private stmtUnhideDir!: Database.Statement;
+  private stmtGetHiddenDirs!: Database.Statement;
 
   constructor(dbPath: string, logger: Logger) {
     this.logger = logger;
@@ -315,6 +318,13 @@ export class SessionDB {
         this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN git_info_is_worktree INTEGER`);
       }
     }
+
+    // v11: hidden directories table for sidebar filtering
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS hidden_directories (
+        path TEXT PRIMARY KEY
+      )
+    `);
 
     // Update version
     if (currentVersion === 0) {
@@ -555,6 +565,12 @@ export class SessionDB {
         WHERE archived = 0
       )
     `);
+
+    this.stmtHideDir = this.db.prepare(
+      "INSERT OR IGNORE INTO hidden_directories (path) VALUES (?)",
+    );
+    this.stmtUnhideDir = this.db.prepare("DELETE FROM hidden_directories WHERE path = ?");
+    this.stmtGetHiddenDirs = this.db.prepare("SELECT path FROM hidden_directories");
   }
 
   upsert(row: SessionRow): void {
@@ -722,6 +738,19 @@ export class SessionDB {
 
   deleteBySessionId(sessionId: string): void {
     this.stmtDeleteBySessionId.run(sessionId);
+  }
+
+  hideDirectory(path: string): void {
+    this.stmtHideDir.run(path);
+  }
+
+  unhideDirectory(path: string): void {
+    this.stmtUnhideDir.run(path);
+  }
+
+  getHiddenDirectories(): Set<string> {
+    const rows = this.stmtGetHiddenDirs.all() as { path: string }[];
+    return new Set(rows.map((r) => r.path));
   }
 
   clear(): void {

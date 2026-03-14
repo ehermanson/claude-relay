@@ -66,11 +66,12 @@ function createClient(server, sessionId) {
     return messages;
   };
 
-  /** Wait for the initial connected + instance_list handshake. */
+  /** Wait for the initial connected + instance_list + hidden_directories handshake. */
   ws.waitForHandshake = async () => {
-    const msgs = await ws.collectMessages(2);
+    const msgs = await ws.collectMessages(3);
     assert.equal(msgs[0].type, "connected");
     assert.equal(msgs[1].type, "instance_list");
+    assert.equal(msgs[2].type, "hidden_directories");
     return msgs;
   };
 
@@ -152,10 +153,11 @@ describe("WebSocket Server", () => {
     it("accepts connection with valid auth and sends connected + instance_list", async () => {
       const session = auth.createSession();
       const ws = await connect(session.id);
-      const messages = await ws.collectMessages(2);
+      const messages = await ws.collectMessages(3);
       assert.equal(messages[0].type, "connected");
       assert.equal(messages[1].type, "instance_list");
       assert.ok(Array.isArray(messages[1].instances));
+      assert.equal(messages[2].type, "hidden_directories");
     });
   });
 

@@ -329,9 +329,10 @@ function createClient(server, sessionId) {
   };
 
   ws.waitForHandshake = async () => {
-    const msgs = await ws.collectMessages(2);
+    const msgs = await ws.collectMessages(3);
     assert.equal(msgs[0].type, "connected");
     assert.equal(msgs[1].type, "instance_list");
+    assert.equal(msgs[2].type, "hidden_directories");
     return msgs;
   };
 

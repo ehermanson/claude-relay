@@ -219,6 +219,16 @@ export interface SetProviderPayload {
   provider: ProviderKind;
 }
 
+export interface HideDirectoryPayload {
+  type: "hide_directory";
+  path: string;
+}
+
+export interface UnhideDirectoryPayload {
+  type: "unhide_directory";
+  path: string;
+}
+
 export type ClientMessage =
   | MessagePayload
   | CancelPayload
@@ -236,7 +246,9 @@ export type ClientMessage =
   | SetReasoningBudgetPayload
   | SetPermissionsPayload
   | SetPlanModePayload
-  | SetProviderPayload;
+  | SetProviderPayload
+  | HideDirectoryPayload
+  | UnhideDirectoryPayload;
 
 // =============================================================================
 // Server -> Client Messages
@@ -359,6 +371,11 @@ export interface ScanCompleteMessage {
   type: "scan_complete";
 }
 
+export interface HiddenDirectoriesMessage {
+  type: "hidden_directories";
+  directories: string[];
+}
+
 export type ServerMessage =
   | ConnectedMessage
   | OutputMessage
@@ -373,7 +390,8 @@ export type ServerMessage =
   | InstanceStatusMessage
   | InstanceHistoryMessage
   | TranscriptMessage
-  | ScanCompleteMessage;
+  | ScanCompleteMessage
+  | HiddenDirectoriesMessage;
 
 // =============================================================================
 // Session Types

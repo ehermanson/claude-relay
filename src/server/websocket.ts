@@ -133,6 +133,11 @@ export function createWebSocketServer(
     broadcast({ type: "scan_complete" });
   });
 
+  instanceManager.on("directory:visibility", () => {
+    broadcast({ type: "instance_list", instances: instanceManager.listInstances() });
+    broadcast({ type: "hidden_directories", directories: instanceManager.getHiddenDirectories() });
+  });
+
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
     const cookieHeader = req.headers.cookie;
     const session = auth.getSessionFromCookies(cookieHeader);
@@ -158,6 +163,10 @@ export function createWebSocketServer(
     sendMessage(ws, {
       type: "instance_list",
       instances: instanceManager.listInstances(),
+    });
+    sendMessage(ws, {
+      type: "hidden_directories",
+      directories: instanceManager.getHiddenDirectories(),
     });
     if (instanceManager.scanComplete) {
       sendMessage(ws, { type: "scan_complete" });
@@ -328,6 +337,16 @@ export function createWebSocketServer(
 
           case "set_provider": {
             instanceManager.setProvider(message.instanceId, message.provider);
+            break;
+          }
+
+          case "hide_directory": {
+            instanceManager.hideDirectory(message.path);
+            break;
+          }
+
+          case "unhide_directory": {
+            instanceManager.unhideDirectory(message.path);
             break;
           }
 

@@ -3,10 +3,12 @@
  * (Overview, Plans, Issues, Skills, Chats) and session items.
  */
 
+import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, EyeOff, MoreVertical, Plus } from "lucide-react";
 import { SidebarItem } from "./sidebar-item";
 import { Collapsible } from "../ui/collapsible";
+import { Menu } from "../ui/menu";
 import type { InstanceInfo } from "@shared/types";
 
 const MAX_SIDEBAR_SESSIONS = 10;
@@ -25,6 +27,7 @@ interface SidebarProjectGroupProps {
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onMerge: (id: string) => void;
+  onHide?: (dir: string) => void;
 }
 
 export function SidebarProjectGroup({
@@ -41,8 +44,10 @@ export function SidebarProjectGroup({
   onDelete,
   onRename,
   onMerge,
+  onHide,
 }: SidebarProjectGroupProps) {
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
   const dirName = dir.split("/").pop() || dir;
   const isActiveProject = currentProjectId === dirName;
   const isPlansActive = isActiveProject && locationPathname.includes("/plans");
@@ -158,16 +163,52 @@ export function SidebarProjectGroup({
               {dirName}
             </span>
           </Collapsible.Trigger>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onQuickCreate(dir);
-            }}
-            className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
-          >
-            <Plus size={12} strokeWidth={2.5} />
-            New Chat
-          </button>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickCreate(dir);
+              }}
+              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
+            >
+              <Plus size={12} strokeWidth={2.5} />
+              New Chat
+            </button>
+            {onHide &&
+              (menuOpen ? (
+                <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+                  <Menu.Trigger
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                    }}
+                    className="flex h-5 w-5 items-center justify-center rounded text-muted hover:text-text"
+                  >
+                    <MoreVertical size={12} />
+                  </Menu.Trigger>
+                  <Menu.Content>
+                    <Menu.Item
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        onHide(dir);
+                      }}
+                    >
+                      <EyeOff size={13} strokeWidth={2} className="text-muted" />
+                      Hide project
+                    </Menu.Item>
+                  </Menu.Content>
+                </Menu.Root>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(true);
+                  }}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100 hover:text-text"
+                >
+                  <MoreVertical size={12} />
+                </button>
+              ))}
+          </div>
         </div>
 
         {/* Content */}

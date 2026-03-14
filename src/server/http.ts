@@ -475,6 +475,56 @@ export function createRequestHandler(
         return;
       }
 
+      // GET /api/hidden-directories — list of hidden directory paths
+      if (method === "GET" && pathname === "/api/hidden-directories") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        sendJson(res, 200, { directories: instanceManager.getHiddenDirectories() });
+        return;
+      }
+
+      // POST /api/hidden-directories — hide a directory
+      if (method === "POST" && pathname === "/api/hidden-directories") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        try {
+          const body = (await parseJsonBody(req)) as { path?: string };
+          if (!body.path || typeof body.path !== "string") {
+            sendJson(res, 400, { error: "Missing path" });
+            return;
+          }
+          instanceManager.hideDirectory(body.path);
+          sendJson(res, 200, { ok: true });
+        } catch {
+          sendJson(res, 400, { error: "Invalid request" });
+        }
+        return;
+      }
+
+      // DELETE /api/hidden-directories — unhide a directory
+      if (method === "DELETE" && pathname === "/api/hidden-directories") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        try {
+          const body = (await parseJsonBody(req)) as { path?: string };
+          if (!body.path || typeof body.path !== "string") {
+            sendJson(res, 400, { error: "Missing path" });
+            return;
+          }
+          instanceManager.unhideDirectory(body.path);
+          sendJson(res, 200, { ok: true });
+        } catch {
+          sendJson(res, 400, { error: "Invalid request" });
+        }
+        return;
+      }
+
       // GET /api/project-icons — cached project directory icon paths
       if (method === "GET" && pathname === "/api/project-icons") {
         if (!isAuthenticated) {

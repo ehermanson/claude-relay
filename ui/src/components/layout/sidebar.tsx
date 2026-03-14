@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
-import { Loader2, LogOut, Moon, PanelLeftClose, Plus, Sun } from "lucide-react";
+import { Eye, EyeOff, Loader2, LogOut, Moon, PanelLeftClose, Plus, Sun } from "lucide-react";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
 import { useTheme } from "../../context/theme-context";
 import { RelayLogo } from "../ui/relay-logo";
 import { Popover } from "../ui/popover";
+import { Dialog } from "../ui/dialog";
+import { Tooltip } from "../ui/tooltip";
+import { Button } from "../ui/button";
 import { SidebarProjectGroup } from "./sidebar-project-group";
 
 import { NewInstanceForm } from "../forms/new-instance-form";
@@ -14,7 +17,7 @@ import type { InstanceInfo } from "@shared/types";
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { send } = useWSMethods();
-  const { isConnected, isSyncing, instances } = useWSState();
+  const { isConnected, isSyncing, instances, hiddenDirectories } = useWSState();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -27,6 +30,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const location = useLocation();
   const [showForm, setShowForm] = useState(false);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+  const [showHiddenDialog, setShowHiddenDialog] = useState(false);
+  const [confirmHide, setConfirmHide] = useState<string | null>(null);
   const prevInstanceIds = useRef(new Set<string>());
   const pendingCreate = useRef(false);
 
@@ -98,6 +103,21 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
 
   const handleMerge = (instanceId: string) => {
     send({ type: "merge_instance", instanceId });
+  };
+
+  const handleHide = (path: string) => {
+    setConfirmHide(path);
+  };
+
+  const confirmHideAction = () => {
+    if (confirmHide) {
+      send({ type: "hide_directory", path: confirmHide });
+      setConfirmHide(null);
+    }
+  };
+
+  const handleUnhide = (path: string) => {
+    send({ type: "unhide_directory", path });
   };
 
   return (
@@ -178,6 +198,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 onDelete={handleDelete}
                 onRename={handleRename}
                 onMerge={handleMerge}
+                onHide={handleHide}
               />
             ))}
 
@@ -193,22 +214,90 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
       </div>
 
       {/* Footer */}
-      <div className="flex shrink-0 items-center justify-between border-t border-border px-4 py-2">
-        <button
-          onClick={toggleTheme}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
-        >
-          {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-          {theme === "dark" ? "Light" : "Dark"}
-        </button>
-        <button
-          onClick={logout}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
-        >
-          <LogOut size={13} />
-          Sign out
-        </button>
+      <div className="shrink-0 border-t border-border">
+        {hiddenDirectories.length > 0 && (
+          <div className="flex items-center justify-center px-4 pt-2">
+            <button
+              onClick={() => setShowHiddenDialog(true)}
+              className="flex items-center gap-1.5 text-[0.6875rem] text-muted/60 transition-colors hover:text-muted"
+            >
+              <EyeOff size={11} />
+              {hiddenDirectories.length} hidden project{hiddenDirectories.length !== 1 ? "s" : ""}
+            </button>
+          </div>
+        )}
+        <div className="flex items-center justify-between px-4 py-2">
+          <button
+            onClick={toggleTheme}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
+          <button
+            onClick={logout}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            <LogOut size={13} />
+            Sign out
+          </button>
+        </div>
       </div>
+
+      {/* Confirm hide dialog */}
+      <Dialog.Root open={!!confirmHide} onOpenChange={(open) => !open && setConfirmHide(null)}>
+        <Dialog.Content maxWidth="max-w-xs">
+          <Dialog.Header>
+            <Dialog.Title>Hide project?</Dialog.Title>
+            <Dialog.Close />
+          </Dialog.Header>
+          <p className="text-[0.8125rem] text-muted">
+            <span className="font-medium text-text">{confirmHide?.split("/").pop()}</span> and its
+            sessions will be hidden from the sidebar. You can show it again from the footer.
+          </p>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setConfirmHide(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="sm" onClick={confirmHideAction}>
+              Hide
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Root>
+
+      {/* Hidden projects dialog */}
+      <Dialog.Root open={showHiddenDialog} onOpenChange={setShowHiddenDialog}>
+        <Dialog.Content maxWidth="max-w-sm">
+          <Dialog.Header>
+            <Dialog.Title>Hidden Projects</Dialog.Title>
+            <Dialog.Close />
+          </Dialog.Header>
+          <div className="flex flex-col gap-1">
+            {hiddenDirectories.map((path) => (
+              <div
+                key={path}
+                className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 hover:bg-surface-hover"
+              >
+                <Tooltip content={path} side="right">
+                  <span className="min-w-0 truncate text-[0.8125rem] text-text">
+                    {path.split("/").pop() || path}
+                  </span>
+                </Tooltip>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleUnhide(path)}
+                  className="shrink-0 gap-1.5"
+                >
+                  <Eye size={13} />
+                  Show
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Dialog.Content>
+      </Dialog.Root>
     </aside>
   );
 }
