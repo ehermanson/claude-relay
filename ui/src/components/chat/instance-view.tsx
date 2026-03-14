@@ -19,7 +19,7 @@ import { TerminalPermissionBar } from "./terminal-permission-bar";
 import { InstanceHeader } from "./instance-header";
 import { createInstance, fetchInstanceHistory } from "../../lib/api";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
-import type { ServerMessage, ProviderKind } from "@shared/types";
+import type { ServerMessage, ProviderKind, UserInputAnswer } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
 
@@ -201,6 +201,18 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     });
   };
 
+  const handleAnswerUserInput = (requestId: string, answers: Record<string, UserInputAnswer>) => {
+    if (!id) return;
+    send({
+      type: "respond_to_request",
+      instanceId: id,
+      requestId,
+      decision: "accept",
+      answers,
+    });
+    showThinking();
+  };
+
   const handleApproveTool = (tool: string) => {
     if (!id) return;
     const pendingRequest =
@@ -226,6 +238,12 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     rawPermission && typeof rawPermission === "object" ? rawPermission.requestId : null;
   const pendingPermissionDesc =
     rawPermission && typeof rawPermission === "object" ? rawPermission.description : undefined;
+  const isPendingApproval =
+    rawPermission && typeof rawPermission === "object" ? rawPermission.kind === "approval" : false;
+  const pendingUserInput =
+    rawPermission && typeof rawPermission === "object" && rawPermission.kind === "user_input"
+      ? rawPermission
+      : null;
   const isLoadingSession = connectionId > 0 && !hasLoadedHistory;
 
   const loadingContent = (
@@ -262,6 +280,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
           lastActivity={lastActivity}
           processingStartedAt={processingStartedAt}
           onSendMessage={handleSend}
+          onAnswerUserInput={handleAnswerUserInput}
           isInteractive={!isStopped}
           onApproveTool={handleApproveTool}
           approvedTools={approvedTools}
@@ -279,16 +298,19 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         />
       )}
 
-      {pendingPermissionTool && pendingPermissionRequestId && !instance.external && (
-        <PermissionBanner
-          key={pendingPermissionRequestId}
-          provider={instance.provider}
-          requestId={pendingPermissionRequestId}
-          tool={pendingPermissionTool}
-          description={pendingPermissionDesc}
-          onApprove={handleRespondToRequest}
-        />
-      )}
+      {isPendingApproval &&
+        pendingPermissionTool &&
+        pendingPermissionRequestId &&
+        !instance.external && (
+          <PermissionBanner
+            key={pendingPermissionRequestId}
+            provider={instance.provider}
+            requestId={pendingPermissionRequestId}
+            tool={pendingPermissionTool}
+            description={pendingPermissionDesc}
+            onApprove={handleRespondToRequest}
+          />
+        )}
 
       {pendingTerminalTool && (
         <TerminalPermissionBar provider={instance.provider} pendingTool={pendingTerminalTool} />
@@ -310,6 +332,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         ) : (
           <InputArea
             onSend={handleSend}
+            onAnswerUserInput={handleAnswerUserInput}
             onCancel={handleCancel}
             onSwitchProvider={handleSwitchProvider}
             isProcessing={isActive}
@@ -325,6 +348,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
             activeModel={instance.stats?.model}
             skipPermissions={instance.skipPermissions}
             hasMessages={items.length > 0}
+            pendingUserInput={pendingUserInput}
           />
         ))}
     </>

@@ -1,6 +1,11 @@
-import { useContext, useMemo, useRef } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Loader2 } from "lucide-react";
-import type { ProviderKind } from "@shared/types";
+import type {
+  ProviderKind,
+  ProviderRequest,
+  UserInputAnswer,
+  UserInputQuestion,
+} from "@shared/types";
 import { getProviderDisplayName } from "@shared/provider-catalog";
 import { ProjectContext } from "../../context/project-context";
 import { useMediaQuery } from "../../hooks/use-media-query";
@@ -9,6 +14,7 @@ import { formatModel } from "../../lib/utils";
 import { ComposerPanel } from "./input-area/composer-panel";
 import { ImageAttachmentStrip } from "./input-area/image-attachment-strip";
 import { InputToolbar } from "./input-area/input-toolbar";
+import { AskUserQuestionPanel } from "./input-area/ask-user-question-panel";
 import {
   PlanModePicker,
   PermissionsToggle,
@@ -33,6 +39,7 @@ import { useProviderSwitchState } from "./input-area/use-provider-switch-state";
 
 interface InputAreaProps {
   onSend: (text: string, images?: string[]) => void;
+  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
   onCancel: () => void;
   onSwitchProvider?: (
     provider: ProviderKind,
@@ -52,10 +59,24 @@ interface InputAreaProps {
   activeModel?: string;
   skipPermissions?: boolean;
   hasMessages?: boolean;
+  pendingUserInput?: ProviderRequest | null;
+}
+
+function buildPromptPlaceholder(
+  question: UserInputQuestion | null,
+  allowFreeform: boolean,
+): string {
+  if (!question) return "";
+  if (!allowFreeform) return "Choose an option above to continue";
+  if (question.options?.length) {
+    return `Type your own answer for "${question.question}", or leave this blank to use the selected option`;
+  }
+  return `Type your answer for "${question.question}"`;
 }
 
 export function InputArea({
   onSend,
+  onAnswerUserInput,
   onCancel,
   onSwitchProvider,
   isProcessing,
@@ -71,6 +92,7 @@ export function InputArea({
   activeModel,
   skipPermissions,
   hasMessages,
+  pendingUserInput,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
   const composerContainerRef = useRef<HTMLDivElement>(null);
@@ -119,6 +141,26 @@ export function InputArea({
     dismissSlashMenu,
     resetAfterSend,
   } = useComposerState(sessionId, composerRef);
+  const [promptText, setPromptText] = useState("");
+  const [selectedPromptAnswers, setSelectedPromptAnswers] = useState<Record<string, string>>({});
+
+  const promptRequestId =
+    pendingUserInput?.kind === "user_input" ? pendingUserInput.requestId : null;
+  const promptQuestions =
+    pendingUserInput?.kind === "user_input" ? (pendingUserInput.questions ?? []) : [];
+  const hasPendingPrompt = !!promptRequestId && promptQuestions.length > 0;
+  const primaryPromptQuestion = promptQuestions[0] ?? null;
+  const freeformQuestionId = promptQuestions.find((question) => question.isOther)?.id ?? null;
+  const allowPromptTextInput =
+    hasPendingPrompt && (!primaryPromptQuestion?.options?.length || !!freeformQuestionId);
+
+  useEffect(() => {
+    setPromptText("");
+    setSelectedPromptAnswers({});
+    if (promptRequestId) {
+      composerRef.current?.focus();
+    }
+  }, [promptRequestId]);
 
   const builtInProviderModels = provider === "codex" ? CODEX_MODELS : MODELS;
   const discoveredProviderModels =
@@ -200,6 +242,41 @@ export function InputArea({
     clearImages();
   };
 
+  const promptAnswerForQuestion = (question: UserInputQuestion) => {
+    if (freeformQuestionId && question.id === freeformQuestionId) {
+      const customAnswer = promptText.trim();
+      if (customAnswer) return [customAnswer];
+    }
+    const selected = selectedPromptAnswers[question.id];
+    return selected ? [selected] : [];
+  };
+
+  const canSubmitPrompt =
+    hasPendingPrompt &&
+    promptQuestions.every((question) => promptAnswerForQuestion(question).length > 0);
+
+  const handleSubmitPrompt = () => {
+    if (!promptRequestId || !onAnswerUserInput || !canSubmitPrompt) return;
+    const answers = Object.fromEntries(
+      promptQuestions.map((question) => [
+        question.id,
+        {
+          answers: promptAnswerForQuestion(question),
+        },
+      ]),
+    ) as Record<string, UserInputAnswer>;
+    onAnswerUserInput(promptRequestId, answers);
+    setPromptText("");
+    setSelectedPromptAnswers({});
+  };
+
+  const handleDismissPrompt = () => {
+    if (!promptRequestId || !onAnswerUserInput) return;
+    onAnswerUserInput(promptRequestId, {});
+    setPromptText("");
+    setSelectedPromptAnswers({});
+  };
+
   const applySlashAction = (action: () => void) => {
     action();
     resetAfterSend();
@@ -208,8 +285,8 @@ export function InputArea({
     instanceId,
     isMobile,
     skills: providerSkills,
-    draftText,
-    composerSelectionOffset,
+    draftText: hasPendingPrompt ? "" : draftText,
+    composerSelectionOffset: hasPendingPrompt ? 0 : composerSelectionOffset,
     mentionEntries,
     selectedMentionKey,
     mentionMenuDismissed,
@@ -236,7 +313,7 @@ export function InputArea({
     setModel,
     setReasoningBudget,
     onCancel,
-    onSend: handleSend,
+    onSend: hasPendingPrompt ? handleSubmitPrompt : handleSend,
   });
 
   const handlePaste = (event: React.ClipboardEvent) => {
@@ -259,15 +336,37 @@ export function InputArea({
   };
 
   const disabled = !isConnected;
+  const composerDisabled = disabled || (hasPendingPrompt && !allowPromptTextInput);
 
   const sendIcon = uploading ? (
     <Loader2 size={18} className="animate-spin" />
   ) : (
     <ArrowUp size={18} strokeWidth={2.5} />
   );
-  const composerPlaceholder = isStopped
-    ? "Send a message to resume... Use @ for files and / for commands"
-    : "Send a message... Use @ for files and / for commands";
+  const composerPlaceholder = hasPendingPrompt
+    ? buildPromptPlaceholder(primaryPromptQuestion, allowPromptTextInput)
+    : isStopped
+      ? "Send a message to resume... Use @ for files and / for commands"
+      : "Send a message... Use @ for files and / for commands";
+  const composerValue = hasPendingPrompt ? promptText : draftText;
+  const composerTopContent = hasPendingPrompt ? (
+    <AskUserQuestionPanel
+      questions={promptQuestions}
+      selectedAnswers={selectedPromptAnswers}
+      onSelectOption={(questionId, answer) =>
+        setSelectedPromptAnswers((prev) => ({
+          ...prev,
+          [questionId]: answer,
+        }))
+      }
+    />
+  ) : null;
+  const sendLabel = hasPendingPrompt
+    ? `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
+    : undefined;
+  const sendTooltip = hasPendingPrompt
+    ? `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
+    : undefined;
 
   const toolbarControls = [
     supportsModelSelection ? (
@@ -359,32 +458,61 @@ export function InputArea({
             ref={composerContainerRef}
             className="relative rounded-2xl border border-border bg-surface"
           >
-            <ImageAttachmentStrip images={images} onRemove={removeImage} />
+            {!hasPendingPrompt ? (
+              <ImageAttachmentStrip images={images} onRemove={removeImage} />
+            ) : null}
             <ComposerPanel
               compact={isMobile}
-              disabled={disabled}
-              value={draftText}
+              disabled={composerDisabled}
+              value={composerValue}
               placeholder={composerPlaceholder}
-              selectionOffset={pendingSelectionOffset}
+              topContent={composerTopContent}
+              selectionOffset={hasPendingPrompt ? null : pendingSelectionOffset}
               onSelectionApplied={clearPendingSelectionOffset}
               onChange={(value, selectionOffset) => {
+                if (hasPendingPrompt) {
+                  setPromptText(value);
+                  return;
+                }
                 updateDraft(value);
                 setComposerSelectionOffset(selectionOffset);
               }}
-              onKeyDown={handleComposerKeyDown}
+              onKeyDown={(event) => {
+                if (hasPendingPrompt) {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    handleSubmitPrompt();
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    handleDismissPrompt();
+                    return;
+                  }
+                }
+                handleComposerKeyDown(event);
+              }}
               onPaste={handlePaste}
-              composerMenu={composerMenu}
+              composerMenu={hasPendingPrompt ? null : composerMenu}
               toolbar={
                 <InputToolbar
                   isMobile={isMobile}
                   disabled={disabled}
+                  showAttachButton={!hasPendingPrompt}
                   controls={toolbarControls}
                   isProcessing={isProcessing}
                   onCancel={onCancel}
                   onAttachImage={() => fileInputRef.current?.click()}
-                  onSend={handleSend}
+                  onSend={hasPendingPrompt ? handleSubmitPrompt : handleSend}
                   sendIcon={sendIcon}
-                  isSendDisabled={disabled || uploading}
+                  sendLabel={sendLabel}
+                  sendTooltip={sendTooltip}
+                  secondaryActionLabel={hasPendingPrompt ? "Dismiss" : undefined}
+                  onSecondaryAction={hasPendingPrompt ? handleDismissPrompt : undefined}
+                  isSecondaryActionDisabled={disabled}
+                  isSendDisabled={
+                    hasPendingPrompt ? disabled || !canSubmitPrompt : disabled || uploading
+                  }
                 />
               }
               composerRef={composerRef}

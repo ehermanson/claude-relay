@@ -17,6 +17,7 @@ const TOOL_OUTPUT_MARKER = "\nOutput:\n";
 export interface CodexPendingCall {
   name: string;
   arguments?: string;
+  requestId?: string;
 }
 
 export interface CodexReplayContext {
@@ -113,7 +114,41 @@ function extractPatchFiles(patch: string): Array<{ path: string; type: "added" |
   return Array.from(files.values());
 }
 
-function buildToolUseActivity(name: string, rawArguments: unknown): ActivityMessage {
+function normalizeToolName(name: string): string {
+  if (name === "exec_command") return "Bash";
+  if (name === "request_user_input") return "AskUserQuestion";
+  return name;
+}
+
+function extractQuestionPrompt(input?: Record<string, unknown>): string | undefined {
+  const questions = input?.questions as Array<{ question?: string }> | undefined;
+  return questions?.[0]?.question;
+}
+
+function parseUserInputResult(rawOutput: unknown): {
+  answers: Record<string, { answers?: string[] }>;
+  hasAnswers: boolean;
+} | null {
+  if (typeof rawOutput !== "string" || !rawOutput.trim()) return null;
+  try {
+    const parsed = JSON.parse(rawOutput) as {
+      answers?: Record<string, { answers?: string[] }>;
+    };
+    const answers = parsed.answers ?? {};
+    const hasAnswers = Object.values(answers).some(
+      (answer) => Array.isArray(answer?.answers) && answer.answers.length > 0,
+    );
+    return { answers, hasAnswers };
+  } catch {
+    return null;
+  }
+}
+
+function buildToolUseActivity(
+  name: string,
+  rawArguments: unknown,
+  requestId?: string,
+): ActivityMessage {
   const parsedArgs = parseArguments(rawArguments);
   if (name === "exec_command") {
     const command = typeof parsedArgs?.cmd === "string" ? parsedArgs.cmd : undefined;
@@ -128,11 +163,25 @@ function buildToolUseActivity(name: string, rawArguments: unknown): ActivityMess
     };
   }
 
+  if (name === "request_user_input") {
+    return {
+      type: "activity",
+      activity: "tool_use",
+      tool: "AskUserQuestion",
+      description: "Question",
+      input: {
+        ...(parsedArgs ?? {}),
+        ...(requestId ? { requestId } : {}),
+      },
+      inputDescription: extractQuestionPrompt(parsedArgs),
+    };
+  }
+
   return {
     type: "activity",
     activity: "tool_use",
-    tool: name,
-    description: `Using ${name}`,
+    tool: normalizeToolName(name),
+    description: `Using ${normalizeToolName(name)}`,
     detail: typeof rawArguments === "string" && rawArguments.length > 0 ? rawArguments : undefined,
     input: parsedArgs,
   };
@@ -162,10 +211,25 @@ function buildToolResultActivity(
     };
   }
 
+  if (call?.name === "request_user_input") {
+    const parsedOutput = parseUserInputResult(rawOutput);
+    return {
+      type: "activity",
+      activity: "tool_result",
+      tool: "AskUserQuestion",
+      description: "Tool completed",
+      resolution: parsedOutput?.hasAnswers ? "approved" : "dismissed",
+      input: {
+        ...(parsedArgs ?? {}),
+        ...(call.requestId ? { requestId: call.requestId } : {}),
+      },
+    };
+  }
+
   return {
     type: "activity",
     activity: "tool_result",
-    tool: call?.name,
+    tool: call?.name ? normalizeToolName(call.name) : undefined,
     description: "Tool completed",
     detail: detail || undefined,
     input: parsedArgs,
@@ -201,6 +265,8 @@ export function convertCodexTranscriptEntry(
               : typeof payload.input === "string"
                 ? payload.input
                 : undefined,
+          requestId:
+            payload.name === "request_user_input" ? `codex-input-${payload.call_id}` : undefined,
         });
       }
       const taskListActivity =
@@ -214,7 +280,13 @@ export function convertCodexTranscriptEntry(
       } else {
         results.push({
           timestamp,
-          message: buildToolUseActivity(payload.name, rawArguments),
+          message: buildToolUseActivity(
+            payload.name,
+            rawArguments,
+            typeof payload.call_id === "string" && payload.name === "request_user_input"
+              ? `codex-input-${payload.call_id}`
+              : undefined,
+          ),
         });
       }
       if (payload.name === "apply_patch" && typeof payload.input === "string") {

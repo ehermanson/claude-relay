@@ -23,7 +23,9 @@ import type {
   FileChange,
   SessionStats,
   ProviderRequest,
+  ProviderRequestResponse,
   ProviderRuntimeBinding,
+  UserInputQuestion,
 } from "../types.js";
 import type { CoreConfig } from "../config.js";
 import type { ProviderSession } from "../provider.js";
@@ -140,6 +142,16 @@ interface DynamicToolCallItem extends ThreadItemBase {
   tool: string;
   status: string;
   durationMs?: number | null;
+  arguments?: unknown;
+  success?: boolean | null;
+  contentItems?: Array<{ text?: string; [key: string]: unknown }> | null;
+}
+
+interface RequestUserInputParams {
+  itemId: string;
+  questions: UserInputQuestion[];
+  threadId: string;
+  turnId: string;
 }
 
 type ThreadItem =
@@ -214,10 +226,15 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     number,
     { resolve: (result: unknown) => void; reject: (err: Error) => void }
   >();
-  /** Pending approval requests from the server, keyed by stringified request id. */
-  private readonly pendingApprovals = new Map<
+  /** Pending user-action requests from the server, keyed by stringified request id. */
+  private readonly pendingRequests = new Map<
     string,
-    { method: string; params: Record<string, unknown>; rpcId: number | string }
+    {
+      kind: "approval" | "user_input";
+      method: string;
+      params: Record<string, unknown> | RequestUserInputParams;
+      rpcId: number | string;
+    }
   >();
 
   private nextRpcId = 1;
@@ -341,13 +358,13 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       pending.reject(new Error("Session closed"));
     }
     this.pendingRpcResponses.clear();
-    this.pendingApprovals.clear();
+    this.pendingRequests.clear();
   }
 
   addAllowedTool(_tool: string): void {
     // App-server uses requestApproval flow — individual tool allow-listing
     // is handled by responding to specific approval requests. We keep track
-    // of approved tools via the pendingApprovals map + respondToRequest.
+    // of approved tools via the pendingRequests map + respondToRequest.
   }
 
   setModel(model: string | null): void {
@@ -372,23 +389,34 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     }
   }
 
-  respondToRequest(requestId: string, decision: "accept" | "decline"): boolean {
-    const pending = this.pendingApprovals.get(requestId);
+  respondToRequest(
+    requestId: string,
+    decision: "accept" | "decline",
+    response?: ProviderRequestResponse,
+  ): boolean {
+    const pending = this.pendingRequests.get(requestId);
     if (!pending) return false;
 
-    this.pendingApprovals.delete(requestId);
+    this.pendingRequests.delete(requestId);
 
-    // Build the appropriate response based on the approval type
-    let responseResult: unknown;
-    if (pending.method === "item/commandExecution/requestApproval") {
-      responseResult = { decision: decision === "accept" ? "accept" : "decline" };
-    } else if (pending.method === "item/fileChange/requestApproval") {
-      responseResult = { decision: decision === "accept" ? "accept" : "decline" };
-    } else {
-      responseResult = { decision: decision === "accept" ? "accept" : "decline" };
+    if (pending.kind === "user_input") {
+      const answers = decision === "accept" ? (response?.answers ?? {}) : {};
+      const hasAnswers = Object.keys(answers).length > 0;
+      this.sendRpcResponse(pending.rpcId, { answers });
+      this.emit("activity", {
+        type: "activity",
+        activity: "tool_result",
+        tool: "AskUserQuestion",
+        description: "Tool completed",
+        resolution: hasAnswers ? "approved" : "dismissed",
+        input: {
+          requestId,
+        },
+      } as ActivityMessage);
+      return true;
     }
 
-    // Send the JSON-RPC response to the server's request
+    const responseResult = { decision: decision === "accept" ? "accept" : "decline" };
     this.sendRpcResponse(pending.rpcId, responseResult);
     return true;
   }
@@ -578,7 +606,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         pending.reject(new Error(`Process exited (${code ?? signal})`));
       }
       this.pendingRpcResponses.clear();
-      this.pendingApprovals.clear();
+      this.pendingRequests.clear();
 
       if (!this._closingIntentionally) {
         this.emitExit(code ?? 1, signal ?? undefined);
@@ -644,7 +672,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     switch (msg.method) {
       case "item/commandExecution/requestApproval": {
         const requestId = `codex-approval-${msg.id}`;
-        this.pendingApprovals.set(requestId, {
+        this.pendingRequests.set(requestId, {
+          kind: "approval",
           method: msg.method,
           params,
           rpcId: msg.id,
@@ -680,7 +709,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
       case "item/fileChange/requestApproval": {
         const requestId = `codex-approval-${msg.id}`;
-        this.pendingApprovals.set(requestId, {
+        this.pendingRequests.set(requestId, {
+          kind: "approval",
           method: msg.method,
           params,
           rpcId: msg.id,
@@ -705,7 +735,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       // Legacy approval methods
       case "applyPatchApproval": {
         const requestId = `codex-approval-${msg.id}`;
-        this.pendingApprovals.set(requestId, {
+        this.pendingRequests.set(requestId, {
+          kind: "approval",
           method: msg.method,
           params,
           rpcId: msg.id,
@@ -728,7 +759,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
       case "execCommandApproval": {
         const requestId = `codex-approval-${msg.id}`;
-        this.pendingApprovals.set(requestId, {
+        this.pendingRequests.set(requestId, {
+          kind: "approval",
           method: msg.method,
           params,
           rpcId: msg.id,
@@ -747,6 +779,39 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           description: cmd,
         };
         this.emit("permissionRequest", request);
+        break;
+      }
+
+      case "item/tool/requestUserInput": {
+        const requestParams = msg.params as unknown as RequestUserInputParams;
+        const questions = Array.isArray(requestParams.questions) ? requestParams.questions : [];
+        const requestId = `codex-input-${requestParams.itemId || msg.id}`;
+
+        this.pendingRequests.set(requestId, {
+          kind: "user_input",
+          method: msg.method,
+          params: requestParams,
+          rpcId: msg.id,
+        });
+
+        this.emit("permissionRequest", {
+          requestId,
+          kind: "user_input",
+          tool: "AskUserQuestion",
+          description: questions[0]?.question,
+          questions,
+        } as ProviderRequest);
+        this.emit("activity", {
+          type: "activity",
+          activity: "tool_use",
+          tool: "AskUserQuestion",
+          description: "Question",
+          input: {
+            requestId,
+            questions,
+          },
+          inputDescription: questions[0]?.question,
+        } as ActivityMessage);
         break;
       }
 
@@ -920,8 +985,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       case "serverRequest/resolved": {
         const resolvedId = params.requestId as string | number | undefined;
         if (resolvedId !== undefined) {
-          const key = `codex-approval-${resolvedId}`;
-          this.pendingApprovals.delete(key);
+          this.pendingRequests.delete(`codex-approval-${resolvedId}`);
+          this.pendingRequests.delete(`codex-input-${resolvedId}`);
         }
         break;
       }
@@ -983,6 +1048,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
       case "dynamicToolCall": {
         const dyn = item as DynamicToolCallItem;
+        if (dyn.tool === "request_user_input") break;
         this.emit("activity", {
           type: "activity",
           activity: "tool_use",
@@ -1069,6 +1135,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
       case "dynamicToolCall": {
         const dyn = item as DynamicToolCallItem;
+        if (dyn.tool === "request_user_input") break;
         this.emit("activity", {
           type: "activity",
           activity: "tool_result",

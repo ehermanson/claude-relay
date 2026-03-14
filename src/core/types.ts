@@ -13,11 +13,34 @@ export type InstanceStatus = "idle" | "processing" | "error" | "stopped";
 export type ProviderKind = "claude" | "codex" | "gemini";
 export type ProviderRuntimeMode = "approval-required" | "full-access" | "plan";
 
+export interface UserInputOption {
+  label: string;
+  description: string;
+}
+
+export interface UserInputQuestion {
+  id: string;
+  header: string;
+  question: string;
+  options?: UserInputOption[] | null;
+  isOther?: boolean;
+  isSecret?: boolean;
+}
+
+export interface UserInputAnswer {
+  answers: string[];
+}
+
 export interface ProviderRequest {
   requestId: string;
-  kind: "approval";
+  kind: "approval" | "user_input";
   tool?: string;
   description?: string;
+  questions?: UserInputQuestion[];
+}
+
+export interface ProviderRequestResponse {
+  answers?: Record<string, UserInputAnswer>;
 }
 
 export interface ProviderRuntimeBinding {
@@ -76,7 +99,7 @@ export interface InstanceInfo {
   lastMessage?: LastMessagePreview;
   /** Tool name when an external/terminal session has a pending tool_use awaiting approval */
   pendingTool?: string;
-  /** Pending permission request for a managed instance awaiting user approval */
+  /** Pending managed-provider request awaiting user action */
   pendingPermission?: ProviderRequest;
   sessionId?: string;
   /** True when the user has manually set the title (prevents auto-refresh) */
@@ -171,6 +194,7 @@ export interface RespondToRequestPayload {
   instanceId: string;
   requestId: string;
   decision: "accept" | "decline";
+  answers?: Record<string, UserInputAnswer>;
 }
 
 export interface RenameInstancePayload {

@@ -9,6 +9,10 @@ const VISIBLE_COUNT = 3;
 interface ActivityGroupProps {
   activities: ActivityMessage[];
   onSendMessage?: (text: string) => void;
+  onAnswerUserInput?: (
+    requestId: string,
+    answers: Record<string, import("@shared/types").UserInputAnswer>,
+  ) => void;
   isInteractive?: boolean;
   onApproveTool?: (tool: string) => void;
   approvedTools?: Set<string>;
@@ -24,6 +28,7 @@ interface ActivityGroupProps {
 export function ActivityGroup({
   activities,
   onSendMessage,
+  onAnswerUserInput,
   isInteractive,
   onApproveTool,
   approvedTools,
@@ -157,6 +162,7 @@ export function ActivityGroup({
                 {...(act.tool === "AskUserQuestion" || act.tool === "ExitPlanMode"
                   ? {
                       onSendMessage,
+                      onAnswerUserInput,
                       isInteractive: resolvedInteractive.has(origIndex) ? false : isInteractive,
                       resolution: resolvedInteractive.get(origIndex),
                       ...(act.tool === "ExitPlanMode" ? { planChildId, planChildName } : {}),

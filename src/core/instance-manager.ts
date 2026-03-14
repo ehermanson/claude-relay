@@ -1137,13 +1137,29 @@ export class InstanceManager extends EventEmitter {
     instance.process!.interrupt();
   }
 
-  respondToRequest(id: string, requestId: string, decision: "accept" | "decline"): void {
+  respondToRequest(
+    id: string,
+    requestId: string,
+    decision: "accept" | "decline",
+    response?: import("./types.js").ProviderRequestResponse,
+  ): void {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
     if (instance.info.external) throw new Error("Cannot approve tools on external instances");
     if (!instance.process) throw new Error("Instance is not running");
     const pendingRequest = instance.info.pendingPermission;
     if (!pendingRequest) throw new Error("Instance has no pending request");
+
+    if (pendingRequest.kind === "user_input") {
+      instance.info.pendingTool = undefined;
+      instance.info.pendingPermission = undefined;
+      if (instance.process?.respondToRequest) {
+        instance.process.respondToRequest(requestId, decision, response);
+        this.setStatus(instance, "processing");
+        return;
+      }
+      throw new Error("Provider does not support request_user_input responses");
+    }
 
     const tool = pendingRequest.tool ?? requestId;
     const isFileWrite = FILE_WRITE_GROUP.includes(tool);
@@ -1176,7 +1192,7 @@ export class InstanceManager extends EventEmitter {
       for (const t of toolsToAdd) {
         instance.process!.addAllowedTool(t);
       }
-      instance.process.respondToRequest(requestId, decision);
+      instance.process.respondToRequest(requestId, decision, response);
       if (decision === "accept") {
         this.setStatus(instance, "processing");
       } else {

@@ -10,7 +10,7 @@ import { AgentTranscript } from "./agent-transcript";
 import { useAutoScroll } from "../../hooks/use-auto-scroll";
 import type { ChatItem, LiveActivity } from "../../hooks/use-instance-messages";
 import { INTERACTIVE_TOOLS } from "@shared/tools";
-import type { ActivityMessage } from "@shared/types";
+import type { ActivityMessage, UserInputAnswer } from "@shared/types";
 
 // ── Row types ────────────────────────────────────────────────────────
 
@@ -51,6 +51,12 @@ type RenderRow =
 // ── Build render rows from ChatItems ─────────────────────────────────
 
 function buildRows(items: ChatItem[]): RenderRow[] {
+  const isManagedComposerPrompt = (activity: ActivityMessage | undefined) =>
+    activity?.tool === "AskUserQuestion" &&
+    typeof activity.input === "object" &&
+    activity.input !== null &&
+    typeof (activity.input as Record<string, unknown>).requestId === "string";
+
   // Pre-compute last indices for interactivity
   let lastActivityGroupIndex = -1;
   let lastAssistantIndex = -1;
@@ -68,11 +74,13 @@ function buildRows(items: ChatItem[]): RenderRow[] {
     const curr = items[i];
     if (curr.kind !== "activity-group") continue;
     const lastAct = curr.activities[curr.activities.length - 1];
+    if (isManagedComposerPrompt(lastAct)) continue;
     if (lastAct?.activity !== "tool_use" || !INTERACTIVE_TOOLS.has(lastAct.tool || "")) continue;
     for (let j = i + 1; j < items.length; j++) {
       const next = items[j];
       if (next.kind !== "activity-group") continue;
       const firstAct = next.activities[0];
+      if (isManagedComposerPrompt(firstAct)) continue;
       if (firstAct?.activity === "tool_result" && firstAct.resolution) {
         crossGroupResolution.set(i, firstAct.resolution!);
         skipLeadingResultGroups.add(j);
@@ -94,15 +102,21 @@ function buildRows(items: ChatItem[]): RenderRow[] {
       const groups: ToolGroupData[] = [];
       while (i < items.length && items[i].kind === "activity-group") {
         const g = items[i] as ChatItem & { kind: "activity-group" };
-        groups.push({
-          activities: g.activities,
-          originalIndex: i,
-          isLastActivityGroup: i === lastActivityGroupIndex,
-          trailingResolution: crossGroupResolution.get(i),
-          skipLeadingResult: skipLeadingResultGroups.has(i),
-        });
+        const visibleActivities = g.activities.filter(
+          (activity) => !isManagedComposerPrompt(activity),
+        );
+        if (visibleActivities.length > 0) {
+          groups.push({
+            activities: visibleActivities,
+            originalIndex: i,
+            isLastActivityGroup: i === lastActivityGroupIndex,
+            trailingResolution: crossGroupResolution.get(i),
+            skipLeadingResult: skipLeadingResultGroups.has(i),
+          });
+        }
         i++;
       }
+      if (groups.length === 0) continue;
       const totalToolUses = groups.reduce(
         (sum, g) => sum + g.activities.filter((a) => a.activity === "tool_use").length,
         0,
@@ -233,6 +247,7 @@ interface MessageListProps {
   lastActivity?: LiveActivity | null;
   processingStartedAt?: number | null;
   onSendMessage?: (text: string) => void;
+  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
   isInteractive?: boolean;
   onApproveTool?: (tool: string) => void;
   approvedTools?: Set<string>;
@@ -249,6 +264,7 @@ export function MessageList({
   lastActivity,
   processingStartedAt,
   onSendMessage,
+  onAnswerUserInput,
   isInteractive,
   onApproveTool,
   approvedTools,
@@ -362,6 +378,7 @@ export function MessageList({
                   key={g.originalIndex}
                   activities={g.activities}
                   onSendMessage={g.isLastActivityGroup ? onSendMessage : undefined}
+                  onAnswerUserInput={g.isLastActivityGroup ? onAnswerUserInput : undefined}
                   isInteractive={g.isLastActivityGroup ? isInteractive : undefined}
                   onApproveTool={g.isLastActivityGroup ? onApproveTool : undefined}
                   approvedTools={approvedTools}

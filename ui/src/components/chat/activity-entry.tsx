@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
+import type { UserInputAnswer } from "@shared/types";
 import { escapeHtml, getCollapsedDetail } from "../../lib/utils";
 import { MarkdownContent } from "./markdown-content";
 import { DiffView, ActivityCodeBlock, langFromPath, truncateContent } from "./activity-code";
@@ -13,6 +14,7 @@ interface ActivityEntryProps {
   inputDescription?: string;
   collapsed?: boolean;
   onSendMessage?: (text: string) => void;
+  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
   isInteractive?: boolean;
   permissionDenied?: string;
   onApproveTool?: (tool: string) => void;
@@ -42,80 +44,199 @@ function PermissionDot() {
 function AskUserQuestionContent({
   input,
   onSendMessage,
+  onAnswerUserInput,
   isInteractive,
 }: {
   input: Record<string, unknown>;
   onSendMessage?: (text: string) => void;
+  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
   isInteractive?: boolean;
 }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
+  const [otherAnswers, setOtherAnswers] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+  const requestId = typeof input.requestId === "string" ? input.requestId : null;
   const questions = input.questions as
     | Array<{
+        id?: string;
         question?: string;
         header?: string;
         options?: Array<{ label?: string; description?: string }>;
-        multiSelect?: boolean;
+        isOther?: boolean;
       }>
     | undefined;
 
   if (!questions?.length) return null;
 
-  const canClick = isInteractive && !!onSendMessage && selectedKey === null;
+  const isManagedPrompt = !!requestId && !!onAnswerUserInput;
+  const canClick = isInteractive && !!onSendMessage && !isManagedPrompt && selectedKey === null;
+  const canRespond = isInteractive && isManagedPrompt && !submitted;
+
+  const answerForQuestion = (questionId: string) => {
+    if (selectedAnswers[questionId] === "__other__") {
+      const other = otherAnswers[questionId]?.trim();
+      return other ? [other] : [];
+    }
+    const selected = selectedAnswers[questionId];
+    return selected ? [selected] : [];
+  };
+
+  const canSubmit =
+    canRespond &&
+    questions.every((question, index) => {
+      const questionId = question.id || `question-${index}`;
+      return answerForQuestion(questionId).length > 0;
+    });
 
   return (
     <div className="mt-2 flex flex-col gap-2">
-      {questions.map((q, qi) => (
-        <div key={qi} className="overflow-hidden rounded-lg border border-border">
-          <div className="border-b border-border bg-panel-header px-3 py-2 text-[0.8125rem] font-medium text-text">
-            {q.header && (
-              <span className="mr-2 rounded-md bg-claude-dim px-2 py-0.5 text-[0.6875rem] font-medium text-claude">
-                {q.header}
-              </span>
-            )}
-            {q.question}
-          </div>
-          {q.options && (
-            <div className="flex flex-col">
-              {q.options.map((opt, oi) => {
-                const key = `${qi}-${oi}`;
-                const isSelected = selectedKey === key;
-                const isDimmed = selectedKey !== null && !isSelected;
-                return (
-                  <div
-                    key={oi}
-                    className={`flex items-baseline gap-2.5 border-b border-border px-3 py-2 transition-all last:border-b-0 ${
-                      canClick ? "cursor-pointer hover:bg-accent/5" : ""
-                    } ${isDimmed ? "opacity-35" : ""} ${isSelected ? "bg-accent/5" : ""}`}
-                    onClick={
-                      canClick && opt.label
-                        ? () => {
-                            setSelectedKey(key);
-                            onSendMessage!(opt.label!);
-                          }
-                        : undefined
-                    }
-                  >
-                    <span className="text-[0.75rem] tabular-nums text-muted/60">{oi + 1}.</span>
-                    <span
-                      className={`text-[0.8125rem] font-medium ${isSelected ? "text-accent" : "text-text"}`}
+      {questions.map((q, qi) => {
+        const questionId = q.id || `question-${qi}`;
+        const selectedAnswer = selectedAnswers[questionId];
+        const showOther = q.isOther && selectedAnswer === "__other__";
+
+        return (
+          <div key={qi} className="overflow-hidden rounded-lg border border-border">
+            <div className="border-b border-border bg-panel-header px-3 py-2 text-[0.8125rem] font-medium text-text">
+              {q.header && (
+                <span className="mr-2 rounded-md bg-claude-dim px-2 py-0.5 text-[0.6875rem] font-medium text-claude">
+                  {q.header}
+                </span>
+              )}
+              {q.question}
+            </div>
+            {q.options && (
+              <div className="flex flex-col">
+                {q.options.map((opt, oi) => {
+                  const key = `${qi}-${oi}`;
+                  const isSelected = isManagedPrompt
+                    ? selectedAnswer === opt.label
+                    : selectedKey === key;
+                  const isDimmed = !isManagedPrompt && selectedKey !== null && !isSelected;
+                  return (
+                    <div
+                      key={oi}
+                      className={`flex items-baseline gap-2.5 border-b border-border px-3 py-2 transition-all last:border-b-0 ${
+                        canClick || canRespond ? "cursor-pointer hover:bg-accent/5" : ""
+                      } ${isDimmed ? "opacity-35" : ""} ${isSelected ? "bg-accent/5" : ""}`}
+                      onClick={
+                        opt.label
+                          ? () => {
+                              if (canClick) {
+                                setSelectedKey(key);
+                                setSubmitted(true);
+                                onSendMessage!(opt.label);
+                                return;
+                              }
+                              if (canRespond) {
+                                setSelectedAnswers((prev) => ({
+                                  ...prev,
+                                  [questionId]: opt.label!,
+                                }));
+                              }
+                            }
+                          : undefined
+                      }
                     >
-                      {opt.label}
-                    </span>
-                    {opt.description && (
-                      <span className="text-[0.75rem] text-muted">{opt.description}</span>
-                    )}
-                    {isSelected && (
-                      <span className="ml-auto rounded-md bg-accent/15 px-2 py-0.5 text-[0.6875rem] font-medium text-accent">
-                        sent
+                      <span className="text-[0.75rem] tabular-nums text-muted/60">{oi + 1}.</span>
+                      <span
+                        className={`text-[0.8125rem] font-medium ${isSelected ? "text-accent" : "text-text"}`}
+                      >
+                        {opt.label}
                       </span>
+                      {opt.description && (
+                        <span className="text-[0.75rem] text-muted">{opt.description}</span>
+                      )}
+                      {isSelected && !isManagedPrompt && (
+                        <span className="ml-auto rounded-md bg-accent/15 px-2 py-0.5 text-[0.6875rem] font-medium text-accent">
+                          sent
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                {q.isOther && (
+                  <div className="border-b border-border px-3 py-2 last:border-b-0">
+                    <button
+                      type="button"
+                      className={`rounded-md px-2 py-1 text-[0.75rem] font-medium transition-colors ${
+                        selectedAnswer === "__other__"
+                          ? "bg-accent/10 text-accent"
+                          : "text-muted hover:bg-accent/5 hover:text-text"
+                      }`}
+                      onClick={
+                        canRespond
+                          ? () =>
+                              setSelectedAnswers((prev) => ({
+                                ...prev,
+                                [questionId]: "__other__",
+                              }))
+                          : undefined
+                      }
+                    >
+                      Other
+                    </button>
+                    {showOther && (
+                      <input
+                        type="text"
+                        value={otherAnswers[questionId] ?? ""}
+                        onChange={(e) =>
+                          setOtherAnswers((prev) => ({
+                            ...prev,
+                            [questionId]: e.target.value,
+                          }))
+                        }
+                        placeholder="Type your answer"
+                        className="mt-2 w-full rounded-lg border border-border bg-bg px-3 py-2 text-[0.8125rem] text-text placeholder:text-muted focus:border-accent focus:ring-1 focus:ring-accent-dim focus:outline-none"
+                      />
                     )}
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {isManagedPrompt && (canRespond || submitted) && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={!canSubmit}
+            onClick={() => {
+              if (!requestId || !onAnswerUserInput) return;
+              const answers = Object.fromEntries(
+                questions.map((question, index) => {
+                  const questionId = question.id || `question-${index}`;
+                  return [questionId, { answers: answerForQuestion(questionId) }];
+                }),
+              ) as Record<string, UserInputAnswer>;
+              setSubmitted(true);
+              onAnswerUserInput(requestId, answers);
+            }}
+            className="rounded-lg bg-accent/10 px-3.5 py-1.5 text-[0.8125rem] font-medium text-accent transition-colors hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            Submit
+          </button>
+          <button
+            type="button"
+            disabled={!canRespond}
+            onClick={() => {
+              if (!requestId || !onAnswerUserInput) return;
+              setSubmitted(true);
+              onAnswerUserInput(requestId, {});
+            }}
+            className="rounded-lg px-3.5 py-1.5 text-[0.8125rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            Dismiss
+          </button>
+          {submitted && (
+            <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[0.6875rem] font-medium text-accent">
+              sent
+            </span>
           )}
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -265,6 +386,7 @@ function ToolContent({
   tool,
   input,
   onSendMessage,
+  onAnswerUserInput,
   isInteractive,
   resolution,
   planChildId,
@@ -273,6 +395,7 @@ function ToolContent({
   tool: string;
   input: Record<string, unknown>;
   onSendMessage?: (text: string) => void;
+  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
   isInteractive?: boolean;
   resolution?: "approved" | "dismissed" | "feedback";
   planChildId?: string;
@@ -373,6 +496,7 @@ function ToolContent({
         <AskUserQuestionContent
           input={input}
           onSendMessage={onSendMessage}
+          onAnswerUserInput={onAnswerUserInput}
           isInteractive={isInteractive}
         />
       );
@@ -390,6 +514,7 @@ export function ActivityEntry({
   inputDescription,
   collapsed,
   onSendMessage,
+  onAnswerUserInput,
   isInteractive,
   permissionDenied,
   onApproveTool,
@@ -489,6 +614,7 @@ export function ActivityEntry({
             tool={tool!}
             input={input!}
             onSendMessage={onSendMessage}
+            onAnswerUserInput={onAnswerUserInput}
             isInteractive={isInteractive}
             resolution={resolution}
             planChildId={planChildId}

@@ -15,6 +15,7 @@ import type {
   SessionStats,
   ProviderKind,
   ProviderRequest,
+  ProviderRequestResponse,
   ProviderRuntimeBinding,
 } from "./types.js";
 
@@ -27,7 +28,7 @@ export interface ProviderSessionEvents {
   exit: [ExitMessage];
   activity: [ActivityMessage];
   stats: [SessionStats];
-  /** Emitted when the SDK's canUseTool callback needs user approval (not a chat activity). */
+  /** Emitted when the provider needs a user decision outside normal chat input. */
   permissionRequest: [ProviderRequest];
   /** Emitted when the provider generates a title for the session (e.g. Codex thread/name/updated). */
   titleUpdate: [string];
@@ -94,5 +95,9 @@ export interface ProviderSession extends EventEmitter {
    * Resolve a pending provider request (SDK only for now).
    * Returns true if the request was found and handled.
    */
-  respondToRequest?(requestId: string, decision: "accept" | "decline"): boolean;
+  respondToRequest?(
+    requestId: string,
+    decision: "accept" | "decline",
+    response?: ProviderRequestResponse,
+  ): boolean;
 }

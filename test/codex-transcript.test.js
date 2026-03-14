@@ -143,6 +143,44 @@ describe("convertCodexTranscriptEntry", () => {
       );
       assert.equal(results[0].message.description, "Command failed");
     });
+
+    it("normalizes request_user_input into AskUserQuestion activities", () => {
+      const ctx = createContext();
+      const promptResults = convertCodexTranscriptEntry(
+        {
+          type: "response_item",
+          payload: {
+            type: "function_call",
+            name: "request_user_input",
+            call_id: "ask-1",
+            arguments:
+              '{"questions":[{"id":"color","header":"Palette","question":"Pick a color","options":[{"label":"Blue","description":"Recommended"}]}]}',
+          },
+        },
+        ctx,
+      );
+
+      assert.equal(promptResults.length, 1);
+      assert.equal(promptResults[0].message.tool, "AskUserQuestion");
+      assert.equal(promptResults[0].message.description, "Question");
+      assert.equal(promptResults[0].message.inputDescription, "Pick a color");
+
+      const resultResults = convertCodexTranscriptEntry(
+        {
+          type: "response_item",
+          payload: {
+            type: "function_call_output",
+            call_id: "ask-1",
+            output: '{"answers":{"color":{"answers":["Blue"]}}}',
+          },
+        },
+        ctx,
+      );
+
+      assert.equal(resultResults.length, 1);
+      assert.equal(resultResults[0].message.tool, "AskUserQuestion");
+      assert.equal(resultResults[0].message.resolution, "approved");
+    });
   });
 
   describe("apply_patch file tracking", () => {

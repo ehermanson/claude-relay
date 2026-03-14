@@ -299,6 +299,9 @@ export function createWebSocketServer(
                 message.instanceId,
                 message.requestId,
                 message.decision,
+                {
+                  answers: message.answers,
+                },
               );
             } catch (err) {
               sendMessage(ws, {

@@ -216,7 +216,7 @@ ui/
 - Subscription model: clients send `subscribe`/`unsubscribe` with instanceId
 - Instance output/activity/exit go only to subscribers
 - Status/create/remove events broadcast to all clients
-- Managed provider requests are answered with `{ type: "respond_to_request", instanceId, requestId, decision }`
+- Managed provider requests are answered with `{ type: "respond_to_request", instanceId, requestId, decision, answers? }`; `answers` carries structured `request_user_input` responses for providers that support them
 
 ### Agent Transcript Messages
 
@@ -236,14 +236,15 @@ ui/
 - `ClaudeProcess.allowedTools` accumulates approved tools; passed as `--allowedTools` on each `send()`
 - **Cancel on first denial**: `ClaudeProcess.cancelForPermission()` sends SIGINT after the first permission denial to stop the retry loop (saves ~1-2k tokens per denial cycle). Subsequent denials from buffered output are suppressed via `_cancelledForPermission` flag. Close handler suppresses error events when cancelled for permission.
 - **File-write grouping**: Approving any of Edit/Write/NotebookEdit approves all three (`FILE_WRITE_GROUP`)
-- **`pendingPermission`**: Set on `InstanceInfo` as a `ProviderRequest` with a stable `requestId` when a managed instance needs approval; cleared on approval/decline or next user message. Broadcast via `instance:status`.
-- **Permission banner**: `PermissionBanner.tsx` renders a sticky banner above InputArea with contextual labels ("edit files" / "run commands" / tool name) and an "Allow" button. Existing inline "Allow" buttons in `ActivityEntry` remain as fallback.
-- `InstanceManager.respondToRequest(id, requestId, decision)` is the primary approval entrypoint. Legacy `approveToolUse(id, tool)` still maps old call sites onto the current pending request when possible.
+- **`pendingPermission`**: Set on `InstanceInfo` as a `ProviderRequest` with a stable `requestId` when a managed instance needs approval or structured user input; cleared on approval/decline, prompt dismissal, or next user message. Broadcast via `instance:status`.
+- **Permission banner**: `PermissionBanner.tsx` renders a sticky banner above InputArea for approval requests with contextual labels ("edit files" / "run commands" / tool name) and an "Allow" button. Structured user-input prompts render inside the composer shell in `InputArea` instead of using the banner or the normal activity list.
+- `InstanceManager.respondToRequest(id, requestId, decision, response?)` is the primary managed-request entrypoint. Legacy `approveToolUse(id, tool)` still maps old call sites onto the current pending request when possible.
 - Accepted Claude CLI requests still add grouped tools, persist them to DB, and send a contextual retry prompt (or queue it via `pendingRetry` if the process is still running — drained when process becomes idle)
 - **`allowedTools` persists in SQLite** (`allowed_tools` TEXT column, JSON array) — survives relay restarts including dev-mode hot reloads. DB schema v2 migration adds the column. Restored on managed instance startup.
 - Retry message: "Permission granted for {file writes|tool}. Please continue."
-- WS message: `{ type: "respond_to_request", instanceId, requestId, decision }`
-- **Managed Codex limitation:** `codex exec --json` does not currently expose a reliable approval-request event that maps onto `ProviderRequest`. The current Codex adapter therefore runs with `-a never -s workspace-write` by default, or `--dangerously-bypass-approvals-and-sandbox` when `skipPermissions` is enabled. Provider-neutral approval plumbing is in place, but Codex approval parity is not yet implemented.
+- WS message: `{ type: "respond_to_request", instanceId, requestId, decision, answers? }`
+- **Managed Codex support:** `codex app-server` emits `item/tool/requestUserInput` for `request_user_input`; the adapter surfaces these as `ProviderRequest` entries, renders them as `AskUserQuestion` activities, and sends structured answers back to the provider over the shared request-response path.
+- **Managed Codex limitation:** `codex exec --json` still does not expose a reliable approval-request event that maps onto `ProviderRequest`. The current Codex adapter therefore runs with `-a never -s workspace-write` by default, or `--dangerously-bypass-approvals-and-sandbox` when `skipPermissions` is enabled. Structured user-input parity is implemented, but approval parity is still not.
 - **Known limitation (external sessions):** When a terminal-side Codex session prompts the user to approve a tool (e.g., "Allow Bash?"), nothing is written to the JSONL until the user responds. The relay sees the `tool_use` activity but cannot distinguish "waiting for permission" from "tool is running." This means **no banner, toast, or visual indicator** appears in the UI for permission prompts on external sessions. Only `INTERACTIVE_TOOLS` (AskUserQuestion, ExitPlanMode, EnterPlanMode) are detected because those tools _always_ block for input. Fixing this would require either an upstream JSONL event for permission prompts, or a timeout-based heuristic (tool_use without tool_result for N seconds).
 
 ### Instance Renaming

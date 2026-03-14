@@ -527,7 +527,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       });
   }
 
-  respondToRequest(requestId: string, decision: "accept" | "decline"): boolean {
+  respondToRequest(
+    requestId: string,
+    decision: "accept" | "decline",
+    _response?: import("../types.js").ProviderRequestResponse,
+  ): boolean {
     if (!this.pendingPermission || this.pendingPermission.toolUseId !== requestId) return false;
     if (decision !== "accept") {
       this.pendingPermission.resolve({ behavior: "deny", message: "Request declined" });

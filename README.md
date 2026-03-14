@@ -73,7 +73,7 @@ If Relay discovers or restores a session that already lives in a Relay-managed g
 - **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
 - **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
 - **Native file links in chat** — local file references in assistant messages open through the operating system instead of navigating the relay SPA
-- **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`), click an option in the UI to respond directly; the answer is sent as a follow-up message
+- **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`) or managed Codex runs `request_user_input`, the composer turns into an answer form so you can reply directly in the input area without falling back to the terminal
 - **Mobile-friendly web UI** — React SPA with markdown rendering, syntax highlighting, activity indicators, directory browsing, and modern framework-aware file icons in the sidecar
 - **Remote access** — built-in Cloudflare Tunnel support for secure access from anywhere
 - **Embeddable** — use as a standalone server or import the core library into your own app
@@ -285,6 +285,7 @@ For Codex specifically:
 - relay-managed Codex turns run through `codex exec --json` and `codex exec resume --json`
 - provider selection is available in the new-session UI as well as the core/API contract
 - restored managed Codex sessions replay history from `~/.codex/sessions/...` by `provider_session_id`, and persist the discovered transcript path back into `managed_sessions`
+- managed Codex sessions surface `request_user_input` prompts inside the composer, switch the send control into answer submission, and send structured answers back over the shared request-response channel
 - provider switching from the chat input creates a new managed session instead of rewriting the current one, with optional recent-context carryover
 - Codex sessions keep model switching via the shared provider/model picker in the chat input
 - Codex sessions also show the shared reasoning control in the composer, and the permission toggle is presented as sandbox/full-access mode
