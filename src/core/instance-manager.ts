@@ -4926,10 +4926,6 @@ export class InstanceManager extends EventEmitter {
     if (!instance || instance.info.external) return false;
 
     instance.info.skipPermissions = skipPermissions;
-    if (skipPermissions) {
-      instance.info.planMode = undefined;
-      instance.process?.setPlanMode?.(false);
-    }
     instance.process?.setBypassPermissions(skipPermissions);
 
     // If switching to full access, clear any pending permission
@@ -4949,13 +4945,6 @@ export class InstanceManager extends EventEmitter {
     if (!instance || instance.info.external || !instance.process?.setPlanMode) return false;
 
     instance.info.planMode = planMode ? true : undefined;
-    if (planMode) {
-      instance.info.skipPermissions = false;
-      instance.process?.setBypassPermissions(false);
-      if (instance.info.pendingPermission) {
-        instance.info.pendingPermission = undefined;
-      }
-    }
     instance.process?.setPlanMode?.(planMode);
 
     this.emit("instance:status", instance.info.id, { ...instance.info });

@@ -51,7 +51,7 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
   const home = homedir();
   return {
     workingDirectory: options.workingDirectory ?? process.cwd(),
-    dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? false,
+    dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? true,
     processTimeout: options.processTimeout ?? 10 * 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? defaultLogger,
