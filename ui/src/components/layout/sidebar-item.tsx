@@ -1,14 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  Columns2,
-  GitBranch,
-  GitMerge,
-  MoreVertical,
-  Pencil,
-  SquareTerminal,
-  Trash2,
-} from "lucide-react";
+import { Columns2, GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { Menu } from "../ui/menu";
 import { Tooltip } from "../ui/tooltip";
 import { formatTimeAgo } from "../../lib/utils";
@@ -82,26 +74,29 @@ export function SidebarItem({
   };
 
   const hasPendingTool = !!instance.pendingTool;
+  const isStopped = instance.status === "stopped";
 
-  // Build status tooltip
+  // Status dot color + tooltip — matches instance-header.tsx logic
+  let dotClass: string;
   let statusTip: string;
-  if (instance.external) {
-    statusTip =
-      instance.status === "stopped"
-        ? "External chat (ended)"
-        : instance.status === "processing"
-          ? "External chat (active)"
-          : "External chat";
+  if (isStopped) {
+    dotClass = "bg-muted";
+    statusTip = instance.external ? "External chat (ended)" : "Ended";
   } else if (hasPendingTool) {
+    dotClass = "animate-pulse-dot bg-warning";
     statusTip = "Waiting for permission";
   } else if (instance.status === "processing") {
-    statusTip = "Processing";
-  } else if (instance.status === "idle") {
-    statusTip = "Idle";
+    dotClass = "animate-pulse-dot bg-warning";
+    statusTip = instance.external ? "External chat (active)" : "Processing";
   } else if (instance.status === "error") {
+    dotClass = "bg-error";
     statusTip = "Error";
+  } else if (instance.external) {
+    dotClass = "bg-accent";
+    statusTip = "External chat";
   } else {
-    statusTip = "Ended";
+    dotClass = "bg-accent";
+    statusTip = "Idle";
   }
 
   return (
@@ -117,27 +112,9 @@ export function SidebarItem({
     >
       {/* Status indicator — absolutely positioned in the left padding */}
       <span className="absolute left-2.5 top-2 flex h-3 w-3 items-center justify-center">
-        {instance.external ? (
-          instance.status === "idle" || instance.status === "processing" ? (
-            <Tooltip content={statusTip} side="right">
-              <SquareTerminal size={12} strokeWidth={2} className="text-muted" />
-            </Tooltip>
-          ) : null
-        ) : instance.status !== "stopped" ? (
-          <Tooltip content={statusTip} side="right">
-            <span
-              className={`h-[6px] w-[6px] rounded-full ${
-                hasPendingTool
-                  ? "animate-pulse-dot bg-warning"
-                  : instance.status === "processing"
-                    ? "animate-pulse-dot bg-warning"
-                    : instance.status === "error"
-                      ? "bg-error"
-                      : "bg-text/30"
-              }`}
-            />
-          </Tooltip>
-        ) : null}
+        <Tooltip content={statusTip} side="right">
+          <span className={`h-[6px] w-[6px] rounded-full ${dotClass}`} />
+        </Tooltip>
       </span>
 
       {/* Name + preview */}
@@ -153,7 +130,9 @@ export function SidebarItem({
             className="w-full rounded border border-border bg-surface px-1 py-0.5 text-[0.8125rem] font-medium leading-tight text-text-bright outline-none focus:border-accent"
           />
         ) : (
-          <div className="min-w-0 truncate text-[0.8125rem] font-medium leading-tight text-text-bright">
+          <div
+            className={`min-w-0 truncate text-[0.8125rem] leading-tight ${isActive ? "font-semibold text-accent" : "font-medium text-text"}`}
+          >
             {instance.name}
           </div>
         )}
