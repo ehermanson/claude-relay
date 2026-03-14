@@ -2727,7 +2727,14 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    const ctx = {
+    const ctx: {
+      pendingTools: Map<string, string>;
+      pendingTaskCreates: Map<string, { subject: string; activeForm?: string }>;
+      tasks: Map<string, TaskItem>;
+      files: Map<string, FileChange>;
+      stats: SessionStats;
+      cwd?: string;
+    } = {
       pendingTools: new Map<string, string>(),
       pendingTaskCreates: new Map<string, { subject: string; activeForm?: string }>(),
       tasks: new Map<string, TaskItem>(),
@@ -2744,7 +2751,10 @@ export class InstanceManager extends EventEmitter {
       try {
         if (!cwd && line.includes('"cwd"')) {
           const entry = JSON.parse(line);
-          if (entry.cwd) cwd = entry.cwd;
+          if (entry.cwd) {
+            cwd = entry.cwd;
+            ctx.cwd = cwd;
+          }
         }
         if (line.includes('"assistant"') && line.includes('"usage"')) {
           const entry = JSON.parse(line);
@@ -2768,7 +2778,10 @@ export class InstanceManager extends EventEmitter {
       if (!line) continue;
       try {
         const entry = JSON.parse(line);
-        if (!cwd && entry.cwd) cwd = entry.cwd;
+        if (!cwd && entry.cwd) {
+          cwd = entry.cwd;
+          ctx.cwd = cwd;
+        }
         if (entry.type === "system" && entry.subtype === "compact_boundary") continue;
         history.push(...this.convertJsonlEntry(entry, ctx));
       } catch {
@@ -2929,6 +2942,7 @@ export class InstanceManager extends EventEmitter {
       tasks?: Map<string, TaskItem>;
       files?: Map<string, FileChange>;
       stats?: SessionStats;
+      cwd?: string;
     },
   ): HistoryEntry[] {
     const rawTimestamp = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
@@ -3048,6 +3062,7 @@ export class InstanceManager extends EventEmitter {
       tasks?: Map<string, TaskItem>;
       files?: Map<string, FileChange>;
       stats?: SessionStats;
+      cwd?: string;
     },
   ): HistoryEntry[] {
     const results: HistoryEntry[] = [];
@@ -3137,6 +3152,7 @@ export class InstanceManager extends EventEmitter {
           pendingTaskCreates?: Map<string, { subject: string; activeForm?: string }>;
           tasks?: Map<string, TaskItem>;
           files?: Map<string, FileChange>;
+          cwd?: string;
         }
       | undefined,
     results: HistoryEntry[],
@@ -3214,7 +3230,7 @@ export class InstanceManager extends EventEmitter {
         const filePath = (input?.file_path || input?.path || input?.notebook_path) as
           | string
           | undefined;
-        if (filePath) {
+        if (filePath && (!ctx.cwd || filePath.startsWith(ctx.cwd + "/"))) {
           const existing = ctx.files.get(filePath);
           if (existing) {
             existing.editCount++;
@@ -3252,7 +3268,7 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
-  /** Parse a progress JSONL entry (bash_progress only). */
+  /** Parse a progress JSONL entry (bash_progress / agent_progress). */
   private convertProgressEntry(data: Record<string, unknown>, timestamp: number): HistoryEntry[] {
     const dataType = data.type as string | undefined;
     if (dataType === "bash_progress") {
@@ -3272,9 +3288,41 @@ export class InstanceManager extends EventEmitter {
           },
         ];
       }
+    } else if (dataType === "agent_progress") {
+      return this.convertAgentProgress(data, timestamp);
     }
     // hook_progress: skip
     return [];
+  }
+
+  /** Extract tool_use activities from an agent_progress event. */
+  private convertAgentProgress(data: Record<string, unknown>, timestamp: number): HistoryEntry[] {
+    const message = data.message as Record<string, unknown> | undefined;
+    if (!message) return [];
+    const innerMessage = message.message as Record<string, unknown> | undefined;
+    if (!innerMessage) return [];
+    const content = innerMessage.content as Array<Record<string, unknown>> | undefined;
+    if (!Array.isArray(content)) return [];
+
+    const entries: HistoryEntry[] = [];
+    for (const block of content) {
+      if (block.type === "tool_use") {
+        const tool = (block.name as string) || "Unknown";
+        const input = block.input as Record<string, unknown> | undefined;
+        entries.push({
+          timestamp,
+          message: {
+            type: "activity",
+            activity: "tool_use",
+            tool,
+            description: describeToolUse(tool, input),
+            detail: describeToolDetail(tool, input),
+            inputDescription: extractInputDescription(tool, input),
+          } as ActivityMessage,
+        });
+      }
+    }
+    return entries;
   }
 
   // ===========================================================================
@@ -3401,6 +3449,7 @@ export class InstanceManager extends EventEmitter {
             tasks: instance.tasks,
             files: instance.files,
             stats: instance.watchState.stats,
+            cwd: instance.actualCwd || instance.info.workingDirectory,
           });
     if (statsChanged(prevStats, instance.watchState.stats)) {
       instance.info.stats = { ...instance.watchState.stats };

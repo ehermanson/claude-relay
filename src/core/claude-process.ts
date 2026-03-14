@@ -247,6 +247,8 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     if (!input || !FILE_WRITE_TOOLS.has(toolName)) return;
     const filePath = (input.file_path || input.path || input.notebook_path) as string | undefined;
     if (!filePath) return;
+    // Skip files outside the working directory (e.g. memory files in ~/.claude/)
+    if (!filePath.startsWith(this.cwd + "/") && filePath !== this.cwd) return;
     const existing = this.fileMap.get(filePath);
     if (existing) {
       existing.editCount++;
@@ -282,6 +284,31 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
       detail: output ? (output.length > 300 ? output.slice(-300) : output) : undefined,
     };
     this.emit("activity", activity);
+  }
+
+  private handleAgentProgress(data: Record<string, unknown>): void {
+    const message = data.message as Record<string, unknown> | undefined;
+    if (!message) return;
+    const innerMessage = message.message as Record<string, unknown> | undefined;
+    if (!innerMessage) return;
+    const content = innerMessage.content as Array<Record<string, unknown>> | undefined;
+    if (!Array.isArray(content)) return;
+
+    for (const block of content) {
+      if (block.type === "tool_use") {
+        const tool = block.name as string;
+        const input = block.input as Record<string, unknown> | undefined;
+        const activity: ActivityMessage = {
+          type: "activity",
+          activity: "tool_use",
+          tool,
+          description: describeToolUse(tool, input),
+          detail: describeToolDetail(tool, input),
+          inputDescription: extractInputDescription(tool, input),
+        };
+        this.emit("activity", activity);
+      }
+    }
   }
 
   private accumulateUsage(
@@ -617,6 +644,8 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
             const dataType = (event.data as Record<string, unknown>).type;
             if (dataType === "bash_progress") {
               this.handleBashProgress(event.data as Record<string, unknown>);
+            } else if (dataType === "agent_progress") {
+              this.handleAgentProgress(event.data as Record<string, unknown>);
             }
             // hook_progress: skip
           } else {
