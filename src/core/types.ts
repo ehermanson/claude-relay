@@ -174,11 +174,6 @@ export interface RespondToRequestPayload {
   decision: "accept" | "decline";
 }
 
-export interface RefreshTitlePayload {
-  type: "refresh_title";
-  instanceId: string;
-}
-
 export interface RenameInstancePayload {
   type: "rename_instance";
   instanceId: string;
@@ -236,7 +231,6 @@ export type ClientMessage =
   | InstanceMessagePayload
   | InstanceCancelPayload
   | RespondToRequestPayload
-  | RefreshTitlePayload
   | RenameInstancePayload
   | MergeInstancePayload
   | SetModelPayload

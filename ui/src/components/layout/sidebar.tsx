@@ -92,10 +92,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     send({ type: "remove_instance", instanceId });
   };
 
-  const handleRefreshTitle = (instanceId: string) => {
-    send({ type: "refresh_title", instanceId });
-  };
-
   const handleRename = (instanceId: string, name: string) => {
     send({ type: "rename_instance", instanceId, name });
   };
@@ -181,7 +177,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 onQuickCreate={handleQuickCreate}
                 onDelete={handleDelete}
                 onRename={handleRename}
-                onRefreshTitle={handleRefreshTitle}
                 onMerge={handleMerge}
               />
             ))}

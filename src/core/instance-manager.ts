@@ -4781,19 +4781,6 @@ export class InstanceManager extends EventEmitter {
     return null;
   }
 
-  /**
-   * Check sessions-index.json for an updated summary and evolve the
-   * instance title if it has changed. Called at turn boundaries and
-   * available for manual refresh via WS/API.
-   */
-  refreshTitle(id: string): boolean {
-    const instance = this.instances.get(id);
-    if (!instance) return false;
-    // Explicit refresh clears the custom-title lock
-    instance.info.customTitle = false;
-    return this.doRefreshTitle(instance);
-  }
-
   renameInstance(id: string, name: string): boolean {
     const instance = this.instances.get(id);
     if (!instance) return false;

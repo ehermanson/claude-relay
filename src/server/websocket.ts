@@ -301,11 +301,6 @@ export function createWebSocketServer(
             break;
           }
 
-          case "refresh_title": {
-            instanceManager.refreshTitle(message.instanceId);
-            break;
-          }
-
           case "rename_instance": {
             instanceManager.renameInstance(message.instanceId, message.name);
             break;

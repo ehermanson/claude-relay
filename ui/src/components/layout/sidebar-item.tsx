@@ -6,7 +6,6 @@ import {
   GitMerge,
   MoreVertical,
   Pencil,
-  RotateCw,
   SquareTerminal,
   Trash2,
 } from "lucide-react";
@@ -24,7 +23,6 @@ interface SidebarItemProps {
   params: Record<string, string>;
   onDelete?: () => void;
   deleteDisabled?: boolean;
-  onRefreshTitle?: () => void;
   onRename?: (name: string) => void;
   onMerge?: () => void;
   /** Currently active chatId — used to offer "Open in split view". */
@@ -40,7 +38,6 @@ export function SidebarItem({
   params,
   onDelete,
   deleteDisabled,
-  onRefreshTitle,
   onRename,
   onMerge,
   activeChatId,
@@ -52,7 +49,7 @@ export function SidebarItem({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const canSplit = !!activeChatId && activeChatId !== instance.id;
-  const hasMenu = !!onDelete || !!onRefreshTitle || !!onRename || !!onMerge || canSplit;
+  const hasMenu = !!onDelete || !!onRename || !!onMerge || canSplit;
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -114,7 +111,7 @@ export function SidebarItem({
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
-      className={`group relative flex cursor-pointer items-start rounded-lg px-3 py-1.5 transition-colors ${
+      className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-3 py-1.5 transition-colors ${
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
     >
@@ -186,104 +183,99 @@ export function SidebarItem({
         )}
       </div>
 
-      {/* Timestamp */}
-      {!editing && instance.lastActivityAt > 0 && (
-        <span className="shrink-0 self-start pt-px text-[0.625rem] text-muted/50">
-          {formatTimeAgo(instance.lastActivityAt)}
+      {/* Right slot: timestamp (default) ↔ menu trigger (hover) */}
+      {!editing && (
+        <span className="relative ml-auto flex w-12 shrink-0 items-center justify-end self-start">
+          {/* Timestamp — fades out on hover */}
+          {instance.lastActivityAt > 0 && (
+            <span
+              className={`pt-px text-[0.625rem] text-muted/50 transition-opacity duration-150${hasMenu ? " group-hover:opacity-0" : ""}`}
+            >
+              {formatTimeAgo(instance.lastActivityAt)}
+            </span>
+          )}
+
+          {/* Menu trigger — fades in on hover */}
+          {hasMenu &&
+            (menuOpen ? (
+              <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+                <Menu.Trigger
+                  onClick={(e: React.MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  className="absolute inset-0 flex items-center justify-end rounded text-muted hover:!text-text"
+                >
+                  <MoreVertical size={12} />
+                </Menu.Trigger>
+                <Menu.Content>
+                  {onRename && (
+                    <Menu.Item
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        startEditing();
+                      }}
+                    >
+                      <Pencil size={13} strokeWidth={2} className="text-muted" />
+                      Rename
+                    </Menu.Item>
+                  )}
+                  {onMerge && (
+                    <Menu.Item
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        onMerge();
+                      }}
+                    >
+                      <GitMerge size={13} strokeWidth={2} className="text-muted" />
+                      Merge to main
+                    </Menu.Item>
+                  )}
+                  {canSplit && (
+                    <Menu.Item
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        navigate({
+                          search: (prev: Record<string, unknown>) => ({
+                            ...prev,
+                            split: instance.id,
+                          }),
+                        });
+                      }}
+                    >
+                      <Columns2 size={13} strokeWidth={2} className="text-muted" />
+                      Open in split view
+                    </Menu.Item>
+                  )}
+                  {onDelete && (
+                    <Menu.Item
+                      danger
+                      disabled={deleteDisabled}
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        onDelete();
+                      }}
+                    >
+                      <Trash2 size={13} strokeWidth={2} />
+                      Delete
+                    </Menu.Item>
+                  )}
+                </Menu.Content>
+              </Menu.Root>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMenuOpen(true);
+                }}
+                className="absolute inset-0 flex items-center justify-end rounded text-muted/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:!text-text"
+              >
+                <MoreVertical size={12} />
+              </button>
+            ))}
         </span>
       )}
-
-      {/* Context menu — only mount when open to avoid Menu overhead per item */}
-      {hasMenu &&
-        !editing &&
-        (menuOpen ? (
-          <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
-            <Menu.Trigger
-              onClick={(e: React.MouseEvent) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-100 transition-all hover:!text-text"
-            >
-              <MoreVertical size={12} />
-            </Menu.Trigger>
-            <Menu.Content>
-              {onRename && (
-                <Menu.Item
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    startEditing();
-                  }}
-                >
-                  <Pencil size={13} strokeWidth={2} className="text-muted" />
-                  Rename
-                </Menu.Item>
-              )}
-              {onRefreshTitle && (
-                <Menu.Item
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    onRefreshTitle();
-                  }}
-                >
-                  <RotateCw size={13} strokeWidth={2} className="text-muted" />
-                  Refresh title
-                </Menu.Item>
-              )}
-              {onMerge && (
-                <Menu.Item
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    onMerge();
-                  }}
-                >
-                  <GitMerge size={13} strokeWidth={2} className="text-muted" />
-                  Merge to main
-                </Menu.Item>
-              )}
-              {canSplit && (
-                <Menu.Item
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    navigate({
-                      search: (prev: Record<string, unknown>) => ({
-                        ...prev,
-                        split: instance.id,
-                      }),
-                    });
-                  }}
-                >
-                  <Columns2 size={13} strokeWidth={2} className="text-muted" />
-                  Open in split view
-                </Menu.Item>
-              )}
-              {onDelete && (
-                <Menu.Item
-                  danger
-                  disabled={deleteDisabled}
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    onDelete();
-                  }}
-                >
-                  <Trash2 size={13} strokeWidth={2} />
-                  Delete
-                </Menu.Item>
-              )}
-            </Menu.Content>
-          </Menu.Root>
-        ) : (
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setMenuOpen(true);
-            }}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted opacity-0 transition-all group-hover:opacity-60 hover:!opacity-100 hover:!text-text"
-          >
-            <MoreVertical size={12} />
-          </button>
-        ))}
     </Link>
   );
 }

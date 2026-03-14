@@ -24,7 +24,6 @@ interface SidebarProjectGroupProps {
   onQuickCreate: (dir: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
-  onRefreshTitle: (id: string) => void;
   onMerge: (id: string) => void;
 }
 
@@ -41,7 +40,6 @@ export function SidebarProjectGroup({
   onQuickCreate,
   onDelete,
   onRename,
-  onRefreshTitle,
   onMerge,
 }: SidebarProjectGroupProps) {
   const navigate = useNavigate();
@@ -129,7 +127,6 @@ export function SidebarProjectGroup({
       onDelete={() => onDelete(inst.id)}
       deleteDisabled={inst.external === true && inst.status !== "stopped"}
       onRename={(name) => onRename(inst.id, name)}
-      onRefreshTitle={() => onRefreshTitle(inst.id)}
       onMerge={inst.gitBranch && inst.hasChanges ? () => onMerge(inst.id) : undefined}
       activeChatId={currentId}
     />
