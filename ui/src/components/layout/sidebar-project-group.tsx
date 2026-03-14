@@ -3,7 +3,7 @@
  * (Overview, Plans, Issues, Skills, Chats) and session items.
  */
 
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { SidebarItem } from "./sidebar-item";
 import { Collapsible } from "../ui/collapsible";
@@ -44,6 +44,7 @@ export function SidebarProjectGroup({
   onRefreshTitle,
   onMerge,
 }: SidebarProjectGroupProps) {
+  const navigate = useNavigate();
   const dirName = dir.split("/").pop() || dir;
   const isActiveProject = currentProjectId === dirName;
   const isPlansActive = isActiveProject && locationPathname.includes("/plans");
@@ -149,6 +150,13 @@ export function SidebarProjectGroup({
               className={`min-w-0 flex-1 truncate text-[0.8125rem] font-semibold ${
                 isActiveProject ? "text-accent" : "text-text-bright"
               }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate({
+                  to: "/projects/$projectId",
+                  params: { projectId: dirName },
+                });
+              }}
             >
               {dirName}
             </span>
@@ -167,45 +175,35 @@ export function SidebarProjectGroup({
 
         {/* Content */}
         <Collapsible.Content>
-          {/* Compact nav pills */}
-          <div className="flex flex-wrap items-center gap-1 pb-1.5 pl-8 pr-4">
-            <NavPill
-              to="/projects/$projectId"
-              params={{ projectId: dirName }}
-              active={isOverviewActive}
-            >
-              Overview
-            </NavPill>
-            <NavPill
+          {/* Section links — compact text row, only non-obvious destinations */}
+          <div className="flex items-center gap-1.5 pb-1 pl-8 pr-4 text-[0.6875rem]">
+            <NavLink
               to="/projects/$projectId/plans"
               params={{ projectId: dirName }}
               active={isPlansActive}
             >
               Plans
-            </NavPill>
+            </NavLink>
             {hasBeads && (
-              <NavPill
-                to="/projects/$projectId/issues"
-                params={{ projectId: dirName }}
-                active={isIssuesActive}
-              >
-                Issues
-              </NavPill>
+              <>
+                <span className="text-border">·</span>
+                <NavLink
+                  to="/projects/$projectId/issues"
+                  params={{ projectId: dirName }}
+                  active={isIssuesActive}
+                >
+                  Issues
+                </NavLink>
+              </>
             )}
-            <NavPill
+            <span className="text-border">·</span>
+            <NavLink
               to="/projects/$projectId/skills"
               params={{ projectId: dirName }}
               active={isSkillsActive}
             >
               Skills
-            </NavPill>
-            <NavPill
-              to="/projects/$projectId/chats"
-              params={{ projectId: dirName }}
-              active={isChatsActive}
-            >
-              Chats
-            </NavPill>
+            </NavLink>
           </div>
 
           {/* Session items */}
@@ -217,7 +215,7 @@ export function SidebarProjectGroup({
               <Link
                 to="/projects/$projectId/chats"
                 params={{ projectId: dirName }}
-                className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+                className="flex w-full items-center gap-1 rounded-md py-1.5 pl-8 pr-3 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
               >
                 +{hiddenCount} more
                 <ChevronRight size={10} strokeWidth={2.5} />
@@ -230,8 +228,8 @@ export function SidebarProjectGroup({
   );
 }
 
-/** Small nav pill link used in the project group header. */
-function NavPill({
+/** Lightweight text link used in the project group section row. */
+function NavLink({
   to,
   params,
   active,
@@ -246,8 +244,8 @@ function NavPill({
     <Link
       to={to}
       params={params}
-      className={`rounded-md px-2 py-0.5 text-[0.6875rem] font-medium transition-colors ${
-        active ? "bg-accent-dim text-accent" : "text-muted hover:bg-surface-hover hover:text-text"
+      className={`font-medium transition-colors ${
+        active ? "text-accent" : "text-muted hover:text-text"
       }`}
     >
       {children}

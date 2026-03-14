@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { Menu } from "../ui/menu";
 import { Tooltip } from "../ui/tooltip";
-import { ProviderLogo } from "../chat/input-area/shared";
 import { formatTimeAgo } from "../../lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
@@ -115,12 +114,12 @@ export function SidebarItem({
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
-      className={`group relative flex cursor-pointer items-start rounded-lg px-3 py-2 transition-colors ${
+      className={`group relative flex cursor-pointer items-start rounded-lg px-3 py-1.5 transition-colors ${
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
     >
       {/* Status indicator — absolutely positioned in the left padding */}
-      <span className="absolute left-2.5 top-2.5 flex h-3 w-3 items-center justify-center">
+      <span className="absolute left-2.5 top-2 flex h-3 w-3 items-center justify-center">
         {instance.external ? (
           instance.status === "idle" || instance.status === "processing" ? (
             <Tooltip content={statusTip} side="right">
@@ -157,15 +156,8 @@ export function SidebarItem({
             className="w-full rounded border border-border bg-surface px-1 py-0.5 text-[0.8125rem] font-medium leading-tight text-text-bright outline-none focus:border-accent"
           />
         ) : (
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium leading-tight text-text-bright">
-              {instance.name}
-            </div>
-            <ProviderLogo
-              provider={instance.provider}
-              className="mt-0.5 h-3 w-3 shrink-0 text-muted/55 opacity-0 transition-opacity group-hover:opacity-100"
-              muted
-            />
+          <div className="min-w-0 truncate text-[0.8125rem] font-medium leading-tight text-text-bright">
+            {instance.name}
           </div>
         )}
         {!editing && instance.gitBranch && (
@@ -192,17 +184,12 @@ export function SidebarItem({
             </button>
           </Tooltip>
         )}
-        {!editing && instance.lastMessage && (
-          <div className="mt-0.5 truncate text-[0.6875rem] leading-tight text-muted">
-            {instance.lastMessage.text}
-          </div>
-        )}
       </div>
 
       {/* Timestamp */}
-      {!editing && instance.lastMessage && (
-        <span className="shrink-0 self-start pt-0.5 text-[0.625rem] text-muted opacity-60">
-          {formatTimeAgo(instance.lastMessage.timestamp)}
+      {!editing && instance.lastActivityAt > 0 && (
+        <span className="shrink-0 self-start pt-px text-[0.625rem] text-muted/50">
+          {formatTimeAgo(instance.lastActivityAt)}
         </span>
       )}
 
