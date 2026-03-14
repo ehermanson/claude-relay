@@ -209,23 +209,25 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 <span className="text-[0.6875rem]">Syncing...</span>
               </div>
             )}
+
+            {hiddenDirectories.length > 0 && (
+              <div className="flex items-center justify-center py-3">
+                <button
+                  onClick={() => setShowHiddenDialog(true)}
+                  className="flex items-center gap-1.5 text-[0.6875rem] text-muted/60 transition-colors hover:text-muted"
+                >
+                  <EyeOff size={11} />
+                  {hiddenDirectories.length} hidden project
+                  {hiddenDirectories.length !== 1 ? "s" : ""}
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>
 
       {/* Footer */}
       <div className="shrink-0 border-t border-border">
-        {hiddenDirectories.length > 0 && (
-          <div className="flex items-center justify-center px-4 pt-2">
-            <button
-              onClick={() => setShowHiddenDialog(true)}
-              className="flex items-center gap-1.5 text-[0.6875rem] text-muted/60 transition-colors hover:text-muted"
-            >
-              <EyeOff size={11} />
-              {hiddenDirectories.length} hidden project{hiddenDirectories.length !== 1 ? "s" : ""}
-            </button>
-          </div>
-        )}
         <div className="flex items-center justify-between px-4 py-2">
           <button
             onClick={toggleTheme}
@@ -253,7 +255,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
           </Dialog.Header>
           <p className="text-[0.8125rem] text-muted">
             <span className="font-medium text-text">{confirmHide?.split("/").pop()}</span> and its
-            sessions will be hidden from the sidebar. You can show it again from the footer.
+            sessions will be hidden from the sidebar. You can show it again from the bottom of the
+            projects list.
           </p>
           <div className="mt-3 flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setConfirmHide(null)}>
