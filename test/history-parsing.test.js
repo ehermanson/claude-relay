@@ -663,6 +663,60 @@ describe("History Parsing via DB Restore", () => {
   });
 
   describe("malformed JSONL handling", () => {
+    it("does not rebuild sidebar file changes for files outside the workspace", () => {
+      const jsonlPath = join(tempDir, "outside-workspace-file.jsonl");
+      writeFileSync(
+        jsonlPath,
+        [
+          JSON.stringify({
+            type: "system",
+            subtype: "init",
+            cwd: "/Users/test/projects/my-app",
+            timestamp: "2026-02-10T10:00:00.000Z",
+          }),
+          JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-02-10T10:00:01.000Z",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "tool_1",
+                  name: "Edit",
+                  input: {
+                    file_path: "/Users/test/.claude/plans/session-plan.md",
+                    old_string: "old",
+                    new_string: "new",
+                  },
+                },
+              ],
+            },
+          }),
+        ].join("\n"),
+      );
+
+      seedDB(tempDir, [makeExternalEntry({ jsonlPath })]);
+      const manager = makeManager(tempDir);
+      manager.restoreAndScan();
+
+      const history = manager.getHistory("test-id");
+      const fileLists = history.filter(
+        (entry) => entry.message.type === "activity" && entry.message.activity === "file_list",
+      );
+      const toolUses = history.filter(
+        (entry) =>
+          entry.message.type === "activity" &&
+          entry.message.activity === "tool_use" &&
+          entry.message.tool === "Edit",
+      );
+
+      assert.equal(fileLists.length, 0);
+      assert.equal(toolUses.length, 1);
+
+      manager.stopAll();
+    });
+
     it("skips malformed lines without crashing", () => {
       const jsonlPath = join(tempDir, "malformed.jsonl");
       writeFileSync(

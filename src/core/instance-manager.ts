@@ -104,6 +104,7 @@ import {
   getFileDiff,
 } from "./git.js";
 import { searchWorkspaceEntries, type WorkspaceEntry } from "./workspace-entries.js";
+import { isPathWithinWorkspace } from "./workspace-paths.js";
 
 /** Message text injected when the relay server auto-continues an instance after restart. */
 const AUTO_CONTINUE_MSG =
@@ -158,6 +159,8 @@ interface Instance {
   files?: Map<string, FileChange>;
   /** Queued retry message when tool approval arrives while process is still running */
   pendingRetry?: string;
+  /** Last plan file path detected from Edit/Write activity while in plan mode */
+  planFilePath?: string;
   /** Path to the git worktree (if this instance runs in isolation) */
   worktreePath?: string;
   /** Git branch name for this instance's worktree */
@@ -1174,6 +1177,8 @@ export class InstanceManager extends EventEmitter {
     instance.info.lastActivityAt = Date.now();
     instance.info.pendingTool = undefined;
     instance.info.pendingPermission = undefined;
+    instance.info.pendingPlan = undefined;
+    instance.planFilePath = undefined;
     this.setStatus(instance, "processing");
 
     instance.process!.send(messageText);
@@ -1559,6 +1564,7 @@ export class InstanceManager extends EventEmitter {
   private rebuildPendingInteractiveState(instance: Instance): void {
     instance.info.pendingTool = undefined;
     instance.info.pendingPermission = undefined;
+    instance.info.pendingPlan = undefined;
 
     for (const entry of instance.history) {
       this.syncPendingInteractiveState(instance, entry.message);
@@ -1570,12 +1576,30 @@ export class InstanceManager extends EventEmitter {
       instance.info.pendingTool ?? "",
       instance.info.pendingPermission?.kind ?? "",
       instance.info.pendingPermission?.requestId ?? "",
+      instance.info.pendingPlan ? "plan" : "",
     ].join("|");
   }
 
   private emitPendingStateIfChanged(instance: Instance, before: string): void {
     if (this.pendingStateSignature(instance) !== before) {
       this.emit("instance:status", instance.info.id, { ...instance.info });
+    }
+  }
+
+  /**
+   * When the process goes idle while in plan mode but no pendingPlan is set,
+   * re-read the last known plan file from disk and surface it for review.
+   */
+  private refreshPendingPlan(instance: Instance): void {
+    if (!instance.info.planMode || instance.info.pendingPlan || !instance.planFilePath) return;
+    try {
+      const content = readFileSync(instance.planFilePath, "utf-8");
+      if (content.trim()) {
+        instance.info.pendingPlan = content;
+        this.emit("instance:status", instance.info.id, { ...instance.info });
+      }
+    } catch {
+      // Plan file may have been deleted — ignore
     }
   }
 
@@ -1590,12 +1614,23 @@ export class InstanceManager extends EventEmitter {
       }
 
       if (activity.activity === "tool_use" && INTERACTIVE_TOOLS.has(activity.tool || "")) {
-        instance.info.pendingTool = activity.tool;
+        // For managed sessions, plan mode tools are handled by the UI — only
+        // set pendingTool for external/terminal sessions so the TerminalPermissionBar shows.
+        const isPlanTool = activity.tool === "ExitPlanMode" || activity.tool === "EnterPlanMode";
+        if (isPlanTool && !instance.info.external) {
+          if (activity.tool === "ExitPlanMode") {
+            instance.info.pendingPlan = (activity.input as Record<string, unknown> | undefined)
+              ?.plan as string | undefined;
+          }
+        } else {
+          instance.info.pendingTool = activity.tool;
+        }
         return;
       }
 
       if (activity.activity === "tool_result") {
         instance.info.pendingTool = undefined;
+        instance.info.pendingPlan = undefined;
         if (
           activity.tool === "AskUserQuestion" &&
           instance.info.pendingPermission?.kind === "user_input"
@@ -1608,6 +1643,7 @@ export class InstanceManager extends EventEmitter {
 
     if (message.type === "user") {
       instance.info.pendingTool = undefined;
+      instance.info.pendingPlan = undefined;
       if (instance.info.pendingPermission?.kind === "user_input") {
         instance.info.pendingPermission = undefined;
       }
@@ -3344,7 +3380,7 @@ export class InstanceManager extends EventEmitter {
         const filePath = (input?.file_path || input?.path || input?.notebook_path) as
           | string
           | undefined;
-        if (filePath && (!ctx.cwd || filePath.startsWith(ctx.cwd + "/"))) {
+        if (filePath && (!ctx.cwd || isPathWithinWorkspace(ctx.cwd, filePath))) {
           const existing = ctx.files.get(filePath);
           if (existing) {
             existing.editCount++;
@@ -3561,6 +3597,7 @@ export class InstanceManager extends EventEmitter {
             tasks: instance.tasks,
             files: instance.files,
             stats: instance.watchState.stats,
+            cwd: instance.actualCwd || instance.info.workingDirectory,
           })
         : this.convertJsonlEntry(entry, {
             pendingTools: instance.watchState.pendingTools,
@@ -4703,6 +4740,7 @@ export class InstanceManager extends EventEmitter {
           instance.process!.send(retryText);
         } else {
           this.checkWorktreeChanges(instance);
+          this.refreshPendingPlan(instance);
           this.setStatus(instance, "idle");
           this.doRefreshTitle(instance);
         }
@@ -4745,6 +4783,19 @@ export class InstanceManager extends EventEmitter {
         // Update the activity message with enriched data
         message.files = Array.from(instance.files.values()).map((f) => ({ ...f }));
       }
+      // Track plan file path from Edit/Write while in plan mode
+      if (
+        instance.info.planMode &&
+        message.activity === "tool_use" &&
+        (message.tool === "Edit" || message.tool === "Write") &&
+        message.input
+      ) {
+        const filePath = (message.input as Record<string, unknown>).file_path as string | undefined;
+        if (filePath) {
+          instance.planFilePath = filePath;
+        }
+      }
+
       // Track permission denials for the banner
       if (message.permissionDenied) {
         instance.info.pendingPermission = {

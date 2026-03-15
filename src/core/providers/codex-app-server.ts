@@ -30,6 +30,7 @@ import type {
 import type { CoreConfig } from "../config.js";
 import type { ProviderSession } from "../provider.js";
 import { buildTaskListActivityFromPlan } from "../tools.js";
+import { isPathWithinWorkspace } from "../workspace-paths.js";
 import { findCodexBinary } from "./codex-cli.js";
 import { getBuiltinProviderModels } from "../provider-catalog.js";
 
@@ -185,9 +186,11 @@ export interface CodexAppServerSessionOptions {
 
 function trackFileChange(
   files: Map<string, FileChange>,
+  root: string,
   path: string,
   type: "added" | "edited",
 ): void {
+  if (!isPathWithinWorkspace(root, path)) return;
   const existing = files.get(path);
   if (existing) {
     existing.editCount++;
@@ -1097,7 +1100,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         const fc = item as FileChangeItem;
         for (const change of fc.changes) {
           const changeType = change.kind.type === "add" ? "added" : "edited";
-          trackFileChange(this.fileMap, change.path, changeType);
+          trackFileChange(this.fileMap, this.cwd, change.path, changeType);
         }
 
         if (this.fileMap.size > 0) {

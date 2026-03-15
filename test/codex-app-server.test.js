@@ -477,6 +477,54 @@ describe("CodexAppServerSession", () => {
     assert.equal(newTs.type, "added");
   });
 
+  it("filters file changes outside the current workspace", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const activities = collectEvents(session, "activity");
+
+    session.send("edit files");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/completed",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-1",
+          item: {
+            type: "fileChange",
+            id: "fc-1",
+            changes: [
+              { path: "src/app.ts", kind: { type: "update", move_path: null }, diff: "+foo\n-bar" },
+              {
+                path: "/Users/test/.claude/plans/session-plan.md",
+                kind: { type: "update", move_path: null },
+                diff: "+plan\n-old",
+              },
+            ],
+            status: "completed",
+          },
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const fileList = activities.find(([a]) => a.activity === "file_list");
+    assert.ok(fileList, "Expected a file_list activity");
+    assert.equal(fileList[0].files.length, 1);
+    assert.equal(fileList[0].files[0].path, "src/app.ts");
+  });
+
   it("handles token usage notifications", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({

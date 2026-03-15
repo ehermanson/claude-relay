@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link, useParams } from "@tanstack/react-router";
 import type { UserInputAnswer } from "@shared/types";
 import { escapeHtml, getCollapsedDetail } from "../../lib/utils";
 import { MarkdownContent } from "./markdown-content";
@@ -277,111 +276,6 @@ function PermissionDeniedContent({
   );
 }
 
-function PlanApprovalContent({
-  plan,
-  onSendMessage,
-  isInteractive,
-  resolution,
-  planChildId,
-  planChildName,
-}: {
-  plan: string;
-  onSendMessage?: (text: string) => void;
-  isInteractive?: boolean;
-  resolution?: "approved" | "dismissed" | "feedback";
-  planChildId?: string;
-  planChildName?: string;
-}) {
-  const { projectId } = useParams({ strict: false }) as { projectId?: string };
-  const initialState = planChildId
-    ? "approved"
-    : resolution === "approved"
-      ? "approved"
-      : resolution === "feedback" || resolution === "dismissed"
-        ? "sent"
-        : "pending";
-  const [state, setState] = useState<"pending" | "approved" | "editing" | "sent">(initialState);
-  const [feedback, setFeedback] = useState("");
-  const canAct = isInteractive && !!onSendMessage && state === "pending";
-
-  return (
-    <>
-      <div className="mt-2 overflow-hidden rounded-lg border border-border bg-panel-content p-4 text-[0.8125rem]">
-        <MarkdownContent text={plan} />
-      </div>
-      <div className="mt-2.5 flex flex-col gap-2">
-        {(state === "pending" || state === "editing") && (
-          <div className="flex items-center gap-2">
-            {canAct && (
-              <button
-                onClick={() => {
-                  setState("approved");
-                  onSendMessage!("Yes, go ahead with this plan.");
-                }}
-                className="rounded-lg bg-accent/10 px-3.5 py-1.5 text-[0.8125rem] font-medium text-accent transition-colors hover:bg-accent/15"
-              >
-                Approve Plan
-              </button>
-            )}
-            {canAct && (
-              <button
-                onClick={() => setState("editing")}
-                className="rounded-lg px-3.5 py-1.5 text-[0.8125rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-warning"
-              >
-                Request Changes
-              </button>
-            )}
-          </div>
-        )}
-        {state === "editing" && (
-          <div className="flex gap-2">
-            <textarea
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-              placeholder="Describe what to change..."
-              rows={2}
-              autoFocus
-              className="flex-1 resize-none rounded-lg border border-border bg-bg px-3 py-2 text-[0.8125rem] text-text placeholder:text-muted focus:border-accent focus:ring-1 focus:ring-accent-dim focus:outline-none"
-            />
-            <button
-              onClick={() => {
-                if (!feedback.trim()) return;
-                setState("sent");
-                onSendMessage!(feedback.trim());
-              }}
-              disabled={!feedback.trim()}
-              className="self-end rounded-lg bg-warning/10 px-3.5 py-1.5 text-[0.8125rem] font-medium text-warning transition-colors hover:bg-warning/15 disabled:opacity-30"
-            >
-              Send
-            </button>
-          </div>
-        )}
-        {state === "approved" && (
-          <div className="flex items-center gap-2">
-            <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[0.75rem] font-medium text-accent w-fit">
-              {planChildId ? "Plan approved" : "Approved"}
-            </span>
-            {planChildId && projectId && (
-              <Link
-                to="/projects/$projectId/chats/$chatId"
-                params={{ projectId, chatId: planChildId }}
-                className="text-[0.75rem] font-medium text-accent hover:underline"
-              >
-                Continued in {planChildName || "child chat"}
-              </Link>
-            )}
-          </div>
-        )}
-        {state === "sent" && (
-          <span className="rounded-md bg-warning/15 px-2 py-0.5 text-[0.75rem] font-medium text-warning w-fit">
-            {resolution === "dismissed" ? "Dismissed" : "Changes requested"}
-          </span>
-        )}
-      </div>
-    </>
-  );
-}
-
 function ToolContent({
   tool,
   input,
@@ -476,20 +370,27 @@ function ToolContent({
       return null;
     }
     case "ExitPlanMode": {
+      // Plan review card renders above the input area (not inline).
+      // Show a collapsed plan preview and resolution badge here.
       const plan = input.plan as string | undefined;
-      if (plan) {
-        return (
-          <PlanApprovalContent
-            plan={plan}
-            onSendMessage={onSendMessage}
-            isInteractive={isInteractive}
-            resolution={resolution}
-            planChildId={planChildId}
-            planChildName={planChildName}
-          />
-        );
-      }
-      return null;
+      if (!plan) return null;
+      return (
+        <div className="mt-1.5">
+          <div className="max-h-40 overflow-hidden rounded-lg border border-border bg-panel-content p-3 text-[0.75rem] text-muted [mask-image:linear-gradient(to_bottom,black_70%,transparent)]">
+            <MarkdownContent text={plan} />
+          </div>
+          {resolution === "approved" && (
+            <span className="mt-1.5 inline-block w-fit rounded-md bg-accent/15 px-2 py-0.5 text-[0.75rem] font-medium text-accent">
+              Approved
+            </span>
+          )}
+          {(resolution === "feedback" || resolution === "dismissed") && (
+            <span className="mt-1.5 inline-block w-fit rounded-md bg-warning/15 px-2 py-0.5 text-[0.75rem] font-medium text-warning">
+              {resolution === "dismissed" ? "Dismissed" : "Changes requested"}
+            </span>
+          )}
+        </div>
+      );
     }
     case "AskUserQuestion":
       return (

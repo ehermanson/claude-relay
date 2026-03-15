@@ -147,6 +147,8 @@ export interface InstanceInfo {
   planMode?: boolean;
   /** Whether this instance bypasses permission prompts (full access mode) */
   skipPermissions?: boolean;
+  /** Pending plan markdown from ExitPlanMode, awaiting user approval/feedback */
+  pendingPlan?: string;
 }
 
 export interface HistoryEntry {

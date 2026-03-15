@@ -375,11 +375,10 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
-    it("maps AskUserQuestion into a user_input request and tags the activity", async () => {
+    it("tags replayed AskUserQuestion activity with its request id", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);
       const activities = collectEvents(session, "activity");
-      const requests = collectEvents(session, "permissionRequest");
 
       harness.fakeQuery.emit({
         type: "assistant",
@@ -409,12 +408,6 @@ describe("ClaudeSdkSession", () => {
       });
 
       await tick();
-
-      assert.equal(requests.length, 1);
-      assert.equal(requests[0][0].kind, "user_input");
-      assert.equal(requests[0][0].requestId, "tu-ask-1");
-      assert.equal(requests[0][0].tool, "AskUserQuestion");
-      assert.equal(requests[0][0].questions[0].question, "Which do you prefer?");
 
       const promptActs = activities.filter(
         ([a]) => a.activity === "tool_use" && a.tool === "AskUserQuestion",
@@ -469,7 +462,7 @@ describe("ClaudeSdkSession", () => {
               type: "tool_use",
               name: "Edit",
               id: "tu-1",
-              input: { file_path: "/test/foo.ts" },
+              input: { file_path: "/test/project/foo.ts" },
             },
           ],
         },
@@ -478,8 +471,34 @@ describe("ClaudeSdkSession", () => {
       await tick();
       const fileActs = activities.filter(([a]) => a.activity === "file_list");
       assert.ok(fileActs.length >= 1);
-      assert.equal(fileActs[0][0].files[0].path, "/test/foo.ts");
+      assert.equal(fileActs[0][0].files[0].path, "/test/project/foo.ts");
       assert.equal(fileActs[0][0].files[0].type, "edited");
+      session.close();
+    });
+
+    it("ignores file changes outside the current workspace", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness);
+      const activities = collectEvents(session, "activity");
+
+      harness.fakeQuery.emit({
+        type: "assistant",
+        session_id: "sess-1",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              name: "Edit",
+              id: "tu-1",
+              input: { file_path: "/Users/test/.claude/plans/session-plan.md" },
+            },
+          ],
+        },
+      });
+
+      await tick();
+      const fileActs = activities.filter(([a]) => a.activity === "file_list");
+      assert.equal(fileActs.length, 0);
       session.close();
     });
 

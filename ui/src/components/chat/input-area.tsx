@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Loader2 } from "lucide-react";
+import { ArrowUp, Check, Loader2 } from "lucide-react";
 import type {
   ProviderKind,
   ProviderRequest,
@@ -15,6 +15,7 @@ import { ComposerPanel } from "./input-area/composer-panel";
 import { ImageAttachmentStrip } from "./input-area/image-attachment-strip";
 import { InputToolbar } from "./input-area/input-toolbar";
 import { AskUserQuestionPanel } from "./input-area/ask-user-question-panel";
+import { PlanReviewPanel, type PlanComment } from "./plan-review-card";
 import {
   PlanModePicker,
   PermissionsToggle,
@@ -54,6 +55,7 @@ interface InputAreaProps {
   skipPermissions?: boolean;
   hasMessages?: boolean;
   pendingUserInput?: ProviderRequest | null;
+  pendingPlan?: string;
 }
 
 function buildPromptPlaceholder(
@@ -87,6 +89,7 @@ export function InputArea({
   skipPermissions,
   hasMessages,
   pendingUserInput,
+  pendingPlan,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
   const composerContainerRef = useRef<HTMLDivElement>(null);
@@ -139,6 +142,18 @@ export function InputArea({
   } = useComposerState(sessionId, composerRef);
   const [promptText, setPromptText] = useState("");
   const [selectedPromptAnswers, setSelectedPromptAnswers] = useState<Record<string, string>>({});
+  const [planComments, setPlanComments] = useState<PlanComment[]>([]);
+  const [planFeedbackText, setPlanFeedbackText] = useState("");
+  const hasPendingPlan = !!pendingPlan;
+
+  // Reset plan state when pendingPlan changes
+  useEffect(() => {
+    setPlanComments([]);
+    setPlanFeedbackText("");
+    if (pendingPlan) {
+      composerRef.current?.focus();
+    }
+  }, [pendingPlan]);
 
   const promptRequestId =
     pendingUserInput?.kind === "user_input" ? pendingUserInput.requestId : null;
@@ -298,6 +313,45 @@ export function InputArea({
     setSelectedPromptAnswers({});
   };
 
+  const handleApprovePlan = () => {
+    const feedback = planFeedbackText.trim();
+    if (feedback) {
+      // Build structured message with inline comments + typed feedback
+      const parts: string[] = [];
+      for (const c of planComments) {
+        if (c.quotedText) {
+          parts.push(`> ${c.quotedText.replace(/\n/g, "\n> ")}\n\nComment: ${c.comment}`);
+        } else {
+          parts.push(`Comment: ${c.comment}`);
+        }
+      }
+      parts.push(feedback);
+      onSend(parts.join("\n\n"));
+    } else if (planComments.length > 0) {
+      const parts = planComments.map((c) => {
+        if (c.quotedText) {
+          return `> ${c.quotedText.replace(/\n/g, "\n> ")}\n\nComment: ${c.comment}`;
+        }
+        return `Comment: ${c.comment}`;
+      });
+      onSend(
+        `I have the following comments on your plan:\n\n${parts.join("\n\n")}\n\nPlease update the plan to address these comments.`,
+      );
+    } else {
+      onSend("Yes, go ahead with this plan.");
+    }
+    setPlanFeedbackText("");
+    setPlanComments([]);
+  };
+
+  const handleDismissPlan = () => {
+    onSend("Dismiss this plan.");
+    setPlanFeedbackText("");
+    setPlanComments([]);
+  };
+
+  const isInSpecialMode = hasPendingPrompt || hasPendingPlan;
+
   const applySlashAction = (action: () => void) => {
     action();
     resetAfterSend();
@@ -306,8 +360,8 @@ export function InputArea({
     instanceId,
     isMobile,
     skills: providerSkills,
-    draftText: hasPendingPrompt ? "" : draftText,
-    composerSelectionOffset: hasPendingPrompt ? 0 : composerSelectionOffset,
+    draftText: isInSpecialMode ? "" : draftText,
+    composerSelectionOffset: isInSpecialMode ? 0 : composerSelectionOffset,
     mentionEntries,
     selectedMentionKey,
     mentionMenuDismissed,
@@ -334,7 +388,7 @@ export function InputArea({
     setModel,
     setReasoningBudget,
     onCancel,
-    onSend: hasPendingPrompt ? handleSubmitPrompt : handleSend,
+    onSend: hasPendingPrompt ? handleSubmitPrompt : hasPendingPlan ? handleApprovePlan : handleSend,
   });
 
   const handlePaste = (event: React.ClipboardEvent) => {
@@ -359,6 +413,7 @@ export function InputArea({
   const disabled = !isConnected;
   const composerDisabled = disabled || (hasPendingPrompt && !allowPromptTextInput);
 
+  const hasPlanFeedback = planFeedbackText.trim().length > 0 || planComments.length > 0;
   const sendIcon = uploading ? (
     <Loader2 size={18} className="animate-spin" />
   ) : (
@@ -366,10 +421,16 @@ export function InputArea({
   );
   const composerPlaceholder = hasPendingPrompt
     ? buildPromptPlaceholder(primaryPromptQuestion, allowPromptTextInput)
-    : isStopped
-      ? "Send a message to resume... Use @ for files and / for commands"
-      : "Send a message... Use @ for files and / for commands";
-  const composerValue = hasPendingPrompt ? promptText : draftText;
+    : hasPendingPlan
+      ? "Add feedback to refine the plan, or leave blank to approve"
+      : isStopped
+        ? "Send a message to resume... Use @ for files and / for commands"
+        : "Send a message... Use @ for files and / for commands";
+  const composerValue = hasPendingPrompt
+    ? promptText
+    : hasPendingPlan
+      ? planFeedbackText
+      : draftText;
   const composerTopContent = hasPendingPrompt ? (
     <AskUserQuestionPanel
       questions={promptQuestions}
@@ -381,13 +442,27 @@ export function InputArea({
         }))
       }
     />
+  ) : hasPendingPlan ? (
+    <PlanReviewPanel
+      plan={pendingPlan}
+      comments={planComments}
+      onCommentsChange={setPlanComments}
+    />
   ) : null;
   const sendLabel = hasPendingPrompt
     ? `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
-    : undefined;
+    : hasPendingPlan
+      ? hasPlanFeedback
+        ? "Send Feedback"
+        : "Approve Plan"
+      : undefined;
   const sendTooltip = hasPendingPrompt
     ? `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
-    : undefined;
+    : hasPendingPlan
+      ? hasPlanFeedback
+        ? "Send feedback (Enter)"
+        : "Approve plan (Enter)"
+      : undefined;
 
   const toolbarControls = [
     supportsModelSelection ? (
@@ -480,7 +555,7 @@ export function InputArea({
             ref={composerContainerRef}
             className="relative rounded-2xl border border-border bg-surface"
           >
-            {!hasPendingPrompt ? (
+            {!isInSpecialMode ? (
               <ImageAttachmentStrip images={images} onRemove={removeImage} />
             ) : null}
             <ComposerPanel
@@ -489,11 +564,15 @@ export function InputArea({
               value={composerValue}
               placeholder={composerPlaceholder}
               topContent={composerTopContent}
-              selectionOffset={hasPendingPrompt ? null : pendingSelectionOffset}
+              selectionOffset={isInSpecialMode ? null : pendingSelectionOffset}
               onSelectionApplied={clearPendingSelectionOffset}
               onChange={(value, selectionOffset) => {
                 if (hasPendingPrompt) {
                   setPromptText(value);
+                  return;
+                }
+                if (hasPendingPlan) {
+                  setPlanFeedbackText(value);
                   return;
                 }
                 updateDraft(value);
@@ -512,25 +591,51 @@ export function InputArea({
                     return;
                   }
                 }
+                if (hasPendingPlan) {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    handleApprovePlan();
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    handleDismissPlan();
+                    return;
+                  }
+                }
                 handleComposerKeyDown(event);
               }}
               onPaste={handlePaste}
-              composerMenu={hasPendingPrompt ? null : composerMenu}
+              composerMenu={isInSpecialMode ? null : composerMenu}
               toolbar={
                 <InputToolbar
                   isMobile={isMobile}
                   disabled={disabled}
-                  showAttachButton={!hasPendingPrompt}
-                  controls={toolbarControls}
+                  showAttachButton={!isInSpecialMode}
+                  controls={isInSpecialMode ? [] : toolbarControls}
                   isProcessing={isProcessing}
                   onCancel={onCancel}
                   onAttachImage={() => fileInputRef.current?.click()}
-                  onSend={hasPendingPrompt ? handleSubmitPrompt : handleSend}
+                  onSend={
+                    hasPendingPrompt
+                      ? handleSubmitPrompt
+                      : hasPendingPlan
+                        ? handleApprovePlan
+                        : handleSend
+                  }
                   sendIcon={sendIcon}
                   sendLabel={sendLabel}
                   sendTooltip={sendTooltip}
-                  secondaryActionLabel={hasPendingPrompt ? "Dismiss" : undefined}
-                  onSecondaryAction={hasPendingPrompt ? handleDismissPrompt : undefined}
+                  secondaryActionLabel={
+                    hasPendingPrompt ? "Dismiss" : hasPendingPlan ? "Dismiss" : undefined
+                  }
+                  onSecondaryAction={
+                    hasPendingPrompt
+                      ? handleDismissPrompt
+                      : hasPendingPlan
+                        ? handleDismissPlan
+                        : undefined
+                  }
                   isSecondaryActionDisabled={disabled}
                   isSendDisabled={
                     hasPendingPrompt ? disabled || !canSubmitPrompt : disabled || uploading

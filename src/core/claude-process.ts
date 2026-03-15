@@ -32,6 +32,7 @@ import {
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
 } from "./tools.js";
+import { isPathWithinWorkspace } from "./workspace-paths.js";
 
 // =============================================================================
 // Types
@@ -249,8 +250,8 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     if (!input || !FILE_WRITE_TOOLS.has(toolName)) return;
     const filePath = (input.file_path || input.path || input.notebook_path) as string | undefined;
     if (!filePath) return;
-    // Skip files outside the working directory (e.g. memory files in ~/.claude/)
-    if (!filePath.startsWith(this.cwd + "/") && filePath !== this.cwd) return;
+    // Skip files outside the working directory (e.g. memory files in ~/.claude/).
+    if (!isPathWithinWorkspace(this.cwd, filePath)) return;
     const existing = this.fileMap.get(filePath);
     if (existing) {
       existing.editCount++;

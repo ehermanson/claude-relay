@@ -14,6 +14,7 @@ function createContext() {
     pendingCalls: new Map(),
     tasks: new Map(),
     files: new Map(),
+    cwd: "/tmp/project",
     stats: {
       inputTokens: 0,
       outputTokens: 0,
@@ -226,6 +227,29 @@ describe("convertCodexTranscriptEntry", () => {
       );
       assert.ok(ctx.files.has("src/existing.ts"));
       assert.equal(ctx.files.get("src/existing.ts").type, "edited");
+    });
+
+    it("ignores apply_patch changes outside the current workspace", () => {
+      const ctx = createContext();
+      const patch = `*** Update File: /Users/test/.claude/plans/session-plan.md
+@@ -1,3 +1,3 @@
+-old line
++new line`;
+
+      convertCodexTranscriptEntry(
+        {
+          type: "response_item",
+          payload: {
+            type: "custom_tool_call",
+            name: "apply_patch",
+            call_id: "p3",
+            input: patch,
+          },
+        },
+        ctx,
+      );
+
+      assert.equal(ctx.files.size, 0);
     });
   });
 

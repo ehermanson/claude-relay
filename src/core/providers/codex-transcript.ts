@@ -10,6 +10,7 @@ import type {
   UserMessage,
 } from "../types.js";
 import { buildTaskListActivityFromPlan } from "../tools.js";
+import { isPathWithinWorkspace } from "../workspace-paths.js";
 
 const MAX_HISTORY = 1000;
 const TOOL_OUTPUT_MARKER = "\nOutput:\n";
@@ -25,6 +26,7 @@ export interface CodexReplayContext {
   tasks: Map<string, TaskItem>;
   files: Map<string, FileChange>;
   stats: SessionStats;
+  cwd?: string;
 }
 
 export interface CodexTranscriptParseResult {
@@ -68,7 +70,13 @@ function normalizeToolOutput(output: unknown): string {
   return normalized.trim();
 }
 
-function trackFileChange(files: Map<string, FileChange>, path: string, type: "added" | "edited") {
+function trackFileChange(
+  files: Map<string, FileChange>,
+  cwd: string | undefined,
+  path: string,
+  type: "added" | "edited",
+) {
+  if (cwd && !isPathWithinWorkspace(cwd, path)) return;
   const existing = files.get(path);
   if (existing) {
     existing.editCount++;
@@ -291,7 +299,7 @@ export function convertCodexTranscriptEntry(
       }
       if (payload.name === "apply_patch" && typeof payload.input === "string") {
         for (const file of extractPatchFiles(payload.input)) {
-          trackFileChange(ctx.files, file.path, file.type);
+          trackFileChange(ctx.files, ctx.cwd, file.path, file.type);
         }
         if (ctx.files.size > 0) {
           results.push({
@@ -543,6 +551,7 @@ export function parseCodexTranscript(filePath: string): CodexTranscriptParseResu
             : null;
         if (payload && typeof payload.cwd === "string") {
           cwd = payload.cwd;
+          ctx.cwd = cwd;
         }
       }
 

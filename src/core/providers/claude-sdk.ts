@@ -35,6 +35,7 @@ import {
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
 } from "../tools.js";
+import { isPathWithinWorkspace } from "../workspace-paths.js";
 
 // =============================================================================
 // SDK Types — imported dynamically to avoid hard dep at module level
@@ -1200,6 +1201,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     if (!input || !FILE_WRITE_TOOLS.has(toolName)) return;
     const filePath = (input.file_path || input.path || input.notebook_path) as string | undefined;
     if (!filePath) return;
+    if (!isPathWithinWorkspace(this.cwd, filePath)) return;
     const existing = this.fileMap.get(filePath);
     if (existing) {
       existing.editCount++;

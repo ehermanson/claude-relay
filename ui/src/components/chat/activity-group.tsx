@@ -140,7 +140,9 @@ export function ActivityGroup({
             isExternal &&
             act.activity === "tool_use" &&
             vi === rendered.length - 1 &&
-            INTERACTIVE_TOOLS.has(act.tool || "");
+            INTERACTIVE_TOOLS.has(act.tool || "") &&
+            act.tool !== "EnterPlanMode" &&
+            act.tool !== "ExitPlanMode";
           return (
             <motion.div
               key={`activity-${origIndex}`}

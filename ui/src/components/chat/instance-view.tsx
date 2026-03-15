@@ -351,6 +351,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
             skipPermissions={instance.skipPermissions}
             hasMessages={items.length > 0}
             pendingUserInput={pendingUserInput}
+            pendingPlan={instance.pendingPlan}
           />
         ))}
     </>
