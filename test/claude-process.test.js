@@ -48,6 +48,44 @@ describe("ClaudeProcess state management", () => {
     const proc = new ClaudeProcess(makeConfig());
     assert.equal(proc.provider, "claude");
   });
+
+  it("maps AskUserQuestion to a user_input request on the CLI path", () => {
+    const proc = new ClaudeProcess(makeConfig());
+    const activities = [];
+    const requests = [];
+    proc.on("activity", (activity) => activities.push(activity));
+    proc.on("permissionRequest", (request) => requests.push(request));
+
+    proc.handleAgentProgress({
+      message: {
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "ask-cli-1",
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  {
+                    id: "drink",
+                    header: "Preference",
+                    question: "Which do you prefer?",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].kind, "user_input");
+    assert.equal(requests[0].requestId, "ask-cli-1");
+    assert.equal(activities.length, 1);
+    assert.equal(activities[0].tool, "AskUserQuestion");
+    assert.equal(activities[0].input.requestId, "ask-cli-1");
+  });
 });
 
 describe("ClaudeProcess session targeting", () => {

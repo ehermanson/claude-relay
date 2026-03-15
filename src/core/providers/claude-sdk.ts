@@ -23,6 +23,7 @@ import type {
   SessionStats,
   ProviderRequest,
   ProviderRuntimeBinding,
+  UserInputQuestion,
 } from "../types.js";
 import type { CoreConfig } from "../config.js";
 import type { ProviderSession, ProviderSessionEvents } from "../provider.js";
@@ -530,7 +531,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   respondToRequest(
     requestId: string,
     decision: "accept" | "decline",
-    _response?: import("../types.js").ProviderRequestResponse,
+    response?: import("../types.js").ProviderRequestResponse,
   ): boolean {
     if (!this.pendingPermission || this.pendingPermission.toolUseId !== requestId) return false;
     if (decision !== "accept") {
@@ -538,11 +539,30 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       this.pendingPermission = null;
       return true;
     }
-    this.logger.info(`[SdkSession] Approving permission for ${this.pendingPermission.toolName}`);
-    this.allowedToolSet.add(this.pendingPermission.toolName);
+
+    const toolName = this.pendingPermission.toolName;
+    this.logger.info(`[SdkSession] Approving permission for ${toolName}`);
+
+    let updatedInput = this.pendingPermission.input;
+
+    if (toolName === "AskUserQuestion" && response?.answers) {
+      // Flatten Relay's { questionId: { answers: string[] } } format
+      // to { questionId: string } for the SDK's built-in handler.
+      const flatAnswers: Record<string, string> = {};
+      for (const [questionId, answer] of Object.entries(response.answers)) {
+        const values = answer?.answers?.filter((v) => typeof v === "string" && v.trim());
+        if (values?.length) flatAnswers[questionId] = values.join(", ");
+      }
+      updatedInput = { ...updatedInput, answers: flatAnswers };
+    } else {
+      // Only add non-interactive tools to the pre-approved set.
+      // AskUserQuestion must always prompt for user input.
+      this.allowedToolSet.add(toolName);
+    }
+
     this.pendingPermission.resolve({
       behavior: "allow",
-      updatedInput: this.pendingPermission.input,
+      updatedInput,
       updatedPermissions: this.pendingPermission.suggestions,
     });
     this.pendingPermission = null;
@@ -574,6 +594,62 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       }
     | { behavior: "deny"; message: string; interrupt?: boolean }
   > {
+    // AskUserQuestion always blocks — it needs user interaction regardless of
+    // bypass/allowed status. We emit a "user_input" request (with questions)
+    // so the UI renders the question panel instead of a permission banner.
+    if (toolName === "AskUserQuestion") {
+      const questions = Array.isArray(input?.questions)
+        ? (input.questions as Record<string, unknown>[])
+            .filter(
+              (question) =>
+                typeof question === "object" &&
+                question !== null &&
+                typeof question.question === "string",
+            )
+            .map(
+              (question, index) =>
+                ({
+                  ...question,
+                  // AskUserQuestion tool input doesn't include `id` — generate one
+                  id: typeof question.id === "string" ? question.id : `q_${index}`,
+                }) as UserInputQuestion,
+            )
+        : [];
+
+      this.logger.info(
+        `[SdkSession] AskUserQuestion: waiting for user input (${questions.length} questions)`,
+      );
+      const request: ProviderRequest = {
+        requestId: callbackOptions.toolUseID,
+        kind: "user_input",
+        tool: "AskUserQuestion",
+        description: questions[0]?.question,
+        questions,
+      };
+      this.emit("permissionRequest", request);
+
+      return new Promise((resolve) => {
+        this.pendingPermission = {
+          toolName,
+          toolUseId: callbackOptions.toolUseID,
+          input,
+          suggestions: callbackOptions.suggestions,
+          resolve,
+        };
+
+        callbackOptions.signal.addEventListener(
+          "abort",
+          () => {
+            if (this.pendingPermission?.toolUseId === callbackOptions.toolUseID) {
+              this.pendingPermission = null;
+              resolve({ behavior: "deny", message: "Operation cancelled" });
+            }
+          },
+          { once: true },
+        );
+      });
+    }
+
     // If bypass mode is on, allow everything
     if (this._bypassPermissions) {
       return Promise.resolve({ behavior: "allow" as const, updatedInput: input });
@@ -1027,6 +1103,14 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // File change tracking
     this.trackFileChange(toolName, input);
 
+    const activityInput =
+      toolName === "AskUserQuestion" && toolUseId
+        ? { ...(input ?? {}), requestId: toolUseId }
+        : input;
+
+    // Note: AskUserQuestion user_input permissionRequest is emitted from
+    // handleCanUseTool (which always blocks for this tool). No duplicate here.
+
     // Regular tool use activity
     const activity: ActivityMessage = {
       type: "activity",
@@ -1034,9 +1118,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       tool: toolName,
       description: describeToolUse(toolName, input),
       detail: describeToolDetail(toolName, input),
-      input,
+      input: activityInput,
       inputDescription: extractInputDescription(toolName, input),
-      raw: { tool: toolName, toolUseId, input },
+      raw: { tool: toolName, toolUseId, input: activityInput },
     };
     this.emit("activity", activity);
   }

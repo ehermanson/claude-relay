@@ -17,6 +17,7 @@ import type {
   SessionStats,
   ProviderRequest,
   ProviderRuntimeBinding,
+  UserInputQuestion,
 } from "./types.js";
 import type { CoreConfig } from "./config.js";
 import type { ProviderSession } from "./provider.js";
@@ -273,6 +274,50 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this.emit("activity", activity);
   }
 
+  private emitToolUseActivity(
+    toolName: string,
+    input: Record<string, unknown> | undefined,
+    toolUseId?: string,
+  ): void {
+    const activityInput =
+      toolName === "AskUserQuestion" && toolUseId
+        ? { ...(input ?? {}), requestId: toolUseId }
+        : input;
+
+    if (toolName === "AskUserQuestion" && toolUseId) {
+      const questions = Array.isArray(input?.questions)
+        ? input.questions.filter(
+            (question): question is UserInputQuestion =>
+              typeof question === "object" &&
+              question !== null &&
+              typeof (question as UserInputQuestion).id === "string" &&
+              typeof (question as UserInputQuestion).question === "string",
+          )
+        : [];
+      if (questions.length > 0) {
+        const request: ProviderRequest = {
+          requestId: toolUseId,
+          kind: "user_input",
+          tool: "AskUserQuestion",
+          description: questions[0]?.question,
+          questions,
+        };
+        this.emit("permissionRequest", request);
+      }
+    }
+
+    const activity: ActivityMessage = {
+      type: "activity",
+      activity: "tool_use",
+      tool: toolName,
+      description: describeToolUse(toolName, input),
+      detail: describeToolDetail(toolName, input),
+      input: activityInput,
+      inputDescription: extractInputDescription(toolName, input),
+    };
+    this.emit("activity", activity);
+  }
+
   private handleBashProgress(data: Record<string, unknown>): void {
     const elapsed = data.elapsed_seconds as number | undefined;
     const output = data.output as string | undefined;
@@ -299,15 +344,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
       if (block.type === "tool_use") {
         const tool = block.name as string;
         const input = block.input as Record<string, unknown> | undefined;
-        const activity: ActivityMessage = {
-          type: "activity",
-          activity: "tool_use",
-          tool,
-          description: describeToolUse(tool, input),
-          detail: describeToolDetail(tool, input),
-          inputDescription: extractInputDescription(tool, input),
-        };
-        this.emit("activity", activity);
+        this.emitToolUseActivity(tool, input, block.id as string | undefined);
       }
     }
   }
@@ -482,20 +519,9 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
                   }
                   // TaskList/TaskGet: suppress — no activity emitted
                 } else {
-                  this.trackFileChange(
-                    toolName,
-                    block.input as Record<string, unknown> | undefined,
-                  );
-                  const activity: ActivityMessage = {
-                    type: "activity",
-                    activity: "tool_use",
-                    tool: toolName,
-                    description: describeToolUse(toolName, block.input),
-                    detail: describeToolDetail(toolName, block.input),
-                    input: block.input as Record<string, unknown> | undefined,
-                    inputDescription: extractInputDescription(toolName, block.input),
-                  };
-                  this.emit("activity", activity);
+                  const input = block.input as Record<string, unknown> | undefined;
+                  this.trackFileChange(toolName, input);
+                  this.emitToolUseActivity(toolName, input, block.id as string | undefined);
                 }
               } else if (block.type === "text" && block.text) {
                 const outputMessage: OutputMessage = {
@@ -538,17 +564,9 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
                 }
               }
             } else {
-              this.trackFileChange(toolName, event.input as Record<string, unknown> | undefined);
-              const activity: ActivityMessage = {
-                type: "activity",
-                activity: "tool_use",
-                tool: toolName,
-                description: describeToolUse(toolName, event.input),
-                detail: describeToolDetail(toolName, event.input),
-                input: event.input as Record<string, unknown> | undefined,
-                inputDescription: extractInputDescription(toolName, event.input),
-              };
-              this.emit("activity", activity);
+              const input = event.input as Record<string, unknown> | undefined;
+              this.trackFileChange(toolName, input);
+              this.emitToolUseActivity(toolName, input, event.id as string | undefined);
             }
           } else if (event.type === "tool_result") {
             const toolName = pendingTools.get(event.tool_use_id);

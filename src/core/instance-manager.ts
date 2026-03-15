@@ -64,6 +64,7 @@ import type {
   ProviderRequest,
   ProviderRuntimeBinding,
   ProviderRuntimeMode,
+  UserInputQuestion,
 } from "./types.js";
 import {
   describeToolUse,
@@ -264,6 +265,77 @@ function isTrivialMessage(text: string): boolean {
     .split("\n")[0]
     .trim();
   return cleaned.length < 8 || TRIVIAL_MESSAGE_RE.test(cleaned);
+}
+
+function buildUserInputReply(
+  request: ProviderRequest,
+  decision: "accept" | "decline",
+  response?: import("./types.js").ProviderRequestResponse,
+): { text: string; resolution: "approved" | "dismissed" } {
+  const answers = decision === "accept" ? (response?.answers ?? {}) : {};
+  const questions = request.questions ?? [];
+  const answerLines = questions
+    .map((question) => {
+      const values = answers[question.id]?.answers?.filter(
+        (answer): answer is string => typeof answer === "string" && answer.trim().length > 0,
+      );
+      if (!values?.length) return null;
+      const normalized = values.map((value) => value.trim());
+      if (questions.length === 1 && normalized.length === 1) {
+        return normalized[0];
+      }
+      return `${question.question}: ${normalized.join(", ")}`;
+    })
+    .filter((value): value is string => !!value);
+
+  if (answerLines.length > 0) {
+    return {
+      text: answerLines.join("\n"),
+      resolution: "approved",
+    };
+  }
+
+  return {
+    text: "I prefer not to answer that question. Please continue without it if possible.",
+    resolution: "dismissed",
+  };
+}
+
+function buildToolActivityInput(
+  toolName: string | undefined,
+  input: Record<string, unknown> | undefined,
+  toolUseId?: string,
+): Record<string, unknown> | undefined {
+  if (toolName === "AskUserQuestion" && toolUseId) {
+    return { ...(input ?? {}), requestId: toolUseId };
+  }
+  return input;
+}
+
+function extractUserInputRequest(activity: ActivityMessage): ProviderRequest | null {
+  if (activity.activity !== "tool_use" || activity.tool !== "AskUserQuestion") return null;
+  if (!activity.input || typeof activity.input !== "object") return null;
+  const requestId = activity.input.requestId;
+  if (typeof requestId !== "string") return null;
+
+  const questions = Array.isArray(activity.input.questions)
+    ? activity.input.questions.filter(
+        (question): question is UserInputQuestion =>
+          typeof question === "object" &&
+          question !== null &&
+          typeof (question as UserInputQuestion).id === "string" &&
+          typeof (question as UserInputQuestion).question === "string",
+      )
+    : [];
+  if (questions.length === 0) return null;
+
+  return {
+    requestId,
+    kind: "user_input",
+    tool: "AskUserQuestion",
+    description: questions[0]?.question,
+    questions,
+  };
 }
 
 /**
@@ -1149,16 +1221,31 @@ export class InstanceManager extends EventEmitter {
     if (!instance.process) throw new Error("Instance is not running");
     const pendingRequest = instance.info.pendingPermission;
     if (!pendingRequest) throw new Error("Instance has no pending request");
+    const pendingStateBefore = this.pendingStateSignature(instance);
 
     if (pendingRequest.kind === "user_input") {
       instance.info.pendingTool = undefined;
       instance.info.pendingPermission = undefined;
-      if (instance.process?.respondToRequest) {
-        instance.process.respondToRequest(requestId, decision, response);
+      this.emitPendingStateIfChanged(instance, pendingStateBefore);
+      if (instance.process?.respondToRequest?.(requestId, decision, response)) {
         this.setStatus(instance, "processing");
         return;
       }
-      throw new Error("Provider does not support request_user_input responses");
+
+      const reply = buildUserInputReply(pendingRequest, decision, response);
+      const activity: ActivityMessage = {
+        type: "activity",
+        activity: "tool_result",
+        tool: "AskUserQuestion",
+        description: "Tool completed",
+        resolution: reply.resolution,
+        input: { requestId },
+      };
+      this.noteManagedProcessActivity(instance);
+      this.pushHistory(instance, activity);
+      this.emit("instance:activity", id, activity);
+      this.sendMessage(id, reply.text);
+      return;
     }
 
     const tool = pendingRequest.tool ?? requestId;
@@ -1167,6 +1254,7 @@ export class InstanceManager extends EventEmitter {
 
     instance.info.pendingTool = undefined;
     instance.info.pendingPermission = undefined;
+    this.emitPendingStateIfChanged(instance, pendingStateBefore);
 
     if (decision === "accept" && instance.sessionId) {
       try {
@@ -1465,6 +1553,7 @@ export class InstanceManager extends EventEmitter {
       if (parsedLastMessage) {
         instance.info.lastMessage = parsedLastMessage;
       }
+      this.rebuildPendingInteractiveState(instance);
 
       if (!instance.watchState) {
         try {
@@ -1489,6 +1578,64 @@ export class InstanceManager extends EventEmitter {
     this.enrichGitDataAsync(id, instance).catch((err) => {
       this.baseConfig.logger.debug(`[InstanceManager] Git enrichment failed for ${id}: ${err}`);
     });
+  }
+
+  private rebuildPendingInteractiveState(instance: Instance): void {
+    instance.info.pendingTool = undefined;
+    instance.info.pendingPermission = undefined;
+
+    for (const entry of instance.history) {
+      this.syncPendingInteractiveState(instance, entry.message);
+    }
+  }
+
+  private pendingStateSignature(instance: Instance): string {
+    return [
+      instance.info.pendingTool ?? "",
+      instance.info.pendingPermission?.kind ?? "",
+      instance.info.pendingPermission?.requestId ?? "",
+    ].join("|");
+  }
+
+  private emitPendingStateIfChanged(instance: Instance, before: string): void {
+    if (this.pendingStateSignature(instance) !== before) {
+      this.emit("instance:status", instance.info.id, { ...instance.info });
+    }
+  }
+
+  private syncPendingInteractiveState(instance: Instance, message: ServerMessage): void {
+    if (message.type === "activity") {
+      const activity = message as ActivityMessage;
+      const promptRequest = extractUserInputRequest(activity);
+      if (promptRequest) {
+        instance.info.pendingTool = instance.info.external ? activity.tool : undefined;
+        instance.info.pendingPermission = promptRequest;
+        return;
+      }
+
+      if (activity.activity === "tool_use" && INTERACTIVE_TOOLS.has(activity.tool || "")) {
+        instance.info.pendingTool = activity.tool;
+        return;
+      }
+
+      if (activity.activity === "tool_result") {
+        instance.info.pendingTool = undefined;
+        if (
+          activity.tool === "AskUserQuestion" &&
+          instance.info.pendingPermission?.kind === "user_input"
+        ) {
+          instance.info.pendingPermission = undefined;
+        }
+      }
+      return;
+    }
+
+    if (message.type === "user") {
+      instance.info.pendingTool = undefined;
+      if (instance.info.pendingPermission?.kind === "user_input") {
+        instance.info.pendingPermission = undefined;
+      }
+    }
   }
 
   /**
@@ -3277,7 +3424,11 @@ export class InstanceManager extends EventEmitter {
           tool: block.name,
           description: describeToolUse(block.name || "Unknown", block.input),
           detail: describeToolDetail(block.name || "Unknown", block.input),
-          input: block.input as Record<string, unknown> | undefined,
+          input: buildToolActivityInput(
+            block.name,
+            block.input as Record<string, unknown> | undefined,
+            block.id,
+          ),
           inputDescription: extractInputDescription(block.name || "Unknown", block.input),
         } as ActivityMessage,
       });
@@ -3333,6 +3484,7 @@ export class InstanceManager extends EventEmitter {
             tool,
             description: describeToolUse(tool, input),
             detail: describeToolDetail(tool, input),
+            input: buildToolActivityInput(tool, input, block.id as string | undefined),
             inputDescription: extractInputDescription(tool, input),
           } as ActivityMessage,
         });
@@ -3474,6 +3626,7 @@ export class InstanceManager extends EventEmitter {
 
     for (const histEntry of converted) {
       const msg = histEntry.message;
+      const pendingStateBefore = this.pendingStateSignature(instance);
 
       this.pushHistory(instance, msg);
       instance.info.lastActivityAt = Date.now();
@@ -3490,11 +3643,9 @@ export class InstanceManager extends EventEmitter {
         this.emit("instance:output", instanceId, output);
       } else if (msg.type === "activity") {
         const activity = msg as ActivityMessage;
-        if (activity.activity === "tool_use" && INTERACTIVE_TOOLS.has(activity.tool || "")) {
-          instance.info.pendingTool = activity.tool;
-        } else if (activity.activity === "tool_result") {
-          instance.info.pendingTool = undefined;
-        } else if (activity.activity === "file_list" && activity.files && instance.files) {
+        this.syncPendingInteractiveState(instance, activity);
+        this.emitPendingStateIfChanged(instance, pendingStateBefore);
+        if (activity.activity === "file_list" && activity.files && instance.files) {
           // Enrich with git diff stats for watcher path
           const diffCwd = instance.actualCwd || instance.info.workingDirectory;
           const origBranch = instance.originalDirectory
@@ -3511,7 +3662,8 @@ export class InstanceManager extends EventEmitter {
       } else if (msg.type === "transcript") {
         this.emit("instance:transcript", instanceId, msg as TranscriptMessage);
       } else if (msg.type === "user") {
-        instance.info.pendingTool = undefined;
+        this.syncPendingInteractiveState(instance, msg);
+        this.emitPendingStateIfChanged(instance, pendingStateBefore);
         // For managed instances, sendMessage() / pendingRetry already emitted
         // instance:user — skip the watcher emit to avoid duplicate messages.
         if (!instance.process) {
@@ -4614,6 +4766,7 @@ export class InstanceManager extends EventEmitter {
     proc.on("activity", (message) => {
       this.noteManagedProcessActivity(instance);
       instance.providerBinding = proc.getRuntimeBinding();
+      const pendingStateBefore = this.pendingStateSignature(instance);
       // Sync task state from process to instance
       if (message.activity === "task_list" && message.tasks) {
         if (!instance.tasks) instance.tasks = new Map();
@@ -4651,6 +4804,8 @@ export class InstanceManager extends EventEmitter {
         };
         this.emit("instance:status", id, { ...instance.info });
       }
+      this.syncPendingInteractiveState(instance, message);
+      this.emitPendingStateIfChanged(instance, pendingStateBefore);
       this.pushHistory(instance, message);
       instance.info.lastActivityAt = Date.now();
       this.setStatus(instance, "processing");

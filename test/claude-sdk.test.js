@@ -375,6 +375,56 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
+    it("maps AskUserQuestion into a user_input request and tags the activity", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness);
+      const activities = collectEvents(session, "activity");
+      const requests = collectEvents(session, "permissionRequest");
+
+      harness.fakeQuery.emit({
+        type: "assistant",
+        session_id: "sess-1",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              name: "AskUserQuestion",
+              id: "tu-ask-1",
+              input: {
+                questions: [
+                  {
+                    id: "drink",
+                    header: "Preference",
+                    question: "Which do you prefer?",
+                    options: [
+                      { label: "Coffee", description: "Bolder flavor" },
+                      { label: "Tea", description: "Lighter flavor" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      await tick();
+
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0][0].kind, "user_input");
+      assert.equal(requests[0][0].requestId, "tu-ask-1");
+      assert.equal(requests[0][0].tool, "AskUserQuestion");
+      assert.equal(requests[0][0].questions[0].question, "Which do you prefer?");
+
+      const promptActs = activities.filter(
+        ([a]) => a.activity === "tool_use" && a.tool === "AskUserQuestion",
+      );
+      assert.equal(promptActs.length, 1);
+      assert.equal(promptActs[0][0].input.requestId, "tu-ask-1");
+
+      session.close();
+    });
+
     it("suppresses assistant text when the same message also contains tool use", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);

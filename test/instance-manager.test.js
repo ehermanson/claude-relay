@@ -152,6 +152,133 @@ describe("InstanceManager", () => {
     });
   });
 
+  describe("respondToRequest", () => {
+    it("falls back to a normal user message for provider-neutral AskUserQuestion replies", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      const sentMessages = [];
+      instance.process = {
+        ...instance.process,
+        isProcessing: false,
+        provider: "claude",
+        pid: undefined,
+        stats: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+        },
+        send(text) {
+          sentMessages.push(text);
+        },
+        interrupt() {},
+        close() {},
+        setModel() {},
+        setReasoningBudget() {},
+        addAllowedTool() {},
+        setBypassPermissions() {},
+        getRuntimeBinding() {
+          return { provider: "claude" };
+        },
+        respondToRequest() {
+          return false;
+        },
+      };
+
+      instance.info.pendingPermission = {
+        requestId: "ask-1",
+        kind: "user_input",
+        tool: "AskUserQuestion",
+        questions: [
+          {
+            id: "drink",
+            header: "Preference",
+            question: "Which do you prefer?",
+            options: [
+              { label: "Coffee", description: "Bolder flavor" },
+              { label: "Tea", description: "Lighter flavor" },
+            ],
+          },
+        ],
+      };
+
+      manager.respondToRequest(info.id, "ask-1", "accept", {
+        answers: {
+          drink: {
+            answers: ["Tea"],
+          },
+        },
+      });
+
+      assert.deepEqual(sentMessages, ["Tea"]);
+      assert.equal(instance.info.pendingPermission, undefined);
+      const lastHistory = instance.history[instance.history.length - 2];
+      assert.equal(lastHistory.message.type, "activity");
+      assert.equal(lastHistory.message.tool, "AskUserQuestion");
+      assert.equal(lastHistory.message.resolution, "approved");
+    });
+
+    it("turns empty AskUserQuestion answers into a dismiss-style fallback reply", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      const sentMessages = [];
+      instance.process = {
+        ...instance.process,
+        isProcessing: false,
+        provider: "claude",
+        pid: undefined,
+        stats: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+        },
+        send(text) {
+          sentMessages.push(text);
+        },
+        interrupt() {},
+        close() {},
+        setModel() {},
+        setReasoningBudget() {},
+        addAllowedTool() {},
+        setBypassPermissions() {},
+        getRuntimeBinding() {
+          return { provider: "claude" };
+        },
+        respondToRequest() {
+          return false;
+        },
+      };
+
+      instance.info.pendingPermission = {
+        requestId: "ask-2",
+        kind: "user_input",
+        tool: "AskUserQuestion",
+        questions: [
+          {
+            id: "drink",
+            header: "Preference",
+            question: "Which do you prefer?",
+          },
+        ],
+      };
+
+      manager.respondToRequest(info.id, "ask-2", "accept", { answers: {} });
+
+      assert.equal(
+        sentMessages[0],
+        "I prefer not to answer that question. Please continue without it if possible.",
+      );
+      const lastHistory = instance.history[instance.history.length - 2];
+      assert.equal(lastHistory.message.type, "activity");
+      assert.equal(lastHistory.message.resolution, "dismissed");
+    });
+  });
+
   describe("stopAll", () => {
     it("clears all instances", () => {
       manager.createInstance();
@@ -352,6 +479,60 @@ describe("InstanceManager", () => {
       // instance:user SHOULD be emitted (external instance)
       assert.equal(emitted.length, 1);
       assert.equal(emitted[0].msg.text, "hello from terminal");
+    });
+
+    it("maps watcher AskUserQuestion entries into pending composer state", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      instance.watchState = {
+        jsonlPath: "/tmp/test.jsonl",
+        fileOffset: 0,
+        pendingTools: new Map(),
+        pendingTaskCreates: new Map(),
+        stats: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+        },
+      };
+
+      manager.applyWatcherEntry(info.id, instance, {
+        type: "assistant",
+        timestamp: new Date().toISOString(),
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "watch-ask-1",
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  {
+                    id: "drink",
+                    header: "Preference",
+                    question: "Which do you prefer?",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      assert.equal(instance.info.pendingTool, undefined);
+      assert.equal(instance.info.pendingPermission?.kind, "user_input");
+      assert.equal(instance.info.pendingPermission?.requestId, "watch-ask-1");
+      const promptHistory = instance.history.find(
+        (entry) =>
+          entry.message.type === "activity" &&
+          entry.message.activity === "tool_use" &&
+          entry.message.tool === "AskUserQuestion",
+      );
+      assert.ok(promptHistory);
+      assert.equal(promptHistory.message.input.requestId, "watch-ask-1");
     });
   });
 });

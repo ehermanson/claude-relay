@@ -285,7 +285,7 @@ For Codex specifically:
 - relay-managed Codex turns run through `codex exec --json` and `codex exec resume --json`
 - provider selection is available in the new-session UI as well as the core/API contract
 - restored managed Codex sessions replay history from `~/.codex/sessions/...` by `provider_session_id`, and persist the discovered transcript path back into `managed_sessions`
-- managed Codex sessions surface `request_user_input` prompts inside the composer, switch the send control into answer submission, and send structured answers back over the shared request-response channel
+- managed Claude and Codex sessions map interactive question tools onto the shared `ProviderRequest` flow, render them inside the composer, switch the send control into answer submission, and route responses back through the shared request-response channel
 - provider switching from the chat input creates a new managed session instead of rewriting the current one, with optional recent-context carryover
 - Codex sessions keep model switching via the shared provider/model picker in the chat input
 - Codex sessions also show the shared reasoning control in the composer, and the permission toggle is presented as sandbox/full-access mode

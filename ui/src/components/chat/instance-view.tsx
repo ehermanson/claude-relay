@@ -312,7 +312,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
           />
         )}
 
-      {pendingTerminalTool && (
+      {pendingTerminalTool && !pendingUserInput && (
         <TerminalPermissionBar provider={instance.provider} pendingTool={pendingTerminalTool} />
       )}
 
