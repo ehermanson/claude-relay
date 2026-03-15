@@ -328,6 +328,8 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
             isStopped={isStopped}
             isConnected={isConnected}
             onTakeover={handleTakeover}
+            provider={instance.provider}
+            model={instance.stats?.model}
           />
         ) : (
           <InputArea
