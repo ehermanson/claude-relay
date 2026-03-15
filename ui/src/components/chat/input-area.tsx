@@ -33,7 +33,7 @@ import { useProviderModels } from "./input-area/use-provider-models";
 import { useProviderSwitchState } from "./input-area/use-provider-switch-state";
 
 interface InputAreaProps {
-  onSend: (text: string, images?: string[]) => void;
+  onSend: (text: string, images?: string[], internal?: boolean) => void;
   onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
   onCancel: () => void;
   onSwitchProvider?: (
@@ -326,7 +326,7 @@ export function InputArea({
         }
       }
       parts.push(feedback);
-      onSend(parts.join("\n\n"));
+      onSend(parts.join("\n\n"), undefined, true);
     } else if (planComments.length > 0) {
       const parts = planComments.map((c) => {
         if (c.quotedText) {
@@ -336,16 +336,18 @@ export function InputArea({
       });
       onSend(
         `I have the following comments on your plan:\n\n${parts.join("\n\n")}\n\nPlease update the plan to address these comments.`,
+        undefined,
+        true,
       );
     } else {
-      onSend("Yes, go ahead with this plan.");
+      onSend("Yes, go ahead with this plan.", undefined, true);
     }
     setPlanFeedbackText("");
     setPlanComments([]);
   };
 
   const handleDismissPlan = () => {
-    onSend("Dismiss this plan.");
+    onSend("Dismiss this plan.", undefined, true);
     setPlanFeedbackText("");
     setPlanComments([]);
   };

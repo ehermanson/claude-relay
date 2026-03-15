@@ -1134,7 +1134,12 @@ export class InstanceManager extends EventEmitter {
    * transparently resumes it first. Returns the updated InstanceInfo if a
    * resume happened (so callers can broadcast the transition), undefined otherwise.
    */
-  sendMessage(id: string, text: string, images?: string[]): InstanceInfo | undefined {
+  sendMessage(
+    id: string,
+    text: string,
+    images?: string[],
+    internal?: boolean,
+  ): InstanceInfo | undefined {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
 
@@ -1168,7 +1173,13 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Store user message in history so replay works across devices
-    const userMessage: UserMessage = { type: "user", text: messageText, images, instanceId: id };
+    const userMessage: UserMessage = {
+      type: "user",
+      text: messageText,
+      images,
+      instanceId: id,
+      internal,
+    };
     this.noteManagedProcessActivity(instance);
     this.pushHistory(instance, userMessage);
     this.emit("instance:user", id, userMessage);
@@ -1289,7 +1300,12 @@ export class InstanceManager extends EventEmitter {
     if (instance.process!.isProcessing) {
       instance.pendingRetry = retryText;
     } else {
-      const userMessage: UserMessage = { type: "user", text: retryText, instanceId: id };
+      const userMessage: UserMessage = {
+        type: "user",
+        text: retryText,
+        instanceId: id,
+        internal: true,
+      };
       this.noteManagedProcessActivity(instance);
       this.pushHistory(instance, userMessage);
       this.emit("instance:user", id, userMessage);
@@ -4740,7 +4756,12 @@ export class InstanceManager extends EventEmitter {
         if (instance.pendingRetry) {
           const retryText = instance.pendingRetry;
           instance.pendingRetry = undefined;
-          const userMessage: UserMessage = { type: "user", text: retryText, instanceId: id };
+          const userMessage: UserMessage = {
+            type: "user",
+            text: retryText,
+            instanceId: id,
+            internal: true,
+          };
           this.noteManagedProcessActivity(instance);
           this.pushHistory(instance, userMessage);
           this.emit("instance:user", id, userMessage);

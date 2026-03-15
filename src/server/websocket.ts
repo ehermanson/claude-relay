@@ -264,6 +264,7 @@ export function createWebSocketServer(
                   message.instanceId,
                   message.text || "",
                   hasImages ? message.images : undefined,
+                  message.internal,
                 );
                 // If sendMessage triggered a transparent resume, broadcast the transition
                 if (resumed) {

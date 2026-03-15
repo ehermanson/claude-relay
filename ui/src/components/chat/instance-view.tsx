@@ -95,9 +95,9 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     }
   }, [compact, isConnected, instances, id, instance, navigate]);
 
-  const handleSend = (text: string, images?: string[]) => {
+  const handleSend = (text: string, images?: string[], internal?: boolean) => {
     if (!id) return;
-    send({ type: "instance_message", instanceId: id, text, images });
+    send({ type: "instance_message", instanceId: id, text, images, internal });
     showThinking();
   };
 

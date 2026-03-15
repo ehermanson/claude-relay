@@ -209,6 +209,7 @@ export interface InstanceMessagePayload {
   instanceId: string;
   text: string;
   images?: string[];
+  internal?: boolean;
 }
 
 export interface InstanceCancelPayload {
