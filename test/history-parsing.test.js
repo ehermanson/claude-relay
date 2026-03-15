@@ -630,6 +630,66 @@ describe("History Parsing via DB Restore", () => {
       manager.stopAll();
     });
 
+    it("restores pending plan review from Codex proposed_plan transcript entries", () => {
+      const transcriptPath = join(tempDir, "codex-proposed-plan-session.jsonl");
+      writeFileSync(
+        transcriptPath,
+        [
+          JSON.stringify({
+            timestamp: "2026-03-08T12:00:00.000Z",
+            type: "session_meta",
+            payload: {
+              id: "codex-proposed-plan-session",
+              timestamp: "2026-03-08T12:00:00.000Z",
+              cwd: "/Users/test/projects/my-app",
+              originator: "codex_exec",
+              source: "exec",
+              model_provider: "openai",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-08T12:00:01.000Z",
+            type: "event_msg",
+            payload: {
+              type: "agent_message",
+              message:
+                "Here is the plan.\n<proposed_plan>\n# Test Plan\n- Inspect\n- Patch\n</proposed_plan>",
+            },
+          }),
+          "",
+        ].join("\n"),
+      );
+
+      seedManagedDB(tempDir, [
+        {
+          id: "codex-proposed-plan-id",
+          provider: "codex",
+          providerSessionId: "codex-proposed-plan-session",
+          name: "Codex Proposed Plan Session",
+          workingDirectory: "/Users/test/projects/my-app",
+          transcriptPath,
+          resumeCursorJson: JSON.stringify({ sessionId: "codex-proposed-plan-session" }),
+          planMode: true,
+        },
+      ]);
+
+      const manager = makeManager(tempDir);
+      manager.restoreAndScan();
+
+      const history = manager.getHistory("codex-proposed-plan-id");
+      const instance = manager.instances.get("codex-proposed-plan-id");
+
+      const planActivity = history.find(
+        (entry) => entry.message.type === "activity" && entry.message.tool === "ExitPlanMode",
+      );
+      assert.ok(planActivity, "Expected restored ExitPlanMode activity");
+      assert.equal(planActivity.message.input.plan, "# Test Plan\n- Inspect\n- Patch");
+      assert.equal(instance.info.pendingPlan, "# Test Plan\n- Inspect\n- Patch");
+      assert.equal(instance.info.planContent, "# Test Plan\n- Inspect\n- Patch");
+
+      manager.stopAll();
+    });
+
     it("archives incomplete managed rows that have no resumable binding", () => {
       seedManagedDB(tempDir, [
         {

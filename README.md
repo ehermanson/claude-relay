@@ -216,6 +216,7 @@ This is a convention, not a constraint. Nothing prevents a session started in `~
 - **External session discovery** — automatically detects agent sessions running in terminals and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI
 - **Per-session controls** — model picker, reasoning effort, and build/plan mode toggle, driven by provider capabilities
+- **Plan review normalization** — Codex `<proposed_plan>` blocks are surfaced through the same plan-review UI used by provider plan mode, both live and from transcript replay
 - **Provider handoff** — switch providers mid-project, optionally carrying recent context into the new session
 - **Interactive tool responses** — when the agent asks a question or requests approval, the composer becomes an answer form
 - **Slash commands** — `/model` and `/reasoning` from the composer command palette

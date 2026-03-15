@@ -9,6 +9,7 @@ import type {
   TaskItem,
   UserMessage,
 } from "../types.js";
+import { convertProposedPlanText } from "../proposed-plan.js";
 import { buildTaskListActivityFromPlan } from "../tools.js";
 import { isPathWithinWorkspace } from "../workspace-paths.js";
 
@@ -366,14 +367,12 @@ export function convertCodexTranscriptEntry(
 
       case "agent_message":
         if (typeof payload.message === "string" && payload.message.trim()) {
-          results.push({
-            timestamp,
-            message: {
-              type: "output",
-              text: payload.message,
-              isWaiting: false,
-            } as OutputMessage,
-          });
+          for (const message of convertProposedPlanText(payload.message, { raw: payload })) {
+            results.push({
+              timestamp,
+              message,
+            });
+          }
         }
         break;
 

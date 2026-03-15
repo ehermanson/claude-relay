@@ -355,6 +355,84 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
+  it("normalizes proposed_plan blocks into ExitPlanMode activity during streaming", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const outputs = collectEvents(session, "output");
+    const activities = collectEvents(session, "activity");
+
+    session.send("make a plan");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/started",
+        params: {
+          threadId: "thread-001",
+          turn: { id: "turn-1", items: [], status: "inProgress", error: null },
+        },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-1",
+          itemId: "msg-1",
+          delta: "Before plan\n<proposed_",
+        },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-1",
+          itemId: "msg-1",
+          delta: "plan>\n# Ship it\n- Step 1\n</proposed_plan>\nAfter plan",
+        },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: {
+          threadId: "thread-001",
+          turn: { id: "turn-1", items: [], status: "completed", error: null },
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const textOutputs = outputs.filter(([o]) => o.text);
+    assert.deepEqual(
+      textOutputs.map(([o]) => o.text),
+      ["Before plan\n", "\nAfter plan"],
+    );
+
+    const planActivity = activities.find(
+      ([a]) => a.activity === "tool_use" && a.tool === "ExitPlanMode",
+    );
+    assert.ok(planActivity, "Expected an ExitPlanMode activity for proposed_plan");
+    assert.equal(planActivity[0].description, "Plan ready");
+    assert.equal(planActivity[0].input.plan, "# Ship it\n- Step 1");
+  });
+
   it("maps command execution items to tool activities", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({

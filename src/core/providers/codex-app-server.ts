@@ -30,6 +30,7 @@ import type {
 import type { CoreConfig } from "../config.js";
 import type { ProviderSession } from "../provider.js";
 import { buildTaskListActivityFromPlan } from "../tools.js";
+import { ProposedPlanStreamParser } from "../proposed-plan.js";
 import { isPathWithinWorkspace } from "../workspace-paths.js";
 import { findCodexBinary } from "./codex-cli.js";
 import { getBuiltinProviderModels } from "../provider-catalog.js";
@@ -247,6 +248,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private _currentTurnId: string | null = null;
   private _startedResolve: (() => void) | null = null;
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  private readonly proposedPlanParser = new ProposedPlanStreamParser();
 
   // Track whether we initiated close, to suppress spurious exit events
   private _closingIntentionally = false;
@@ -876,7 +878,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
       case "turn/completed": {
         this._currentTurnId = null;
-        this.finishTurn();
+        this.finishTurn(params);
         break;
       }
 
@@ -897,11 +899,13 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       case "item/agentMessage/delta": {
         const delta = params.delta as string;
         if (delta) {
-          this.emit("output", {
-            type: "output",
-            text: delta,
-            isWaiting: false,
-          } as OutputMessage);
+          for (const message of this.proposedPlanParser.push(delta, params)) {
+            if (message.type === "output") {
+              this.emit("output", message as OutputMessage);
+            } else {
+              this.emit("activity", message as ActivityMessage);
+            }
+          }
         }
         break;
       }
@@ -1158,16 +1162,18 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   // Turn lifecycle
   // ===========================================================================
 
-  private finishTurn(): void {
+  private finishTurn(raw?: unknown): void {
     if (!this._isProcessing) return;
     this.clearTimeout();
     this._isProcessing = false;
     this._currentTurnId = null;
-    this.emit("output", {
-      type: "output",
-      text: "",
-      isWaiting: true,
-    } as OutputMessage);
+    for (const message of this.proposedPlanParser.finish(raw)) {
+      if (message.type === "output") {
+        this.emit("output", message as OutputMessage);
+      } else {
+        this.emit("activity", message as ActivityMessage);
+      }
+    }
   }
 
   private emitExit(code: number, stderrOrSignal?: string): void {

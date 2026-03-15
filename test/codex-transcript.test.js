@@ -69,6 +69,29 @@ describe("convertCodexTranscriptEntry", () => {
       assert.equal(results[0].message.text, "I'll help with that.");
     });
 
+    it("normalizes proposed_plan blocks into ExitPlanMode activity", () => {
+      const ctx = createContext();
+      const results = convertCodexTranscriptEntry(
+        {
+          type: "event_msg",
+          payload: {
+            type: "agent_message",
+            message: "Intro\n<proposed_plan>\n# Test Plan\n- Step 1\n</proposed_plan>\nOutro",
+          },
+        },
+        ctx,
+      );
+
+      assert.equal(results.length, 3);
+      assert.equal(results[0].message.type, "output");
+      assert.equal(results[0].message.text, "Intro\n");
+      assert.equal(results[1].message.type, "activity");
+      assert.equal(results[1].message.tool, "ExitPlanMode");
+      assert.equal(results[1].message.input.plan, "# Test Plan\n- Step 1");
+      assert.equal(results[2].message.type, "output");
+      assert.equal(results[2].message.text, "\nOutro");
+    });
+
     it("converts agent_reasoning to thinking activity", () => {
       const ctx = createContext();
       const results = convertCodexTranscriptEntry(
