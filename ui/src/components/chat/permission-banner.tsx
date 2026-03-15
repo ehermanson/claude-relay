@@ -34,8 +34,8 @@ export function PermissionBanner({
   if (dismissed) return null;
 
   return (
-    <div className="animate-fade-in shrink-0 border-t border-accent/25 bg-accent/5">
-      <div className="mx-auto flex max-w-3xl items-center gap-3 px-6 py-3">
+    <div className="mb-2 shrink-0 px-6">
+      <div className="animate-fade-in mx-auto flex max-w-3xl items-center gap-3 rounded-xl border border-accent/25 bg-accent/5 px-4 py-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15">
           <svg
             width="16"
