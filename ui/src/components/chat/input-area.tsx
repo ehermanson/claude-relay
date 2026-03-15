@@ -638,7 +638,11 @@ export function InputArea({
                   }
                   isSecondaryActionDisabled={disabled}
                   isSendDisabled={
-                    hasPendingPrompt ? disabled || !canSubmitPrompt : disabled || uploading
+                    hasPendingPrompt
+                      ? disabled || !canSubmitPrompt
+                      : disabled ||
+                        uploading ||
+                        (!hasPendingPlan && !draftText.trim() && images.length === 0)
                   }
                 />
               }
