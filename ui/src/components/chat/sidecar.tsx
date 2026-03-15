@@ -129,7 +129,7 @@ const TasksPanel = memo(function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
                 <StatusIcon status={task.status} />
               </div>
               <span
-                className={`min-w-0 truncate ${
+                className={`min-w-0 ${
                   task.status === "completed" ? "text-muted line-through" : "text-text"
                 }`}
               >
