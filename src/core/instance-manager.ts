@@ -1591,15 +1591,21 @@ export class InstanceManager extends EventEmitter {
    * re-read the last known plan file from disk and surface it for review.
    */
   private refreshPendingPlan(instance: Instance): void {
-    if (!instance.info.planMode || instance.info.pendingPlan || !instance.planFilePath) return;
-    try {
-      const content = readFileSync(instance.planFilePath, "utf-8");
-      if (content.trim()) {
-        instance.info.pendingPlan = content;
-        this.emit("instance:status", instance.info.id, { ...instance.info });
+    // Always refresh planContent from disk when we have a plan file
+    if (instance.planFilePath) {
+      try {
+        const content = readFileSync(instance.planFilePath, "utf-8");
+        if (content.trim()) {
+          instance.info.planContent = content;
+          // Only set pendingPlan (composer review) if still in plan mode and not already set
+          if (instance.info.planMode && !instance.info.pendingPlan) {
+            instance.info.pendingPlan = content;
+          }
+          this.emit("instance:status", instance.info.id, { ...instance.info });
+        }
+      } catch {
+        // Plan file may have been deleted — ignore
       }
-    } catch {
-      // Plan file may have been deleted — ignore
     }
   }
 
@@ -1619,8 +1625,11 @@ export class InstanceManager extends EventEmitter {
         const isPlanTool = activity.tool === "ExitPlanMode" || activity.tool === "EnterPlanMode";
         if (isPlanTool && !instance.info.external) {
           if (activity.tool === "ExitPlanMode") {
-            instance.info.pendingPlan = (activity.input as Record<string, unknown> | undefined)
-              ?.plan as string | undefined;
+            const plan = (activity.input as Record<string, unknown> | undefined)?.plan as
+              | string
+              | undefined;
+            instance.info.pendingPlan = plan;
+            if (plan) instance.info.planContent = plan;
           }
         } else {
           instance.info.pendingTool = activity.tool;

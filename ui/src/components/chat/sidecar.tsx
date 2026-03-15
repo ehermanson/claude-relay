@@ -12,6 +12,15 @@ import type { TaskItem, FileChange, SessionStats, HistoryEntry } from "@shared/t
 import type { ChatItem } from "../../hooks/use-instance-messages";
 
 const DiffDrawer = lazy(() => import("./diff-drawer").then((m) => ({ default: m.DiffDrawer })));
+import { MarkdownContent } from "./markdown-content";
+
+const PlanPanel = memo(function PlanPanel({ content }: { content: string }) {
+  return (
+    <div className="flex-1 overflow-y-auto px-3.5 py-3 text-[0.8125rem]">
+      <MarkdownContent text={content} />
+    </div>
+  );
+});
 
 function StatusIcon({ status }: { status: TaskItem["status"] }) {
   switch (status) {
@@ -805,7 +814,7 @@ const ContextPanel = memo(function ContextPanel({
 // Tab system
 // =============================================================================
 
-export type SidecarTab = "tasks" | "files" | "context";
+export type SidecarTab = "tasks" | "files" | "plan" | "context";
 
 function samePanelSets(a: ReadonlySet<SidecarTab>, b: ReadonlySet<SidecarTab>): boolean {
   if (a.size !== b.size) return false;
@@ -816,6 +825,7 @@ function samePanelSets(a: ReadonlySet<SidecarTab>, b: ReadonlySet<SidecarTab>): 
 interface SidecarProps {
   tasks: TaskItem[] | null;
   files: FileChange[] | null;
+  planContent?: string | null;
   stats?: SessionStats | null;
   items?: ChatItem[];
   rawHistory?: HistoryEntry[] | null;
@@ -837,6 +847,7 @@ export const Sidecar = memo(
   function Sidecar({
     tasks,
     files,
+    planContent,
     stats,
     items,
     rawHistory,
@@ -853,6 +864,7 @@ export const Sidecar = memo(
   }: SidecarProps) {
     const hasTasks = tasks && tasks.length > 0;
     const hasFiles = files && files.length > 0;
+    const hasPlan = !!planContent;
     const hasStats = !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
 
     const [diffDrawerOpen, setDiffDrawerOpen] = useState(false);
@@ -870,6 +882,7 @@ export const Sidecar = memo(
         tabs.push({ key: "tasks", label: "Tasks", count: tasks.length });
       if (hasFiles && activePanels.has("files"))
         tabs.push({ key: "files", label: "Files", count: files.length });
+      if (hasPlan && activePanels.has("plan")) tabs.push({ key: "plan", label: "Plan", count: 0 });
       if (hasStats && activePanels.has("context"))
         tabs.push({ key: "context", label: "Context", count: 0 });
       return tabs;
@@ -961,6 +974,7 @@ export const Sidecar = memo(
 
         {/* Panel content */}
         {effectiveTab === "tasks" && hasTasks && <TasksPanel tasks={tasks} />}
+        {effectiveTab === "plan" && hasPlan && <PlanPanel content={planContent} />}
         {effectiveTab === "files" && hasFiles && (
           <FilesPanel
             files={files}
@@ -1029,6 +1043,7 @@ export const Sidecar = memo(
       prev.items === next.items &&
       prev.rawHistory === next.rawHistory &&
       prev.preferredModel === next.preferredModel &&
+      prev.planContent === next.planContent &&
       sameTasks(prev.tasks, next.tasks) &&
       sameFiles(prev.files, next.files)
     );

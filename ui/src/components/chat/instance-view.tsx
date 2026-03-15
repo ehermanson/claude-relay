@@ -162,6 +162,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
   const hasTasksContent = (currentTasks?.length ?? 0) > 0;
   const hasFilesContent = (currentFiles?.length ?? 0) > 0;
+  const hasPlanContent = !!instance?.planContent;
 
   const {
     activePanels,
@@ -176,6 +177,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     isMobile,
     hasTasksContent,
     hasFilesContent,
+    hasPlanContent,
     hasStats,
   });
 
@@ -373,6 +375,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         activePanels={activePanels}
         hasTasksContent={hasTasksContent}
         hasFilesContent={hasFilesContent}
+        hasPlanContent={hasPlanContent}
         hasStats={hasStats}
         sidecarContentCount={sidecarContentCount}
         onTogglePanel={togglePanel}
@@ -391,6 +394,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
             <Sidecar
               tasks={currentTasks}
               files={currentFiles}
+              planContent={instance.planContent}
               stats={instance.stats}
               items={items}
               rawHistory={rawHistory}
@@ -414,6 +418,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         <Sidecar
           tasks={currentTasks}
           files={currentFiles}
+          planContent={instance.planContent}
           stats={instance.stats}
           items={items}
           rawHistory={rawHistory}

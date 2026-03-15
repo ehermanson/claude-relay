@@ -149,6 +149,8 @@ export interface InstanceInfo {
   skipPermissions?: boolean;
   /** Pending plan markdown from ExitPlanMode, awaiting user approval/feedback */
   pendingPlan?: string;
+  /** Latest plan document content for sidecar display (persists after approval) */
+  planContent?: string;
 }
 
 export interface HistoryEntry {

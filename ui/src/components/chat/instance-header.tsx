@@ -12,6 +12,7 @@ import {
   GitBranch,
   LayoutGrid,
   ListChecks,
+  ScrollText,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
@@ -28,6 +29,7 @@ interface SidecarTogglesProps {
   activePanels: Set<SidecarTab>;
   hasTasksContent: boolean;
   hasFilesContent: boolean;
+  hasPlanContent: boolean;
   hasStats: boolean;
   stats?: SessionStats;
   sidecarContentCount: number;
@@ -40,13 +42,14 @@ function SidecarToggles({
   activePanels,
   hasTasksContent,
   hasFilesContent,
+  hasPlanContent,
   hasStats,
   stats,
   sidecarContentCount,
   onTogglePanel,
   onOpenMobileSidecar,
 }: SidecarTogglesProps) {
-  const hasAny = hasTasksContent || hasFilesContent || hasStats;
+  const hasAny = hasTasksContent || hasFilesContent || hasPlanContent || hasStats;
   if (!hasAny) return null;
 
   return (
@@ -74,6 +77,17 @@ function SidecarToggles({
                 className={`shrink-0 ${activePanels.has("files") ? "!bg-accent/10 !text-accent" : ""}`}
               >
                 <FileText size={15} strokeWidth={2} />
+              </Button>
+            </Tooltip>
+          )}
+          {hasPlanContent && (
+            <Tooltip content={activePanels.has("plan") ? "Hide plan" : "Show plan"}>
+              <Button
+                variant="icon"
+                onClick={() => onTogglePanel("plan")}
+                className={`shrink-0 ${activePanels.has("plan") ? "!bg-accent/10 !text-accent" : ""}`}
+              >
+                <ScrollText size={15} strokeWidth={2} />
               </Button>
             </Tooltip>
           )}
@@ -109,6 +123,7 @@ interface InstanceHeaderProps {
   activePanels: Set<SidecarTab>;
   hasTasksContent: boolean;
   hasFilesContent: boolean;
+  hasPlanContent: boolean;
   hasStats: boolean;
   sidecarContentCount: number;
   onTogglePanel: (panel: SidecarTab) => void;
@@ -123,6 +138,7 @@ export function InstanceHeader({
   activePanels,
   hasTasksContent,
   hasFilesContent,
+  hasPlanContent,
   hasStats,
   sidecarContentCount,
   onTogglePanel,
@@ -244,6 +260,7 @@ export function InstanceHeader({
           activePanels={activePanels}
           hasTasksContent={hasTasksContent}
           hasFilesContent={hasFilesContent}
+          hasPlanContent={hasPlanContent}
           hasStats={hasStats}
           stats={instance.stats}
           sidecarContentCount={sidecarContentCount}
