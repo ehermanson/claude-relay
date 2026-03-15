@@ -13,6 +13,7 @@ import { SidebarProjectGroup } from "./sidebar-project-group";
 
 import { NewInstanceForm } from "../forms/new-instance-form";
 import { fetchBeadsProjects } from "../../lib/api";
+import { useProjectOrder } from "../../hooks/use-project-order";
 import type { InstanceInfo } from "@shared/types";
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
@@ -34,6 +35,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const [confirmHide, setConfirmHide] = useState<string | null>(null);
   const prevInstanceIds = useRef(new Set<string>());
   const pendingCreate = useRef(false);
+
+  // Project ordering
+  const { sortEntries, moveToTop, moveUp, moveDown, moveToBottom } = useProjectOrder();
 
   // Beads directories
   const [beadsDirs, setBeadsDirs] = useState<Set<string>>(new Set());
@@ -72,10 +76,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   for (const group of groupMap.values()) {
     group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
-  // Sort projects alphabetically for a stable order (sessions within are still MRU)
-  const groups = [...groupMap.entries()].sort(([a], [b]) =>
-    a.localeCompare(b, undefined, { sensitivity: "base" }),
-  );
+  // Sort projects by custom order (falls back to alphabetical for new projects)
+  const groups = sortEntries([...groupMap.entries()]);
 
   // Build a sessionId->instance lookup for parent linking
   const sessionIdMap = new Map<string, InstanceInfo>();
@@ -176,7 +178,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
           </div>
         ) : (
           <>
-            {groups.map(([dir, groupInstances]) => (
+            {groups.map(([dir, groupInstances], index) => (
               <SidebarProjectGroup
                 key={dir}
                 dir={dir}
@@ -200,6 +202,12 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 onRename={handleRename}
                 onMerge={handleMerge}
                 onHide={handleHide}
+                isFirst={index === 0}
+                isLast={index === groups.length - 1}
+                onMoveToTop={() => moveToTop(dir)}
+                onMoveUp={() => moveUp(dir)}
+                onMoveDown={() => moveDown(dir)}
+                onMoveToBottom={() => moveToBottom(dir)}
               />
             ))}
 

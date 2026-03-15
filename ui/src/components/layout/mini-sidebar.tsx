@@ -9,11 +9,13 @@ import { Tooltip } from "../ui/tooltip";
 import { ProviderLogo } from "../chat/input-area/shared";
 import { formatTimeAgo } from "../../lib/utils";
 import { fetchProjectIcons } from "../../lib/api";
+import { useProjectOrder } from "../../hooks/use-project-order";
 import type { InstanceInfo } from "@shared/types";
 
-/** Extract project groups in stable alphabetical order, sessions within are MRU. */
+/** Extract project groups sorted by custom project order, sessions within are MRU. */
 function useProjectGroups() {
   const { instances } = useWSState();
+  const { sortEntries } = useProjectOrder();
   const groupMap = new Map<string, InstanceInfo[]>();
   for (const inst of instances) {
     const dir = inst.workingDirectory;
@@ -23,10 +25,8 @@ function useProjectGroups() {
   for (const group of groupMap.values()) {
     group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
-  // Sort projects alphabetically for a stable order (sessions within are still MRU)
-  return [...groupMap.entries()].sort(([a], [b]) =>
-    a.localeCompare(b, undefined, { sensitivity: "base" }),
-  );
+  // Sort projects by custom order (falls back to alphabetical for new projects)
+  return sortEntries([...groupMap.entries()]);
 }
 
 // ── Project flyout (sessions for one project) ────────────────────────

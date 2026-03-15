@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useWSState, useWSMethods } from "../context/websocket-context";
 import { Tooltip } from "../components/ui/tooltip";
 import { formatTimeAgo } from "../lib/utils";
+import { useProjectOrder } from "../hooks/use-project-order";
 import type { InstanceInfo } from "@shared/types";
 
 // ─── Project Row ────────────────────────────────────────────────────────────
@@ -69,6 +70,7 @@ function ProjectRow({
 export function Dashboard() {
   const { instances } = useWSState();
   const { send } = useWSMethods();
+  const { sortEntries } = useProjectOrder();
   const navigate = useNavigate();
   const pendingCreate = useRef(false);
   const prevInstanceIds = useRef(new Set<string>());
@@ -104,10 +106,8 @@ export function Dashboard() {
     if (!projectMap.has(dir)) projectMap.set(dir, []);
     projectMap.get(dir)!.push(inst);
   }
-  // Sort projects alphabetically for a stable order
-  const projectGroups = Array.from(projectMap.entries()).sort(([a], [b]) =>
-    a.localeCompare(b, undefined, { sensitivity: "base" }),
-  );
+  // Sort projects by custom order (falls back to alphabetical for new projects)
+  const projectGroups = sortEntries(Array.from(projectMap.entries()));
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">

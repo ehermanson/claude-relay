@@ -5,7 +5,17 @@
 
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, EyeOff, MoreVertical, Plus } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowUp,
+  ArrowUpToLine,
+  ChevronDown,
+  ChevronRight,
+  EyeOff,
+  MoreVertical,
+  Plus,
+} from "lucide-react";
 import { SidebarItem } from "./sidebar-item";
 import { Collapsible } from "../ui/collapsible";
 import { Menu } from "../ui/menu";
@@ -28,6 +38,13 @@ interface SidebarProjectGroupProps {
   onRename: (id: string, name: string) => void;
   onMerge: (id: string) => void;
   onHide?: (dir: string) => void;
+  /** Position flags for enabling/disabling reorder menu items */
+  isFirst?: boolean;
+  isLast?: boolean;
+  onMoveToTop?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  onMoveToBottom?: () => void;
 }
 
 export function SidebarProjectGroup({
@@ -45,6 +62,12 @@ export function SidebarProjectGroup({
   onRename,
   onMerge,
   onHide,
+  isFirst,
+  isLast,
+  onMoveToTop,
+  onMoveUp,
+  onMoveDown,
+  onMoveToBottom,
 }: SidebarProjectGroupProps) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -174,40 +197,92 @@ export function SidebarProjectGroup({
               <Plus size={12} strokeWidth={2.5} />
               New Chat
             </button>
-            {onHide &&
-              (menuOpen ? (
-                <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
-                  <Menu.Trigger
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
-                    }}
-                    className="flex h-5 w-5 items-center justify-center rounded text-muted hover:text-text"
-                  >
-                    <MoreVertical size={12} />
-                  </Menu.Trigger>
-                  <Menu.Content>
-                    <Menu.Item
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        onHide(dir);
-                      }}
-                    >
-                      <EyeOff size={13} strokeWidth={2} className="text-muted" />
-                      Hide project
-                    </Menu.Item>
-                  </Menu.Content>
-                </Menu.Root>
-              ) : (
-                <button
-                  onClick={(e) => {
+            {menuOpen ? (
+              <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+                <Menu.Trigger
+                  onClick={(e: React.MouseEvent) => {
                     e.stopPropagation();
-                    setMenuOpen(true);
                   }}
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100 hover:text-text"
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted hover:text-text"
                 >
                   <MoreVertical size={12} />
-                </button>
-              ))}
+                </Menu.Trigger>
+                <Menu.Content>
+                  {onMoveToTop && (
+                    <Menu.Item
+                      disabled={isFirst}
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        onMoveToTop();
+                      }}
+                    >
+                      <ArrowUpToLine size={13} strokeWidth={2} className="text-muted" />
+                      Move to top
+                    </Menu.Item>
+                  )}
+                  {onMoveUp && (
+                    <Menu.Item
+                      disabled={isFirst}
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        onMoveUp();
+                      }}
+                    >
+                      <ArrowUp size={13} strokeWidth={2} className="text-muted" />
+                      Move up
+                    </Menu.Item>
+                  )}
+                  {onMoveDown && (
+                    <Menu.Item
+                      disabled={isLast}
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        onMoveDown();
+                      }}
+                    >
+                      <ArrowDown size={13} strokeWidth={2} className="text-muted" />
+                      Move down
+                    </Menu.Item>
+                  )}
+                  {onMoveToBottom && (
+                    <Menu.Item
+                      disabled={isLast}
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        onMoveToBottom();
+                      }}
+                    >
+                      <ArrowDownToLine size={13} strokeWidth={2} className="text-muted" />
+                      Move to bottom
+                    </Menu.Item>
+                  )}
+                  {onHide && (
+                    <>
+                      <Menu.Separator />
+                      <Menu.Item
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          onHide(dir);
+                        }}
+                      >
+                        <EyeOff size={13} strokeWidth={2} className="text-muted" />
+                        Hide project
+                      </Menu.Item>
+                    </>
+                  )}
+                </Menu.Content>
+              </Menu.Root>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen(true);
+                }}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100 hover:text-text"
+              >
+                <MoreVertical size={12} />
+              </button>
+            )}
           </div>
         </div>
 
