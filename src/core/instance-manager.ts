@@ -2002,7 +2002,8 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Plans — collect slugs from JSONL files, then check ~/.claude/plans/
+    // Plans — Claude-specific: collect slugs from JSONL files, then check {claudeDir}/plans/.
+    // Skipped entirely for non-Claude projects (projectDir is null).
     const plans: ProjectPlan[] = [];
     const seenSlugs = new Set<string>();
     if (projectDir)
@@ -2056,7 +2057,7 @@ export class InstanceManager extends EventEmitter {
               if (undiscovered.length === 0) break;
               try {
                 const raw = readFileSync(jsonlPath, "utf-8");
-                if (!raw.includes(".claude/plans/")) continue;
+                if (!raw.includes(`${this.providerDirs.claude}/plans/`)) continue;
                 for (let i = undiscovered.length - 1; i >= 0; i--) {
                   const planSlug = undiscovered[i];
                   if (raw.includes(`plans/${planSlug}.md`)) {
