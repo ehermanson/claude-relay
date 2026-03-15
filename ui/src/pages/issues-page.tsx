@@ -155,7 +155,7 @@ function sortIssues(issues: BeadIssue[], sortKey: SortKey): BeadIssue[] {
 
 // ─── Issue Card ─────────────────────────────────────────────────────────────
 
-/** Extract the short suffix from an issue ID like "claude-relay-11k" → "11k" */
+/** Extract the short suffix from an issue ID like "relay-11k" → "11k" */
 function shortId(id: string): string {
   const last = id.lastIndexOf("-");
   return last >= 0 ? id.slice(last + 1) : id;

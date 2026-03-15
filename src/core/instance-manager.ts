@@ -1865,7 +1865,15 @@ export class InstanceManager extends EventEmitter {
       });
       if (dirs.length === 1) return dirs[0];
       if (dirs.length > 1) {
-        // Multiple matches — pick most recently modified (by newest JSONL mtime)
+        // Prefer the directory whose decoded path basename exactly matches the slug
+        // (e.g. slug "relay" should prefer "-Users-...-relay" over "-Users-...-claude-relay")
+        const exactBasename = dirs.find((d) => {
+          const decoded = decodeProjectDir(d);
+          return decoded.split("/").pop() === slug;
+        });
+        if (exactBasename) return exactBasename;
+
+        // Fallback: pick most recently modified (by newest JSONL mtime)
         let best = dirs[0];
         let bestMtime = 0;
         for (const d of dirs) {
@@ -1933,7 +1941,7 @@ export class InstanceManager extends EventEmitter {
           try {
             const head = readFileSync(jsonlFiles[0].path, "utf-8").split("\n")[0];
             const parsed = JSON.parse(head);
-            if (parsed.cwd) directory = parsed.cwd;
+            if (parsed.cwd && existsSync(parsed.cwd)) directory = parsed.cwd;
           } catch {
             /* fall back below */
           }
@@ -2141,18 +2149,22 @@ export class InstanceManager extends EventEmitter {
       if (!existsSync(beadsDir)) return null;
 
       // Get all issue IDs
-      const listResult = execFileSync("bd", ["list", "--json", "--all", "--limit", "0"], {
-        cwd: directory,
-        timeout: 5000,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      const listResult = execFileSync(
+        "bd",
+        ["list", "--json", "--all", "--limit", "0", "--no-daemon"],
+        {
+          cwd: directory,
+          timeout: 15000,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
       const listed = JSON.parse(listResult) as BeadIssue[];
       if (listed.length === 0) return [];
 
       // Fetch full details with dependencies via bd show
       const ids = listed.map((i) => i.id);
-      const showResult = execFileSync("bd", ["show", ...ids, "--json"], {
+      const showResult = execFileSync("bd", ["show", ...ids, "--json", "--no-daemon"], {
         cwd: directory,
         timeout: 10000,
         encoding: "utf-8",
