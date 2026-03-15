@@ -11,7 +11,7 @@ import { formatTimeAgo } from "../../lib/utils";
 import { fetchProjectIcons } from "../../lib/api";
 import type { InstanceInfo } from "@shared/types";
 
-/** Extract project groups in MRU order, same logic as Sidebar. */
+/** Extract project groups in stable alphabetical order, sessions within are MRU. */
 function useProjectGroups() {
   const { instances } = useWSState();
   const groupMap = new Map<string, InstanceInfo[]>();
@@ -23,7 +23,10 @@ function useProjectGroups() {
   for (const group of groupMap.values()) {
     group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
-  return [...groupMap.entries()].sort(([, a], [, b]) => b[0].lastActivityAt - a[0].lastActivityAt);
+  // Sort projects alphabetically for a stable order (sessions within are still MRU)
+  return [...groupMap.entries()].sort(([a], [b]) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
+  );
 }
 
 // ── Project flyout (sessions for one project) ────────────────────────

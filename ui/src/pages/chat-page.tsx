@@ -97,16 +97,16 @@ export function Dashboard() {
     send({ type: "create_instance", workingDirectory });
   };
 
-  // Group instances by working directory, sorted by most recent activity
+  // Group instances by working directory
   const projectMap = new Map<string, InstanceInfo[]>();
   for (const inst of instances) {
     const dir = inst.workingDirectory;
     if (!projectMap.has(dir)) projectMap.set(dir, []);
     projectMap.get(dir)!.push(inst);
   }
-  const projectGroups = Array.from(projectMap.entries()).sort(
-    ([, a], [, b]) =>
-      Math.max(...b.map((i) => i.lastActivityAt)) - Math.max(...a.map((i) => i.lastActivityAt)),
+  // Sort projects alphabetically for a stable order
+  const projectGroups = Array.from(projectMap.entries()).sort(([a], [b]) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
   );
 
   return (

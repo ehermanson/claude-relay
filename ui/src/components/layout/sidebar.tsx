@@ -62,7 +62,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     prevInstanceIds.current = currentIds;
   }, [instances, navigate]);
 
-  // Group instances by working directory, sorted by most recent activity
+  // Group instances by working directory
   const groupMap = new Map<string, InstanceInfo[]>();
   for (const inst of instances) {
     const dir = inst.workingDirectory;
@@ -72,8 +72,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   for (const group of groupMap.values()) {
     group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
-  const groups = [...groupMap.entries()].sort(
-    ([, a], [, b]) => b[0].lastActivityAt - a[0].lastActivityAt,
+  // Sort projects alphabetically for a stable order (sessions within are still MRU)
+  const groups = [...groupMap.entries()].sort(([a], [b]) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
   );
 
   // Build a sessionId->instance lookup for parent linking
