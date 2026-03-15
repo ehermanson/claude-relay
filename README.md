@@ -4,7 +4,7 @@ A lightweight bridge between remote devices and your local AI coding agents. Run
 
 Relay also automatically discovers agent sessions running on your machine and lets you monitor or resume them from the web UI.
 
-> **Fair warning:** This project is held together with duct tape and optimism. It relies on Claude Code's undocumented JSONL transcript format, its `stream-json` output mode, the layout of `~/.claude/`, and various CLI flags that could change without notice. Any Claude Code update could break things in spectacular and unexpected ways. There is no stable API contract here — just a guy reading JSONL files and hoping for the best. If it works today, celebrate. If it breaks tomorrow, that's expected.
+> **Fair warning:** This project is held together with duct tape and optimism. It relies on undocumented transcript formats (Claude Code's JSONL, Codex's session files), CLI flags, and directory layouts (`~/.claude/`, `~/.codex/`) that could change without notice. Any provider CLI update could break things in spectacular and unexpected ways. There is no stable API contract here — just a guy reading transcript files and hoping for the best. If it works today, celebrate. If it breaks tomorrow, that's expected.
 
 ![Relay](claude-relay.png)
 
@@ -18,8 +18,8 @@ Relay also automatically discovers agent sessions running on your machine and le
   │  ┌──────────────────┐       ┌──────────────────────────┐     │
   │  │ $ claude          │──┐   │                          │     │
   │  │ $ claude          │──┤   │  InstanceManager         │     │
-  │  │ $ claude          │──┘   │    ┌───────────────────┐ │     │
-  │  └──────────────────┘  ▲    │    │ ClaudeProcess ×N  │ │     │
+  │  │ $ codex           │──┘   │    ┌───────────────────┐ │     │
+  │  └──────────────────┘  ▲    │    │ ProviderSession ×N│ │     │
   │     discovered via     │    │    └───────────────────┘ │     │
   │     ps + JSONL watch ──┘    │                          │     │
   │                             │  HTTP   ─── REST API     │     │
@@ -42,46 +42,194 @@ Relay also automatically discovers agent sessions running on your machine and le
 ```
 
 1. **Relay** runs on your dev machine alongside your coding agents
-2. **InstanceManager** spawns and manages provider-backed sessions (currently Claude CLI, Claude Agent SDK, and managed Codex CLI)
-3. **Session discovery** finds Claude Code and Codex sessions and streams their JSONL transcripts
+2. **InstanceManager** spawns and manages provider-backed sessions through the provider-driver registry
+3. **Session discovery** finds agent sessions running in terminals and streams their transcripts
 4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
 5. **Tailscale** (optional) makes the relay reachable from any device on your private tailnet
 6. **Cloudflare Tunnel** (optional) gives you a public HTTPS URL for access from any device
 
+## Architecture
+
+### Provider Registry
+
+Relay's backend is organized around a **provider-driver registry**. Each provider declares its capabilities and owns its own session lifecycle behind a shared contract:
+
+```
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                        Provider Registry                            │
+  │                                                                     │
+  │  ┌─────────────┐   ┌─────────────┐                                 │
+  │  │  Claude      │   │  Codex      │  ← Drivers                     │
+  │  │  SDK / CLI   │   │  app-server │                                 │
+  │  └──────┬───────┘   └──────┬──────┘                                 │
+  │         │                  │                                        │
+  │         ▼                  ▼                                        │
+  │  ┌──────────────────────────────────────────────────────────┐       │
+  │  │              ProviderSession contract                    │       │
+  │  │  send() · interrupt() · close() · setModel()            │       │
+  │  │  setReasoningBudget() · setPlanMode()                    │       │
+  │  │  getRuntimeBinding() · respondToRequest()                │       │
+  │  └──────────────────────────────────────────────────────────┘       │
+  │         │                                                           │
+  │         ▼                                                           │
+  │  ┌──────────────────────────────────────────────────────────┐       │
+  │  │              ProviderCapabilities                        │       │
+  │  │  supportsResume · supportsApprovals · supportsPlanMode   │       │
+  │  │  supportsReasoningBudget · supportsModelSelection · ...  │       │
+  │  └──────────────────────────────────────────────────────────┘       │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+Each driver implements: `isAvailable()`, `createSession()`, `getModels()`, `parseTranscript()`, `resolveManagedTranscriptPath()`, and `captureManagedSession()`. The UI never hardcodes provider-specific logic — it queries `GET /api/providers` for available providers and `GET /api/provider-models?provider=...` for model lists and capabilities, then shows or hides controls accordingly.
+
+### Data Flow
+
+```
+  ┌────────────┐
+  │  React UI  │
+  │  (Vite)    │
+  └─────┬──────┘
+        │ WebSocket (JSON)
+        ▼
+  ┌────────────────┐     subscribe/unsubscribe per instance
+  │  WS Server     │───► broadcast: status, create, remove → all clients
+  │                │───► scoped: output, activity, exit → subscribers only
+  └─────┬──────────┘
+        │
+        ▼
+  ┌────────────────────────────────────────────────────────────┐
+  │                    InstanceManager                          │
+  │                                                            │
+  │  instances: Map<id, Instance>                              │
+  │                                                            │
+  │  ┌──────────────────┐   ┌──────────────────┐               │
+  │  │  Managed          │   │  External         │              │
+  │  │  ProviderSession  │   │  JSONL watcher    │              │
+  │  │  (live process)   │   │  (2s poll)        │              │
+  │  └────────┬─────────┘   └────────┬──────────┘              │
+  │           │                      │                          │
+  │           ▼                      ▼                          │
+  │  ┌─────────────────────────────────────────────────┐       │
+  │  │  Unified event stream                           │       │
+  │  │  output · activity · stats · exit               │       │
+  │  └─────────────────────────────────────────────────┘       │
+  │           │                                                 │
+  │           ▼                                                 │
+  │  ┌─────────────────────────────────────────────────┐       │
+  │  │  SessionDB (SQLite)                             │       │
+  │  │  sessions: rebuildable transcript index         │       │
+  │  │  managed_sessions: provider runtime bindings    │       │
+  │  └─────────────────────────────────────────────────┘       │
+  └────────────────────────────────────────────────────────────┘
+```
+
+### Session Lifecycle
+
+```
+  New chat request
+        │
+        ▼
+  ┌──────────────┐    Provider registry picks driver
+  │ createSession│───► driver.createSession()
+  └──────┬───────┘    returns ProviderSession
+         │
+         ▼
+  ┌──────────────┐    First response arrives
+  │ Capture      │───► extract session ID + transcript path
+  │ session ID   │    persist runtime binding to SQLite
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐    User sends messages
+  │ Active       │───► provider session handles send/resume
+  │              │    transcript watcher tracks changes
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐    Relay restarts
+  │ Persisted    │───► SQLite has runtime binding
+  │ (stopped)    │    sidebar renders from cached metadata
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐    User opens the session
+  │ Lazy hydrate │───► replay transcript, restore state
+  │              │    boot provider session if resumable
+  └──────────────┘
+```
+
+### External Session Discovery
+
+```
+  Every 10 seconds:
+  ┌──────────────┐
+  │ ps -eo pid   │───► find agent CLI processes
+  └──────┬───────┘     (exclude managed PIDs)
+         │
+         ▼
+  ┌──────────────┐
+  │ lsof -p PID  │───► resolve working directory
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐
+  │ Match trans- │───► provider-specific transcript paths
+  │ cript files  │    (e.g. ~/.claude/projects/, ~/.codex/sessions/)
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐
+  │ Start watch  │───► 2s poll, emit new entries
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐     User sends message from UI
+  │ Resume       │───► stop external process
+  │ (optional)   │    spawn managed provider session
+  └──────────────┘
+```
+
+### Package Structure
+
+The package exposes two entry points:
+
+```ts
+// Core only — embed process management in your own app
+import { InstanceManager } from "relay";
+
+// Full server — HTTP + WebSocket + auth + UI
+import { createRelay } from "relay/server";
+```
+
+The server entry point re-exports everything from core, so you never need to import from both.
+
 ## Projects and Directories
 
-Relay inherits Claude Code's project model: **the directory you launch `claude` from is your project**. The CLI loads `CLAUDE.md` from the working directory, project memory is keyed by it, and JSONL transcripts are stored under `~/.claude/projects/` using the encoded path. Relay uses the same convention — sessions are grouped by their starting directory in the sidebar, project pages aggregate artifacts by directory, and external session discovery reads the `cwd` from each session's JSONL init entry.
+Relay uses the working directory as the project identity — **the directory you launch an agent from is your project**. Sessions are grouped by their starting directory in the sidebar, project pages aggregate artifacts (plans, memory, docs) by directory, and external session discovery reads the `cwd` from each session's transcript.
 
-This is a convention, not a constraint. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar` or running commands elsewhere. The working directory is a "home base," not a sandbox — the same way a git repo doesn't stop you from touching files outside it. In practice the heuristic is correct the vast majority of the time, since people launch `claude` from the repo they're working on.
-
-New managed sessions run directly in the directory you choose. Once a managed session has a resumable provider binding or transcript path, Relay persists that runtime state in SQLite so restore does not depend on discovering a Claude JSONL file first. Restore is intentionally lazy: the sidebar/dashboard come from persisted DB metadata, and full transcript hydration plus managed-session boot now happen when the user opens that session. Empty placeholder sessions that never started a real provider conversation are not restored. Claude transcripts are still used for Claude-specific history replay, external session discovery, and post-hoc session capture.
-
-If Relay discovers or restores a session that already lives in a Relay-managed git worktree, it preserves that worktree metadata so the session can still be resumed, displayed, and merged correctly.
+This is a convention, not a constraint. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar`. The working directory is a "home base," not a sandbox. In practice the heuristic is correct the vast majority of the time, since people launch agents from the repo they're working on.
 
 ## What It Does
 
-- **Multi-session management** — run multiple Claude Code instances side-by-side, each with its own working directory and conversation history
-- **External session discovery** — automatically detects Claude Code and Codex sessions and streams their output in real time
-- **Resume external sessions** — take over a terminal-started session from the web UI, then switch freely between terminal and UI on the same conversation (one at a time)
-- **Per-session controls** — managed sessions show a combined provider/model picker in the chat input; models stay switchable, and changing providers starts a new chat instead of mutating the current session
-- **Provider markers in the sidebar** — each session row shows which provider it belongs to, so Claude and Codex chats are easy to tell apart at a glance
-- **Provider-aware managed sessions** — managed instances persist their provider identity and runtime binding, so future adapters can restore without going through Claude-specific transcript indexing
-- **Managed Codex adapter** — core/API-managed sessions run through the long-lived `codex app-server` transport with provider-isolated turn/resume handling
-- **Codex task/checklist support** — Codex `update_plan` / plan updates now feed the same sidecar task list used for Claude todos, both live and after session reload
-- **Codex model filtering** — Relay asks `codex app-server` for `model/list` when available and filters the Codex picker to models the local runtime actually reports
-- **Provider handoff flow** — switching from Codex to Claude (or back) can spawn a new chat in the same workspace and optionally seed it with recent portable context from the current session
-- **Slash commands in the composer** — use `/model ...` and `/reasoning ...` from the inline command palette to adjust those settings without sending a chat message
-- **`@` file and folder tagging** — type `@` in the composer to search the current workspace, insert tagged paths as inline chips, and send them to Codex as raw `@path/to/file` references
-- **Native file links in chat** — local file references in assistant messages open through the operating system instead of navigating the relay SPA
-- **Interactive tool responses** — when Claude asks a question (`AskUserQuestion`) or managed Codex runs `request_user_input`, the composer turns into an answer form so you can reply directly in the input area without falling back to the terminal
-- **Mobile-friendly web UI** — React SPA with markdown rendering, syntax highlighting, activity indicators, directory browsing, and modern framework-aware file icons in the sidecar
-- **Remote access** — built-in Cloudflare Tunnel support for secure access from anywhere
+- **Multi-session management** — run multiple agent instances side-by-side, each with its own working directory and conversation history
+- **Multi-provider support** — managed sessions for Claude and Codex, with a provider picker in the UI
+- **External session discovery** — automatically detects agent sessions running in terminals and streams their output in real time
+- **Resume external sessions** — take over a terminal-started session from the web UI
+- **Per-session controls** — model picker, reasoning effort, and build/plan mode toggle, driven by provider capabilities
+- **Provider handoff** — switch providers mid-project, optionally carrying recent context into the new session
+- **Interactive tool responses** — when the agent asks a question or requests approval, the composer becomes an answer form
+- **Slash commands** — `/model` and `/reasoning` from the composer command palette
+- **`@` file mentions** — workspace search with inline mention chips
+- **Lazy hydration** — sidebar renders instantly from cached metadata; full transcript replay happens when you open a session
+- **Git worktree support** — sessions in relay-managed worktrees can be merged back to main from the sidebar
+- **Mobile-friendly web UI** — markdown rendering, syntax highlighting, activity indicators, and framework-aware file icons
+- **Remote access** — built-in Cloudflare Tunnel support, or use Tailscale for private access
 - **Embeddable** — use as a standalone server or import the core library into your own app
 
 ## What It Doesn't Do
 
-- **No model access** — this is not an API wrapper. It shells out to the `claude` CLI binary on your machine. You need Claude Code installed.
-- **No multi-user auth** — single password protects the whole server. There are no user accounts or per-user permissions.
+- **No model access** — this is not an API wrapper. It manages provider CLIs and SDKs on your machine. You need at least one provider installed.
+- **No multi-user auth** — single password protects the whole server.
 - **No multi-device sync** — persistence is local to the machine running the relay.
 
 ## Quick Start
@@ -96,17 +244,17 @@ Open `http://localhost:7777`. That's it.
 
 ### Setting a Password
 
-The `RELAY_PASSWORD` environment variable is required. You can set it in a few ways:
+The `RELAY_PASSWORD` environment variable is required:
 
 ```bash
-# Inline (simplest — good for one-off launches)
+# Inline
 RELAY_PASSWORD="your-secret" npm start
 
-# Export it for the current shell session
+# Export for current shell
 export RELAY_PASSWORD="your-secret"
 npm start
 
-# Or put it in a .env file (not committed to git)
+# Or use a .env file (not committed to git)
 echo 'RELAY_PASSWORD=your-secret' > .env
 source .env && npm start
 ```
@@ -117,14 +265,12 @@ The password protects the web UI — you'll enter it once on the login page, the
 
 **Option A: Tailscale (recommended for personal use)**
 
-If you run [Tailscale](https://tailscale.com) on your devices, the relay is already accessible — no tunnel needed. Just start it and connect from any device on your tailnet:
+If you run [Tailscale](https://tailscale.com) on your devices, the relay is already accessible — no tunnel needed:
 
 ```bash
 RELAY_PASSWORD="your-secret" npm start
 # → http://your-machine:7777 from any tailnet device
 ```
-
-Tailscale authenticates at the network layer, so only your devices can reach the relay. The password still protects the web UI as a second factor.
 
 **Option B: Cloudflare Tunnel (for public URLs)**
 
@@ -135,68 +281,6 @@ TUNNEL=true RELAY_PASSWORD="your-secret" npm start
 # Or manually
 cloudflared tunnel --url http://localhost:7777
 ```
-
-This gives you a public `https://*.trycloudflare.com` URL you can open on any device — useful when you need to share access or can't install Tailscale.
-
-## Architecture
-
-```
-src/
-  core/                 ← "relay" (no server deps)
-    claude-process.ts      Spawns claude -p processes, parses stream-json
-    provider.ts            Provider session contract used by managed adapters
-    provider-catalog.ts    Shared provider labels + built-in model catalogs
-    provider-registry.ts   Provider driver registry: capabilities, session creation, transcript parsing, model lookup
-    session-handoff.ts     Provider-neutral prompt builder for switching providers into a new chat
-    providers/claude-sdk.ts Long-lived SDK-backed provider session
-    providers/codex-cli.ts Codex CLI binary discovery helpers
-    providers/codex-app-server.ts Long-lived Codex app-server provider session
-    providers/codex-transcript.ts Provider-specific Codex transcript lookup + replay
-    providers/codex-models.ts Best-effort Codex app-server model discovery
-    instance-manager.ts    Manages multiple instances + discovers external sessions
-    workspace-entries.ts   Workspace file/folder indexing for `@` mention search
-    config.ts              CoreConfig type + resolveCoreConfig()
-    types.ts               All shared type definitions
-    logger.ts              Logger interface
-    tools.ts               Tool description helpers
-    index.ts               Barrel export
-  server/               ← "relay/server" (extends core)
-    http.ts                REST API + static file serving
-    project-opener.ts      Project/app target discovery + native open persistence
-    websocket.ts           Real-time message relay via subscriptions
-    auth.ts                Password auth + session cookies + rate limiting
-    tunnel.ts              Cloudflare Tunnel lifecycle
-    config.ts              RelayConfig extends CoreConfig
-    index.ts               Relay class, createRelay(), re-exports core
-  bin.ts                ← CLI entry point
-ui/                     ← React app
-  src/components/chat/composer-editor.tsx
-  src/components/chat/input-area/  InputArea subcomponents + hooks: toolbar, picker, overlays, resume banner, attachments, composer state, menu controller
-  src/components/project/open-in-menu.tsx
-  src/components/ui/file-icon.tsx
-  src/lib/composer-mentions.ts
-  src/lib/file-icons.ts
-```
-
-The package exposes two entry points:
-
-```ts
-// Core only — embed process management in your own app
-import { InstanceManager, ClaudeProcess } from "relay";
-
-// Full server — HTTP + WebSocket + auth + UI
-import { createRelay } from "relay/server";
-```
-
-The server entry point re-exports everything from core, so you never need to import from both.
-
-Managed-session architecture is split in two:
-
-- `provider.ts` defines the adapter contract used by `InstanceManager`
-- `provider-registry.ts` is the provider-driver seam: provider availability, capabilities, session creation, transcript replay, managed transcript path recovery, and model lookup all route through it
-- `managed_sessions` in SQLite stores provider identity plus provider-owned runtime state for restore
-- Claude JSONL files remain an optional Claude-specific read model for history replay and external session discovery
-- provider capabilities are explicit (`supportsReasoningBudget`, `supportsPlanMode`, `supportsTitleUpdates`, etc.) and drive server responses plus composer controls instead of assuming feature parity
 
 ## Library Usage
 
@@ -212,8 +296,6 @@ const relay = createRelay({
 });
 
 await relay.start();
-// → http://localhost:8080
-
 await relay.stop();
 ```
 
@@ -234,68 +316,41 @@ manager.on("instance:output", (id, message) => {
   console.log(message.text);
 });
 
-manager.sendMessage(instance.id, "Hello Claude");
+manager.sendMessage(instance.id, "Hello!");
 ```
 
 ## Configuration
 
-### Environment Variables (CLI)
+### Environment Variables
 
-| Variable                     | Default                   | Description                                                   |
-| ---------------------------- | ------------------------- | ------------------------------------------------------------- |
-| `RELAY_PASSWORD`             | **(required)**            | Authentication password                                       |
-| `PORT`                       | `7777`                    | Server port                                                   |
-| `WORKING_DIR`                | `$HOME`                   | Default working directory for Claude                          |
-| `MAX_PROCESSES`              | `15`                      | Maximum concurrent managed processes                          |
-| `TUNNEL`                     | `false`                   | Set `"true"` to start a Cloudflare Tunnel                     |
-| `DANGEROUS_SKIP_PERMISSIONS` | `false`                   | Set `"true"` to skip Claude's permission prompts              |
-| `PROCESS_TIMEOUT`            | `300000`                  | Process timeout in ms (5 min)                                 |
-| `SESSION_MAX_AGE`            | `604800000`               | Session lifetime in ms (7 days)                               |
-| `SESSION_FILE`               | `~/.relay/sessions.json`  | Session cookie storage file path                              |
-| `MANIFEST_FILE`              | `~/.relay/instances.json` | Instance manifest file path (for persistence across restarts) |
+| Variable                     | Default        | Description                          |
+| ---------------------------- | -------------- | ------------------------------------ |
+| `RELAY_PASSWORD`             | **(required)** | Authentication password              |
+| `PORT`                       | `7777`         | Server port                          |
+| `WORKING_DIR`                | `$HOME`        | Default working directory            |
+| `MAX_PROCESSES`              | `15`           | Maximum concurrent managed processes |
+| `TUNNEL`                     | `false`        | Start a Cloudflare Tunnel            |
+| `DANGEROUS_SKIP_PERMISSIONS` | `false`        | Skip agent permission prompts        |
+| `PROCESS_TIMEOUT`            | `300000`       | Process timeout in ms (5 min)        |
+| `SESSION_MAX_AGE`            | `604800000`    | Auth session lifetime in ms (7 days) |
 
 ### Programmatic Options
 
-| Option                       | Type      | Default                   | Description                                    |
-| ---------------------------- | --------- | ------------------------- | ---------------------------------------------- |
-| `password`                   | `string`  | **(required)**            | Authentication password                        |
-| `port`                       | `number`  | `7777`                    | Server port                                    |
-| `workingDirectory`           | `string`  | `process.cwd()`           | Default working directory                      |
-| `maxProcesses`               | `number`  | `15`                      | Max concurrent managed processes               |
-| `dangerouslySkipPermissions` | `boolean` | `false`                   | Skip Claude's permission prompts               |
-| `processTimeout`             | `number`  | `300000`                  | Process timeout in ms                          |
-| `serveUI`                    | `boolean` | `true`                    | Serve the built-in web UI                      |
-| `sessionMaxAge`              | `number`  | `604800000`               | Session lifetime in ms                         |
-| `rateLimitMax`               | `number`  | `5`                       | Max login attempts per IP per window           |
-| `rateLimitWindow`            | `number`  | `60000`                   | Rate limit window in ms                        |
-| `manifestFile`               | `string`  | `~/.relay/instances.json` | Instance manifest file for restart persistence |
-| `claudeDir`                  | `string`  | `~/.claude`               | Override Claude transcript root                |
-| `codexDir`                   | `string`  | `~/.codex`                | Override Codex transcript root                 |
-| `logger`                     | `Logger`  | `console`                 | Custom logger implementation                   |
-
-## Managed Sessions
-
-Managed sessions are now restored from provider runtime bindings stored in SQLite, not just from Claude transcript rows. Startup restores lightweight session skeletons only: persisted title, timestamps, last-message preview, stats, and git metadata render the sidebar immediately, while transcript replay and managed-provider boot are deferred until the session is opened. Session pages show a loading state while that first-open hydration is happening. Empty placeholder rows without a resumable provider session or transcript are archived during restore instead of showing up as blank sessions. The persistence and `ProviderSession` contract are isolated enough to add other managed providers without teaching `InstanceManager` about provider-specific runtime state.
-
-For Claude specifically:
-
-- new sessions may still capture a transcript path after the first turn
-- transcript paths are used for history replay and external-session discovery
-- approval prompts are routed as provider requests with stable request IDs over WebSocket
-- managed Claude and Codex chats expose a `Build` / `Plan` mode picker in the composer, and plan mode is persisted with the session runtime binding for restore
-
-For Codex specifically:
-
-- relay-managed Codex turns run through the long-lived `codex app-server` adapter
-- provider selection is available in the new-session UI as well as the core/API contract
-- restored managed Codex sessions replay history from `~/.codex/sessions/...` by `provider_session_id`, and persist the discovered transcript path back into `managed_sessions`
-- managed Claude and Codex sessions map interactive question tools onto the shared `ProviderRequest` flow, render them inside the composer, switch the send control into answer submission, and route responses back through the shared request-response channel
-- provider switching from the chat input creates a new managed session instead of rewriting the current one, with optional recent-context carryover
-- `/api/providers` returns the currently available providers plus capability metadata for the provider picker
-- `/api/provider-models?provider=...` returns provider-scoped model metadata plus that provider's capabilities for the current toolbar state
-- the composer now hides or disables unsupported controls from provider capabilities instead of hardcoding assumptions
-- project and chat headers expose a split `Open in` control backed by `/api/open-targets` and `/api/open`; the primary button opens the current target immediately, while the menu updates the remembered app selection
-- external Codex session discovery is supported (historical scan on startup); live `ps`-based discovery and approval-request parity are still follow-up work
+| Option                       | Type      | Default         | Description                      |
+| ---------------------------- | --------- | --------------- | -------------------------------- |
+| `password`                   | `string`  | **(required)**  | Authentication password          |
+| `port`                       | `number`  | `7777`          | Server port                      |
+| `workingDirectory`           | `string`  | `process.cwd()` | Default working directory        |
+| `maxProcesses`               | `number`  | `15`            | Max concurrent managed processes |
+| `dangerouslySkipPermissions` | `boolean` | `false`         | Skip agent permission prompts    |
+| `processTimeout`             | `number`  | `300000`        | Process timeout in ms            |
+| `serveUI`                    | `boolean` | `true`          | Serve the built-in web UI        |
+| `sessionMaxAge`              | `number`  | `604800000`     | Auth session lifetime in ms      |
+| `rateLimitMax`               | `number`  | `5`             | Max login attempts per IP/window |
+| `rateLimitWindow`            | `number`  | `60000`         | Rate limit window in ms          |
+| `claudeDir`                  | `string`  | `~/.claude`     | Claude transcript directory      |
+| `codexDir`                   | `string`  | `~/.codex`      | Codex transcript directory       |
+| `logger`                     | `Logger`  | `console`       | Custom logger implementation     |
 
 ## Security
 
@@ -309,20 +364,15 @@ For Codex specifically:
 ## Development
 
 ```bash
-# Watch mode — rebuilds server, TypeScript, and UI on changes
-npm run dev
-
-# Run tests
-npm test
-
-# Build everything
-npm run build
+npm run dev    # Watch mode — rebuilds server + UI on changes
+npm test       # Run tests (build first: npm run build:server)
+npm run build  # Build everything
 ```
 
 ## Prerequisites
 
 - Node.js 20+
-- At least one provider CLI installed and authenticated:
-  - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — for Claude sessions and external session discovery
-  - [Codex CLI](https://github.com/openai/codex) — for Codex sessions (`npm install -g @openai/codex`)
-- [Tailscale](https://tailscale.com) (optional, for private remote access) or [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (optional, for public tunnel access)
+- At least one supported provider installed and authenticated:
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+  - [Codex](https://github.com/openai/codex) (`npm install -g @openai/codex`)
+- [Tailscale](https://tailscale.com) (optional) or [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (optional) for remote access
