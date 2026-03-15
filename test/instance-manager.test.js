@@ -100,6 +100,31 @@ describe("InstanceManager", () => {
     });
   });
 
+  describe("provider registry", () => {
+    it("surfaces available providers with capabilities", () => {
+      const providers = manager.getAvailableProviders();
+      assert.ok(providers.some((provider) => provider.provider === "claude"));
+      assert.ok(!providers.some((provider) => provider.provider === "gemini"));
+      for (const provider of providers) {
+        assert.equal(typeof provider.capabilities.supportsResume, "boolean");
+        assert.equal(typeof provider.capabilities.supportsModelSelection, "boolean");
+      }
+    });
+
+    it("returns provider capabilities from the shared registry", () => {
+      const claude = manager.getProviderCapabilities("claude");
+      const codex = manager.getProviderCapabilities("codex");
+      assert.equal(claude.supportsReasoningBudget, true);
+      assert.equal(codex.supportsReasoningBudget, false);
+      assert.equal(codex.supportsTitleUpdates, true);
+    });
+
+    it("rejects switching to an unavailable provider", () => {
+      const info = manager.createInstance();
+      assert.equal(manager.setProvider(info.id, "gemini"), false);
+    });
+  });
+
   describe("removeInstance", () => {
     it("removes an instance", () => {
       const info = manager.createInstance();

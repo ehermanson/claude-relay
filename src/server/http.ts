@@ -13,11 +13,11 @@ import { homedir } from "node:os";
 import type { AuthManager } from "./auth.js";
 import type { InstanceManager } from "../core/instance-manager.js";
 import type { RelayConfig } from "./config.js";
-import { discoverCodexModels } from "../core/providers/codex-models.js";
-import { getBuiltinProviderModels, getProviderDisplayName } from "../core/provider-catalog.js";
 import type {
   NativeOpenRequest,
   NativeOpenTargetsResponse,
+  ProviderCapabilities,
+  ProviderDescriptor,
   ProviderKind,
   ProviderModelOption,
 } from "../core/types.js";
@@ -153,6 +153,8 @@ const instanceDiffPattern = /^\/api\/instances\/([a-f0-9-]+)\/diff$/;
 
 interface RequestHandlerOverrides {
   getProviderModels?: (provider: ProviderKind) => Promise<ProviderModelOption[]>;
+  getProviderCapabilities?: (provider: ProviderKind) => ProviderCapabilities;
+  getAvailableProviders?: () => ProviderDescriptor[];
   getOpenTargets?: (targetPath: string) => Promise<NativeOpenTargetsResponse>;
   openNativePath?: (request: NativeOpenRequest) => Promise<void>;
 }
@@ -179,10 +181,6 @@ export function createRequestHandler(
   const getProviderModels =
     overrides.getProviderModels ??
     (async (provider: ProviderKind): Promise<ProviderModelOption[]> => {
-      if (provider !== "codex") {
-        return getBuiltinProviderModels(provider);
-      }
-
       const cached = providerModelCache.get(provider);
       const now = Date.now();
       if (cached?.value && cached.expiresAt > now) {
@@ -192,24 +190,9 @@ export function createRequestHandler(
         return cached.pending;
       }
 
-      const pending = discoverCodexModels({ logger: log })
-        .then((discovered) => {
-          const discoveredById = new Map(discovered.map((model) => [model.id, model]));
-          const merged = getBuiltinProviderModels("codex")
-            .filter((model) => discoveredById.has(model.id))
-            .map((model) => {
-              const discoveredModel = discoveredById.get(model.id);
-              return {
-                ...model,
-                description: discoveredModel?.description ?? model.description,
-                hidden: discoveredModel?.hidden ?? model.hidden,
-                isDefault: discoveredModel?.isDefault ?? model.isDefault,
-                availabilityNote: discoveredModel?.availabilityNote ?? model.availabilityNote,
-                upgradeTo: discoveredModel?.upgradeTo ?? model.upgradeTo,
-              };
-            });
-
-          const value = merged.length > 0 ? merged : getBuiltinProviderModels("codex");
+      const pending = instanceManager
+        .getProviderModels(provider)
+        .then((value) => {
           providerModelCache.set(provider, {
             expiresAt: Date.now() + 60_000,
             value,
@@ -217,17 +200,8 @@ export function createRequestHandler(
           return value.map((model) => ({ ...model }));
         })
         .catch((err) => {
-          log.warn(
-            `Failed to discover ${getProviderDisplayName(provider)} models; falling back to built-in list: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-          const value = getBuiltinProviderModels(provider);
-          providerModelCache.set(provider, {
-            expiresAt: Date.now() + 15_000,
-            value,
-          });
-          return value.map((model) => ({ ...model }));
+          providerModelCache.delete(provider);
+          throw err;
         });
 
       providerModelCache.set(provider, {
@@ -236,6 +210,12 @@ export function createRequestHandler(
       });
       return pending;
     });
+  const getProviderCapabilities =
+    overrides.getProviderCapabilities ??
+    ((provider: ProviderKind): ProviderCapabilities =>
+      instanceManager.getProviderCapabilities(provider));
+  const getAvailableProviders =
+    overrides.getAvailableProviders ?? (() => instanceManager.getAvailableProviders());
   const getOpenTargets =
     overrides.getOpenTargets ?? ((targetPath: string) => projectOpener.listTargets(targetPath));
   const doOpenNativePath =
@@ -655,20 +635,37 @@ export function createRequestHandler(
           return;
         }
 
-        const provider = parsedUrl.searchParams.get("provider");
-        if (provider !== "claude" && provider !== "codex" && provider !== "gemini") {
+        const providerParam = parsedUrl.searchParams.get("provider");
+        const provider = getAvailableProviders().find(
+          (entry) => entry.provider === providerParam,
+        )?.provider;
+        if (!provider) {
           sendJson(res, 400, { error: "Invalid provider" });
           return;
         }
 
         try {
           const models = await getProviderModels(provider);
-          sendJson(res, 200, { provider, models });
+          sendJson(res, 200, {
+            provider,
+            models,
+            capabilities: getProviderCapabilities(provider),
+          });
         } catch (err) {
           sendJson(res, 500, {
             error: err instanceof Error ? err.message : "Failed to load provider models",
           });
         }
+        return;
+      }
+
+      if (method === "GET" && pathname === "/api/providers") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+
+        sendJson(res, 200, { providers: getAvailableProviders() });
         return;
       }
 

@@ -1,0 +1,68 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { join } from "node:path";
+import {
+  getProviderDriver,
+  getProviderCapabilities,
+  getRegisteredProviders,
+  listAvailableProviders,
+  resolveCoreConfig,
+} from "../dist/core/index.js";
+
+const noopLogger = {
+  info() {},
+  warn() {},
+  error() {},
+  debug() {},
+};
+
+function makeContext() {
+  const config = resolveCoreConfig({ logger: noopLogger });
+  return {
+    providerDirs: {
+      claude: config.providerDirs.claude,
+      codex: config.providerDirs.codex,
+      gemini: config.providerDirs.gemini,
+    },
+    logger: noopLogger,
+    sdkQueryFn: null,
+  };
+}
+
+describe("provider registry", () => {
+  it("registers drivers for all known provider kinds", () => {
+    assert.deepEqual(getRegisteredProviders().sort(), ["claude", "codex", "gemini"]);
+  });
+
+  it("exposes fixed capability metadata for each driver", () => {
+    for (const provider of getRegisteredProviders()) {
+      const capabilities = getProviderCapabilities(provider);
+      assert.equal(typeof capabilities.supportsResume, "boolean");
+      assert.equal(typeof capabilities.supportsTranscriptReplay, "boolean");
+      assert.equal(typeof capabilities.supportsApprovals, "boolean");
+      assert.equal(typeof capabilities.supportsUserInputRequests, "boolean");
+      assert.equal(typeof capabilities.supportsReasoningBudget, "boolean");
+      assert.equal(typeof capabilities.supportsPlanMode, "boolean");
+      assert.equal(typeof capabilities.supportsModelSelection, "boolean");
+      assert.equal(typeof capabilities.supportsTitleUpdates, "boolean");
+    }
+  });
+
+  it("keeps gemini out of the available provider catalog until it is supported", () => {
+    const available = listAvailableProviders(makeContext());
+    assert.ok(!available.some((provider) => provider.provider === "gemini"));
+  });
+
+  it("resolves managed transcript paths through the provider driver", () => {
+    const claudePath = getProviderDriver("claude").resolveManagedTranscriptPath({
+      providerDirs: {
+        claude: "/tmp/.claude",
+        codex: "/tmp/.codex",
+        gemini: "/tmp/.gemini",
+      },
+      sessionId: "session-123",
+      workingDirectory: "/tmp/project",
+    });
+    assert.equal(claudePath, join("/tmp/.claude", "projects", "-tmp-project", "session-123.jsonl"));
+  });
+});

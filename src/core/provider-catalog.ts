@@ -1,4 +1,4 @@
-import type { ProviderKind, ProviderModelOption } from "./types.js";
+import type { ProviderCapabilities, ProviderKind, ProviderModelOption } from "./types.js";
 
 export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
   claude: "Claude Code",
@@ -55,12 +55,49 @@ export const BUILTIN_PROVIDER_MODELS: Record<ProviderKind, readonly ProviderMode
   gemini: [],
 };
 
+export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabilities> = {
+  claude: {
+    supportsResume: true,
+    supportsTranscriptReplay: true,
+    supportsApprovals: true,
+    supportsUserInputRequests: true,
+    supportsReasoningBudget: true,
+    supportsPlanMode: true,
+    supportsModelSelection: true,
+    supportsTitleUpdates: false,
+  },
+  codex: {
+    supportsResume: true,
+    supportsTranscriptReplay: true,
+    supportsApprovals: true,
+    supportsUserInputRequests: true,
+    supportsReasoningBudget: false,
+    supportsPlanMode: true,
+    supportsModelSelection: true,
+    supportsTitleUpdates: true,
+  },
+  gemini: {
+    supportsResume: false,
+    supportsTranscriptReplay: false,
+    supportsApprovals: false,
+    supportsUserInputRequests: false,
+    supportsReasoningBudget: false,
+    supportsPlanMode: false,
+    supportsModelSelection: true,
+    supportsTitleUpdates: false,
+  },
+};
+
 export function getProviderDisplayName(provider: ProviderKind): string {
   return PROVIDER_DISPLAY_NAMES[provider];
 }
 
 export function getBuiltinProviderModels(provider: ProviderKind): ProviderModelOption[] {
   return BUILTIN_PROVIDER_MODELS[provider].map((model) => ({ ...model }));
+}
+
+export function getDefaultProviderCapabilities(provider: ProviderKind): ProviderCapabilities {
+  return DEFAULT_PROVIDER_CAPABILITIES[provider];
 }
 
 export function findProviderModelLabel(provider: ProviderKind, modelId: string): string | null {

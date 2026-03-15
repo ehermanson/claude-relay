@@ -29,16 +29,10 @@ import { execSync, execFileSync, execFile } from "child_process";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
-import { ClaudeProcess } from "./claude-process.js";
 import type { ProviderSession } from "./provider.js";
-import { createSdkSessionSync, resolveQueryFn } from "./providers/claude-sdk.js";
+import { resolveQueryFn } from "./providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "./providers/claude-sdk.js";
-import { CodexAppServerSession } from "./providers/codex-app-server.js";
-import {
-  convertCodexTranscriptEntry,
-  findCodexTranscriptPath,
-  parseCodexTranscript,
-} from "./providers/codex-transcript.js";
+import { convertCodexTranscriptEntry } from "./providers/codex-transcript.js";
 import { SessionDB } from "./db.js";
 import type { SessionRow, ManagedInstanceRow } from "./db.js";
 import { discoverSkills } from "./skills.js";
@@ -61,11 +55,23 @@ import type {
   ProjectPlan,
   BeadIssue,
   ProviderKind,
+  ProviderDescriptor,
   ProviderRequest,
   ProviderRuntimeBinding,
   ProviderRuntimeMode,
+  ProviderModelOption,
   UserInputQuestion,
 } from "./types.js";
+import {
+  captureManagedSessionForProvider,
+  createManagedProviderSession,
+  getProviderCapabilities,
+  getProviderModels,
+  isProviderAvailable,
+  listAvailableProviders,
+  parseTranscriptForProvider,
+  resolveManagedTranscriptPathForProvider,
+} from "./provider-registry.js";
 import {
   describeToolUse,
   describeToolDetail,
@@ -770,8 +776,16 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
+  private getProviderContext() {
+    return {
+      providerDirs: this.providerDirs,
+      logger: this.baseConfig.logger,
+      sdkQueryFn: this._sdkQueryFn,
+    };
+  }
+
   /**
-   * Create a ProviderSession — uses Agent SDK if available, falls back to CLI.
+   * Create a ProviderSession for the requested provider using the driver registry.
    */
   private createProviderSession(
     config: CoreConfig,
@@ -785,61 +799,7 @@ export class InstanceManager extends EventEmitter {
     },
   ): ProviderSession {
     const provider = options?.provider ?? "claude";
-    if (provider === "codex") {
-      return new CodexAppServerSession({
-        cwd: config.workingDirectory,
-        model: options?.model,
-        resumeSessionId: options?.resumeSessionId,
-        dangerouslySkipPermissions: config.dangerouslySkipPermissions,
-        logger: config.logger,
-        processTimeout: config.processTimeout,
-      });
-    }
-
-    if (provider !== "claude") {
-      throw new Error(`Provider '${provider}' is not implemented`);
-    }
-
-    if (this._sdkQueryFn) {
-      const session = createSdkSessionSync(
-        {
-          cwd: config.workingDirectory,
-          model: options?.model,
-          maxThinkingTokens: options?.reasoningBudget,
-          planMode: options?.planMode,
-          resumeSessionId: options?.resumeSessionId,
-          dangerouslySkipPermissions: config.dangerouslySkipPermissions,
-          logger: config.logger,
-          processTimeout: config.processTimeout,
-          allowedTools: options?.allowedTools,
-        },
-        this._sdkQueryFn as Parameters<typeof createSdkSessionSync>[1],
-      );
-      this.baseConfig.logger.info("[InstanceManager] Created SDK session");
-      return session;
-    }
-
-    this.baseConfig.logger.info("[InstanceManager] Created CLI session (SDK fallback)");
-    const proc = options?.resumeSessionId
-      ? new ClaudeProcess(config, {
-          resumeSessionId: options.resumeSessionId,
-          model: options?.model,
-          reasoningBudget: options?.reasoningBudget,
-          planMode: options?.planMode,
-        })
-      : new ClaudeProcess(config, {
-          model: options?.model,
-          reasoningBudget: options?.reasoningBudget,
-          planMode: options?.planMode,
-        });
-
-    if (options?.allowedTools) {
-      for (const t of options.allowedTools) {
-        proc.addAllowedTool(t);
-      }
-    }
-
-    return proc;
+    return createManagedProviderSession(provider, config, options, this.getProviderContext());
   }
 
   /**
@@ -1131,6 +1091,25 @@ export class InstanceManager extends EventEmitter {
     if (!instance) return null;
     const root = instance.actualCwd || instance.info.workingDirectory;
     return searchWorkspaceEntries(root, query);
+  }
+
+  getAvailableProviders(): ProviderDescriptor[] {
+    return listAvailableProviders(this.getProviderContext());
+  }
+
+  isProviderAvailable(provider: ProviderKind): boolean {
+    return isProviderAvailable(provider, this.getProviderContext());
+  }
+
+  getProviderCapabilities(provider: ProviderKind) {
+    return getProviderCapabilities(provider);
+  }
+
+  async getProviderModels(provider: ProviderKind): Promise<ProviderModelOption[]> {
+    if (!this.isProviderAvailable(provider)) {
+      throw new Error(`Provider '${provider}' is not available`);
+    }
+    return getProviderModels(provider, this.getProviderContext());
   }
 
   getInstanceDiff(id: string, filePath?: string): string | null {
@@ -1535,10 +1514,7 @@ export class InstanceManager extends EventEmitter {
       instance.externalState?.jsonlPath;
 
     if (transcriptPath && existsSync(transcriptPath)) {
-      const parsed =
-        instance.info.provider === "claude" || !instance.info.provider
-          ? this.parseJsonl(transcriptPath)
-          : this.parseProviderTranscript(instance.info.provider, transcriptPath);
+      const parsed = this.parseProviderTranscript(instance.info.provider, transcriptPath);
 
       instance.history = parsed.history;
       instance.tasks = parsed.tasks.size > 0 ? parsed.tasks : undefined;
@@ -2976,18 +2952,7 @@ export class InstanceManager extends EventEmitter {
     files: Map<string, FileChange>;
     stats: SessionStats;
   } {
-    if (provider === "codex") {
-      const parsed = parseCodexTranscript(filePath);
-      return {
-        cwd: parsed.cwd,
-        history: parsed.history,
-        tasks: parsed.tasks,
-        files: parsed.files,
-        stats: parsed.stats,
-      };
-    }
-
-    return this.parseJsonl(filePath);
+    return parseTranscriptForProvider(provider, filePath, (path) => this.parseJsonl(path));
   }
 
   private resolveManagedTranscriptPath(
@@ -2998,24 +2963,10 @@ export class InstanceManager extends EventEmitter {
       workingDirectory?: string;
     },
   ): string | undefined {
-    if (options.transcriptPath && existsSync(options.transcriptPath)) {
-      return options.transcriptPath;
-    }
-
-    if (!options.sessionId) {
-      return options.transcriptPath;
-    }
-
-    if (provider === "codex") {
-      return findCodexTranscriptPath(this.providerDirs.codex, options.sessionId);
-    }
-
-    if (!options.workingDirectory) {
-      return options.transcriptPath;
-    }
-
-    const encoded = options.workingDirectory.replace(/\//g, "-");
-    return join(this.providerDirs.claude, "projects", encoded, `${options.sessionId}.jsonl`);
+    return resolveManagedTranscriptPathForProvider(provider, {
+      ...options,
+      providerDirs: this.providerDirs,
+    });
   }
 
   /**
@@ -4872,71 +4823,31 @@ export class InstanceManager extends EventEmitter {
       // One-shot: remove this listener after first capture
       proc.off("output", onOutput);
 
-      if (instance.info.provider === "codex") {
-        try {
-          const binding = proc.getRuntimeBinding();
-          const sessionId =
-            binding.providerSessionId ??
-            instance.providerBinding?.providerSessionId ??
-            instance.sessionId;
-          if (!sessionId) return;
-
-          const transcriptPath = findCodexTranscriptPath(this.providerDirs.codex, sessionId);
-          this.finalizeSessionCapture(id, instance, proc, sessionId, transcriptPath);
-        } catch (err) {
-          this.baseConfig.logger.debug(
-            `[InstanceManager] Failed to capture Codex session ID for "${instance.info.name}": ${err}`,
-          );
-        }
-        return;
-      }
-
-      // For SDK sessions, try to get session ID from the session object first
-      let sessionId: string | undefined;
-      if (isSdk && (proc as ClaudeSdkSession).sessionId) {
-        sessionId = (proc as ClaudeSdkSession).sessionId;
-      }
-
-      const cwd = instance.actualCwd || instance.info.workingDirectory;
-      const encoded = cwd.replace(/\//g, "-");
-      const projectDir = join(this.providerDirs.claude, "projects", encoded);
-
-      if (!existsSync(projectDir)) return;
-
       try {
-        // If we have an SDK session ID, look for that specific JSONL file
-        if (sessionId) {
-          const jsonlPath = join(projectDir, `${sessionId}.jsonl`);
-          if (existsSync(jsonlPath)) {
-            this.finalizeSessionCapture(id, instance, proc, sessionId, jsonlPath);
-            return;
-          }
-        }
+        const binding = proc.getRuntimeBinding();
+        const captured = captureManagedSessionForProvider(instance.info.provider, {
+          proc,
+          binding,
+          fallbackSessionId:
+            (isSdk && (proc as ClaudeSdkSession).sessionId) ||
+            binding.providerSessionId ||
+            instance.providerBinding?.providerSessionId ||
+            instance.sessionId,
+          workingDirectory: instance.actualCwd || instance.info.workingDirectory,
+          providerDirs: this.providerDirs,
+        });
+        if (!captured?.sessionId) return;
 
-        // Fall back to scanning for the newest JSONL (CLI path or SDK JSONL not yet found)
-        const files = readdirSync(projectDir)
-          .filter((f) => f.endsWith(".jsonl"))
-          .map((f) => {
-            const fullPath = join(projectDir, f);
-            try {
-              return { path: fullPath, mtime: statSync(fullPath).mtimeMs };
-            } catch {
-              return null;
-            }
-          })
-          .filter((f): f is { path: string; mtime: number } => f !== null);
-
-        files.sort((a, b) => b.mtime - a.mtime);
-        if (files.length === 0) return;
-
-        const newestJsonl = files[0];
-        const fileName = newestJsonl.path.split("/").pop() || "";
-        const foundSessionId = fileName.replace(".jsonl", "");
-
-        this.finalizeSessionCapture(id, instance, proc, foundSessionId, newestJsonl.path);
+        this.finalizeSessionCapture(
+          id,
+          instance,
+          proc,
+          captured.sessionId,
+          captured.transcriptPath,
+        );
       } catch (err) {
         this.baseConfig.logger.debug(
-          `[InstanceManager] Failed to capture session ID for "${instance.info.name}": ${err}`,
+          `[InstanceManager] Failed to capture ${instance.info.provider} session ID for "${instance.info.name}": ${err}`,
         );
       }
     };
@@ -5131,6 +5042,7 @@ export class InstanceManager extends EventEmitter {
   setProvider(id: string, provider: ProviderKind): boolean {
     const instance = this.instances.get(id);
     if (!instance || instance.info.external) return false;
+    if (!this.isProviderAvailable(provider)) return false;
 
     // Only allow switching before any message has been sent
     if (instance.sessionId || instance.info.sessionId) return false;

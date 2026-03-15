@@ -52,6 +52,23 @@ export interface ProviderRuntimeBinding {
   runtimeMode?: ProviderRuntimeMode;
 }
 
+export interface ProviderCapabilities {
+  supportsResume: boolean;
+  supportsTranscriptReplay: boolean;
+  supportsApprovals: boolean;
+  supportsUserInputRequests: boolean;
+  supportsReasoningBudget: boolean;
+  supportsPlanMode: boolean;
+  supportsModelSelection: boolean;
+  supportsTitleUpdates: boolean;
+}
+
+export interface ProviderDescriptor {
+  provider: ProviderKind;
+  label: string;
+  capabilities: ProviderCapabilities;
+}
+
 export interface ProviderModelOption {
   provider: ProviderKind;
   id: string;
@@ -61,6 +78,12 @@ export interface ProviderModelOption {
   isDefault?: boolean;
   availabilityNote?: string;
   upgradeTo?: string;
+}
+
+export interface ProviderModelsResponse {
+  provider: ProviderKind;
+  models: ProviderModelOption[];
+  capabilities: ProviderCapabilities;
 }
 
 export interface SessionStats {

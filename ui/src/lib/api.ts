@@ -4,10 +4,13 @@ import type {
   InstanceInfo,
   NativeOpenTarget,
   NativeOpenTargetsResponse,
+  ProviderCapabilities,
+  ProviderDescriptor,
   ProviderKind,
   ProviderModelOption,
   ProjectArtifacts,
 } from "@shared/types";
+import { getDefaultProviderCapabilities } from "@shared/provider-catalog";
 
 export async function login(password: string): Promise<{ success: boolean; error?: string }> {
   const res = await fetch("/auth", {
@@ -56,11 +59,26 @@ export async function fetchWorkspaceEntries(
   return res.json();
 }
 
-export async function fetchProviderModels(provider: ProviderKind): Promise<ProviderModelOption[]> {
+export async function fetchProviderModels(
+  provider: ProviderKind,
+): Promise<{ models: ProviderModelOption[]; capabilities: ProviderCapabilities }> {
   const res = await fetch(`/api/provider-models?provider=${encodeURIComponent(provider)}`);
   if (!res.ok) throw new Error("Failed to fetch provider models");
-  const data = (await res.json()) as { models?: ProviderModelOption[] };
-  return data.models ?? [];
+  const data = (await res.json()) as {
+    models?: ProviderModelOption[];
+    capabilities?: ProviderCapabilities;
+  };
+  return {
+    models: data.models ?? [],
+    capabilities: data.capabilities ?? getDefaultProviderCapabilities(provider),
+  };
+}
+
+export async function fetchProviders(): Promise<ProviderDescriptor[]> {
+  const res = await fetch("/api/providers");
+  if (!res.ok) throw new Error("Failed to fetch providers");
+  const data = (await res.json()) as { providers?: ProviderDescriptor[] };
+  return data.providers ?? [];
 }
 
 export async function createInstance(

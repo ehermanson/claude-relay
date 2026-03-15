@@ -31,11 +31,20 @@ export {
 } from "./providers/index.js";
 export {
   BUILTIN_PROVIDER_MODELS,
+  DEFAULT_PROVIDER_CAPABILITIES,
   PROVIDER_DISPLAY_NAMES,
+  getDefaultProviderCapabilities,
   findProviderModelLabel,
   getBuiltinProviderModels,
   getProviderDisplayName,
 } from "./provider-catalog.js";
+export {
+  getProviderCapabilities,
+  getProviderDriver,
+  getRegisteredProviders,
+  isProviderAvailable,
+  listAvailableProviders,
+} from "./provider-registry.js";
 export { buildProviderSwitchHandoffPrompt } from "./session-handoff.js";
 
 export { ClaudeProcess } from "./claude-process.js";
@@ -83,6 +92,9 @@ export type {
   SessionStats,
   ProviderKind,
   ProviderRequest,
+  ProviderCapabilities,
+  ProviderDescriptor,
+  ProviderModelsResponse,
   ProviderRuntimeBinding,
   ProviderRuntimeMode,
   ProviderModelOption,

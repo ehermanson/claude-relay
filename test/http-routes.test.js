@@ -51,12 +51,16 @@ describe("HTTP Routes — Additional Coverage", () => {
   let manager;
   let tempDir;
   let getProviderModels;
+  let getProviderCapabilities;
+  let getAvailableProviders;
   let getOpenTargets;
   let openPathCalls;
 
   beforeEach((_, done) => {
     tempDir = mkdtempSync(join(tmpdir(), "relay-http-test-"));
     getProviderModels = undefined;
+    getProviderCapabilities = undefined;
+    getAvailableProviders = undefined;
     getOpenTargets = async (targetPath) => ({
       path: targetPath,
       preferredTargetId: null,
@@ -80,6 +84,8 @@ describe("HTTP Routes — Additional Coverage", () => {
     manager = new InstanceManager(config);
     const handler = createRequestHandler(config, auth, manager, undefined, {
       getProviderModels,
+      getProviderCapabilities,
+      getAvailableProviders,
       getOpenTargets,
       openNativePath: async (request) => {
         openPathCalls.push(request);
@@ -205,6 +211,23 @@ describe("HTTP Routes — Additional Coverage", () => {
           isDefault: true,
         },
       ];
+      getProviderCapabilities = () => ({
+        supportsResume: true,
+        supportsTranscriptReplay: true,
+        supportsApprovals: true,
+        supportsUserInputRequests: true,
+        supportsReasoningBudget: false,
+        supportsPlanMode: true,
+        supportsModelSelection: true,
+        supportsTitleUpdates: true,
+      });
+      getAvailableProviders = () => [
+        {
+          provider: "codex",
+          label: "Codex",
+          capabilities: getProviderCapabilities(),
+        },
+      ];
       await new Promise((resolve) => server.close(resolve));
 
       const config = resolveConfig({
@@ -218,6 +241,8 @@ describe("HTTP Routes — Additional Coverage", () => {
       });
       const handler = createRequestHandler(config, auth, manager, undefined, {
         getProviderModels,
+        getProviderCapabilities,
+        getAvailableProviders,
         getOpenTargets,
         openNativePath: async (request) => {
           openPathCalls.push(request);
@@ -240,6 +265,62 @@ describe("HTTP Routes — Additional Coverage", () => {
           isDefault: true,
         },
       ]);
+      assert.equal(res.body.capabilities.supportsReasoningBudget, false);
+    });
+  });
+
+  describe("GET /api/providers", () => {
+    it("requires authentication", async () => {
+      const res = await request(server, "GET", "/api/providers");
+      assert.equal(res.status, 401);
+    });
+
+    it("returns the available provider catalog", async () => {
+      getAvailableProviders = () => [
+        {
+          provider: "claude",
+          label: "Claude Code",
+          capabilities: {
+            supportsResume: true,
+            supportsTranscriptReplay: true,
+            supportsApprovals: true,
+            supportsUserInputRequests: true,
+            supportsReasoningBudget: true,
+            supportsPlanMode: true,
+            supportsModelSelection: true,
+            supportsTitleUpdates: false,
+          },
+        },
+      ];
+      await new Promise((resolve) => server.close(resolve));
+
+      const config = resolveConfig({
+        password: "testpass",
+        logger: noopLogger,
+        maxProcesses: 5,
+        serveUI: false,
+        rateLimitMax: 10,
+        rateLimitWindow: 60_000,
+        sessionFile: join(tempDir, "sessions.json"),
+      });
+      const handler = createRequestHandler(config, auth, manager, undefined, {
+        getProviderModels,
+        getProviderCapabilities,
+        getAvailableProviders,
+        getOpenTargets,
+        openNativePath: async (request) => {
+          openPathCalls.push(request);
+        },
+      });
+      server = http.createServer(handler);
+      await new Promise((resolve) => server.listen(0, resolve));
+
+      const session = auth.createSession();
+      const res = await request(server, "GET", "/api/providers", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.body.providers, getAvailableProviders());
     });
   });
 

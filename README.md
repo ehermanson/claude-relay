@@ -66,7 +66,7 @@ If Relay discovers or restores a session that already lives in a Relay-managed g
 - **Per-session controls** — managed sessions show a combined provider/model picker in the chat input; models stay switchable, and changing providers starts a new chat instead of mutating the current session
 - **Provider markers in the sidebar** — each session row shows which provider it belongs to, so Claude and Codex chats are easy to tell apart at a glance
 - **Provider-aware managed sessions** — managed instances persist their provider identity and runtime binding, so future adapters can restore without going through Claude-specific transcript indexing
-- **Managed Codex adapter** — core/API-managed sessions can now run through `codex exec --json` with provider-isolated turn/resume handling
+- **Managed Codex adapter** — core/API-managed sessions run through the long-lived `codex app-server` transport with provider-isolated turn/resume handling
 - **Codex task/checklist support** — Codex `update_plan` / plan updates now feed the same sidecar task list used for Claude todos, both live and after session reload
 - **Codex model filtering** — Relay asks `codex app-server` for `model/list` when available and filters the Codex picker to models the local runtime actually reports
 - **Provider handoff flow** — switching from Codex to Claude (or back) can spawn a new chat in the same workspace and optionally seed it with recent portable context from the current session
@@ -146,9 +146,11 @@ src/
     claude-process.ts      Spawns claude -p processes, parses stream-json
     provider.ts            Provider session contract used by managed adapters
     provider-catalog.ts    Shared provider labels + built-in model catalogs
+    provider-registry.ts   Provider driver registry: capabilities, session creation, transcript parsing, model lookup
     session-handoff.ts     Provider-neutral prompt builder for switching providers into a new chat
     providers/claude-sdk.ts Long-lived SDK-backed provider session
-    providers/codex-cli.ts Managed Codex CLI provider session
+    providers/codex-cli.ts Codex CLI binary discovery helpers
+    providers/codex-app-server.ts Long-lived Codex app-server provider session
     providers/codex-transcript.ts Provider-specific Codex transcript lookup + replay
     providers/codex-models.ts Best-effort Codex app-server model discovery
     instance-manager.ts    Manages multiple instances + discovers external sessions
@@ -191,8 +193,10 @@ The server entry point re-exports everything from core, so you never need to imp
 Managed-session architecture is split in two:
 
 - `provider.ts` defines the adapter contract used by `InstanceManager`
+- `provider-registry.ts` is the provider-driver seam: provider availability, capabilities, session creation, transcript replay, managed transcript path recovery, and model lookup all route through it
 - `managed_sessions` in SQLite stores provider identity plus provider-owned runtime state for restore
 - Claude JSONL files remain an optional Claude-specific read model for history replay and external session discovery
+- provider capabilities are explicit (`supportsReasoningBudget`, `supportsPlanMode`, `supportsTitleUpdates`, etc.) and drive server responses plus composer controls instead of assuming feature parity
 
 ## Library Usage
 
@@ -282,13 +286,14 @@ For Claude specifically:
 
 For Codex specifically:
 
-- relay-managed Codex turns run through `codex exec --json` and `codex exec resume --json`
+- relay-managed Codex turns run through the long-lived `codex app-server` adapter
 - provider selection is available in the new-session UI as well as the core/API contract
 - restored managed Codex sessions replay history from `~/.codex/sessions/...` by `provider_session_id`, and persist the discovered transcript path back into `managed_sessions`
 - managed Claude and Codex sessions map interactive question tools onto the shared `ProviderRequest` flow, render them inside the composer, switch the send control into answer submission, and route responses back through the shared request-response channel
 - provider switching from the chat input creates a new managed session instead of rewriting the current one, with optional recent-context carryover
-- Codex sessions keep model switching via the shared provider/model picker in the chat input
-- Codex sessions also show the shared reasoning control in the composer, and the permission toggle is presented as sandbox/full-access mode
+- `/api/providers` returns the currently available providers plus capability metadata for the provider picker
+- `/api/provider-models?provider=...` returns provider-scoped model metadata plus that provider's capabilities for the current toolbar state
+- the composer now hides or disables unsupported controls from provider capabilities instead of hardcoding assumptions
 - project and chat headers expose a split `Open in` control backed by `/api/open-targets` and `/api/open`; the primary button opens the current target immediately, while the menu updates the remembered app selection
 - external Codex session discovery is supported (historical scan on startup); live `ps`-based discovery and approval-request parity are still follow-up work
 

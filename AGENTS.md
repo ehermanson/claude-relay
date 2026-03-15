@@ -64,6 +64,7 @@ src/
     config.ts                CoreConfig interface, CoreOptions, resolveCoreConfig()
     logger.ts                Logger interface, noopLogger
     tools.ts                 describeToolUse(), describeToolDetail(), estimateCost()
+    provider-registry.ts     Provider driver registry: capabilities, session creation, transcript parsing, model lookup
     git.ts                   isGitRepo(), getRepoRoot(), createWorktree(), removeWorktree()
     db.ts                    SessionDB class — SQLite-backed transcript index + managed-session runtime bindings
     claude-process.ts        ClaudeProcess class — spawns `Codex -p`, parses stream-json, setSessionId()
@@ -74,7 +75,8 @@ src/
     workspace-entries.ts     Workspace indexing/search for composer `@` file mentions
     providers/
       claude-sdk.ts          Claude SDK provider session implementation
-      codex-cli.ts           Managed Codex CLI provider session implementation (`codex exec --json`)
+      codex-cli.ts           Codex CLI binary discovery helpers
+      codex-app-server.ts    Managed Codex app-server provider session implementation
       codex-transcript.ts    Provider-specific Codex transcript lookup + replay from `~/.codex/sessions`
       codex-models.ts        Best-effort Codex app-server model discovery (`initialize` + `model/list`)
     index.ts                 Barrel: exports all core API
@@ -126,13 +128,14 @@ ui/
 ### Provider Adapters
 
 - `provider.ts` defines the provider-agnostic managed-session contract consumed by `InstanceManager`
+- `provider-registry.ts` is the provider-driver seam: provider capabilities, availability, session creation, transcript replay, managed transcript path recovery, and model lookup all route through it
 - `InstanceInfo.provider` is first-class and persisted for managed sessions
 - Managed restore uses provider runtime bindings from SQLite, not the current default provider
 - Claude JSONL remains a Claude-specific read model for history replay, transcript capture, and external-session discovery
 - Codex transcript replay is handled separately via `providers/codex-transcript.ts`, which locates persisted sessions under `~/.codex/sessions` by provider session ID
 - Current managed providers:
   - Claude via Agent SDK or Claude CLI fallback
-  - Codex via `codex exec --json` / `codex exec resume --json`
+  - Codex via the long-lived `codex app-server` adapter
 
 ### import.meta.dirname
 
@@ -185,7 +188,9 @@ ui/
 - Managed sessions expose preset reasoning effort controls in the shared toolbar
 - Managed Claude and Codex sessions expose a `Build` / `Plan` dropdown in the shared toolbar; it sends `set_plan_mode` over WebSocket, persists through provider runtime bindings, and is mutually exclusive with full-access permission bypass
 - Codex sessions expose curated model selection and the shared reasoning picker through the composer controls
-- `GET /api/provider-models?provider=...` returns provider-scoped model metadata for the picker. Codex uses a built-in catalog filtered by best-effort `codex app-server` discovery when available, and falls back to the built-in list on discovery failure
+- `ProviderCapabilities` is a first-class shared type; server responses and UI toolbar visibility use it instead of assuming every provider supports the same controls
+- `GET /api/providers` returns the currently available providers plus capability metadata for the picker
+- `GET /api/provider-models?provider=...` returns provider-scoped model metadata plus that provider's capability payload. Codex uses best-effort `codex app-server` discovery when available, and falls back to the built-in list on discovery failure
 - UI: `InputArea` now uses a Lexical-based `ComposerEditor` so inline path mentions can render as atomic chips without giving up plain-text message semantics
 - UI: markdown-rendered absolute local file links in assistant messages are intercepted client-side and sent to `POST /api/open`, which asks the OS to open the path natively instead of routing the SPA to that pathname
 - `project-opener.ts` backs `GET /api/open-targets?path=...` and target-aware `POST /api/open`; chat/project headers use it for a split `Open in` control whose primary button opens the current target immediately while the menu updates the remembered preference
@@ -244,7 +249,7 @@ ui/
 - Retry message: "Permission granted for {file writes|tool}. Please continue."
 - WS message: `{ type: "respond_to_request", instanceId, requestId, decision, answers? }`
 - **Structured user-input support:** managed Claude `AskUserQuestion` tool calls and managed Codex `item/tool/requestUserInput` events both map onto provider-neutral `ProviderRequest` entries, render as composer-owned `AskUserQuestion` activities, and resolve through the shared request-response path.
-- **Managed Codex limitation:** `codex exec --json` still does not expose a reliable approval-request event that maps onto `ProviderRequest`. The current Codex adapter therefore runs with `-a never -s workspace-write` by default, or `--dangerously-bypass-approvals-and-sandbox` when `skipPermissions` is enabled. Structured user-input parity is implemented, but approval parity is still not.
+- **Managed Codex approval flow:** the app-server adapter emits explicit approval and structured user-input requests, which Relay normalizes onto `ProviderRequest` and resolves through the shared `respond_to_request` path.
 - **Known limitation (external sessions):** When a terminal-side Codex session prompts the user to approve a tool (e.g., "Allow Bash?"), nothing is written to the JSONL until the user responds. The relay sees the `tool_use` activity but cannot distinguish "waiting for permission" from "tool is running." This means **no banner, toast, or visual indicator** appears in the UI for permission prompts on external sessions. Only `INTERACTIVE_TOOLS` (AskUserQuestion, ExitPlanMode, EnterPlanMode) are detected because those tools _always_ block for input. Fixing this would require either an upstream JSONL event for permission prompts, or a timeout-based heuristic (tool_use without tool_result for N seconds).
 
 ### Instance Renaming
@@ -385,7 +390,8 @@ All routes except `/health` and `/auth` require authentication (session cookie).
 | GET    | `/api/directories`           | Known Codex project directories                                             |
 | GET    | `/api/browse?prefix=...`     | Directory autocomplete                                                      |
 | GET    | `/api/workspace-entries`     | File/folder search for composer `@` mentions (`instanceId`, optional `q`)   |
-| GET    | `/api/provider-models`       | Provider-scoped model picker metadata (`provider`)                          |
+| GET    | `/api/providers`             | Available provider catalog + capability metadata                            |
+| GET    | `/api/provider-models`       | Provider-scoped model picker metadata + capability payload (`provider`)     |
 | GET    | `/api/projects/:id`          | Project artifacts (accepts basename slug or full encoded path)              |
 | POST   | `/api/upload`                | Upload image file for attachment (raw binary body, returns `{ path }`)      |
 | GET    | `/api/file?path=...`         | Serve local image file (images only, under `$HOME`, 10MB limit)             |

@@ -7,11 +7,11 @@ import {
   LockOpenIcon,
   MapIcon,
 } from "lucide-react";
-import type { ProviderKind, ProviderModelOption } from "@shared/types";
+import type { ProviderDescriptor, ProviderKind, ProviderModelOption } from "@shared/types";
 import { BUILTIN_PROVIDER_MODELS, getProviderDisplayName } from "@shared/provider-catalog";
 import { Menu } from "../../ui/menu";
 import { Tooltip } from "../../ui/tooltip";
-import { ProviderLogo, REASONING_LEVELS, SESSION_PROVIDER_OPTIONS } from "./shared";
+import { ProviderLogo, REASONING_LEVELS } from "./shared";
 
 interface ProviderModelPickerProps {
   open: boolean;
@@ -19,6 +19,7 @@ interface ProviderModelPickerProps {
   isProcessing: boolean;
   provider: ProviderKind;
   preferredModel?: string;
+  availableProviders: ProviderDescriptor[];
   currentProviderModels: ProviderModelOption[];
   modelLabel: string;
   onSelectModel: (model: string | null) => void;
@@ -32,6 +33,7 @@ export function ProviderModelPicker({
   isProcessing,
   provider,
   preferredModel,
+  availableProviders,
   currentProviderModels,
   modelLabel,
   onSelectModel,
@@ -54,7 +56,7 @@ export function ProviderModelPicker({
         </Menu.Trigger>
       </Tooltip>
       <Menu.Content side="top" align="start" className="min-w-[13rem]">
-        {SESSION_PROVIDER_OPTIONS.map((option) => {
+        {availableProviders.map((option) => {
           const isCurrent = option.provider === provider;
           const optionLabel = option.provider === "claude" ? "Claude" : option.label;
           const models = isCurrent

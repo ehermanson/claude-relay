@@ -22,16 +22,10 @@ import {
   ReasoningPicker,
 } from "./input-area/provider-model-picker";
 import { ProviderSwitchDialog } from "./input-area/provider-switch-dialog";
-import {
-  buildModelLabelLookup,
-  CODEX_MODEL_COMMAND_OPTIONS,
-  CODEX_MODELS,
-  MODEL_COMMAND_OPTIONS,
-  REASONING_LEVELS,
-  MODELS,
-} from "./input-area/shared";
+import { buildModelLabelLookup, REASONING_LEVELS } from "./input-area/shared";
 import { ComposerEditorHandle } from "./composer-editor";
 import { useAttachmentState } from "./input-area/use-attachment-state";
+import { useAvailableProviders } from "./input-area/use-available-providers";
 import { useComposerMenus } from "./input-area/use-composer-menus";
 import { useComposerState } from "./input-area/use-composer-state";
 import { useProviderModels } from "./input-area/use-provider-models";
@@ -108,7 +102,9 @@ export function InputArea({
   const { send } = useWSMethods();
   const { images, uploading, addImages, removeImage, clearImages, uploadAttachedImages } =
     useAttachmentState();
-  const { showModelMenu, setShowModelMenu, availableProviderModels } = useProviderModels(provider);
+  const { showModelMenu, setShowModelMenu, availableProviderModels, capabilities } =
+    useProviderModels(provider);
+  const { providers: availableProviders } = useAvailableProviders();
   const {
     showProviderSwitchDialog,
     providerSwitchTarget,
@@ -162,9 +158,7 @@ export function InputArea({
     }
   }, [promptRequestId]);
 
-  const builtInProviderModels = provider === "codex" ? CODEX_MODELS : MODELS;
-  const discoveredProviderModels =
-    availableProviderModels.length > 0 ? availableProviderModels : builtInProviderModels;
+  const discoveredProviderModels = availableProviderModels;
   const selectedCustomModel =
     preferredModel && !discoveredProviderModels.some((model) => model.id === preferredModel)
       ? {
@@ -177,12 +171,20 @@ export function InputArea({
     ? [...discoveredProviderModels, selectedCustomModel]
     : discoveredProviderModels;
   const currentProviderModelIds = new Set(currentProviderModels.map((model) => model.id));
-  const currentModelOptions =
-    provider === "codex"
-      ? CODEX_MODEL_COMMAND_OPTIONS.filter(
-          (option) => option.value === null || currentProviderModelIds.has(option.value),
-        )
-      : MODEL_COMMAND_OPTIONS;
+  const currentModelOptions = [
+    {
+      value: null,
+      label: "Default",
+      commandValue: "default",
+    },
+    ...currentProviderModels
+      .filter((option) => currentProviderModelIds.has(option.id))
+      .map((option) => ({
+        value: option.id,
+        label: option.label,
+        commandValue: option.id,
+      })),
+  ];
   const currentProviderModelLabels = buildModelLabelLookup(currentProviderModels);
   const activeModelLabel = activeModel
     ? (currentProviderModelLabels.get(activeModel) ?? formatModel(activeModel))
@@ -194,9 +196,28 @@ export function InputArea({
     : resolvedDefaultLabel;
   const activeReasoningLevel = REASONING_LEVELS.find((level) => level.budget === reasoningBudget);
   const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
-  const supportsModelSelection = true;
-  const supportsReasoningSelection = true;
-  const supportsPlanMode = provider === "claude" || provider === "codex";
+  const supportsModelSelection = capabilities.supportsModelSelection;
+  const supportsReasoningSelection = capabilities.supportsReasoningBudget;
+  const supportsPlanMode = capabilities.supportsPlanMode;
+  const visibleProviders =
+    availableProviders.length > 0
+      ? availableProviders.some((entry) => entry.provider === provider)
+        ? availableProviders
+        : [
+            {
+              provider,
+              label: getProviderDisplayName(provider),
+              capabilities,
+            },
+            ...availableProviders,
+          ]
+      : [
+          {
+            provider,
+            label: getProviderDisplayName(provider),
+            capabilities,
+          },
+        ];
   const providerLabel = provider === "claude" ? "Claude" : getProviderDisplayName(provider);
   const providerSwitchLabel = providerSwitchTarget
     ? providerSwitchTarget === "claude"
@@ -377,6 +398,7 @@ export function InputArea({
         isProcessing={isProcessing}
         provider={provider}
         preferredModel={preferredModel}
+        availableProviders={visibleProviders}
         currentProviderModels={currentProviderModels}
         modelLabel={modelLabel}
         onSelectModel={setModel}
