@@ -2231,25 +2231,56 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // For monorepos or nested app dirs (e.g. ui/public/, frontend/public/),
-    // check one level of subdirectories with a public/ or static/ folder.
-    // Also check for Xcode projects (Assets.xcassets/AppIcon.appiconset/).
+    // For monorepos or deeply nested app dirs, walk the tree looking for
+    // the first favicon we can find.  Caps depth and breadth to stay fast.
+    const SKIP_DIRS = new Set([
+      ".git",
+      "node_modules",
+      ".next",
+      "dist",
+      "build",
+      ".turbo",
+      ".cache",
+      "coverage",
+      "__pycache__",
+    ]);
+    const MAX_DEPTH = 4;
+    const scanDirs = (base: string, depth: number): string | null => {
+      if (depth > MAX_DEPTH) return null;
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = readdirSync(base, { withFileTypes: true });
+      } catch {
+        return null;
+      }
+      // Check icon files at this level first (public/static/src/app prefixes)
+      for (const sub of ["public", "static", "src/app"]) {
+        for (const name of ICON_NAMES) {
+          const fullPath = join(base, sub, name);
+          if (existsSync(fullPath)) return fullPath;
+        }
+      }
+      // Xcode: Assets.xcassets/AppIcon.appiconset/
+      const appIconSet = join(base, "Assets.xcassets", "AppIcon.appiconset");
+      const xcodeIcon = this.readAppIconSet(appIconSet);
+      if (xcodeIcon) return xcodeIcon;
+      // Recurse into subdirectories
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith(".") || SKIP_DIRS.has(entry.name)) {
+          continue;
+        }
+        const found = scanDirs(join(base, entry.name), depth + 1);
+        if (found) return found;
+      }
+      return null;
+    };
     try {
       const entries = readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") {
+        if (!entry.isDirectory() || entry.name.startsWith(".") || SKIP_DIRS.has(entry.name)) {
           continue;
         }
-        // Web: nested public/static dirs
-        for (const sub of ["public", "static", "src/app"]) {
-          for (const name of ICON_NAMES) {
-            const fullPath = join(dir, entry.name, sub, name);
-            if (existsSync(fullPath)) return fullPath;
-          }
-        }
-        // Xcode: <Target>/Assets.xcassets/AppIcon.appiconset/
-        const appIconSet = join(dir, entry.name, "Assets.xcassets", "AppIcon.appiconset");
-        const found = this.readAppIconSet(appIconSet);
+        const found = scanDirs(join(dir, entry.name), 1);
         if (found) return found;
       }
     } catch {

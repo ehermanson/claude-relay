@@ -4,6 +4,7 @@ import { create } from "zustand";
 // ── Store ────────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "relay:project-order";
+const COLLAPSED_KEY = "relay:project-collapsed";
 
 function loadOrder(): string[] {
   try {
@@ -22,6 +23,21 @@ function saveOrder(order: string[]): void {
   }
 }
 
+function loadCollapsed(): string[] {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCollapsed(dirs: string[]): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(dirs));
+  } catch {}
+}
+
 interface ProjectOrderState {
   order: string[];
   setOrder: (next: string[] | ((prev: string[]) => string[])) => void;
@@ -29,6 +45,9 @@ interface ProjectOrderState {
   moveUp: (dir: string) => void;
   moveDown: (dir: string) => void;
   moveToBottom: (dir: string) => void;
+  collapsed: Set<string>;
+  toggleCollapsed: (dir: string) => void;
+  setCollapsed: (dir: string, collapsed: boolean) => void;
 }
 
 /** Wrapper that persists after every mutation. */
@@ -79,6 +98,26 @@ export const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
     persistSet(set, ({ order }) => ({
       order: [...order.filter((d) => d !== dir), dir],
     })),
+
+  collapsed: new Set(loadCollapsed()),
+
+  toggleCollapsed: (dir) =>
+    set((state) => {
+      const next = new Set(state.collapsed);
+      if (next.has(dir)) next.delete(dir);
+      else next.add(dir);
+      saveCollapsed([...next]);
+      return { collapsed: next };
+    }),
+
+  setCollapsed: (dir, value) =>
+    set((state) => {
+      const next = new Set(state.collapsed);
+      if (value) next.add(dir);
+      else next.delete(dir);
+      saveCollapsed([...next]);
+      return { collapsed: next };
+    }),
 }));
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -93,7 +132,17 @@ export const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
  * any new (unseen) projects are appended at the end in alphabetical order.
  */
 export function useProjectOrder() {
-  const { order, setOrder, moveToTop, moveUp, moveDown, moveToBottom } = useProjectOrderStore();
+  const {
+    order,
+    setOrder,
+    moveToTop,
+    moveUp,
+    moveDown,
+    moveToBottom,
+    collapsed,
+    toggleCollapsed,
+    setCollapsed,
+  } = useProjectOrderStore();
 
   /**
    * Given a list of directory paths currently visible, returns them sorted
@@ -142,5 +191,8 @@ export function useProjectOrder() {
     moveUp,
     moveDown,
     moveToBottom,
+    collapsed,
+    toggleCollapsed,
+    setCollapsed,
   };
 }

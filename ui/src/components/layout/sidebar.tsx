@@ -12,7 +12,7 @@ import { Button } from "../ui/button";
 import { SidebarProjectGroup } from "./sidebar-project-group";
 
 import { NewInstanceForm } from "../forms/new-instance-form";
-import { fetchBeadsProjects } from "../../lib/api";
+import { fetchBeadsProjects, fetchProjectIcons } from "../../lib/api";
 import { useProjectOrder } from "../../hooks/use-project-order";
 import type { InstanceInfo } from "@shared/types";
 
@@ -30,7 +30,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   };
   const location = useLocation();
   const [showForm, setShowForm] = useState(false);
-  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+  const { collapsed: collapsedDirs, toggleCollapsed: toggleDir } = useProjectOrder();
   const [showHiddenDialog, setShowHiddenDialog] = useState(false);
   const [confirmHide, setConfirmHide] = useState<string | null>(null);
   const prevInstanceIds = useRef(new Set<string>());
@@ -44,6 +44,14 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   useEffect(() => {
     fetchBeadsProjects()
       .then((dirs) => setBeadsDirs(new Set(dirs)))
+      .catch(() => {});
+  }, []);
+
+  // Project icons
+  const [projectIcons, setProjectIcons] = useState<Record<string, string>>({});
+  useEffect(() => {
+    fetchProjectIcons()
+      .then(setProjectIcons)
       .catch(() => {});
   }, []);
 
@@ -186,15 +194,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 currentId={currentId}
                 currentProjectId={currentProjectId}
                 locationPathname={location.pathname}
+                iconPath={projectIcons[dir]}
                 isOpen={!collapsedDirs.has(dir)}
-                onToggle={(open) => {
-                  setCollapsedDirs((prev) => {
-                    const next = new Set(prev);
-                    if (open) next.delete(dir);
-                    else next.add(dir);
-                    return next;
-                  });
-                }}
+                onToggle={() => toggleDir(dir)}
                 sessionIdMap={sessionIdMap}
                 hasBeads={beadsDirs.has(dir)}
                 onQuickCreate={handleQuickCreate}

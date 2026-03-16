@@ -29,8 +29,9 @@ interface SidebarProjectGroupProps {
   currentId?: string;
   currentProjectId?: string;
   locationPathname: string;
+  iconPath?: string;
   isOpen: boolean;
-  onToggle: (open: boolean) => void;
+  onToggle: () => void;
   sessionIdMap: Map<string, InstanceInfo>;
   hasBeads: boolean;
   onQuickCreate: (dir: string) => void;
@@ -53,6 +54,7 @@ export function SidebarProjectGroup({
   currentId,
   currentProjectId,
   locationPathname,
+  iconPath,
   isOpen,
   onToggle,
   sessionIdMap,
@@ -71,7 +73,10 @@ export function SidebarProjectGroup({
 }: SidebarProjectGroupProps) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [iconHovered, setIconHovered] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const dirName = dir.split("/").pop() || dir;
+  const showFavicon = iconPath && !imgError;
   const isActiveProject = currentProjectId === dirName;
   const isPlansActive = isActiveProject && locationPathname.includes("/plans");
   const isIssuesActive = isActiveProject && locationPathname.includes("/issues");
@@ -161,16 +166,29 @@ export function SidebarProjectGroup({
   );
 
   return (
-    <Collapsible.Root key={dir} open={isOpen} onOpenChange={onToggle}>
+    <Collapsible.Root key={dir} open={isOpen} onOpenChange={() => onToggle()}>
       <div className="group/project mb-0.5">
         {/* Project header -- collapse toggle + quick create as one row */}
         <div className="mx-2 flex items-center rounded-lg transition-colors hover:bg-surface-hover">
-          <Collapsible.Trigger className="flex min-w-0 flex-1 items-center gap-1.5 py-2 pl-2 text-left">
-            {isOpen ? (
-              <ChevronDown size={12} strokeWidth={3} className="shrink-0 text-text-bright/60" />
-            ) : (
-              <ChevronRight size={12} strokeWidth={3} className="shrink-0 text-text-bright/60" />
-            )}
+          <Collapsible.Trigger
+            className="flex min-w-0 flex-1 items-center gap-1.5 py-2 pl-2 text-left"
+            onMouseEnter={() => setIconHovered(true)}
+            onMouseLeave={() => setIconHovered(false)}
+          >
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              {showFavicon && !iconHovered ? (
+                <img
+                  src={`/api/file?path=${encodeURIComponent(iconPath)}`}
+                  alt=""
+                  className="h-4 w-4 rounded-sm object-contain"
+                  onError={() => setImgError(true)}
+                />
+              ) : isOpen ? (
+                <ChevronDown size={12} strokeWidth={3} className="text-text-bright/60" />
+              ) : (
+                <ChevronRight size={12} strokeWidth={3} className="text-text-bright/60" />
+              )}
+            </span>
             <span
               className={`min-w-0 flex-1 truncate text-[0.8125rem] font-semibold ${
                 isActiveProject ? "text-accent" : "text-text-bright"
