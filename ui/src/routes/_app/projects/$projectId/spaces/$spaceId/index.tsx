@@ -24,7 +24,8 @@ import {
   deleteSpace,
 } from "../../../../../../lib/api";
 import { formatTimeAgo, formatTokens } from "../../../../../../lib/utils";
-import type { SpaceInfo, InstanceInfo, SessionStats } from "@shared/types";
+import { FilesPanel } from "../../../../../../components/chat/files-panel";
+import type { SpaceInfo, InstanceInfo, SessionStats, FileChange } from "@shared/types";
 
 // =============================================================================
 // Space view — owns the full viewport below the sidebar
@@ -348,10 +349,10 @@ function SpaceSidebar({
     };
   }, [activeTab, space.id, hasActiveChats]);
 
-  // Parse diff to extract per-file stats
-  const fileStats = useMemo(() => {
+  // Parse diff to extract per-file stats as FileChange[]
+  const fileChanges = useMemo((): FileChange[] => {
     if (!diff) return [];
-    const files: Array<{ path: string; additions: number; deletions: number }> = [];
+    const files: FileChange[] = [];
     const chunks = diff.split(/^diff --git /m).filter(Boolean);
     for (const chunk of chunks) {
       const pathMatch = chunk.match(/^a\/(.+?) b\//);
@@ -362,7 +363,14 @@ function SpaceSidebar({
         if (line.startsWith("+") && !line.startsWith("+++")) additions++;
         if (line.startsWith("-") && !line.startsWith("---")) deletions++;
       }
-      files.push({ path: pathMatch[1], additions, deletions });
+      const isNew = chunk.includes("new file mode");
+      files.push({
+        path: pathMatch[1],
+        editCount: 1,
+        type: isNew ? "added" : "edited",
+        additions,
+        deletions,
+      });
     }
     return files;
   }, [diff]);
@@ -381,7 +389,7 @@ function SpaceSidebar({
           onClick={() => onChangeTab("files")}
           icon={<FileText size={13} />}
           label="Files"
-          badge={fileStats.length > 0 ? fileStats.length : undefined}
+          badge={fileChanges.length > 0 ? fileChanges.length : undefined}
         />
         <TabButton
           active={activeTab === "context"}
@@ -393,7 +401,18 @@ function SpaceSidebar({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === "files" && <FilesTab fileStats={fileStats} loading={initialLoad} />}
+        {activeTab === "files" &&
+          (initialLoad ? (
+            <div className="flex items-center justify-center py-8 text-sm text-muted">
+              Loading changes...
+            </div>
+          ) : fileChanges.length === 0 ? (
+            <div className="flex items-center justify-center py-8 text-sm text-muted">
+              No file changes yet
+            </div>
+          ) : (
+            <FilesPanel files={fileChanges} cwd="" />
+          ))}
         {activeTab === "context" && (
           <ContextTab
             space={space}
@@ -442,87 +461,6 @@ function TabButton({
         </span>
       )}
     </button>
-  );
-}
-
-// =============================================================================
-// Files tab — shows changed files from space diff
-// =============================================================================
-
-function FilesTab({
-  fileStats,
-  loading,
-}: {
-  fileStats: Array<{ path: string; additions: number; deletions: number }>;
-  loading: boolean;
-}) {
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-8 text-sm text-muted">
-        Loading changes...
-      </div>
-    );
-  }
-
-  if (fileStats.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-8 text-sm text-muted">
-        No file changes yet
-      </div>
-    );
-  }
-
-  // Group by directory
-  const groups = new Map<string, typeof fileStats>();
-  for (const f of fileStats) {
-    const parts = f.path.split("/");
-    const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : ".";
-    if (!groups.has(dir)) groups.set(dir, []);
-    groups.get(dir)!.push(f);
-  }
-
-  const totalAdditions = fileStats.reduce((s, f) => s + f.additions, 0);
-  const totalDeletions = fileStats.reduce((s, f) => s + f.deletions, 0);
-
-  return (
-    <div className="py-2">
-      {/* Summary */}
-      <div className="flex items-center gap-2 px-3 pb-2 text-[0.6875rem] text-muted">
-        <span>
-          {fileStats.length} file{fileStats.length !== 1 ? "s" : ""} changed
-        </span>
-        {totalAdditions > 0 && <span className="text-green-400">+{totalAdditions}</span>}
-        {totalDeletions > 0 && <span className="text-red-400">-{totalDeletions}</span>}
-      </div>
-
-      {/* File tree */}
-      {[...groups.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([dir, files]) => (
-          <div key={dir}>
-            {dir !== "." && (
-              <div className="px-3 py-1 text-[0.625rem] font-medium tracking-wide text-muted/50 uppercase">
-                {dir}
-              </div>
-            )}
-            {files.map((f) => {
-              const name = f.path.split("/").pop() || f.path;
-              return (
-                <div
-                  key={f.path}
-                  className="flex items-center gap-2 px-3 py-1 text-[0.8125rem] hover:bg-surface-hover"
-                >
-                  <span className="min-w-0 flex-1 truncate text-text">{name}</span>
-                  <span className="flex shrink-0 items-center gap-1.5 text-[0.6875rem]">
-                    {f.additions > 0 && <span className="text-green-400">+{f.additions}</span>}
-                    {f.deletions > 0 && <span className="text-red-400">-{f.deletions}</span>}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-    </div>
   );
 }
 
