@@ -53,6 +53,8 @@ export type { ClaudeProcessEvents } from "./claude-process.js";
 export { InstanceManager } from "./instance-manager.js";
 export type { InstanceManagerEvents } from "./instance-manager.js";
 
+export { SpaceManager } from "./space-manager.js";
+
 export type { CoreConfig, CoreOptions } from "./config.js";
 export { resolveCoreConfig } from "./config.js";
 
@@ -83,11 +85,16 @@ export {
   enrichDiffStats,
   getFullDiff,
   getFileDiff,
+  getDefaultBranch,
+  getBranchDiff,
+  getWorktreeDiff,
 } from "./git.js";
 
 export { discoverSkills } from "./skills.js";
 
 export type {
+  SpaceStatus,
+  SpaceInfo,
   SkillInfo,
   SessionStats,
   ProviderKind,
@@ -129,6 +136,13 @@ export type {
   TaskItem,
   FileChange,
   SetPlanModePayload,
+  CreateSpacePayload,
+  CompleteSpacePayload,
+  DeleteSpacePayload,
+  SpaceCreatedMessage,
+  SpaceCompletedMessage,
+  SpaceRemovedMessage,
+  SpaceListMessage,
   ProjectPlan,
   ProjectStats,
   ProjectArtifacts,

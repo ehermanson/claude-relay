@@ -243,6 +243,7 @@ function seedDB(tempDir, entries) {
       git_info_branch: entry.gitInfoBranch || null,
       git_info_is_worktree:
         entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
+      space_id: null,
     });
   }
   db.close();

@@ -35,6 +35,7 @@ import type { ClaudeSdkSession } from "./providers/claude-sdk.js";
 import { convertCodexTranscriptEntry } from "./providers/codex-transcript.js";
 import { SessionDB } from "./db.js";
 import type { SessionRow, ManagedInstanceRow } from "./db.js";
+import { SpaceManager } from "./space-manager.js";
 import { discoverSkills } from "./skills.js";
 import type { CoreConfig } from "./config.js";
 import type {
@@ -752,6 +753,8 @@ export class InstanceManager extends EventEmitter {
   private discovering = false;
   /** Cached hidden directories set — null means needs reload from DB */
   private _hiddenDirs: Set<string> | null = null;
+  /** Space lifecycle manager */
+  private spaceManager: SpaceManager;
 
   constructor(config: CoreConfig) {
     super();
@@ -763,6 +766,7 @@ export class InstanceManager extends EventEmitter {
       gemini: config.providerDirs?.gemini ?? join(home, ".gemini"),
     };
     this.db = new SessionDB(config.dbPath, config.logger);
+    this.spaceManager = new SpaceManager(this.db, config.logger);
   }
 
   /**
@@ -825,6 +829,7 @@ export class InstanceManager extends EventEmitter {
     model?: string;
     reasoningBudget?: number;
     planMode?: boolean;
+    spaceId?: string;
   }): InstanceInfo {
     const activeCount = [...this.instances.values()].filter(
       (i) => i.process && !i.info.external,
@@ -836,8 +841,25 @@ export class InstanceManager extends EventEmitter {
     const id = randomUUID();
     this.instanceCounter++;
     const provider = options?.provider ?? "claude";
-    const workingDirectory = options?.workingDirectory || this.baseConfig.workingDirectory;
+    let workingDirectory = options?.workingDirectory || this.baseConfig.workingDirectory;
     const now = Date.now();
+
+    // If a space is specified, its worktree path always wins as the CWD
+    const spaceId = options?.spaceId;
+    let spaceWorktreePath: string | undefined;
+    if (spaceId) {
+      const space = this.spaceManager.getSpace(spaceId);
+      if (space) {
+        if (space.worktreePath) {
+          spaceWorktreePath = space.worktreePath;
+          workingDirectory = space.worktreePath;
+        } else {
+          // Default space — use the project directory
+          workingDirectory = space.projectDirectory;
+        }
+      }
+      this.spaceManager.touchSpace(spaceId);
+    }
     const resumeId = options?.resumeSessionId;
 
     const instanceConfig: CoreConfig = {
@@ -878,6 +900,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: options?.reasoningBudget,
       planMode: options?.planMode,
       skipPermissions: skipPerms,
+      spaceId,
     };
 
     const dirBasename = workingDirectory.split("/").pop() || "";
@@ -1075,6 +1098,14 @@ export class InstanceManager extends EventEmitter {
 
   getHiddenDirectories(): string[] {
     return [...this._getHiddenDirs()];
+  }
+
+  // ===========================================================================
+  // Space management (delegates to SpaceManager)
+  // ===========================================================================
+
+  getSpaceManager(): SpaceManager {
+    return this.spaceManager;
   }
 
   listInstances(): InstanceInfo[] {
@@ -2135,6 +2166,7 @@ export class InstanceManager extends EventEmitter {
       githubUrl,
       beadsIssues,
       skills,
+      spaces: directory ? this.spaceManager.listSpaces(directory) : [],
     };
   }
 
@@ -3775,6 +3807,7 @@ export class InstanceManager extends EventEmitter {
             ? 1
             : 0
           : null,
+      space_id: instance.info.spaceId ?? null,
     };
   }
 
@@ -3818,6 +3851,7 @@ export class InstanceManager extends EventEmitter {
             ? 1
             : 0
           : null,
+      space_id: instance.info.spaceId ?? null,
     };
   }
 
@@ -3912,6 +3946,7 @@ export class InstanceManager extends EventEmitter {
           last_message_at: null,
           git_info_branch: null,
           git_info_is_worktree: null,
+          space_id: null,
         });
       }
 
@@ -4129,6 +4164,7 @@ export class InstanceManager extends EventEmitter {
             git_info_branch: gitInfo?.branch ?? null,
             git_info_is_worktree:
               gitInfo?.isWorktree !== undefined ? (gitInfo.isWorktree ? 1 : 0) : null,
+            space_id: null,
           });
           discovered++;
         }
@@ -4246,6 +4282,7 @@ export class InstanceManager extends EventEmitter {
               last_message_at: lastMsg?.timestamp ?? null,
               git_info_branch: null,
               git_info_is_worktree: null,
+              space_id: null,
             });
           }
         } catch {
@@ -4352,6 +4389,7 @@ export class InstanceManager extends EventEmitter {
           last_message_at: row.last_message_at,
           git_info_branch: row.git_info_branch,
           git_info_is_worktree: row.git_info_is_worktree,
+          space_id: row.space_id,
         });
       } catch (err) {
         this.baseConfig.logger.warn(
@@ -4405,6 +4443,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: entry.reasoning_budget ?? undefined,
       planMode: false,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      spaceId: entry.space_id ?? undefined,
     };
 
     const instance: Instance = {
@@ -4513,6 +4552,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: entry.reasoning_budget ?? undefined,
       planMode: entry.runtime_mode === "plan" ? true : undefined,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      spaceId: entry.space_id ?? undefined,
     };
 
     const instance: Instance = {

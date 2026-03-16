@@ -12,9 +12,16 @@ import { Button } from "../ui/button";
 import { SidebarProjectGroup } from "./sidebar-project-group";
 
 import { NewInstanceForm } from "../forms/new-instance-form";
-import { fetchBeadsProjects, fetchProjectIcons } from "../../lib/api";
+import {
+  fetchBeadsProjects,
+  fetchProjectIcons,
+  fetchSpaces,
+  createSpace,
+  completeSpace,
+  deleteSpace,
+} from "../../lib/api";
 import { useProjectOrder } from "../../hooks/use-project-order";
-import type { InstanceInfo } from "@shared/types";
+import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { send } = useWSMethods();
@@ -33,6 +40,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { collapsed: collapsedDirs, toggleCollapsed: toggleDir } = useProjectOrder();
   const [showHiddenDialog, setShowHiddenDialog] = useState(false);
   const [confirmHide, setConfirmHide] = useState<string | null>(null);
+  const [createSpaceDir, setCreateSpaceDir] = useState<string | null>(null);
+  const [newSpaceName, setNewSpaceName] = useState("");
   const prevInstanceIds = useRef(new Set<string>());
   const pendingCreate = useRef(false);
 
@@ -54,6 +63,69 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
       .then(setProjectIcons)
       .catch(() => {});
   }, []);
+
+  // Project spaces — fetched per visible project directory
+  const [projectSpaces, setProjectSpaces] = useState<Record<string, SpaceInfo[]>>({});
+  const projectDirs = [...new Set(instances.map((i) => i.workingDirectory))];
+  useEffect(() => {
+    for (const dir of projectDirs) {
+      const projectId = dir.split("/").pop() || dir;
+      fetchSpaces(projectId)
+        .then((spaces) => setProjectSpaces((prev) => ({ ...prev, [dir]: spaces })))
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectDirs.join(",")]);
+
+  const refreshSpaces = () => {
+    for (const dir of projectDirs) {
+      const pid = dir.split("/").pop() || dir;
+      fetchSpaces(pid)
+        .then((spaces) => setProjectSpaces((prev) => ({ ...prev, [dir]: spaces })))
+        .catch(() => {});
+    }
+  };
+
+  const handleCreateSpace = async (dir: string) => {
+    setCreateSpaceDir(dir);
+    setNewSpaceName("");
+  };
+
+  const confirmCreateSpace = async () => {
+    if (!createSpaceDir) return;
+    const projectId = createSpaceDir.split("/").pop() || createSpaceDir;
+    try {
+      const space = await createSpace(projectId, {
+        name: newSpaceName.trim() || undefined,
+      });
+      setCreateSpaceDir(null);
+      refreshSpaces();
+      navigate({
+        to: "/projects/$projectId/spaces/$spaceId",
+        params: { projectId, spaceId: space.id },
+      });
+    } catch {
+      // error handled by API
+    }
+  };
+
+  const handleCompleteSpace = async (spaceId: string) => {
+    try {
+      await completeSpace(spaceId);
+      refreshSpaces();
+    } catch {
+      // handled by the API
+    }
+  };
+
+  const handleDeleteSpace = async (spaceId: string) => {
+    try {
+      await deleteSpace(spaceId);
+      refreshSpaces();
+    } catch {
+      // handled by the API
+    }
+  };
 
   // Navigate to newly created instance
   useEffect(() => {
@@ -210,6 +282,10 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 onMoveUp={() => moveUp(dir)}
                 onMoveDown={() => moveDown(dir)}
                 onMoveToBottom={() => moveToBottom(dir)}
+                spaces={projectSpaces[dir]}
+                onCreateSpace={handleCreateSpace}
+                onCompleteSpace={handleCompleteSpace}
+                onDeleteSpace={handleDeleteSpace}
               />
             ))}
 
@@ -309,6 +385,47 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 </Button>
               </div>
             ))}
+          </div>
+        </Dialog.Content>
+      </Dialog.Root>
+
+      {/* Create space dialog */}
+      <Dialog.Root
+        open={!!createSpaceDir}
+        onOpenChange={(open) => !open && setCreateSpaceDir(null)}
+      >
+        <Dialog.Content maxWidth="max-w-xs">
+          <Dialog.Header>
+            <Dialog.Title>New Space</Dialog.Title>
+            <Dialog.Close />
+          </Dialog.Header>
+          <p className="text-[0.8125rem] text-muted">
+            Create an isolated worktree branch for{" "}
+            <span className="font-medium text-text">{createSpaceDir?.split("/").pop()}</span>
+          </p>
+          <div className="mt-2">
+            <label className="mb-1 block text-[0.75rem] font-medium text-muted">
+              Name (optional)
+            </label>
+            <input
+              type="text"
+              value={newSpaceName}
+              onChange={(e) => setNewSpaceName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmCreateSpace();
+              }}
+              placeholder="e.g. auth-refactor"
+              autoFocus
+              className="w-full rounded-lg border border-border bg-surface-hover px-3 py-2 text-[0.8125rem] text-text placeholder:text-muted/50 outline-none focus:border-accent"
+            />
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setCreateSpaceDir(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={confirmCreateSpace}>
+              Create Space
+            </Button>
           </div>
         </Dialog.Content>
       </Dialog.Root>

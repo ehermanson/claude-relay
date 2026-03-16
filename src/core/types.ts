@@ -6,6 +6,25 @@
  */
 
 // =============================================================================
+// Space Types
+// =============================================================================
+
+export type SpaceStatus = "active" | "completed" | "archived";
+
+export interface SpaceInfo {
+  id: string;
+  projectDirectory: string;
+  name: string;
+  gitBranch: string | null;
+  worktreePath: string | null;
+  isDefault: boolean;
+  status: SpaceStatus;
+  createdAt: number;
+  lastActivityAt: number;
+  chatCount: number;
+}
+
+// =============================================================================
 // Instance Types
 // =============================================================================
 
@@ -151,6 +170,8 @@ export interface InstanceInfo {
   pendingPlan?: string;
   /** Latest plan document content for sidecar display (persists after approval) */
   planContent?: string;
+  /** Space this instance belongs to (null = implicit main space) */
+  spaceId?: string;
 }
 
 export interface HistoryEntry {
@@ -187,6 +208,8 @@ export interface CreateInstancePayload {
   resumeSessionId?: string;
   /** Model ID to use (e.g. "claude-opus-4-6") */
   model?: string;
+  /** Space to create this instance in */
+  spaceId?: string;
 }
 
 export interface RemoveInstancePayload {
@@ -271,6 +294,23 @@ export interface SetProviderPayload {
   provider: ProviderKind;
 }
 
+export interface CreateSpacePayload {
+  type: "create_space";
+  projectDirectory: string;
+  name?: string;
+  baseBranch?: string;
+}
+
+export interface CompleteSpacePayload {
+  type: "complete_space";
+  spaceId: string;
+}
+
+export interface DeleteSpacePayload {
+  type: "delete_space";
+  spaceId: string;
+}
+
 export interface HideDirectoryPayload {
   type: "hide_directory";
   path: string;
@@ -299,6 +339,9 @@ export type ClientMessage =
   | SetPermissionsPayload
   | SetPlanModePayload
   | SetProviderPayload
+  | CreateSpacePayload
+  | CompleteSpacePayload
+  | DeleteSpacePayload
   | HideDirectoryPayload
   | UnhideDirectoryPayload;
 
@@ -428,6 +471,28 @@ export interface HiddenDirectoriesMessage {
   directories: string[];
 }
 
+export interface SpaceCreatedMessage {
+  type: "space_created";
+  space: SpaceInfo;
+}
+
+export interface SpaceCompletedMessage {
+  type: "space_completed";
+  spaceId: string;
+  targetBranch: string;
+}
+
+export interface SpaceRemovedMessage {
+  type: "space_removed";
+  spaceId: string;
+}
+
+export interface SpaceListMessage {
+  type: "space_list";
+  projectDirectory: string;
+  spaces: SpaceInfo[];
+}
+
 export type ServerMessage =
   | ConnectedMessage
   | OutputMessage
@@ -443,7 +508,11 @@ export type ServerMessage =
   | InstanceHistoryMessage
   | TranscriptMessage
   | ScanCompleteMessage
-  | HiddenDirectoriesMessage;
+  | HiddenDirectoriesMessage
+  | SpaceCreatedMessage
+  | SpaceCompletedMessage
+  | SpaceRemovedMessage
+  | SpaceListMessage;
 
 // =============================================================================
 // Session Types
@@ -572,4 +641,6 @@ export interface ProjectArtifacts {
   beadsIssues: BeadIssue[] | null;
   /** Installed skills discovered from .claude/skills/, ~/.claude/skills/, etc. */
   skills: SkillInfo[];
+  /** Spaces in this project */
+  spaces: SpaceInfo[];
 }

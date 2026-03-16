@@ -151,6 +151,12 @@ const instanceHistoryPattern = /^\/api\/instances\/([a-f0-9-]+)\/history$/;
 const instanceMergePattern = /^\/api\/instances\/([a-f0-9-]+)\/merge$/;
 const instanceDiffPattern = /^\/api\/instances\/([a-f0-9-]+)\/diff$/;
 
+// Space routes: /api/projects/:dir/spaces, /api/spaces/:id, /api/spaces/:id/complete, /api/spaces/:id/diff
+const projectSpacesPattern = /^\/api\/projects\/([-a-zA-Z0-9_.]+)\/spaces$/;
+const spaceByIdPattern = /^\/api\/spaces\/([a-f0-9-]+)$/;
+const spaceCompletePattern = /^\/api\/spaces\/([a-f0-9-]+)\/complete$/;
+const spaceDiffPattern = /^\/api\/spaces\/([a-f0-9-]+)\/diff$/;
+
 interface RequestHandlerOverrides {
   getProviderModels?: (provider: ProviderKind) => Promise<ProviderModelOption[]>;
   getProviderCapabilities?: (provider: ProviderKind) => ProviderCapabilities;
@@ -317,6 +323,7 @@ export function createRequestHandler(
             dangerouslySkipPermissions?: boolean;
             resumeSessionId?: string;
             model?: string;
+            spaceId?: string;
           };
           const info = instanceManager.createInstance({
             provider: body.provider,
@@ -325,6 +332,7 @@ export function createRequestHandler(
             dangerouslySkipPermissions: body.dangerouslySkipPermissions,
             resumeSessionId: body.resumeSessionId,
             model: body.model,
+            spaceId: body.spaceId,
           });
           sendJson(res, 201, info);
         } catch (err) {
@@ -683,6 +691,127 @@ export function createRequestHandler(
           return;
         }
         sendJson(res, 200, artifacts);
+        return;
+      }
+
+      // =====================================================================
+      // Space API routes
+      // =====================================================================
+
+      // GET /api/projects/:dir/spaces — list spaces for a project
+      const projectSpacesMatch = pathname.match(projectSpacesPattern);
+      if (method === "GET" && projectSpacesMatch) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        const projectId = projectSpacesMatch[1];
+        const artifacts = instanceManager.getProjectArtifacts(projectId);
+        if (!artifacts) {
+          sendJson(res, 404, { error: "Project not found" });
+          return;
+        }
+        const spaces = instanceManager.getSpaceManager().listSpaces(artifacts.directory);
+        sendJson(res, 200, spaces);
+        return;
+      }
+
+      // POST /api/projects/:dir/spaces — create a space
+      const projectSpacesMatchPost = pathname.match(projectSpacesPattern);
+      if (method === "POST" && projectSpacesMatchPost) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        try {
+          const projectId = projectSpacesMatchPost[1];
+          const artifacts = instanceManager.getProjectArtifacts(projectId);
+          if (!artifacts) {
+            sendJson(res, 404, { error: "Project not found" });
+            return;
+          }
+          const body = (await parseJsonBody(req)) as {
+            name?: string;
+            baseBranch?: string;
+          };
+          const space = instanceManager
+            .getSpaceManager()
+            .createSpace(artifacts.directory, { name: body.name, baseBranch: body.baseBranch });
+          sendJson(res, 201, space);
+        } catch (err) {
+          sendJson(res, 400, {
+            error: err instanceof Error ? err.message : "Failed to create space",
+          });
+        }
+        return;
+      }
+
+      // GET /api/spaces/:id — space detail
+      // DELETE /api/spaces/:id — archive a space
+      const spaceByIdMatch = pathname.match(spaceByIdPattern);
+      if (method === "GET" && spaceByIdMatch) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        const space = instanceManager.getSpaceManager().getSpace(spaceByIdMatch[1]);
+        if (!space) {
+          sendJson(res, 404, { error: "Space not found" });
+          return;
+        }
+        sendJson(res, 200, space);
+        return;
+      }
+
+      if (method === "DELETE" && spaceByIdMatch) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        try {
+          instanceManager.getSpaceManager().deleteSpace(spaceByIdMatch[1]);
+          sendJson(res, 200, { success: true });
+        } catch (err) {
+          sendJson(res, 400, {
+            error: err instanceof Error ? err.message : "Failed to delete space",
+          });
+        }
+        return;
+      }
+
+      // POST /api/spaces/:id/complete — merge + cleanup
+      const spaceCompleteMatch = pathname.match(spaceCompletePattern);
+      if (method === "POST" && spaceCompleteMatch) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        try {
+          const { targetBranch } = instanceManager
+            .getSpaceManager()
+            .completeSpace(spaceCompleteMatch[1]);
+          sendJson(res, 200, { success: true, targetBranch });
+        } catch (err) {
+          sendJson(res, 400, {
+            error: err instanceof Error ? err.message : "Failed to complete space",
+          });
+        }
+        return;
+      }
+
+      // GET /api/spaces/:id/diff — unified diff vs default branch
+      const spaceDiffMatch = pathname.match(spaceDiffPattern);
+      if (method === "GET" && spaceDiffMatch) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        const diff = instanceManager.getSpaceManager().getSpaceDiff(spaceDiffMatch[1]);
+        if (diff === null) {
+          sendJson(res, 404, { error: "Space not found or no diff available" });
+          return;
+        }
+        sendJson(res, 200, { diff });
         return;
       }
 

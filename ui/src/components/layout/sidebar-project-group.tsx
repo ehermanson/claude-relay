@@ -13,13 +13,15 @@ import {
   ChevronDown,
   ChevronRight,
   EyeOff,
+  GitBranch,
   MoreVertical,
   Plus,
 } from "lucide-react";
 import { SidebarItem } from "./sidebar-item";
+import { SidebarSpaceGroup } from "./sidebar-space-group";
 import { Collapsible } from "../ui/collapsible";
 import { Menu } from "../ui/menu";
-import type { InstanceInfo } from "@shared/types";
+import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
 const MAX_SIDEBAR_SESSIONS = 10;
 
@@ -46,6 +48,12 @@ interface SidebarProjectGroupProps {
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   onMoveToBottom?: () => void;
+  /** Spaces for this project (non-default spaces shown as clickable items) */
+  spaces?: SpaceInfo[];
+  activeSpaceId?: string;
+  onCreateSpace?: (dir: string) => void;
+  onCompleteSpace?: (spaceId: string) => void;
+  onDeleteSpace?: (spaceId: string) => void;
 }
 
 export function SidebarProjectGroup({
@@ -70,6 +78,11 @@ export function SidebarProjectGroup({
   onMoveUp,
   onMoveDown,
   onMoveToBottom,
+  spaces,
+  activeSpaceId,
+  onCreateSpace,
+  onCompleteSpace,
+  onDeleteSpace,
 }: SidebarProjectGroupProps) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -336,6 +349,35 @@ export function SidebarProjectGroup({
               Skills
             </NavLink>
           </div>
+
+          {/* Spaces */}
+          {onCreateSpace && (
+            <div className="px-2 pb-1">
+              {spaces
+                ?.filter((s) => !s.isDefault)
+                .map((space) => (
+                  <SidebarSpaceGroup
+                    key={space.id}
+                    space={space}
+                    projectId={dirName}
+                    isActive={activeSpaceId === space.id}
+                    onComplete={onCompleteSpace ?? (() => {})}
+                    onDelete={onDeleteSpace ?? (() => {})}
+                  />
+                ))}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCreateSpace(dir);
+                }}
+                className="flex w-full items-center gap-1.5 rounded-lg px-3 py-1.5 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+              >
+                <GitBranch size={11} strokeWidth={2.5} />
+                <Plus size={10} strokeWidth={3} />
+                New Space
+              </button>
+            </div>
+          )}
 
           {/* Session items */}
           <div className="px-2">

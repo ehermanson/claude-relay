@@ -64,9 +64,10 @@ function NavTab({
 }
 
 function ProjectLayout() {
-  const { chatId, planSlug } = useParams({ strict: false }) as {
+  const { chatId, planSlug, spaceId } = useParams({ strict: false }) as {
     chatId?: string;
     planSlug?: string;
+    spaceId?: string;
   };
   const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -75,7 +76,7 @@ function ProjectLayout() {
   const artifacts = Route.useLoaderData();
   const projectId = artifacts.directory.split("/").pop() || "";
 
-  const isChildView = !!chatId || !!planSlug;
+  const isChildView = !!chatId || !!planSlug || !!spaceId;
 
   // Session stats
   const sessionStats = useMemo(() => {

@@ -194,6 +194,7 @@ export function createWebSocketServer(
                 dangerouslySkipPermissions: message.dangerouslySkipPermissions ?? false,
                 resumeSessionId: message.resumeSessionId,
                 model: message.model,
+                spaceId: message.spaceId,
               });
               broadcast({ type: "instance_created", instance: info });
             } catch (err) {
@@ -351,6 +352,63 @@ export function createWebSocketServer(
 
           case "unhide_directory": {
             instanceManager.unhideDirectory(message.path);
+            break;
+          }
+
+          case "create_space": {
+            try {
+              const space = instanceManager
+                .getSpaceManager()
+                .createSpace(message.projectDirectory, {
+                  name: message.name,
+                  baseBranch: message.baseBranch,
+                });
+              broadcast({ type: "space_created", space });
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to create space",
+              });
+            }
+            break;
+          }
+
+          case "complete_space": {
+            try {
+              const { targetBranch } = instanceManager
+                .getSpaceManager()
+                .completeSpace(message.spaceId);
+              broadcast({
+                type: "space_completed",
+                spaceId: message.spaceId,
+                targetBranch,
+              });
+              sendMessage(ws, {
+                type: "notification",
+                message: `Space merged into ${targetBranch} successfully`,
+              });
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to complete space",
+              });
+            }
+            break;
+          }
+
+          case "delete_space": {
+            try {
+              instanceManager.getSpaceManager().deleteSpace(message.spaceId);
+              broadcast({
+                type: "space_removed",
+                spaceId: message.spaceId,
+              });
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to delete space",
+              });
+            }
             break;
           }
 
