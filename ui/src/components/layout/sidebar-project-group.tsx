@@ -1,6 +1,5 @@
 /**
- * A collapsible project directory group in the sidebar — shows nav pills
- * (Overview, Plans, Issues, Skills, Chats) and session items.
+ * A collapsible project directory group in the sidebar header plus session items.
  */
 
 import { useState } from "react";
@@ -10,12 +9,15 @@ import {
   ArrowDownToLine,
   ArrowUp,
   ArrowUpToLine,
+  Bug,
   ChevronDown,
   ChevronRight,
   EyeOff,
   GitBranch,
   MoreVertical,
+  NotebookPen,
   Plus,
+  Toolbox,
 } from "lucide-react";
 import { SidebarItem } from "./sidebar-item";
 import { SidebarSpaceGroup } from "./sidebar-space-group";
@@ -30,7 +32,6 @@ interface SidebarProjectGroupProps {
   groupInstances: InstanceInfo[];
   currentId?: string;
   currentProjectId?: string;
-  locationPathname: string;
   iconPath?: string;
   isOpen: boolean;
   onToggle: () => void;
@@ -61,7 +62,6 @@ export function SidebarProjectGroup({
   groupInstances,
   currentId,
   currentProjectId,
-  locationPathname,
   iconPath,
   isOpen,
   onToggle,
@@ -91,17 +91,6 @@ export function SidebarProjectGroup({
   const dirName = dir.split("/").pop() || dir;
   const showFavicon = iconPath && !imgError;
   const isActiveProject = currentProjectId === dirName;
-  const isPlansActive = isActiveProject && locationPathname.includes("/plans");
-  const isIssuesActive = isActiveProject && locationPathname.includes("/issues");
-  const isSkillsActive = isActiveProject && locationPathname.includes("/skills");
-  const isChatsActive = isActiveProject && locationPathname.includes("/chats") && !currentId;
-  const isOverviewActive =
-    isActiveProject &&
-    !currentId &&
-    !isPlansActive &&
-    !isIssuesActive &&
-    !isSkillsActive &&
-    !isChatsActive;
 
   // Build parent/child ordered list: children appear right after their parent
   const childIds = new Set<string>();
@@ -239,6 +228,45 @@ export function SidebarProjectGroup({
                   <MoreVertical size={12} />
                 </Menu.Trigger>
                 <Menu.Content>
+                  <Menu.Item
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      navigate({
+                        to: "/projects/$projectId/plans",
+                        params: { projectId: dirName },
+                      });
+                    }}
+                  >
+                    <NotebookPen size={13} strokeWidth={2} className="text-muted" />
+                    Plans
+                  </Menu.Item>
+                  {hasBeads && (
+                    <Menu.Item
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        navigate({
+                          to: "/projects/$projectId/issues",
+                          params: { projectId: dirName },
+                        });
+                      }}
+                    >
+                      <Bug size={13} strokeWidth={2} className="text-muted" />
+                      Issues
+                    </Menu.Item>
+                  )}
+                  <Menu.Item
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      navigate({
+                        to: "/projects/$projectId/skills",
+                        params: { projectId: dirName },
+                      });
+                    }}
+                  >
+                    <Toolbox size={13} strokeWidth={2} className="text-muted" />
+                    Skills
+                  </Menu.Item>
+                  <Menu.Separator />
                   {onMoveToTop && (
                     <Menu.Item
                       disabled={isFirst}
@@ -319,37 +347,6 @@ export function SidebarProjectGroup({
 
         {/* Content */}
         <Collapsible.Content>
-          {/* Section links — compact text row, only non-obvious destinations */}
-          <div className="flex items-center gap-1.5 pb-1 pl-8 pr-4 text-[0.6875rem]">
-            <NavLink
-              to="/projects/$projectId/plans"
-              params={{ projectId: dirName }}
-              active={isPlansActive}
-            >
-              Plans
-            </NavLink>
-            {hasBeads && (
-              <>
-                <span className="text-border">·</span>
-                <NavLink
-                  to="/projects/$projectId/issues"
-                  params={{ projectId: dirName }}
-                  active={isIssuesActive}
-                >
-                  Issues
-                </NavLink>
-              </>
-            )}
-            <span className="text-border">·</span>
-            <NavLink
-              to="/projects/$projectId/skills"
-              params={{ projectId: dirName }}
-              active={isSkillsActive}
-            >
-              Skills
-            </NavLink>
-          </div>
-
           {/* Spaces */}
           {onCreateSpace && (
             <div className="px-2 pb-1">
@@ -398,30 +395,5 @@ export function SidebarProjectGroup({
         </Collapsible.Content>
       </div>
     </Collapsible.Root>
-  );
-}
-
-/** Lightweight text link used in the project group section row. */
-function NavLink({
-  to,
-  params,
-  active,
-  children,
-}: {
-  to: string;
-  params: Record<string, string>;
-  active: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      to={to}
-      params={params}
-      className={`font-medium transition-colors ${
-        active ? "text-accent" : "text-muted hover:text-text"
-      }`}
-    >
-      {children}
-    </Link>
   );
 }
