@@ -266,10 +266,15 @@ export function SpaceView() {
       {/* ── Chat tabs ── horizontal tab bar */}
       <div className="flex shrink-0 items-center border-b border-border bg-surface pl-1">
         {spaceInstances.map((inst) => (
-          <button
+          <div
             key={inst.id}
+            role="tab"
+            tabIndex={0}
             onClick={() => navigateToChat(inst.id)}
-            className={`group/tab relative flex items-center gap-1.5 border-r border-border px-3 py-2 text-[0.8125rem] transition-colors ${
+            onKeyDown={(e) => {
+              if (e.key === "Enter") navigateToChat(inst.id);
+            }}
+            className={`group/tab relative flex cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 text-[0.8125rem] transition-colors ${
               activeTab === inst.id
                 ? "bg-background text-accent"
                 : "text-muted hover:bg-surface-hover hover:text-text"
@@ -286,7 +291,7 @@ export function SpaceView() {
             >
               <X size={10} strokeWidth={2.5} />
             </button>
-          </button>
+          </div>
         ))}
         <button
           onClick={handleNewChat}
@@ -360,6 +365,9 @@ function SpaceSidebar({
   activeTab,
   onChangeTab,
   stats,
+  diff,
+  diffLoading,
+  onOpenDiff,
 }: {
   space: SpaceInfo;
   instances: InstanceInfo[];
