@@ -60,7 +60,10 @@ function dirname(filePath: string): string {
 }
 
 interface DiffDrawerProps {
-  instanceId: string;
+  /** Instance ID — diff is fetched from the server. Omit when providing rawDiff. */
+  instanceId?: string;
+  /** Pre-fetched diff string. When provided, instanceId is not required. */
+  rawDiff?: string;
   /** Known files from the sidecar — used to separate tracked vs other changes. */
   knownFiles?: FileChange[];
   workingDirectory?: string;
@@ -70,6 +73,7 @@ interface DiffDrawerProps {
 
 export function DiffDrawer({
   instanceId,
+  rawDiff,
   knownFiles,
   workingDirectory,
   onClose,
@@ -143,6 +147,16 @@ export function DiffDrawer({
   }, []);
 
   useEffect(() => {
+    if (rawDiff != null) {
+      setDiff(rawDiff);
+      setLoading(false);
+      return;
+    }
+    if (!instanceId) {
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError(null);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { lazy, useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { createFileRoute, useNavigate, useParams, Link } from "@tanstack/react-router";
 import {
   ChevronLeft,
@@ -25,6 +25,9 @@ import {
 } from "../../../../../../lib/api";
 import { formatTimeAgo, formatTokens } from "../../../../../../lib/utils";
 import { FilesPanel } from "../../../../../../components/chat/files-panel";
+const DiffDrawer = lazy(() =>
+  import("../../../../../../components/chat/diff-drawer").then((m) => ({ default: m.DiffDrawer })),
+);
 import type { SpaceInfo, InstanceInfo, SessionStats, FileChange } from "@shared/types";
 
 // =============================================================================
@@ -45,6 +48,10 @@ export function SpaceView() {
   const [space, setSpace] = useState<SpaceInfo | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("files");
   const [showSidebar, setShowSidebar] = useState(true);
+  const [spaceDiff, setSpaceDiff] = useState<string | null>(null);
+  const [diffInitialLoad, setDiffInitialLoad] = useState(true);
+  const [showDiffDrawer, setShowDiffDrawer] = useState(false);
+  const [diffScrollToFile, setDiffScrollToFile] = useState<string | undefined>();
 
   // Fetch space details
   useEffect(() => {
@@ -55,6 +62,33 @@ export function SpaceView() {
 
   // Filter instances belonging to this space
   const spaceInstances = instances.filter((i) => i.spaceId === spaceId);
+
+  const hasActiveChats = spaceInstances.some(
+    (i) => i.status === "idle" || i.status === "processing",
+  );
+
+  // Fetch space diff on mount + poll every 5s while chats are active
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetchSpaceDiff(spaceId)
+        .then((d) => {
+          if (!cancelled) setSpaceDiff(d);
+        })
+        .catch(() => {
+          if (!cancelled) setSpaceDiff("");
+        })
+        .finally(() => {
+          if (!cancelled) setDiffInitialLoad(false);
+        });
+    };
+    load();
+    const interval = hasActiveChats ? setInterval(load, 5_000) : undefined;
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [spaceId, hasActiveChats]);
 
   // The active tab is driven by the URL chatId param
   const activeTab = chatId && spaceInstances.find((i) => i.id === chatId) ? chatId : null;
@@ -278,6 +312,12 @@ export function SpaceView() {
                   activeTab={sidebarTab}
                   onChangeTab={setSidebarTab}
                   stats={aggregatedStats}
+                  diff={spaceDiff}
+                  diffLoading={diffInitialLoad}
+                  onOpenDiff={(scrollTo) => {
+                    setDiffScrollToFile(scrollTo);
+                    setShowDiffDrawer(true);
+                  }}
                 />
               </Panel>
             </Group>
@@ -295,6 +335,17 @@ export function SpaceView() {
           </div>
         )}
       </div>
+
+      {/* Full diff drawer */}
+      {showDiffDrawer && spaceDiff != null && (
+        <Suspense fallback={null}>
+          <DiffDrawer
+            rawDiff={spaceDiff}
+            onClose={() => setShowDiffDrawer(false)}
+            scrollToFile={diffScrollToFile}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -315,40 +366,10 @@ function SpaceSidebar({
   activeTab: SidebarTab;
   onChangeTab: (tab: SidebarTab) => void;
   stats: SessionStats | null;
+  diff: string | null;
+  diffLoading: boolean;
+  onOpenDiff: (scrollToFile?: string) => void;
 }) {
-  const [diff, setDiff] = useState<string | null>(null);
-  const [initialLoad, setInitialLoad] = useState(true);
-
-  const hasActiveChats = instances.some((i) => i.status === "idle" || i.status === "processing");
-
-  // Fetch diff on mount + poll every 5s while chats are active
-  useEffect(() => {
-    if (activeTab !== "files") return;
-
-    let cancelled = false;
-    const load = () => {
-      fetchSpaceDiff(space.id)
-        .then((d) => {
-          if (!cancelled) setDiff(d);
-        })
-        .catch(() => {
-          if (!cancelled) setDiff("");
-        })
-        .finally(() => {
-          if (!cancelled) setInitialLoad(false);
-        });
-    };
-
-    load();
-
-    const interval = hasActiveChats ? setInterval(load, 5_000) : undefined;
-
-    return () => {
-      cancelled = true;
-      if (interval) clearInterval(interval);
-    };
-  }, [activeTab, space.id, hasActiveChats]);
-
   // Parse diff to extract per-file stats as FileChange[]
   const fileChanges = useMemo((): FileChange[] => {
     if (!diff) return [];
@@ -402,7 +423,7 @@ function SpaceSidebar({
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === "files" &&
-          (initialLoad ? (
+          (diffLoading ? (
             <div className="flex items-center justify-center py-8 text-sm text-muted">
               Loading changes...
             </div>
@@ -411,7 +432,12 @@ function SpaceSidebar({
               No file changes yet
             </div>
           ) : (
-            <FilesPanel files={fileChanges} cwd="" />
+            <FilesPanel
+              files={fileChanges}
+              cwd=""
+              onViewChanges={() => onOpenDiff()}
+              onFileClick={(path) => onOpenDiff(path)}
+            />
           ))}
         {activeTab === "context" && (
           <ContextTab
