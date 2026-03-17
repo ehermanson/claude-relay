@@ -3,6 +3,29 @@ import type { UserInputAnswer } from "@shared/types";
 import { escapeHtml, getCollapsedDetail } from "../../lib/utils";
 import { MarkdownContent } from "./markdown-content";
 import { DiffView, ActivityCodeBlock, langFromPath, truncateContent } from "./activity-code";
+import {
+  Terminal,
+  FileText,
+  Pencil,
+  FilePlus,
+  FolderSearch,
+  Search,
+  Globe,
+  GitBranch,
+  MessageCircleQuestion,
+  ClipboardCheck,
+  ClipboardList,
+  BookOpen,
+  Send,
+  UserPlus,
+  UserMinus,
+  Brain,
+  Wrench,
+  ShieldAlert,
+  CircleX,
+  CircleCheck,
+  type LucideIcon,
+} from "lucide-react";
 
 interface ActivityEntryProps {
   activity: "tool_use" | "tool_result" | "thinking" | "task_list" | "file_list";
@@ -22,22 +45,64 @@ interface ActivityEntryProps {
   resolution?: "approved" | "dismissed" | "feedback";
   planChildId?: string;
   planChildName?: string;
+  /** Merged result status from the paired tool_result. */
+  resultStatus?: "success" | "error";
 }
 
-function ActivityDot({ type }: { type: ActivityEntryProps["activity"] }) {
-  const color =
-    type === "tool_use"
-      ? "bg-muted/30"
-      : type === "tool_result"
-        ? "bg-accent/40"
-        : type === "thinking"
-          ? "bg-claude/40"
-          : "bg-muted/20";
-  return <span className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full ${color}`} />;
-}
+const TOOL_ICONS: Record<string, LucideIcon> = {
+  Bash: Terminal,
+  Read: FileText,
+  Edit: Pencil,
+  Write: FilePlus,
+  Glob: FolderSearch,
+  Grep: Search,
+  WebFetch: Globe,
+  WebSearch: Globe,
+  Task: GitBranch,
+  AskUserQuestion: MessageCircleQuestion,
+  ExitPlanMode: ClipboardCheck,
+  EnterPlanMode: ClipboardList,
+  NotebookEdit: BookOpen,
+  SendMessage: Send,
+  TeamCreate: UserPlus,
+  TeamDelete: UserMinus,
+};
 
-function PermissionDot() {
-  return <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-warning/50" />;
+function ActivityIcon({
+  activity,
+  tool,
+  resultStatus,
+  isPermDenied,
+}: {
+  activity: ActivityEntryProps["activity"];
+  tool?: string;
+  resultStatus?: "success" | "error";
+  isPermDenied?: boolean;
+}) {
+  let Icon: LucideIcon;
+  let colorClass: string;
+
+  if (isPermDenied) {
+    Icon = ShieldAlert;
+    colorClass = "text-warning/50";
+  } else if (activity === "tool_result") {
+    Icon = resultStatus === "error" ? CircleX : CircleCheck;
+    colorClass = resultStatus === "error" ? "text-error/50" : "text-accent/40";
+  } else if (activity === "thinking") {
+    Icon = Brain;
+    colorClass = "text-claude/40";
+  } else if (resultStatus === "error") {
+    Icon = (tool && TOOL_ICONS[tool]) || Wrench;
+    colorClass = "text-error/50";
+  } else if (resultStatus === "success") {
+    Icon = (tool && TOOL_ICONS[tool]) || Wrench;
+    colorClass = "text-accent/40";
+  } else {
+    Icon = (tool && TOOL_ICONS[tool]) || Wrench;
+    colorClass = "text-muted/35";
+  }
+
+  return <Icon size={12} className={`mt-[3px] shrink-0 ${colorClass}`} />;
 }
 
 function AskUserQuestionContent({
@@ -419,6 +484,7 @@ export function ActivityEntry({
   resolution,
   planChildId,
   planChildName,
+  resultStatus,
 }: ActivityEntryProps) {
   const hasRichContent = !!input && !!tool;
   const isPermDenied = !!permissionDenied;
@@ -429,7 +495,14 @@ export function ActivityEntry({
 
   const isError = description === "Tool error";
   const collapsedText = detail ? getCollapsedDetail(detail, tool) : "";
-  const isExpandable = isPermDenied || hasRichContent || (!!detail && collapsedText !== detail);
+  const detailTruncated = !!detail && collapsedText !== detail;
+  // Only expandable if expanding reveals content not already visible in the collapsed row.
+  // Edit/Write show diffs/full content; AskUserQuestion/ExitPlanMode have interactive UI.
+  // Other tools (Bash, Read, Grep, Glob) just re-render the same text as a code block —
+  // only worth expanding if the detail was truncated.
+  const RICH_EXPAND_TOOLS = new Set(["Edit", "Write", "AskUserQuestion", "ExitPlanMode"]);
+  const richExpandable = hasRichContent && (RICH_EXPAND_TOOLS.has(tool!) || detailTruncated);
+  const isExpandable = isPermDenied || richExpandable || detailTruncated;
 
   return (
     <div className={`flex flex-col ${collapsed ? "hidden" : ""}`}>
@@ -439,7 +512,12 @@ export function ActivityEntry({
         } ${isExpandable ? "cursor-pointer transition-colors duration-150 hover:bg-hover-highlight" : ""}`}
         onClick={isExpandable ? () => setExpanded(!expanded) : undefined}
       >
-        {isPermDenied ? <PermissionDot /> : <ActivityDot type={activity} />}
+        <ActivityIcon
+          activity={activity}
+          tool={tool}
+          resultStatus={resultStatus}
+          isPermDenied={isPermDenied}
+        />
         <div
           className={`flex min-w-0 flex-1 items-baseline gap-1.5 ${
             expanded && !hasRichContent ? "flex-wrap" : ""
@@ -456,16 +534,20 @@ export function ActivityEntry({
           >
             {description}
           </span>
-          {tool && <span className="text-[11px] font-normal text-muted/35">{tool}</span>}
           {isExternalPending && (
             <span className="whitespace-nowrap rounded-md bg-claude-dim px-1.5 py-0.5 text-[10px] font-medium text-claude">
               Pending in terminal
             </span>
           )}
-          {inputDescription && (
+          {resultStatus === "error" && (
+            <span className="whitespace-nowrap rounded-md bg-error-dim px-1.5 py-0.5 text-[10px] font-medium text-error">
+              Failed
+            </span>
+          )}
+          {!expanded && inputDescription && (
             <span className="truncate text-[11px] text-muted/50">{inputDescription}</span>
           )}
-          {detail && !expanded && (
+          {!expanded && detail && !inputDescription && (
             <div
               className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-muted/50"
               dangerouslySetInnerHTML={{
@@ -473,7 +555,7 @@ export function ActivityEntry({
               }}
             />
           )}
-          {detail && expanded && !hasRichContent && (
+          {expanded && detail && !hasRichContent && (
             <div
               className="basis-full whitespace-pre-wrap break-words pt-0.5 pb-0.5 font-mono text-[11px] text-muted/60"
               dangerouslySetInnerHTML={{
