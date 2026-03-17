@@ -45,7 +45,7 @@ type RenderRow =
       id: string;
       kind: "tool-container";
       groups: ToolGroupData[];
-      totalToolUses: number;
+      totalActivities: number;
     };
 
 // ── Build render rows from ChatItems ─────────────────────────────────
@@ -117,15 +117,17 @@ function buildRows(items: ChatItem[]): RenderRow[] {
         i++;
       }
       if (groups.length === 0) continue;
-      const totalToolUses = groups.reduce(
-        (sum, g) => sum + g.activities.filter((a) => a.activity === "tool_use").length,
+      const totalActivities = groups.reduce(
+        (sum, g) =>
+          sum +
+          g.activities.filter((a) => a.activity !== "tool_result" || !!a.permissionDenied).length,
         0,
       );
       rows.push({
         id: `tools-${runStart}`,
         kind: "tool-container",
         groups,
-        totalToolUses,
+        totalActivities,
       });
       lastRenderedKind = "tool-container";
     } else {
@@ -364,11 +366,11 @@ export function MessageList({
       case "tool-container":
         return (
           <div className="rounded-lg border border-border/60 bg-surface/40">
-            {row.totalToolUses > 0 && (
+            {row.totalActivities > 0 && (
               <div className="px-3 pt-2.5 pb-1">
                 <span className="text-[10px] uppercase tracking-[0.12em] text-muted/50">
                   Tool call
-                  {row.totalToolUses > 1 ? `s (${row.totalToolUses})` : ""}
+                  {row.totalActivities > 1 ? `s (${row.totalActivities})` : ""}
                 </span>
               </div>
             )}

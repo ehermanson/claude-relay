@@ -62,10 +62,6 @@ export function ActivityGroup({
   }
 
   // Detect interactive tool_uses resolved from the terminal.
-  // The subsequent tool_result carries a `resolution` field set by the backend:
-  //   "approved" — user approved plan / answered question
-  //   "dismissed" — user cleared context or rejected without feedback
-  //   "feedback" — user rejected with change requests
   const resolvedInteractive = new Map<number, "approved" | "dismissed" | "feedback">();
   const hiddenResults = new Set<number>();
   let lastInteractiveIdx = -1;
@@ -75,13 +71,12 @@ export function ActivityGroup({
       lastInteractiveIdx = i;
     } else if (act.activity === "tool_result" && lastInteractiveIdx >= 0) {
       resolvedInteractive.set(lastInteractiveIdx, act.resolution || "approved");
-      hiddenResults.add(i); // hide the redundant "Tool completed" line
+      hiddenResults.add(i);
       lastInteractiveIdx = -1;
     }
   }
 
   // Cross-group resolution: the tool_result landed in the NEXT activity group.
-  // MessageList passes trailingResolution for the unmatched interactive tool_use.
   if (lastInteractiveIdx >= 0 && trailingResolution) {
     resolvedInteractive.set(lastInteractiveIdx, trailingResolution);
   }
@@ -89,6 +84,27 @@ export function ActivityGroup({
   // Hide a leading tool_result that was consumed by the previous group's resolution.
   if (skipLeadingResult && activities[0]?.activity === "tool_result") {
     hiddenResults.add(0);
+  }
+
+  // Merge tool_result into preceding tool_use: hide the result row and annotate
+  // the tool_use with a resultStatus so ActivityEntry can show an inline indicator.
+  const resultStatusMap = new Map<number, "success" | "error">();
+  for (let i = 0; i < activities.length; i++) {
+    const act = activities[i];
+    if (act.activity !== "tool_result") continue;
+    if (hiddenResults.has(i) || superseded.has(i)) continue;
+    // Don't merge permission denials — they have their own UI
+    if (act.permissionDenied) continue;
+    // Find the preceding tool_use
+    for (let j = i - 1; j >= 0; j--) {
+      if (superseded.has(j) || hiddenResults.has(j)) continue;
+      if (activities[j].activity === "tool_use") {
+        resultStatusMap.set(j, act.description === "Tool error" ? "error" : "success");
+        hiddenResults.add(i);
+        break;
+      }
+      break; // only check the immediately preceding non-hidden entry
+    }
   }
 
   // Build visible list preserving original indices for key stability
@@ -161,6 +177,7 @@ export function ActivityGroup({
                 input={act.input}
                 inputDescription={act.inputDescription}
                 isExternalPending={isPendingInTerminal}
+                resultStatus={resultStatusMap.get(origIndex)}
                 {...(act.tool === "AskUserQuestion" || act.tool === "ExitPlanMode"
                   ? {
                       onSendMessage,
