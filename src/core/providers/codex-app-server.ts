@@ -214,6 +214,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private readonly codexPath: string;
 
   private _isProcessing = false;
+  private _pendingMessage: string | null = null;
   private _sessionId: string | undefined;
   private _preferredModel: string | null;
   private _planMode: boolean;
@@ -317,7 +318,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
   send(message: string): void {
     if (this._isProcessing) {
-      this.logger.warn("[CodexAppServer] Already processing, ignoring message");
+      this.logger.info("[CodexAppServer] Already processing, queuing message for next turn");
+      this._pendingMessage = message;
       return;
     }
 
@@ -357,6 +359,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       }, 2000);
     }
     this._isProcessing = false;
+    this._pendingMessage = null;
     this.initialized = false;
     // Reject any pending RPC calls
     for (const [, pending] of this.pendingRpcResponses) {
@@ -1173,6 +1176,13 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       } else {
         this.emit("activity", message as ActivityMessage);
       }
+    }
+
+    // Flush any message that was queued while processing
+    if (this._pendingMessage) {
+      const queued = this._pendingMessage;
+      this._pendingMessage = null;
+      this.send(queued);
     }
   }
 
