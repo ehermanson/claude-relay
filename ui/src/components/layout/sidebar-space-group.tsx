@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { GitBranch, GitMerge, MoreVertical, Trash2, FileCode2 } from "lucide-react";
+import { GitBranch, GitMerge, MoreVertical, Trash2 } from "lucide-react";
 import { Menu } from "../ui/menu";
 import type { SpaceInfo } from "@shared/types";
 
@@ -59,9 +59,6 @@ export function SidebarSpaceGroup({
             <span className="truncate">{space.gitBranch}</span>
           </div>
         )}
-        <div className="mt-0.5 text-[0.625rem] text-muted/50">
-          {space.chatCount} chat{space.chatCount !== 1 ? "s" : ""}
-        </div>
       </div>
 
       {/* Context menu */}
@@ -79,18 +76,6 @@ export function SidebarSpaceGroup({
                 <MoreVertical size={12} />
               </Menu.Trigger>
               <Menu.Content>
-                <Menu.Item
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    navigate({
-                      to: "/projects/$projectId/spaces/$spaceId/diff",
-                      params: { projectId, spaceId: space.id },
-                    });
-                  }}
-                >
-                  <FileCode2 size={13} strokeWidth={2} className="text-muted" />
-                  View diff
-                </Menu.Item>
                 <Menu.Item
                   onClick={(e: React.MouseEvent) => {
                     e.stopPropagation();

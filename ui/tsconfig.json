@@ -13,6 +13,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "paths": {
+      "@/*": ["./src/*"],
       "@shared/*": ["../src/core/*"]
     }
   },

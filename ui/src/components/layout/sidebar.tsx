@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
+import { useNavigate, useParams, Link } from "@tanstack/react-router";
 import { Eye, EyeOff, Loader2, LogOut, Moon, PanelLeftClose, Plus, Sun } from "lucide-react";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
@@ -29,13 +29,17 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const { chatId: currentId, projectId: currentProjectId } = useParams({
+  const {
+    chatId: currentId,
+    projectId: currentProjectId,
+    spaceId: currentSpaceId,
+  } = useParams({
     strict: false,
   }) as {
     chatId?: string;
     projectId?: string;
+    spaceId?: string;
   };
-  const location = useLocation();
   const [showForm, setShowForm] = useState(false);
   const { collapsed: collapsedDirs, toggleCollapsed: toggleDir } = useProjectOrder();
   const [showHiddenDialog, setShowHiddenDialog] = useState(false);
@@ -265,7 +269,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 groupInstances={groupInstances}
                 currentId={currentId}
                 currentProjectId={currentProjectId}
-                locationPathname={location.pathname}
                 iconPath={projectIcons[dir]}
                 isOpen={!collapsedDirs.has(dir)}
                 onToggle={() => toggleDir(dir)}
@@ -283,6 +286,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 onMoveDown={() => moveDown(dir)}
                 onMoveToBottom={() => moveToBottom(dir)}
                 spaces={projectSpaces[dir]}
+                activeSpaceId={currentSpaceId}
                 onCreateSpace={handleCreateSpace}
                 onCompleteSpace={handleCompleteSpace}
                 onDeleteSpace={handleDeleteSpace}

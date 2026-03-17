@@ -3,6 +3,7 @@ import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
+import { Collapsible } from "../ui/collapsible";
 import hljs from "../../lib/markdown";
 import { escapeHtml, formatTokens, formatModel, formatTimestamp } from "../../lib/utils";
 import type { TaskItem, FileChange, SessionStats, HistoryEntry } from "@shared/types";
@@ -10,7 +11,7 @@ import type { ChatItem } from "../../hooks/use-instance-messages";
 
 const DiffDrawer = lazy(() => import("./diff-drawer").then((m) => ({ default: m.DiffDrawer })));
 import { MarkdownContent } from "./markdown-content";
-import { FilesPanel, relativePath } from "./files-panel";
+import { ChevronIcon, FilesPanel, relativePath } from "./files-panel";
 
 const PlanPanel = memo(function PlanPanel({ content }: { content: string }) {
   return (

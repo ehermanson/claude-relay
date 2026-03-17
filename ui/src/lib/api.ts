@@ -218,7 +218,7 @@ export async function fetchSpaceDetail(spaceId: string): Promise<SpaceInfo> {
 
 export async function completeSpace(
   spaceId: string,
-): Promise<{ success: boolean; targetBranch: string }> {
+): Promise<{ success: boolean; targetBranch: string; mergeCommit?: string }> {
   const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/complete`, {
     method: "POST",
   });

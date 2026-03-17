@@ -154,7 +154,7 @@ export class SpaceManager {
   /**
    * Complete a space: auto-commit, merge branch into default, archive, cleanup worktree.
    */
-  completeSpace(id: string): { targetBranch: string } {
+  completeSpace(id: string): { targetBranch: string; mergeCommit?: string } {
     const row = this.db.getSpace(id);
     if (!row) throw new Error(`Space ${id} not found`);
     if (row.is_default) throw new Error("Cannot complete the default space");
@@ -180,6 +180,14 @@ export class SpaceManager {
       throw new Error(`Merge failed: ${mergeResult.error}`);
     }
 
+    // Capture the merge commit hash
+    let mergeCommit: string | undefined;
+    try {
+      mergeCommit = execSync("git rev-parse HEAD", { cwd: repoRoot, encoding: "utf8" }).trim();
+    } catch {
+      // non-critical
+    }
+
     this.logger.info(
       `[SpaceManager] Merged space "${row.name}" (${row.git_branch}) into ${defaultBranch}`,
     );
@@ -192,7 +200,7 @@ export class SpaceManager {
     // Mark as completed
     this.db.updateSpaceStatus(id, "completed");
 
-    return { targetBranch: defaultBranch };
+    return { targetBranch: defaultBranch, mergeCommit };
   }
 
   /**

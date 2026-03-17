@@ -23,7 +23,7 @@ export function relativePath(filePath: string, cwd: string): string {
   return filePath;
 }
 
-function ChevronIcon({ open }: { open: boolean }) {
+export function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
       width="12"

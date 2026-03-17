@@ -787,10 +787,10 @@ export function createRequestHandler(
           return;
         }
         try {
-          const { targetBranch } = instanceManager
+          const { targetBranch, mergeCommit } = instanceManager
             .getSpaceManager()
             .completeSpace(spaceCompleteMatch[1]);
-          sendJson(res, 200, { success: true, targetBranch });
+          sendJson(res, 200, { success: true, targetBranch, mergeCommit });
         } catch (err) {
           sendJson(res, 400, {
             error: err instanceof Error ? err.message : "Failed to complete space",

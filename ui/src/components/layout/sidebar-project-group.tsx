@@ -14,6 +14,7 @@ import {
   ChevronRight,
   EyeOff,
   GitBranch,
+  MessageSquarePlus,
   MoreVertical,
   NotebookPen,
   Plus,
@@ -86,6 +87,7 @@ export function SidebarProjectGroup({
 }: SidebarProjectGroupProps) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [iconHovered, setIconHovered] = useState(false);
   const [imgError, setImgError] = useState(false);
   const dirName = dir.split("/").pop() || dir;
@@ -207,16 +209,51 @@ export function SidebarProjectGroup({
             </span>
           </Collapsible.Trigger>
           <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onQuickCreate(dir);
-              }}
-              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
-            >
-              <Plus size={12} strokeWidth={2.5} />
-              New Chat
-            </button>
+            <Menu.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+              <Menu.Trigger
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation();
+                }}
+                className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
+              >
+                <Plus size={12} strokeWidth={2.5} />
+                New
+              </Menu.Trigger>
+              <Menu.Content align="start">
+                <Menu.Item
+                  className="!items-start"
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    onQuickCreate(dir);
+                  }}
+                >
+                  <MessageSquarePlus size={13} strokeWidth={2} className="mt-1 text-muted" />
+                  <div>
+                    <div>New Chat</div>
+                    <div className="text-[0.6875rem] text-muted">
+                      Work with an agent on this branch
+                    </div>
+                  </div>
+                </Menu.Item>
+                {onCreateSpace && (
+                  <Menu.Item
+                    className="!items-start"
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      onCreateSpace(dir);
+                    }}
+                  >
+                    <GitBranch size={13} strokeWidth={2} className="mt-1 text-muted" />
+                    <div>
+                      <div>New Space</div>
+                      <div className="text-[0.6875rem] text-muted">
+                        Agents on a separate worktree, merge back when ready
+                      </div>
+                    </div>
+                  </Menu.Item>
+                )}
+              </Menu.Content>
+            </Menu.Root>
             {menuOpen ? (
               <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
                 <Menu.Trigger
@@ -348,10 +385,10 @@ export function SidebarProjectGroup({
         {/* Content */}
         <Collapsible.Content>
           {/* Spaces */}
-          {onCreateSpace && (
-            <div className="px-2 pb-1">
+          {spaces && spaces.filter((s) => !s.isDefault).length > 0 && (
+            <div className="pl-4 pr-2 pb-1">
               {spaces
-                ?.filter((s) => !s.isDefault)
+                .filter((s) => !s.isDefault)
                 .map((space) => (
                   <SidebarSpaceGroup
                     key={space.id}
@@ -362,22 +399,11 @@ export function SidebarProjectGroup({
                     onDelete={onDeleteSpace ?? (() => {})}
                   />
                 ))}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCreateSpace(dir);
-                }}
-                className="flex w-full items-center gap-1.5 rounded-lg px-3 py-1.5 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-accent"
-              >
-                <GitBranch size={11} strokeWidth={2.5} />
-                <Plus size={10} strokeWidth={3} />
-                New Space
-              </button>
             </div>
           )}
 
           {/* Session items */}
-          <div className="px-2">
+          <div className="pl-4 pr-2">
             {visible.map(renderSessionItem)}
 
             {/* Show all link */}

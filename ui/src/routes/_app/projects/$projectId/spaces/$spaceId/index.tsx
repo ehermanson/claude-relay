@@ -1,6 +1,8 @@
 import { lazy, useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { createFileRoute, useNavigate, useParams, Link } from "@tanstack/react-router";
 import {
+  AlertTriangle,
+  Check,
   ChevronLeft,
   FileCode2,
   FileText,
@@ -12,21 +14,18 @@ import {
   X,
 } from "lucide-react";
 import { Group, Panel } from "react-resizable-panels";
-import { useWSState, useWSMethods } from "../../../../../../context/websocket-context";
-import { InstanceView } from "../../../../../../components/chat/instance-view";
-import { ResizableHandle } from "../../../../../../components/ui/resizable-handle";
-import { Tooltip } from "../../../../../../components/ui/tooltip";
-import { Button } from "../../../../../../components/ui/button";
-import {
-  fetchSpaceDetail,
-  fetchSpaceDiff,
-  completeSpace,
-  deleteSpace,
-} from "../../../../../../lib/api";
-import { formatTimeAgo, formatTokens } from "../../../../../../lib/utils";
-import { FilesPanel } from "../../../../../../components/chat/files-panel";
+import { useWSState, useWSMethods } from "@/context/websocket-context";
+import { InstanceView } from "@/components/chat/instance-view";
+import { ResizableHandle } from "@/components/ui/resizable-handle";
+import { Tooltip } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
+import { fetchSpaceDetail, fetchSpaceDiff, completeSpace, deleteSpace } from "@/lib/api";
+import { formatTimeAgo, formatTokens } from "@/lib/utils";
+import { FilesPanel } from "@/components/chat/files-panel";
 const DiffDrawer = lazy(() =>
-  import("../../../../../../components/chat/diff-drawer").then((m) => ({ default: m.DiffDrawer })),
+  import("@/components/chat/diff-drawer").then((m) => ({ default: m.DiffDrawer })),
 );
 import type { SpaceInfo, InstanceInfo, SessionStats, FileChange } from "@shared/types";
 
@@ -52,6 +51,15 @@ export function SpaceView() {
   const [diffInitialLoad, setDiffInitialLoad] = useState(true);
   const [showDiffDrawer, setShowDiffDrawer] = useState(false);
   const [diffScrollToFile, setDiffScrollToFile] = useState<string | undefined>();
+
+  // Merge dialog state
+  const [mergeDialog, setMergeDialog] = useState<
+    | { phase: "confirm" }
+    | { phase: "merging" }
+    | { phase: "success"; targetBranch: string; mergeCommit?: string }
+    | { phase: "error"; message: string }
+    | null
+  >(null);
 
   // Fetch space details
   useEffect(() => {
@@ -157,6 +165,9 @@ export function SpaceView() {
   };
 
   const handleCloseTab = (id: string) => {
+    const inst = spaceInstances.find((i) => i.id === id);
+    const name = inst?.name || "this chat";
+    if (!confirm(`Remove "${name}" from this space?`)) return;
     send({ type: "remove_instance", instanceId: id });
     if (activeTab === id) {
       const remaining = spaceInstances.filter((i) => i.id !== id);
@@ -172,15 +183,25 @@ export function SpaceView() {
   };
 
   const handleComplete = async () => {
+    setMergeDialog({ phase: "merging" });
     try {
-      await completeSpace(spaceId);
-      navigate({ to: "/projects/$projectId", params: { projectId } });
-    } catch {
-      // error handled by API
+      const result = await completeSpace(spaceId);
+      setMergeDialog({
+        phase: "success",
+        targetBranch: result.targetBranch,
+        mergeCommit: result.mergeCommit,
+      });
+    } catch (err) {
+      setMergeDialog({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Merge failed",
+      });
     }
   };
 
   const handleDelete = async () => {
+    if (!confirm(`Delete space "${space?.name}"? This will remove the worktree without merging.`))
+      return;
     try {
       await deleteSpace(spaceId);
       navigate({ to: "/projects/$projectId", params: { projectId } });
@@ -196,6 +217,45 @@ export function SpaceView() {
   }
 
   const activeInstance = spaceInstances.find((i) => i.id === activeTab);
+
+  const chatTabs = (
+    <div className="flex shrink-0 items-center border-b border-border bg-surface pl-1">
+      {spaceInstances.map((inst) => (
+        <div
+          key={inst.id}
+          role="tab"
+          tabIndex={0}
+          onClick={() => navigateToChat(inst.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") navigateToChat(inst.id);
+          }}
+          className={`group/tab relative flex cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 text-[0.8125rem] transition-colors ${
+            activeTab === inst.id
+              ? "bg-background text-accent"
+              : "text-muted hover:bg-surface-hover hover:text-text"
+          }`}
+        >
+          <StatusDot status={inst.status} />
+          <span className="max-w-[140px] truncate font-medium">{inst.name}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCloseTab(inst.id);
+            }}
+            className="ml-1 flex h-4 w-4 items-center justify-center rounded opacity-0 transition-opacity group-hover/tab:opacity-100 hover:bg-surface-hover"
+          >
+            <X size={10} strokeWidth={2.5} />
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={handleNewChat}
+        className="flex h-full items-center px-2.5 py-2 text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+      >
+        <Plus size={13} strokeWidth={2.5} />
+      </button>
+    </div>
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -223,13 +283,15 @@ export function SpaceView() {
         {/* Right actions */}
         <div className="flex items-center gap-1">
           <Tooltip content="View diff">
-            <Link
-              to="/projects/$projectId/spaces/$spaceId/diff"
-              params={{ projectId, spaceId }}
+            <button
+              onClick={() => {
+                setDiffScrollToFile(undefined);
+                setShowDiffDrawer(true);
+              }}
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >
               <FileCode2 size={14} />
-            </Link>
+            </button>
           </Tooltip>
           <Tooltip content="Toggle sidebar">
             <button
@@ -263,51 +325,16 @@ export function SpaceView() {
         </div>
       </div>
 
-      {/* ── Chat tabs ── horizontal tab bar */}
-      <div className="flex shrink-0 items-center border-b border-border bg-surface pl-1">
-        {spaceInstances.map((inst) => (
-          <div
-            key={inst.id}
-            role="tab"
-            tabIndex={0}
-            onClick={() => navigateToChat(inst.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") navigateToChat(inst.id);
-            }}
-            className={`group/tab relative flex cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 text-[0.8125rem] transition-colors ${
-              activeTab === inst.id
-                ? "bg-background text-accent"
-                : "text-muted hover:bg-surface-hover hover:text-text"
-            }`}
-          >
-            <StatusDot status={inst.status} />
-            <span className="max-w-[140px] truncate font-medium">{inst.name}</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCloseTab(inst.id);
-              }}
-              className="ml-1 flex h-4 w-4 items-center justify-center rounded opacity-0 transition-opacity group-hover/tab:opacity-100 hover:bg-surface-hover"
-            >
-              <X size={10} strokeWidth={2.5} />
-            </button>
-          </div>
-        ))}
-        <button
-          onClick={handleNewChat}
-          className="flex h-full items-center px-2.5 py-2 text-muted transition-colors hover:bg-surface-hover hover:text-accent"
-        >
-          <Plus size={13} strokeWidth={2.5} />
-        </button>
-      </div>
-
-      {/* ── Main content: chat + optional right sidebar ── */}
+      {/* ── Main content: tabs + chat | sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {activeTab ? (
           showSidebar ? (
             <Group orientation="horizontal" className="flex-1">
               <Panel defaultSize="70" minSize="40">
-                <InstanceView key={activeTab} instanceId={activeTab} compact />
+                <div className="flex h-full flex-col">
+                  {chatTabs}
+                  <InstanceView key={activeTab} instanceId={activeTab} compact />
+                </div>
               </Panel>
               <ResizableHandle />
               <Panel defaultSize="30" minSize="15" maxSize="45">
@@ -327,7 +354,10 @@ export function SpaceView() {
               </Panel>
             </Group>
           ) : (
-            <InstanceView key={activeTab} instanceId={activeTab} compact />
+            <div className="flex h-full flex-col">
+              {chatTabs}
+              <InstanceView key={activeTab} instanceId={activeTab} compact />
+            </div>
           )
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
@@ -351,6 +381,102 @@ export function SpaceView() {
           />
         </Suspense>
       )}
+
+      {/* Merge confirmation dialog */}
+      <Dialog.Root
+        open={mergeDialog !== null}
+        onOpenChange={(open) => {
+          if (!open && mergeDialog?.phase !== "merging") {
+            if (mergeDialog?.phase === "success") {
+              navigate({ to: "/projects/$projectId", params: { projectId } });
+            }
+            setMergeDialog(null);
+          }
+        }}
+      >
+        <Dialog.Content maxWidth="max-w-md">
+          {mergeDialog?.phase === "confirm" && (
+            <>
+              <Dialog.Header>
+                <Dialog.Title>Complete & merge this space?</Dialog.Title>
+              </Dialog.Header>
+              <p className="text-[0.8125rem] text-muted">
+                This will auto-commit any uncommitted changes, merge{" "}
+                <span className="font-medium text-text">{space?.gitBranch}</span> into the default
+                branch, and remove the worktree.
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <Button variant="ghost" size="sm" onClick={() => setMergeDialog(null)}>
+                  Cancel
+                </Button>
+                <Button variant="primary" size="sm" onClick={handleComplete} className="gap-1.5">
+                  <GitMerge size={13} />
+                  Merge
+                </Button>
+              </div>
+            </>
+          )}
+          {mergeDialog?.phase === "merging" && (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <Spinner size="md" />
+              <p className="text-sm text-muted">Merging space into default branch...</p>
+            </div>
+          )}
+          {mergeDialog?.phase === "success" && (
+            <>
+              <div className="flex flex-col items-center gap-3 py-2">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10">
+                  <Check size={20} className="text-accent" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-text-bright">
+                    Space merged successfully
+                  </p>
+                  <p className="mt-1 text-[0.8125rem] text-muted">
+                    Merged into{" "}
+                    <span className="font-medium text-text">{mergeDialog.targetBranch}</span>
+                  </p>
+                  {mergeDialog.mergeCommit && (
+                    <p className="mt-0.5 font-mono text-[0.75rem] text-muted/60">
+                      {mergeDialog.mergeCommit.slice(0, 8)}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-center pt-1">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    setMergeDialog(null);
+                    navigate({ to: "/projects/$projectId", params: { projectId } });
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            </>
+          )}
+          {mergeDialog?.phase === "error" && (
+            <>
+              <div className="flex flex-col items-center gap-3 py-2">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-error/10">
+                  <AlertTriangle size={20} className="text-error" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-text-bright">Merge failed</p>
+                  <p className="mt-1 text-[0.8125rem] text-muted">{mergeDialog.message}</p>
+                </div>
+              </div>
+              <div className="flex justify-center pt-1">
+                <Button variant="ghost" size="sm" onClick={() => setMergeDialog(null)}>
+                  Close
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog.Content>
+      </Dialog.Root>
     </div>
   );
 }
