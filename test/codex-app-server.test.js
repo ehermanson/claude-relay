@@ -933,4 +933,242 @@ describe("CodexAppServerSession", () => {
 
     session.close();
   });
+
+  it("accumulates item/plan/delta into ExitPlanMode activity on turn complete", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      planMode: true,
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const activities = collectEvents(session, "activity");
+    const outputs = collectEvents(session, "output");
+
+    session.send("plan this");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    // Simulate plan deltas
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/plan/delta",
+        params: { delta: "# Step 1\n" },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/plan/delta",
+        params: { delta: "Do the thing\n" },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/plan/delta",
+        params: { delta: "# Step 2\nDo the other thing" },
+      }) + "\n",
+    );
+
+    // Plan deltas should NOT emit output (accumulate silently)
+    const textOutputsBefore = outputs.filter(([o]) => o.text && o.text.includes("Step 1"));
+    assert.equal(textOutputsBefore.length, 0, "Plan deltas should not stream as output");
+
+    // Complete the turn
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { turn: { id: "turn-1", items: [], status: "completed", error: null } },
+      }) + "\n",
+    );
+
+    await tick();
+
+    // Should have emitted an ExitPlanMode activity
+    const exitPlan = activities.filter(([a]) => a.tool === "ExitPlanMode");
+    assert.equal(exitPlan.length, 1, "Should emit one ExitPlanMode activity");
+    assert.ok(exitPlan[0][0].input.plan.includes("Step 1"));
+    assert.ok(exitPlan[0][0].input.plan.includes("Step 2"));
+
+    session.close();
+  });
+
+  it("deduplicates identical plan content across turns", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      planMode: true,
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const activities = collectEvents(session, "activity");
+
+    session.send("plan this");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    const planText = "# The Plan\nDo all the things";
+
+    // First turn: emit plan
+    child.stdout.write(
+      JSON.stringify({ jsonrpc: "2.0", method: "item/plan/delta", params: { delta: planText } }) +
+        "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { turn: { id: "turn-1", items: [], status: "completed", error: null } },
+      }) + "\n",
+    );
+    await tick();
+
+    assert.equal(
+      activities.filter(([a]) => a.tool === "ExitPlanMode").length,
+      1,
+      "First turn should emit ExitPlanMode",
+    );
+
+    // Second turn: same plan content again (Codex re-emitting after approval)
+    session.send("go ahead");
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({ jsonrpc: "2.0", method: "item/plan/delta", params: { delta: planText } }) +
+        "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { turn: { id: "turn-2", items: [], status: "completed", error: null } },
+      }) + "\n",
+    );
+    await tick();
+
+    // Should NOT emit a second ExitPlanMode since plan is identical
+    assert.equal(
+      activities.filter(([a]) => a.tool === "ExitPlanMode").length,
+      1,
+      "Duplicate plan should not emit another ExitPlanMode",
+    );
+
+    session.close();
+  });
+
+  it("queues messages sent while processing and flushes after turn", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+
+    session.send("first");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    // Session is now processing. Send a second message — should be queued, not dropped.
+    session.send("second");
+
+    // Complete first turn
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { turn: { id: "turn-1", items: [], status: "completed", error: null } },
+      }) + "\n",
+    );
+    await tick(50);
+
+    // The queued message should have triggered a second turn/start
+    const msgs = child.getStdinMessages();
+    const turnStarts = msgs.filter((m) => m.method === "turn/start");
+    assert.equal(turnStarts.length, 2, "Queued message should trigger second turn");
+    assert.equal(turnStarts[1].params.input[0].text, "second");
+
+    session.close();
+  });
+
+  it("clears plan delta buffer when starting a new turn", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      planMode: true,
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const activities = collectEvents(session, "activity");
+
+    session.send("plan this");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    // First turn with plan deltas, but turn completes without plan content
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/agentMessage/delta",
+        params: { delta: "Let me think about this..." },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { turn: { id: "turn-1", items: [], status: "completed", error: null } },
+      }) + "\n",
+    );
+    await tick();
+
+    // No plan deltas → no ExitPlanMode
+    assert.equal(
+      activities.filter(([a]) => a.tool === "ExitPlanMode").length,
+      0,
+      "No plan deltas means no ExitPlanMode",
+    );
+
+    // Second turn with actual plan deltas
+    session.send("now plan it");
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/plan/delta",
+        params: { delta: "# Actual Plan" },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { turn: { id: "turn-2", items: [], status: "completed", error: null } },
+      }) + "\n",
+    );
+    await tick();
+
+    // Should only have the second turn's plan
+    const exitPlans = activities.filter(([a]) => a.tool === "ExitPlanMode");
+    assert.equal(exitPlans.length, 1);
+    assert.ok(exitPlans[0][0].input.plan.includes("Actual Plan"));
+    assert.ok(!exitPlans[0][0].input.plan.includes("think about"));
+
+    session.close();
+  });
 });

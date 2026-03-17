@@ -560,4 +560,97 @@ describe("InstanceManager", () => {
       assert.equal(promptHistory.message.input.requestId, "watch-ask-1");
     });
   });
+
+  describe("sendMessage auto-exits plan mode on plan approval", () => {
+    it("exits plan mode when sending a message while pendingPlan is set", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      let planModeSet = undefined;
+      const sentMessages = [];
+      instance.process = {
+        ...instance.process,
+        isProcessing: false,
+        provider: "codex",
+        pid: undefined,
+        stats: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+        send(text) {
+          sentMessages.push(text);
+        },
+        interrupt() {},
+        close() {},
+        setModel() {},
+        setReasoningBudget() {},
+        addAllowedTool() {},
+        setBypassPermissions() {},
+        setPlanMode(mode) {
+          planModeSet = mode;
+        },
+        getRuntimeBinding() {
+          return { provider: "codex" };
+        },
+        respondToRequest() {
+          return false;
+        },
+      };
+
+      // Simulate plan mode active with a pending plan
+      instance.info.planMode = true;
+      instance.info.pendingPlan = "# The Plan\nDo things";
+      instance.info.status = "idle";
+
+      // Send approval message
+      manager.sendMessage(info.id, "Yes, go ahead with this plan.");
+
+      // Should have exited plan mode
+      assert.equal(planModeSet, false, "setPlanMode(false) should be called");
+      assert.equal(instance.info.planMode, false, "planMode should be false");
+      assert.equal(instance.info.pendingPlan, undefined, "pendingPlan should be cleared");
+      assert.equal(sentMessages.length, 1);
+      assert.equal(sentMessages[0], "Yes, go ahead with this plan.");
+    });
+
+    it("preserves plan mode when no pendingPlan is set", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      let planModeSet = undefined;
+      instance.process = {
+        ...instance.process,
+        isProcessing: false,
+        provider: "codex",
+        pid: undefined,
+        stats: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+        send() {},
+        interrupt() {},
+        close() {},
+        setModel() {},
+        setReasoningBudget() {},
+        addAllowedTool() {},
+        setBypassPermissions() {},
+        setPlanMode(mode) {
+          planModeSet = mode;
+        },
+        getRuntimeBinding() {
+          return { provider: "codex" };
+        },
+        respondToRequest() {
+          return false;
+        },
+      };
+
+      // Plan mode active but no pending plan (normal message during plan mode)
+      instance.info.planMode = true;
+      instance.info.pendingPlan = undefined;
+      instance.info.status = "idle";
+
+      manager.sendMessage(info.id, "plan this feature");
+
+      // Should stay in plan mode
+      assert.equal(planModeSet, undefined, "setPlanMode should not be called");
+      assert.equal(instance.info.planMode, true, "planMode should remain true");
+    });
+  });
 });

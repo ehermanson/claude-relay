@@ -215,6 +215,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
   private _isProcessing = false;
   private _pendingMessage: string | null = null;
+  private _planDeltaBuffer = "";
+  private _lastEmittedPlan = "";
   private _sessionId: string | undefined;
   private _preferredModel: string | null;
   private _planMode: boolean;
@@ -318,19 +320,17 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
   send(message: string): void {
     if (this._isProcessing) {
-      this.logger.info("[CodexAppServer] Already processing, queuing message for next turn");
       this._pendingMessage = message;
       return;
     }
 
     this._isProcessing = true;
+    this._planDeltaBuffer = "";
     this.resetTimeout();
 
     if (!this.process || !this.initialized) {
-      // First message — spawn the app-server process, initialize, start/resume thread, then send turn
       this.spawnAndInit(message);
     } else {
-      // Subsequent messages — just start a new turn on the existing thread
       this.startTurn(message);
     }
   }
@@ -360,6 +360,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     }
     this._isProcessing = false;
     this._pendingMessage = null;
+    this._planDeltaBuffer = "";
     this.initialized = false;
     // Reject any pending RPC calls
     for (const [, pending] of this.pendingRpcResponses) {
@@ -434,6 +435,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   // ===========================================================================
 
   private spawnAndInit(firstMessage: string): void {
+    this._closingIntentionally = false;
     this.process = this.spawnProcess(this.codexPath, ["app-server", "--listen", "stdio://"], {
       cwd: this.cwd,
       env: process.env,
@@ -465,6 +467,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
     // Step 2: Start or resume thread
     if (this._sessionId) {
+      this.logger.info(`[CodexAppServer] Resuming thread ${this._sessionId}`);
       const result = (await this.sendRpc("thread/resume", {
         threadId: this._sessionId,
         model: this._preferredModel ?? undefined,
@@ -851,13 +854,11 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       }
 
       case "thread/closed":
-        // The server closed the thread — emit exit
         if (this._isProcessing) this.finishTurn();
         this.emitExit(0);
         break;
 
       case "thread/status/changed":
-        this.logger.debug(`[CodexAppServer] Thread status: ${JSON.stringify(params.status)}`);
         break;
 
       case "thread/name/updated": {
@@ -909,6 +910,17 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
               this.emit("activity", message as ActivityMessage);
             }
           }
+        }
+        break;
+      }
+
+      case "item/plan/delta": {
+        // Codex plan-mode streams plan content here instead of agentMessage/delta.
+        // Accumulate silently — finishTurn wraps the buffer in <proposed_plan> tags
+        // which triggers the plan-review UI via ExitPlanMode activity.
+        const delta = (params.delta ?? params.text ?? "") as string;
+        if (delta) {
+          this._planDeltaBuffer += delta;
         }
         break;
       }
@@ -1170,11 +1182,34 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this.clearTimeout();
     this._isProcessing = false;
     this._currentTurnId = null;
-    for (const message of this.proposedPlanParser.finish(raw)) {
+
+    // If plan deltas were accumulated, feed them as a <proposed_plan> block
+    // so the parser emits an ExitPlanMode activity for the plan-review flow.
+    const prePlanMessages: Array<OutputMessage | ActivityMessage> = [];
+    if (this._planDeltaBuffer) {
+      const planContent = this._planDeltaBuffer.trim();
+      this._planDeltaBuffer = "";
+      if (planContent && planContent !== this._lastEmittedPlan) {
+        this.logger.info(
+          `[CodexAppServer] finishTurn: wrapping ${planContent.length} chars of plan deltas as <proposed_plan>`,
+        );
+        this._lastEmittedPlan = planContent;
+        prePlanMessages.push(
+          ...this.proposedPlanParser.push(`<proposed_plan>${planContent}</proposed_plan>`, raw),
+        );
+      }
+    }
+
+    const planMessages = [...prePlanMessages, ...this.proposedPlanParser.finish(raw)];
+    for (const message of planMessages) {
       if (message.type === "output") {
         this.emit("output", message as OutputMessage);
       } else {
-        this.emit("activity", message as ActivityMessage);
+        const act = message as ActivityMessage;
+        if (act.tool === "ExitPlanMode") {
+          this.logger.info("[CodexAppServer] finishTurn: emitting ExitPlanMode activity");
+        }
+        this.emit("activity", act);
       }
     }
 

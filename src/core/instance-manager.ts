@@ -1219,6 +1219,16 @@ export class InstanceManager extends EventEmitter {
     instance.info.lastActivityAt = Date.now();
     instance.info.pendingTool = undefined;
     instance.info.pendingPermission = undefined;
+
+    // If the user is responding to a pending plan, exit plan mode so
+    // the provider executes instead of re-planning on the next turn.
+    if (instance.info.pendingPlan && instance.info.planMode) {
+      instance.info.planMode = false;
+      instance.process?.setPlanMode?.(false);
+      this.baseConfig.logger.info(
+        "[InstanceManager] Plan approved — exiting plan mode for execution",
+      );
+    }
     instance.info.pendingPlan = undefined;
     instance.planFilePath = undefined;
     this.setStatus(instance, "processing");
@@ -1646,6 +1656,9 @@ export class InstanceManager extends EventEmitter {
           instance.info.planContent = content;
           // Only set pendingPlan (composer review) if still in plan mode and not already set
           if (instance.info.planMode && !instance.info.pendingPlan) {
+            this.baseConfig.logger.info(
+              `[InstanceManager] refreshPendingPlan: setting pendingPlan from file (${instance.planFilePath})`,
+            );
             instance.info.pendingPlan = content;
           }
           this.emit("instance:status", instance.info.id, { ...instance.info });
@@ -1675,6 +1688,9 @@ export class InstanceManager extends EventEmitter {
             const plan = (activity.input as Record<string, unknown> | undefined)?.plan as
               | string
               | undefined;
+            this.baseConfig.logger.info(
+              `[InstanceManager] syncPending: ExitPlanMode — setting pendingPlan (${plan ? plan.length : 0} chars)`,
+            );
             instance.info.pendingPlan = plan;
             if (plan) instance.info.planContent = plan;
           }

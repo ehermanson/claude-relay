@@ -370,22 +370,17 @@ function ToolContent({
       return null;
     }
     case "ExitPlanMode": {
-      // Plan review card renders above the input area (not inline).
-      // Show a collapsed plan preview and resolution badge here.
-      const plan = input.plan as string | undefined;
-      if (!plan) return null;
+      // Plan content is shown in the dedicated plan review UI, not inline.
+      // Just show the resolution badge if the plan was already reviewed.
       return (
         <div className="mt-1.5">
-          <div className="max-h-40 overflow-hidden rounded-lg border border-border bg-panel-content p-3 text-[0.75rem] text-muted [mask-image:linear-gradient(to_bottom,black_70%,transparent)]">
-            <MarkdownContent text={plan} />
-          </div>
           {resolution === "approved" && (
-            <span className="mt-1.5 inline-block w-fit rounded-md bg-accent/15 px-2 py-0.5 text-[0.75rem] font-medium text-accent">
+            <span className="inline-block w-fit rounded-md bg-accent/15 px-2 py-0.5 text-[0.75rem] font-medium text-accent">
               Approved
             </span>
           )}
           {(resolution === "feedback" || resolution === "dismissed") && (
-            <span className="mt-1.5 inline-block w-fit rounded-md bg-warning/15 px-2 py-0.5 text-[0.75rem] font-medium text-warning">
+            <span className="inline-block w-fit rounded-md bg-warning/15 px-2 py-0.5 text-[0.75rem] font-medium text-warning">
               {resolution === "dismissed" ? "Dismissed" : "Changes requested"}
             </span>
           )}
@@ -429,11 +424,7 @@ export function ActivityEntry({
   const isPermDenied = !!permissionDenied;
   const defaultExpanded =
     isPermDenied ||
-    (hasRichContent &&
-      (tool === "Edit" ||
-        tool === "ExitPlanMode" ||
-        tool === "AskUserQuestion" ||
-        tool === "Write"));
+    (hasRichContent && (tool === "Edit" || tool === "AskUserQuestion" || tool === "Write"));
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const isError = description === "Tool error";
