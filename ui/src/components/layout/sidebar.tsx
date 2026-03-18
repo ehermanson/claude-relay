@@ -10,6 +10,7 @@ import { Dialog } from "../ui/dialog";
 import { Tooltip } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { SidebarProjectGroup } from "./sidebar-project-group";
+import { ConfirmMergeDialog } from "../spaces/confirm-merge-dialog";
 
 import { NewInstanceForm } from "../forms/new-instance-form";
 import {
@@ -46,6 +47,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const [confirmHide, setConfirmHide] = useState<string | null>(null);
   const [createSpaceDir, setCreateSpaceDir] = useState<string | null>(null);
   const [newSpaceName, setNewSpaceName] = useState("");
+  const [confirmCompleteSpaceId, setConfirmCompleteSpaceId] = useState<string | null>(null);
   const prevInstanceIds = useRef(new Set<string>());
   const pendingCreate = useRef(false);
 
@@ -113,7 +115,14 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     }
   };
 
-  const handleCompleteSpace = async (spaceId: string) => {
+  const handleCompleteSpace = (spaceId: string) => {
+    setConfirmCompleteSpaceId(spaceId);
+  };
+
+  const confirmCompleteSpaceAction = async () => {
+    if (!confirmCompleteSpaceId) return;
+    const spaceId = confirmCompleteSpaceId;
+    setConfirmCompleteSpaceId(null);
     try {
       await completeSpace(spaceId);
       refreshSpaces();
@@ -392,6 +401,13 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
           </div>
         </Dialog.Content>
       </Dialog.Root>
+
+      {/* Confirm complete space dialog */}
+      <ConfirmMergeDialog
+        open={!!confirmCompleteSpaceId}
+        onConfirm={confirmCompleteSpaceAction}
+        onCancel={() => setConfirmCompleteSpaceId(null)}
+      />
 
       {/* Create space dialog */}
       <Dialog.Root

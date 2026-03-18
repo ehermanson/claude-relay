@@ -95,7 +95,7 @@ export class SpaceManager {
 
     const id = randomUUID();
     const shortId = id.slice(0, 8);
-    const branchName = `space/${shortId}`;
+    const branchName = `relay-space/${shortId}`;
 
     // Create the worktree
     const worktreeBase = join(homedir(), ".relay", "worktrees");
@@ -165,6 +165,13 @@ export class SpaceManager {
     const repoRoot = getRepoRoot(row.project_directory);
     if (!repoRoot) throw new Error("Cannot determine git repository root");
 
+    // Pre-check: refuse to merge if the main worktree has uncommitted changes
+    if (isWorktreeDirty(repoRoot)) {
+      throw new Error(
+        "Your main branch has uncommitted changes. Please commit or stash them before merging a space.",
+      );
+    }
+
     // Auto-commit if dirty
     if (existsSync(row.worktree_path) && isWorktreeDirty(row.worktree_path)) {
       const commitResult = commitAll(row.worktree_path, row.name || "Space work");
@@ -177,6 +184,11 @@ export class SpaceManager {
 
     const mergeResult = mergeWorktreeBranch(repoRoot, row.git_branch);
     if (!mergeResult.success) {
+      if (mergeResult.error === "CONFLICT") {
+        throw new Error(
+          `Merge conflicts — the space and main branch have overlapping changes.\n\nTo resolve, run:\n  cd ${row.worktree_path}\n  git rebase ${defaultBranch}\n\nFix any conflicts, then try completing the space again.`,
+        );
+      }
       throw new Error(`Merge failed: ${mergeResult.error}`);
     }
 

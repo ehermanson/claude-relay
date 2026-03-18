@@ -24,6 +24,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { fetchSpaceDetail, fetchSpaceDiff, completeSpace, deleteSpace } from "@/lib/api";
 import { formatTimeAgo, formatTokens } from "@/lib/utils";
 import { FilesPanel } from "@/components/chat/files-panel";
+import { ConfirmMergeDialog } from "@/components/spaces/confirm-merge-dialog";
 const DiffDrawer = lazy(() =>
   import("@/components/chat/diff-drawer").then((m) => ({ default: m.DiffDrawer })),
 );
@@ -307,7 +308,7 @@ export function SpaceView() {
           </Tooltip>
           <Tooltip content="Complete & merge">
             <button
-              onClick={handleComplete}
+              onClick={() => setMergeDialog({ phase: "confirm" })}
               className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >
               <GitMerge size={13} />
@@ -382,9 +383,17 @@ export function SpaceView() {
         </Suspense>
       )}
 
-      {/* Merge confirmation dialog */}
+      {/* Merge confirmation */}
+      <ConfirmMergeDialog
+        open={mergeDialog?.phase === "confirm"}
+        spaceName={space?.name}
+        onConfirm={handleComplete}
+        onCancel={() => setMergeDialog(null)}
+      />
+
+      {/* Merge progress / result dialog */}
       <Dialog.Root
-        open={mergeDialog !== null}
+        open={mergeDialog !== null && mergeDialog.phase !== "confirm"}
         onOpenChange={(open) => {
           if (!open && mergeDialog?.phase !== "merging") {
             if (mergeDialog?.phase === "success") {
@@ -395,27 +404,6 @@ export function SpaceView() {
         }}
       >
         <Dialog.Content maxWidth="max-w-md">
-          {mergeDialog?.phase === "confirm" && (
-            <>
-              <Dialog.Header>
-                <Dialog.Title>Complete & merge this space?</Dialog.Title>
-              </Dialog.Header>
-              <p className="text-[0.8125rem] text-muted">
-                This will auto-commit any uncommitted changes, merge{" "}
-                <span className="font-medium text-text">{space?.gitBranch}</span> into the default
-                branch, and remove the worktree.
-              </p>
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <Button variant="ghost" size="sm" onClick={() => setMergeDialog(null)}>
-                  Cancel
-                </Button>
-                <Button variant="primary" size="sm" onClick={handleComplete} className="gap-1.5">
-                  <GitMerge size={13} />
-                  Merge
-                </Button>
-              </div>
-            </>
-          )}
           {mergeDialog?.phase === "merging" && (
             <div className="flex flex-col items-center gap-3 py-4">
               <Spinner size="md" />
@@ -465,7 +453,9 @@ export function SpaceView() {
                 </div>
                 <div className="text-center">
                   <p className="text-sm font-semibold text-text-bright">Merge failed</p>
-                  <p className="mt-1 text-[0.8125rem] text-muted">{mergeDialog.message}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-left text-[0.8125rem] text-muted">
+                    {mergeDialog.message}
+                  </p>
                 </div>
               </div>
               <div className="flex justify-center pt-1">

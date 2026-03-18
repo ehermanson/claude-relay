@@ -308,7 +308,6 @@ export function mergeWorktreeBranch(
     return { success: true };
   } catch (err) {
     // Merge failed (conflict or other error) — abort to leave repo clean
-    const errorMessage = err instanceof Error ? err.message : "Unknown merge error";
     try {
       execSync("git merge --abort", {
         cwd: repoRoot,
@@ -318,7 +317,21 @@ export function mergeWorktreeBranch(
     } catch {
       // abort may fail if merge didn't start — ignore
     }
-    return { success: false, error: errorMessage };
+
+    // Extract a human-readable message from the git output
+    const stderr =
+      (err as { stderr?: Buffer })?.stderr?.toString().trim() ||
+      (err as { stdout?: Buffer })?.stdout?.toString().trim() ||
+      "";
+    let message: string;
+    if (stderr.includes("CONFLICT")) {
+      message = "CONFLICT";
+    } else if (stderr) {
+      message = stderr;
+    } else {
+      message = err instanceof Error ? err.message : "Unknown merge error";
+    }
+    return { success: false, error: message };
   }
 }
 
