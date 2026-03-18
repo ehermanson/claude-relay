@@ -150,6 +150,8 @@ const instanceByIdPattern = /^\/api\/instances\/([a-f0-9-]+)$/;
 const instanceHistoryPattern = /^\/api\/instances\/([a-f0-9-]+)\/history$/;
 const instanceMergePattern = /^\/api\/instances\/([a-f0-9-]+)\/merge$/;
 const instanceDiffPattern = /^\/api\/instances\/([a-f0-9-]+)\/diff$/;
+const projectsRoutePattern = /^\/api\/projects$/;
+const projectByIdPattern = /^\/api\/projects\/([a-f0-9-]+)$/;
 
 interface RequestHandlerOverrides {
   getProviderModels?: (provider: ProviderKind) => Promise<ProviderModelOption[]>;
@@ -220,6 +222,131 @@ export function createRequestHandler(
     overrides.getOpenTargets ?? ((targetPath: string) => projectOpener.listTargets(targetPath));
   const doOpenNativePath =
     overrides.openNativePath ?? ((request: NativeOpenRequest) => projectOpener.open(request));
+  const gitRepoCache: {
+    expiresAt: number;
+    pending?: Promise<string[]>;
+    value?: string[];
+  } = {
+    expiresAt: 0,
+  };
+  const getGitRepos = async (): Promise<string[]> => {
+    const now = Date.now();
+    if (gitRepoCache.value && gitRepoCache.expiresAt > now) {
+      return [...gitRepoCache.value];
+    }
+    if (gitRepoCache.pending) {
+      const repos = await gitRepoCache.pending;
+      return [...repos];
+    }
+
+    const pending = (async () => {
+      const home = homedir();
+      const repos: string[] = [];
+      const visited = new Set<string>();
+      const MAX_REPOS = 200;
+      const MAX_DEPTH = 4;
+      const SKIP = new Set([
+        "node_modules",
+        ".git",
+        ".hg",
+        ".svn",
+        "vendor",
+        "venv",
+        ".venv",
+        "__pycache__",
+        "dist",
+        "build",
+        ".cache",
+        ".npm",
+        ".cargo",
+        ".rustup",
+        // macOS
+        "Library",
+        "Applications",
+        ".Trash",
+        "Pictures",
+        "Music",
+        "Movies",
+        "Public",
+        ".local",
+        ".config",
+        // Linux
+        "snap",
+        ".snap",
+        ".wine",
+        ".steam",
+      ]);
+      // Seed with common code directories — skip home root to avoid scanning everything
+      const queue = [
+        "projects",
+        "repos",
+        "code",
+        "src",
+        "work",
+        "dev",
+        "go/src",
+        "Developer",
+        "Documents",
+        "Desktop",
+      ].map((segment) => ({ dir: path.join(home, segment), depth: 0 }));
+
+      while (queue.length > 0 && repos.length < MAX_REPOS) {
+        const current = queue.shift();
+        if (!current || current.depth > MAX_DEPTH) continue;
+
+        let resolved: string;
+        try {
+          resolved = await fs.promises.realpath(current.dir);
+        } catch {
+          continue;
+        }
+        if (visited.has(resolved)) continue;
+        visited.add(resolved);
+
+        let entries: fs.Dirent[];
+        try {
+          entries = await fs.promises.readdir(resolved, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+
+        if (entries.some((entry) => entry.name === ".git")) {
+          repos.push(resolved);
+          continue;
+        }
+
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          if (entry.name.startsWith(".")) continue;
+          if (SKIP.has(entry.name)) continue;
+          queue.push({
+            dir: path.join(resolved, entry.name),
+            depth: current.depth + 1,
+          });
+        }
+      }
+
+      repos.sort((a, b) => {
+        const aName = a.split("/").pop()!.toLowerCase();
+        const bName = b.split("/").pop()!.toLowerCase();
+        return aName.localeCompare(bName);
+      });
+      return repos;
+    })()
+      .then((repos) => {
+        gitRepoCache.value = repos;
+        gitRepoCache.expiresAt = Date.now() + 30_000;
+        delete gitRepoCache.pending;
+        return repos;
+      })
+      .catch((err) => {
+        delete gitRepoCache.pending;
+        throw err;
+      });
+
+    gitRepoCache.pending = pending;
+    return [...(await pending)];
+  };
 
   return async function handleRequest(
     req: http.IncomingMessage,
@@ -474,54 +601,99 @@ export function createRequestHandler(
         return;
       }
 
-      // GET /api/hidden-directories — list of hidden directory paths
-      if (method === "GET" && pathname === "/api/hidden-directories") {
+      // =====================================================================
+      // Project CRUD routes
+      // =====================================================================
+
+      // GET /api/projects — list all registered projects
+      if (method === "GET" && projectsRoutePattern.test(pathname)) {
         if (!isAuthenticated) {
           sendJson(res, 401, { error: "Unauthorized" });
           return;
         }
-        sendJson(res, 200, { directories: instanceManager.getHiddenDirectories() });
+        sendJson(res, 200, { projects: instanceManager.projectManager.listProjects() });
         return;
       }
 
-      // POST /api/hidden-directories — hide a directory
-      if (method === "POST" && pathname === "/api/hidden-directories") {
+      // POST /api/projects — register a new project
+      if (method === "POST" && projectsRoutePattern.test(pathname)) {
         if (!isAuthenticated) {
           sendJson(res, 401, { error: "Unauthorized" });
           return;
         }
         try {
-          const body = (await parseJsonBody(req)) as { path?: string };
-          if (!body.path || typeof body.path !== "string") {
-            sendJson(res, 400, { error: "Missing path" });
+          const body = (await parseJsonBody(req)) as {
+            directory?: string;
+            name?: string;
+            targetBranch?: string;
+          };
+          if (!body.directory || typeof body.directory !== "string") {
+            sendJson(res, 400, { error: "Missing directory" });
             return;
           }
-          instanceManager.hideDirectory(body.path);
-          sendJson(res, 200, { ok: true });
-        } catch {
-          sendJson(res, 400, { error: "Invalid request" });
+          const project = instanceManager.projectManager.addProject(body.directory, {
+            name: body.name,
+            targetBranch: body.targetBranch,
+          });
+          // Scan for existing sessions in this project's directory then notify clients
+          instanceManager.rescanAll();
+          sendJson(res, 201, project);
+        } catch (err) {
+          sendJson(res, 400, {
+            error: err instanceof Error ? err.message : "Failed to register project",
+          });
         }
         return;
       }
 
-      // DELETE /api/hidden-directories — unhide a directory
-      if (method === "DELETE" && pathname === "/api/hidden-directories") {
+      // GET/PATCH/DELETE /api/projects/:id
+      const projectByIdMatch = pathname.match(projectByIdPattern);
+      if (projectByIdMatch) {
         if (!isAuthenticated) {
           sendJson(res, 401, { error: "Unauthorized" });
           return;
         }
-        try {
-          const body = (await parseJsonBody(req)) as { path?: string };
-          if (!body.path || typeof body.path !== "string") {
-            sendJson(res, 400, { error: "Missing path" });
+        const id = projectByIdMatch[1];
+
+        if (method === "GET") {
+          const project = instanceManager.projectManager.getProject(id);
+          if (!project) {
+            sendJson(res, 404, { error: "Project not found" });
             return;
           }
-          instanceManager.unhideDirectory(body.path);
-          sendJson(res, 200, { ok: true });
-        } catch {
-          sendJson(res, 400, { error: "Invalid request" });
+          sendJson(res, 200, project);
+          return;
         }
-        return;
+
+        if (method === "PATCH") {
+          try {
+            const body = (await parseJsonBody(req)) as {
+              name?: string;
+              targetBranch?: string | null;
+            };
+            const project = instanceManager.projectManager.updateProject(id, body);
+            if (!project) {
+              sendJson(res, 404, { error: "Project not found" });
+              return;
+            }
+            sendJson(res, 200, project);
+          } catch (err) {
+            sendJson(res, 400, {
+              error: err instanceof Error ? err.message : "Failed to update project",
+            });
+          }
+          return;
+        }
+
+        if (method === "DELETE") {
+          const removed = instanceManager.projectManager.removeProject(id);
+          if (removed) {
+            sendJson(res, 200, { success: true });
+          } else {
+            sendJson(res, 404, { error: "Project not found" });
+          }
+          return;
+        }
       }
 
       // GET /api/project-icons — cached project directory icon paths
@@ -547,7 +719,17 @@ export function createRequestHandler(
         return;
       }
 
-      // GET /api/browse?prefix=...  — list subdirectories for autocomplete
+      // GET /api/git-repos — discover git repositories under home directory
+      if (method === "GET" && pathname === "/api/git-repos") {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        sendJson(res, 200, { repos: await getGitRepos() });
+        return;
+      }
+
+      // GET /api/browse?prefix=...&gitOnly=1  — list subdirectories for autocomplete
       if (method === "GET" && pathname === "/api/browse") {
         if (!isAuthenticated) {
           sendJson(res, 401, { error: "Unauthorized" });
@@ -555,6 +737,7 @@ export function createRequestHandler(
         }
         const home = homedir();
         const raw = parsedUrl.searchParams.get("prefix") || "";
+        const gitOnly = parsedUrl.searchParams.get("gitOnly") === "1";
         const prefix = raw && raw !== "/" ? raw : home + "/";
 
         // Must stay under home directory
@@ -594,12 +777,30 @@ export function createRequestHandler(
               if (!partial) return true;
               return e.name.toLowerCase().startsWith(lowerPartial);
             })
-            .slice(0, 20)
+            .slice(0, 50) // read more candidates before git filtering
             .map((e) => path.join(dirToRead, e.name));
 
-          sendJson(res, 200, { home, directories: dirs });
+          if (gitOnly) {
+            // Partition: git repos first, then non-git dirs (for navigation)
+            const gitRepos: string[] = [];
+            const nonGit: string[] = [];
+            for (const d of dirs) {
+              if (fs.existsSync(path.join(d, ".git"))) {
+                gitRepos.push(d);
+              } else {
+                nonGit.push(d);
+              }
+            }
+            sendJson(res, 200, {
+              home,
+              directories: [...gitRepos, ...nonGit].slice(0, 20),
+              gitRepos,
+            });
+          } else {
+            sendJson(res, 200, { home, directories: dirs.slice(0, 20) });
+          }
         } catch {
-          sendJson(res, 200, { home, directories: [] });
+          sendJson(res, 200, { home, directories: [], ...(gitOnly ? { gitRepos: [] } : {}) });
         }
         return;
       }
@@ -669,8 +870,8 @@ export function createRequestHandler(
         return;
       }
 
-      // GET /api/projects/:id — project artifacts (accepts basename slug or full encoded path)
-      const projectMatch = pathname.match(/^\/api\/projects\/([-a-zA-Z0-9_.]+)$/);
+      // GET /api/project-artifacts/:id — project artifacts (accepts basename slug or full encoded path)
+      const projectMatch = pathname.match(/^\/api\/project-artifacts\/([-a-zA-Z0-9_.]+)$/);
       if (method === "GET" && projectMatch) {
         if (!isAuthenticated) {
           sendJson(res, 401, { error: "Unauthorized" });

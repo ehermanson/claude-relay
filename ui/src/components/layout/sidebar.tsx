@@ -1,24 +1,29 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
-import { Eye, EyeOff, Loader2, LogOut, Moon, PanelLeftClose, Plus, Sun } from "lucide-react";
+import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Sun } from "lucide-react";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
 import { useTheme } from "../../context/theme-context";
 import { RelayLogo } from "../ui/relay-logo";
 import { Popover } from "../ui/popover";
 import { Dialog } from "../ui/dialog";
-import { Tooltip } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { SidebarProjectGroup } from "./sidebar-project-group";
 
-import { NewInstanceForm } from "../forms/new-instance-form";
-import { fetchBeadsProjects, fetchProjectIcons } from "../../lib/api";
+import { AddProjectForm } from "../forms/add-project-form";
+import {
+  addProject as apiAddProject,
+  removeProject as apiRemoveProject,
+  fetchBeadsProjects,
+  fetchProjectIcons,
+} from "../../lib/api";
+import { getInstanceProjectRouteId, type RemoveProjectTarget } from "../../lib/project-route";
 import { useProjectOrder } from "../../hooks/use-project-order";
-import type { InstanceInfo } from "@shared/types";
+import type { InstanceInfo, Project } from "@shared/types";
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { send } = useWSMethods();
-  const { isConnected, isSyncing, instances, hiddenDirectories } = useWSState();
+  const { isConnected, isSyncing, instances, projects } = useWSState();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -29,10 +34,12 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     projectId?: string;
   };
   const location = useLocation();
-  const [showForm, setShowForm] = useState(false);
+  const [showAddProject, setShowAddProject] = useState(false);
+  const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const { collapsed: collapsedDirs, toggleCollapsed: toggleDir } = useProjectOrder();
-  const [showHiddenDialog, setShowHiddenDialog] = useState(false);
-  const [confirmHide, setConfirmHide] = useState<string | null>(null);
+  const [confirmRemoveProject, setConfirmRemoveProject] = useState<RemoveProjectTarget | null>(
+    null,
+  );
   const prevInstanceIds = useRef(new Set<string>());
   const pendingCreate = useRef(false);
 
@@ -62,10 +69,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
       for (const inst of instances) {
         if (!prevInstanceIds.current.has(inst.id) && !inst.external) {
           pendingCreate.current = false;
-          const projectId = inst.workingDirectory.split("/").pop() || inst.workingDirectory;
           navigate({
             to: "/projects/$projectId/chats/$chatId",
-            params: { projectId, chatId: inst.id },
+            params: { projectId: getInstanceProjectRouteId(inst), chatId: inst.id },
           });
           break;
         }
@@ -74,17 +80,33 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     prevInstanceIds.current = currentIds;
   }, [instances, navigate]);
 
-  // Group instances by working directory
+  // Build project lookup by directory
+  const projectByDir = new Map<string, Project>();
+  for (const proj of projects) {
+    projectByDir.set(proj.directory, proj);
+  }
+
+  // Group instances by working directory, but only for still-registered projects.
+  const registeredDirs = new Set(projects.map((p) => p.directory));
   const groupMap = new Map<string, InstanceInfo[]>();
   for (const inst of instances) {
     const dir = inst.workingDirectory;
+    if (registeredDirs.size > 0 && !registeredDirs.has(dir)) continue;
     if (!groupMap.has(dir)) groupMap.set(dir, []);
     groupMap.get(dir)!.push(inst);
   }
   for (const group of groupMap.values()) {
     group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
-  // Sort projects by custom order (falls back to alphabetical for new projects)
+
+  // Include empty project groups (registered but no sessions yet)
+  for (const proj of projects) {
+    if (!groupMap.has(proj.directory)) {
+      groupMap.set(proj.directory, []);
+    }
+  }
+
+  // Sort projects by custom order
   const groups = sortEntries([...groupMap.entries()]);
 
   // Build a sessionId->instance lookup for parent linking
@@ -92,12 +114,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   for (const inst of instances) {
     if (inst.sessionId) sessionIdMap.set(inst.sessionId, inst);
   }
-
-  const handleCreate = (options: { workingDirectory?: string }) => {
-    pendingCreate.current = true;
-    send({ type: "create_instance", ...options });
-    setShowForm(false);
-  };
 
   const handleQuickCreate = (workingDirectory: string) => {
     pendingCreate.current = true;
@@ -116,20 +132,48 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     send({ type: "merge_instance", instanceId });
   };
 
-  const handleHide = (path: string) => {
-    setConfirmHide(path);
-  };
-
-  const confirmHideAction = () => {
-    if (confirmHide) {
-      send({ type: "hide_directory", path: confirmHide });
-      setConfirmHide(null);
+  const handleAddProject = async (directory: string) => {
+    setAddProjectError(null);
+    try {
+      await apiAddProject(directory);
+      setShowAddProject(false);
+    } catch (err) {
+      setAddProjectError(err instanceof Error ? err.message : "Failed to add project");
     }
   };
 
-  const handleUnhide = (path: string) => {
-    send({ type: "unhide_directory", path });
+  const handleRemoveProject = (target: RemoveProjectTarget) => {
+    // Resolve the project from WS state first — no async, no flicker
+    const project = projectByDir.get(target.directory);
+    if (project) {
+      setConfirmRemoveProject(project);
+      return;
+    }
+
+    // Fall back to what we already know from the target
+    setConfirmRemoveProject({
+      id: target.id,
+      name: target.name,
+      directory: target.directory,
+    });
   };
+
+  const confirmRemoveAction = async () => {
+    const projectId = confirmRemoveProject?.id;
+    if (!projectId) return;
+
+    try {
+      await apiRemoveProject(projectId);
+      if (currentProjectId === projectId) {
+        navigate({ to: "/" });
+      }
+    } catch {
+      // ignore
+    }
+    setConfirmRemoveProject(null);
+  };
+
+  const hasProjects = projects.length > 0;
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-border bg-surface">
@@ -152,13 +196,24 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
           </span>
         </Link>
         <div className="flex items-center gap-1">
-          <Popover.Root open={showForm} onOpenChange={setShowForm}>
+          <Popover.Root
+            open={showAddProject}
+            onOpenChange={(open) => {
+              setShowAddProject(open);
+              if (!open) setAddProjectError(null);
+            }}
+          >
             <Popover.Trigger className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
-              <Plus size={14} strokeWidth={2.5} />
-              New Project
+              <FolderPlus size={14} strokeWidth={2} />
+              Add Project
             </Popover.Trigger>
-            <Popover.Content className="w-72" align="end">
-              <NewInstanceForm onSubmit={handleCreate} onCancel={() => setShowForm(false)} />
+            <Popover.Content className="w-96" align="end">
+              <AddProjectForm
+                onSubmit={handleAddProject}
+                onCancel={() => setShowAddProject(false)}
+                error={addProjectError}
+                registeredDirs={registeredDirs}
+              />
             </Popover.Content>
           </Popover.Root>
           {onCollapse && (
@@ -174,15 +229,16 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
 
       {/* Instance list */}
       <div className="flex-1 overflow-y-auto pb-2">
-        {instances.length === 0 && isSyncing ? (
+        {!hasProjects && isSyncing ? (
           <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
             <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin text-muted" />
-            <p className="text-sm text-muted">Syncing chats...</p>
+            <p className="text-sm text-muted">Syncing...</p>
           </div>
-        ) : instances.length === 0 ? (
+        ) : !hasProjects ? (
           <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
-            <p className="mb-1 text-sm text-muted">No instances running</p>
-            <span className="text-xs text-muted opacity-60">Create one to get started</span>
+            <FolderPlus className="mx-auto mb-3 h-8 w-8 text-muted/40" />
+            <p className="mb-1 text-sm text-muted">No projects registered</p>
+            <span className="text-xs text-muted opacity-60">Add a git repo to get started</span>
           </div>
         ) : (
           <>
@@ -190,6 +246,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               <SidebarProjectGroup
                 key={dir}
                 dir={dir}
+                project={projectByDir.get(dir)}
                 groupInstances={groupInstances}
                 currentId={currentId}
                 currentProjectId={currentProjectId}
@@ -203,7 +260,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 onDelete={handleDelete}
                 onRename={handleRename}
                 onMerge={handleMerge}
-                onHide={handleHide}
+                onRemoveProject={handleRemoveProject}
                 isFirst={index === 0}
                 isLast={index === groups.length - 1}
                 onMoveToTop={() => moveToTop(dir)}
@@ -213,24 +270,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               />
             ))}
 
-            {/* Subtle syncing indicator when instances already loaded but scan in progress */}
+            {/* Subtle syncing indicator */}
             {isSyncing && (
               <div className="flex items-center justify-center gap-1.5 py-3 text-muted/60">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 <span className="text-[0.6875rem]">Syncing...</span>
-              </div>
-            )}
-
-            {hiddenDirectories.length > 0 && (
-              <div className="flex items-center justify-center py-3">
-                <button
-                  onClick={() => setShowHiddenDialog(true)}
-                  className="flex items-center gap-1.5 text-[0.6875rem] text-muted/60 transition-colors hover:text-muted"
-                >
-                  <EyeOff size={11} />
-                  {hiddenDirectories.length} hidden project
-                  {hiddenDirectories.length !== 1 ? "s" : ""}
-                </button>
               </div>
             )}
           </>
@@ -257,60 +301,32 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         </div>
       </div>
 
-      {/* Confirm hide dialog */}
-      <Dialog.Root open={!!confirmHide} onOpenChange={(open) => !open && setConfirmHide(null)}>
-        <Dialog.Content maxWidth="max-w-xs">
-          <Dialog.Header>
-            <Dialog.Title>Hide project?</Dialog.Title>
-            <Dialog.Close />
-          </Dialog.Header>
-          <p className="text-[0.8125rem] text-muted">
-            <span className="font-medium text-text">{confirmHide?.split("/").pop()}</span> and its
-            sessions will be hidden from the sidebar. You can show it again from the bottom of the
-            projects list.
-          </p>
-          <div className="mt-3 flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setConfirmHide(null)}>
-              Cancel
-            </Button>
-            <Button variant="danger" size="sm" onClick={confirmHideAction}>
-              Hide
-            </Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Root>
-
-      {/* Hidden projects dialog */}
-      <Dialog.Root open={showHiddenDialog} onOpenChange={setShowHiddenDialog}>
-        <Dialog.Content maxWidth="max-w-sm">
-          <Dialog.Header>
-            <Dialog.Title>Hidden Projects</Dialog.Title>
-            <Dialog.Close />
-          </Dialog.Header>
-          <div className="flex flex-col gap-1">
-            {hiddenDirectories.map((path) => (
-              <div
-                key={path}
-                className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 hover:bg-surface-hover"
-              >
-                <Tooltip content={path} side="right">
-                  <span className="min-w-0 truncate text-[0.8125rem] text-text">
-                    {path.split("/").pop() || path}
-                  </span>
-                </Tooltip>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleUnhide(path)}
-                  className="shrink-0 gap-1.5"
-                >
-                  <Eye size={13} />
-                  Show
-                </Button>
-              </div>
-            ))}
-          </div>
-        </Dialog.Content>
+      {/* Confirm remove project dialog */}
+      <Dialog.Root
+        open={!!confirmRemoveProject}
+        onOpenChange={(open) => !open && setConfirmRemoveProject(null)}
+      >
+        {confirmRemoveProject && (
+          <Dialog.Content maxWidth="max-w-xs">
+            <Dialog.Header>
+              <Dialog.Title>Remove project?</Dialog.Title>
+              <Dialog.Close />
+            </Dialog.Header>
+            <p className="text-[0.8125rem] text-muted">
+              <span className="font-medium text-text">{confirmRemoveProject.name}</span> will be
+              removed from Relay. Session history is preserved but won&apos;t appear in the sidebar
+              until the project is re-added.
+            </p>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmRemoveProject(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger" size="sm" onClick={confirmRemoveAction}>
+                Remove
+              </Button>
+            </div>
+          </Dialog.Content>
+        )}
       </Dialog.Root>
     </aside>
   );

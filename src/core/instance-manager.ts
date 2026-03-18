@@ -35,6 +35,8 @@ import type { ClaudeSdkSession } from "./providers/claude-sdk.js";
 import { convertCodexTranscriptEntry } from "./providers/codex-transcript.js";
 import { SessionDB } from "./db.js";
 import type { SessionRow, ManagedInstanceRow } from "./db.js";
+import { ProjectManager } from "./project-manager.js";
+import type { Project } from "./types.js";
 import { discoverSkills } from "./skills.js";
 import type { CoreConfig } from "./config.js";
 import type {
@@ -183,7 +185,7 @@ export interface InstanceManagerEvents {
   "instance:user": [instanceId: string, message: UserMessage];
   "instance:transcript": [instanceId: string, message: TranscriptMessage];
   "scan:complete": [];
-  "directory:visibility": [];
+  "projects:changed": [];
 }
 
 export interface InstanceManager {
@@ -750,8 +752,8 @@ export class InstanceManager extends EventEmitter {
   scanComplete = false;
   /** Guard to prevent concurrent discovery polls from overlapping */
   private discovering = false;
-  /** Cached hidden directories set — null means needs reload from DB */
-  private _hiddenDirs: Set<string> | null = null;
+  /** Project manager for explicit project registration */
+  private _projectManager: ProjectManager;
 
   constructor(config: CoreConfig) {
     super();
@@ -763,6 +765,42 @@ export class InstanceManager extends EventEmitter {
       gemini: config.providerDirs?.gemini ?? join(home, ".gemini"),
     };
     this.db = new SessionDB(config.dbPath, config.logger);
+    this._projectManager = new ProjectManager(this.db, config.logger);
+    // Keep in-memory instances aligned with project registration changes.
+    this._projectManager.on("project:created", (project) => {
+      this.refreshInstanceProjectIds(project);
+      this.emit("projects:changed");
+    });
+    this._projectManager.on("project:removed", (removedId) => {
+      // Clear projectId on instances that belonged to the removed project
+      for (const instance of this.instances.values()) {
+        if (instance.info.projectId === removedId) {
+          instance.info.projectId = undefined;
+        }
+      }
+      this.emit("projects:changed");
+    });
+    this._projectManager.on("project:updated", () => {
+      this.emit("projects:changed");
+    });
+  }
+
+  /** Access the project manager for project CRUD operations. */
+  get projectManager(): ProjectManager {
+    return this._projectManager;
+  }
+
+  /**
+   * Assign projectId to instances that don't have one yet but match
+   * the given project's directory.
+   */
+  private refreshInstanceProjectIds(project: Project): void {
+    for (const instance of this.instances.values()) {
+      if (instance.info.projectId) continue;
+      if (instance.info.workingDirectory === project.directory) {
+        instance.info.projectId = project.id;
+      }
+    }
   }
 
   /**
@@ -865,6 +903,17 @@ export class InstanceManager extends EventEmitter {
 
     const skipPerms =
       options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions;
+
+    // Auto-register project if not already registered
+    let project = this._projectManager.getProjectByDirectory(workingDirectory);
+    if (!project) {
+      try {
+        project = this._projectManager.addProject(workingDirectory);
+      } catch {
+        // Directory may not exist (e.g. remote sessions) — skip project registration
+      }
+    }
+
     const info: InstanceInfo = {
       id,
       provider,
@@ -878,6 +927,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: options?.reasoningBudget,
       planMode: options?.planMode,
       skipPermissions: skipPerms,
+      projectId: project?.id,
     };
 
     const dirBasename = workingDirectory.split("/").pop() || "";
@@ -1050,37 +1100,9 @@ export class InstanceManager extends EventEmitter {
     return { targetBranch };
   }
 
-  private _getHiddenDirs(): Set<string> {
-    if (!this._hiddenDirs) {
-      try {
-        this._hiddenDirs = this.db.getHiddenDirectories();
-      } catch {
-        return new Set();
-      }
-    }
-    return this._hiddenDirs;
-  }
-
-  hideDirectory(path: string): void {
-    this.db.hideDirectory(path);
-    this._hiddenDirs = null;
-    this.emit("directory:visibility");
-  }
-
-  unhideDirectory(path: string): void {
-    this.db.unhideDirectory(path);
-    this._hiddenDirs = null;
-    this.emit("directory:visibility");
-  }
-
-  getHiddenDirectories(): string[] {
-    return [...this._getHiddenDirs()];
-  }
-
   listInstances(): InstanceInfo[] {
-    const hidden = this._getHiddenDirs();
     return Array.from(this.instances.values())
-      .filter((i) => !hidden.has(i.info.workingDirectory))
+      .filter((i) => !!i.info.projectId)
       .map((i) => ({ ...i.info }));
   }
 
@@ -1786,60 +1808,14 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Return directories where Claude has been used, sorted by most recent activity.
-   * Scans ~/.claude/projects/ and decodes the encoded directory names.
+   * Return registered project directories, sorted by most recent activity.
    */
   getKnownDirectories(): { path: string; lastUsed: number }[] {
-    const projectsDir = join(this.providerDirs.claude, "projects");
-    if (!existsSync(projectsDir)) return [];
-    const hidden = this._getHiddenDirs();
-
     try {
-      return readdirSync(projectsDir)
-        .filter((name) => {
-          // Encoded dirs start with a dash (encoded leading /)
-          if (!name.startsWith("-")) return false;
-          try {
-            return statSync(join(projectsDir, name)).isDirectory();
-          } catch {
-            return false;
-          }
-        })
-        .map((name) => {
-          const projectDir = join(projectsDir, name);
-          let lastUsed = 0;
-          let resolvedPath = decodeProjectDir(name);
-
-          try {
-            const jsonlFiles = readdirSync(projectDir)
-              .filter((f) => f.endsWith(".jsonl"))
-              .map((f) => {
-                const fullPath = join(projectDir, f);
-                try {
-                  return { path: fullPath, mtime: statSync(fullPath).mtimeMs };
-                } catch {
-                  return null;
-                }
-              })
-              .filter((f): f is { path: string; mtime: number } => f !== null);
-
-            if (jsonlFiles.length > 0) {
-              lastUsed = Math.max(...jsonlFiles.map((f) => f.mtime));
-
-              // Read the cwd from the most recent JSONL for accurate path
-              jsonlFiles.sort((a, b) => b.mtime - a.mtime);
-              const cwdFromJsonl = readCwdFromJsonl(jsonlFiles[0].path);
-              if (cwdFromJsonl && existsSync(cwdFromJsonl)) {
-                resolvedPath = cwdFromJsonl;
-              }
-            }
-          } catch {
-            // ignore
-          }
-          return { path: resolvedPath, lastUsed };
-        })
-        .filter((d) => existsSync(d.path)) // only include dirs that still exist
-        .filter((d) => !hidden.has(d.path)) // exclude hidden directories
+      return this._projectManager
+        .listProjects()
+        .filter((p) => existsSync(p.directory))
+        .map((p) => ({ path: p.directory, lastUsed: p.lastActivityAt ?? p.createdAt }))
         .sort((a, b) => b.lastUsed - a.lastUsed);
     } catch {
       return [];
@@ -1930,14 +1906,20 @@ export class InstanceManager extends EventEmitter {
   }
 
   getProjectArtifacts(projectId: string): ProjectArtifacts | null {
-    const resolvedId = this.resolveProjectId(projectId);
+    const registeredProject = this._projectManager.getProject(projectId);
+    const resolvedId = registeredProject ? null : this.resolveProjectId(projectId);
+    const claudeProjectsDir = join(this.providerDirs.claude, "projects");
 
     // projectDir is the provider-specific metadata directory (e.g. ~/.claude/projects/...).
     // May not exist for projects that only have sessions from other providers (e.g. Codex-only).
-    const projectDir = resolvedId ? join(this.providerDirs.claude, "projects", resolvedId) : null;
+    const projectDir = registeredProject
+      ? this.cwdToProjectDir(registeredProject.directory, claudeProjectsDir)
+      : resolvedId
+        ? join(claudeProjectsDir, resolvedId)
+        : null;
 
     // Resolve real path — JSONL cwd is authoritative, with instance-based fallback.
-    let directory = "";
+    let directory = registeredProject?.directory ?? "";
     if (projectDir) {
       try {
         const jsonlFiles = readdirSync(projectDir)
@@ -1988,7 +1970,7 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    if (!directory && !resolvedId) return null;
+    if (!directory && !resolvedId && !registeredProject) return null;
 
     // Last resort: filesystem-validated decode
     if (!directory && resolvedId) {
@@ -2140,8 +2122,14 @@ export class InstanceManager extends EventEmitter {
     // Skills
     const skills = discoverSkills(directory || undefined);
 
+    const resolvedProjectId =
+      registeredProject?.id ??
+      this._projectManager.getProjectByDirectory(directory)?.id ??
+      resolvedId ??
+      projectId;
+
     return {
-      projectId: resolvedId || projectId,
+      projectId: resolvedProjectId,
       directory,
       memory,
       claudeMd,
@@ -2476,9 +2464,18 @@ export class InstanceManager extends EventEmitter {
     }
 
     // For each cwd, find N most recently modified JSONLs (N = number of PIDs in that cwd)
-    // Track the first PID per JSONL for external state
+    // Track the first PID per JSONL for external state — scoped to registered projects
     const activeJsonls = new Map<string, { cwd: string; pid?: number }>(); // jsonlPath → info
     for (const [cwd, info] of cwdInfoMap) {
+      const isRegisteredDir = !!this._projectManager.getProjectByDirectory(cwd);
+      const worktreeOrigin =
+        !isRegisteredDir && isRelayWorktreePath(cwd) ? resolveWorktreeOrigin(cwd) : null;
+      if (
+        !isRegisteredDir &&
+        (!worktreeOrigin || !this._projectManager.getProjectByDirectory(worktreeOrigin))
+      ) {
+        continue;
+      }
       const projectDir = this.cwdToProjectDir(cwd, projectsDir);
       if (!projectDir || !existsSync(projectDir)) continue;
 
@@ -2793,6 +2790,7 @@ export class InstanceManager extends EventEmitter {
       gitBranch,
       originalDirectory,
       parentSessionId,
+      projectId: this._projectManager.getProjectByDirectory(workingDirectory)?.id,
     };
 
     let fileSize: number;
@@ -3791,6 +3789,7 @@ export class InstanceManager extends EventEmitter {
             ? 1
             : 0
           : null,
+      project_id: instance.info.projectId ?? null,
     };
   }
 
@@ -3834,6 +3833,7 @@ export class InstanceManager extends EventEmitter {
             ? 1
             : 0
           : null,
+      project_id: instance.info.projectId ?? null,
     };
   }
 
@@ -3928,6 +3928,8 @@ export class InstanceManager extends EventEmitter {
           last_message_at: null,
           git_info_branch: null,
           git_info_is_worktree: null,
+          project_id:
+            this._projectManager.getProjectByDirectory(entry.workingDirectory)?.id ?? null,
         });
       }
 
@@ -3945,8 +3947,8 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Scan all JSONL files on disk to discover sessions the DB doesn't know about.
-   * If the JSONL exists, the session exists — period.
+   * Scan JSONL files on disk for registered project directories.
+   * Only scans directories that match an explicit project registration.
    */
   private scanAllSessions(): void {
     const scanStart = performance.now();
@@ -3954,6 +3956,8 @@ export class InstanceManager extends EventEmitter {
 
     const knownPaths = this.db.getJsonlPaths();
     const diskPaths = new Set<string>();
+    /** Project subdirs under ~/.claude/projects/ that were actually scanned */
+    const scannedProjectDirs = new Set<string>();
     let discovered = 0;
 
     // --- Scan Codex sessions (~/.codex/sessions/) ---
@@ -3965,16 +3969,26 @@ export class InstanceManager extends EventEmitter {
       const projectDirs = readdirSync(projectsDir).filter((name) => {
         if (!name.startsWith("-")) return false;
         try {
-          return statSync(join(projectsDir, name)).isDirectory();
+          if (!statSync(join(projectsDir, name)).isDirectory()) return false;
         } catch {
           return false;
         }
+        // Only scan directories matching registered projects (or worktrees thereof)
+        const decoded = decodeProjectDir(name);
+        if (this._projectManager.getProjectByDirectory(decoded)) return true;
+        // Worktree paths resolve to the original repo — check if that's registered
+        if (isRelayWorktreePath(decoded)) {
+          const origin = resolveWorktreeOrigin(decoded);
+          if (origin && this._projectManager.getProjectByDirectory(origin)) return true;
+        }
+        return false;
       });
 
       const rows: SessionRow[] = [];
 
       for (const projDir of projectDirs) {
         const fullProjDir = join(projectsDir, projDir);
+        scannedProjectDirs.add(fullProjDir);
         let jsonlFiles: string[];
         try {
           jsonlFiles = readdirSync(fullProjDir).filter((f) => f.endsWith(".jsonl"));
@@ -4145,6 +4159,8 @@ export class InstanceManager extends EventEmitter {
             git_info_branch: gitInfo?.branch ?? null,
             git_info_is_worktree:
               gitInfo?.isWorktree !== undefined ? (gitInfo.isWorktree ? 1 : 0) : null,
+            project_id:
+              this._projectManager.getProjectByDirectory(scanOriginalDir ?? cwd)?.id ?? null,
           });
           discovered++;
         }
@@ -4158,11 +4174,26 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Archive sessions whose JSONL no longer exists on disk
-    // Only consider paths under scanned directories (Claude projects + Codex sessions)
+    // Only consider paths under directories we actually scanned — don't archive
+    // sessions from unregistered projects that were simply skipped.
     const codexSessionsDir = join(this.providerDirs.codex, "sessions");
     let archived = 0;
     for (const knownPath of knownPaths) {
-      if (!knownPath.startsWith(projectsDir) && !knownPath.startsWith(codexSessionsDir)) continue;
+      // Codex sessions: always check
+      if (knownPath.startsWith(codexSessionsDir)) {
+        if (!diskPaths.has(knownPath)) {
+          const row = this.db.getByJsonlPath(knownPath);
+          if (row && !row.archived) {
+            this.db.archive(row.session_id);
+            archived++;
+          }
+        }
+        continue;
+      }
+      // Claude sessions: only archive if the parent project dir was scanned
+      if (!knownPath.startsWith(projectsDir)) continue;
+      const parentDir = knownPath.substring(0, knownPath.lastIndexOf("/"));
+      if (!scannedProjectDirs.has(parentDir)) continue;
       if (!diskPaths.has(knownPath)) {
         const row = this.db.getByJsonlPath(knownPath);
         if (row && !row.archived) {
@@ -4262,6 +4293,7 @@ export class InstanceManager extends EventEmitter {
               last_message_at: lastMsg?.timestamp ?? null,
               git_info_branch: null,
               git_info_is_worktree: null,
+              project_id: this._projectManager.getProjectByDirectory(cwd)?.id ?? null,
             });
           }
         } catch {
@@ -4368,6 +4400,7 @@ export class InstanceManager extends EventEmitter {
           last_message_at: row.last_message_at,
           git_info_branch: row.git_info_branch,
           git_info_is_worktree: row.git_info_is_worktree,
+          project_id: row.project_id,
         });
       } catch (err) {
         this.baseConfig.logger.warn(
@@ -4421,6 +4454,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: entry.reasoning_budget ?? undefined,
       planMode: false,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      projectId: entry.project_id ?? undefined,
     };
 
     const instance: Instance = {
@@ -4529,6 +4563,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: entry.reasoning_budget ?? undefined,
       planMode: entry.runtime_mode === "plan" ? true : undefined,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      projectId: entry.project_id ?? undefined,
     };
 
     const instance: Instance = {
@@ -4672,6 +4707,14 @@ export class InstanceManager extends EventEmitter {
    */
   restoreAndScan(): void {
     this.restoreInstances();
+    this.scanAndRestoreNew();
+  }
+
+  /**
+   * Re-run the filesystem scan to discover sessions for newly registered projects.
+   * Not scoped — rescans all registered project directories.
+   */
+  rescanAll(): void {
     this.scanAndRestoreNew();
   }
 

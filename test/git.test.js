@@ -30,6 +30,14 @@ function createTestRepo() {
   return dir;
 }
 
+function createUnbornRepo() {
+  const dir = mkdtempSync(join(tmpdir(), "relay-git-unborn-"));
+  execSync("git init", { cwd: dir, stdio: "pipe" });
+  execSync('git config user.email "test@test.com"', { cwd: dir, stdio: "pipe" });
+  execSync('git config user.name "Test"', { cwd: dir, stdio: "pipe" });
+  return dir;
+}
+
 describe("isGitRepo", () => {
   let repoDir;
   let plainDir;
@@ -357,6 +365,20 @@ describe("getFullDiff", () => {
       assert.ok(diff.includes("feature.txt"));
     }
   });
+
+  it("handles an unborn HEAD without throwing", () => {
+    const unbornRepo = createUnbornRepo();
+    try {
+      writeFileSync(join(unbornRepo, "new-file.txt"), "hello");
+      execSync("git add new-file.txt", { cwd: unbornRepo, stdio: "pipe" });
+
+      const diff = getFullDiff(unbornRepo);
+      assert.ok(diff);
+      assert.ok(diff.includes("new-file.txt"));
+    } finally {
+      rmSync(unbornRepo, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("getFileDiff", () => {
@@ -394,5 +416,19 @@ describe("getFileDiff", () => {
     const diff = getFileDiff(repoDir, "file.txt");
     assert.equal(typeof diff, "string");
     assert.equal(diff.trim(), "");
+  });
+
+  it("handles an unborn HEAD without throwing", () => {
+    const unbornRepo = createUnbornRepo();
+    try {
+      writeFileSync(join(unbornRepo, "new-file.txt"), "hello");
+      execSync("git add new-file.txt", { cwd: unbornRepo, stdio: "pipe" });
+
+      const diff = getFileDiff(unbornRepo, "new-file.txt");
+      assert.ok(diff);
+      assert.ok(diff.includes("new-file.txt"));
+    } finally {
+      rmSync(unbornRepo, { recursive: true, force: true });
+    }
   });
 });

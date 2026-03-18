@@ -40,6 +40,7 @@ function makeRow(overrides = {}) {
     last_message_at: null,
     git_info_branch: null,
     git_info_is_worktree: null,
+    project_id: null,
     ...overrides,
   };
 }

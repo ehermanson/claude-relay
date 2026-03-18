@@ -10,7 +10,18 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 11;
+const CURRENT_SCHEMA_VERSION = 12;
+
+export interface ProjectRow {
+  id: string;
+  name: string;
+  directory: string;
+  repo_root: string | null;
+  remote_url: string | null;
+  target_branch: string | null;
+  created_at: number;
+  last_activity_at: number | null;
+}
 
 export interface SessionRow {
   session_id: string;
@@ -44,6 +55,7 @@ export interface SessionRow {
   last_message_at: number | null;
   git_info_branch: string | null;
   git_info_is_worktree: number | null;
+  project_id: string | null;
 }
 
 export interface ManagedInstanceRow {
@@ -76,6 +88,7 @@ export interface ManagedInstanceRow {
   last_message_at: number | null;
   git_info_branch: string | null;
   git_info_is_worktree: number | null;
+  project_id: string | null;
 }
 
 export class SessionDB {
@@ -111,9 +124,15 @@ export class SessionDB {
   private stmtUpdateSkipPermissions!: Database.Statement;
   private stmtGetProjectStats!: Database.Statement;
   private stmtGetGlobalStats!: Database.Statement;
-  private stmtHideDir!: Database.Statement;
-  private stmtUnhideDir!: Database.Statement;
-  private stmtGetHiddenDirs!: Database.Statement;
+  private stmtUpsertProject!: Database.Statement;
+  private stmtGetProject!: Database.Statement;
+  private stmtGetProjectByDir!: Database.Statement;
+  private stmtGetAllProjects!: Database.Statement;
+  private stmtDeleteProject!: Database.Statement;
+  private stmtUpdateProjectActivity!: Database.Statement;
+  private stmtUpdateSessionProjectId!: Database.Statement;
+  private stmtUpdateManagedSessionProjectId!: Database.Statement;
+  private stmtGetDistinctSessionDirs!: Database.Statement;
 
   constructor(dbPath: string, logger: Logger) {
     this.logger = logger;
@@ -319,12 +338,36 @@ export class SessionDB {
       }
     }
 
-    // v11: hidden directories table for sidebar filtering
+    // v12: explicit projects table + project_id FK on sessions
+    this.db.exec(`DROP TABLE IF EXISTS hidden_directories`);
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS hidden_directories (
-        path TEXT PRIMARY KEY
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        directory TEXT NOT NULL UNIQUE,
+        repo_root TEXT,
+        remote_url TEXT,
+        target_branch TEXT,
+        created_at INTEGER NOT NULL,
+        last_activity_at INTEGER
       )
     `);
+    {
+      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!sessionCols.some((c) => c.name === "project_id")) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN project_id TEXT`);
+      }
+      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
+        name: string;
+      }>;
+      if (!managedCols.some((c) => c.name === "project_id")) {
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN project_id TEXT`);
+      }
+    }
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id)`);
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_managed_sessions_project_id ON managed_sessions(project_id)`,
+    );
 
     // Update version
     if (currentVersion === 0) {
@@ -343,7 +386,7 @@ export class SessionDB {
         summary, first_prompt, git_branch, message_count, allowed_tools,
         worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, skip_permissions,
         last_message_text, last_message_from, last_message_at,
-        git_info_branch, git_info_is_worktree
+        git_info_branch, git_info_is_worktree, project_id
       ) VALUES (
         @session_id, @instance_id, @provider_name, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
@@ -351,7 +394,7 @@ export class SessionDB {
         @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
         @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @skip_permissions,
         @last_message_text, @last_message_from, @last_message_at,
-        @git_info_branch, @git_info_is_worktree
+        @git_info_branch, @git_info_is_worktree, @project_id
       )
       ON CONFLICT(session_id) DO UPDATE SET
         instance_id = excluded.instance_id,
@@ -382,7 +425,8 @@ export class SessionDB {
         last_message_from = excluded.last_message_from,
         last_message_at = excluded.last_message_at,
         git_info_branch = excluded.git_info_branch,
-        git_info_is_worktree = excluded.git_info_is_worktree
+        git_info_is_worktree = excluded.git_info_is_worktree,
+        project_id = excluded.project_id
     `);
 
     this.stmtUpsertManaged = this.db.prepare(`
@@ -394,7 +438,7 @@ export class SessionDB {
         preferred_model, reasoning_budget, skip_permissions, runtime_mode,
         resume_cursor_json, runtime_payload_json, transcript_path,
         last_message_text, last_message_from, last_message_at,
-        git_info_branch, git_info_is_worktree
+        git_info_branch, git_info_is_worktree, project_id
       ) VALUES (
         @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
         @created_at, @last_activity_at, @archived, @custom_title,
@@ -403,7 +447,7 @@ export class SessionDB {
         @preferred_model, @reasoning_budget, @skip_permissions, @runtime_mode,
         @resume_cursor_json, @runtime_payload_json, @transcript_path,
         @last_message_text, @last_message_from, @last_message_at,
-        @git_info_branch, @git_info_is_worktree
+        @git_info_branch, @git_info_is_worktree, @project_id
       )
       ON CONFLICT(instance_id) DO UPDATE SET
         provider_name = excluded.provider_name,
@@ -432,7 +476,8 @@ export class SessionDB {
         last_message_from = excluded.last_message_from,
         last_message_at = excluded.last_message_at,
         git_info_branch = excluded.git_info_branch,
-        git_info_is_worktree = excluded.git_info_is_worktree
+        git_info_is_worktree = excluded.git_info_is_worktree,
+        project_id = excluded.project_id
     `);
 
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
@@ -566,11 +611,40 @@ export class SessionDB {
       )
     `);
 
-    this.stmtHideDir = this.db.prepare(
-      "INSERT OR IGNORE INTO hidden_directories (path) VALUES (?)",
+    // Project CRUD
+    this.stmtUpsertProject = this.db.prepare(`
+      INSERT INTO projects (id, name, directory, repo_root, remote_url, target_branch, created_at, last_activity_at)
+      VALUES (@id, @name, @directory, @repo_root, @remote_url, @target_branch, @created_at, @last_activity_at)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        directory = excluded.directory,
+        repo_root = excluded.repo_root,
+        remote_url = excluded.remote_url,
+        target_branch = excluded.target_branch,
+        last_activity_at = excluded.last_activity_at
+    `);
+    this.stmtGetProject = this.db.prepare("SELECT * FROM projects WHERE id = ?");
+    this.stmtGetProjectByDir = this.db.prepare("SELECT * FROM projects WHERE directory = ?");
+    this.stmtGetAllProjects = this.db.prepare(
+      "SELECT * FROM projects ORDER BY last_activity_at DESC NULLS LAST, created_at DESC",
     );
-    this.stmtUnhideDir = this.db.prepare("DELETE FROM hidden_directories WHERE path = ?");
-    this.stmtGetHiddenDirs = this.db.prepare("SELECT path FROM hidden_directories");
+    this.stmtDeleteProject = this.db.prepare("DELETE FROM projects WHERE id = ?");
+    this.stmtUpdateProjectActivity = this.db.prepare(
+      "UPDATE projects SET last_activity_at = ? WHERE id = ?",
+    );
+    this.stmtUpdateSessionProjectId = this.db.prepare(
+      "UPDATE sessions SET project_id = ? WHERE working_directory = ?",
+    );
+    this.stmtUpdateManagedSessionProjectId = this.db.prepare(
+      "UPDATE managed_sessions SET project_id = ? WHERE working_directory = ?",
+    );
+    this.stmtGetDistinctSessionDirs = this.db.prepare(`
+      SELECT DISTINCT working_directory FROM (
+        SELECT working_directory FROM sessions WHERE archived = 0
+        UNION
+        SELECT working_directory FROM managed_sessions WHERE archived = 0
+      )
+    `);
   }
 
   upsert(row: SessionRow): void {
@@ -740,17 +814,44 @@ export class SessionDB {
     this.stmtDeleteBySessionId.run(sessionId);
   }
 
-  hideDirectory(path: string): void {
-    this.stmtHideDir.run(path);
+  // =========================================================================
+  // Project CRUD
+  // =========================================================================
+
+  upsertProject(row: ProjectRow): void {
+    this.stmtUpsertProject.run(row);
   }
 
-  unhideDirectory(path: string): void {
-    this.stmtUnhideDir.run(path);
+  getProject(id: string): ProjectRow | undefined {
+    return this.stmtGetProject.get(id) as ProjectRow | undefined;
   }
 
-  getHiddenDirectories(): Set<string> {
-    const rows = this.stmtGetHiddenDirs.all() as { path: string }[];
-    return new Set(rows.map((r) => r.path));
+  getProjectByDirectory(directory: string): ProjectRow | undefined {
+    return this.stmtGetProjectByDir.get(directory) as ProjectRow | undefined;
+  }
+
+  getAllProjects(): ProjectRow[] {
+    return this.stmtGetAllProjects.all() as ProjectRow[];
+  }
+
+  deleteProject(id: string): void {
+    this.stmtDeleteProject.run(id);
+  }
+
+  updateProjectActivity(id: string, timestamp: number): void {
+    this.stmtUpdateProjectActivity.run(timestamp, id);
+  }
+
+  /** Bulk-assign project_id to all sessions matching a working directory */
+  assignSessionsToProject(projectId: string | null, directory: string): void {
+    this.stmtUpdateSessionProjectId.run(projectId, directory);
+    this.stmtUpdateManagedSessionProjectId.run(projectId, directory);
+  }
+
+  /** Get distinct working directories from active sessions (for migration backfill) */
+  getDistinctSessionDirectories(): string[] {
+    const rows = this.stmtGetDistinctSessionDirs.all() as { working_directory: string }[];
+    return rows.map((r) => r.working_directory);
   }
 
   clear(): void {

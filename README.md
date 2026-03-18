@@ -205,9 +205,9 @@ The server entry point re-exports everything from core, so you never need to imp
 
 ## Projects and Directories
 
-Relay uses the working directory as the project identity — **the directory you launch an agent from is your project**. Sessions are grouped by their starting directory in the sidebar, project pages aggregate artifacts (plans, memory, docs) by directory, and external session discovery reads the `cwd` from each session's transcript.
+Relay organizes work around explicitly registered git projects. A project is opt-in: once you add a repo, Relay discovers sessions for that repo, groups chats under that project in the sidebar, and aggregates project artifacts (plans, memory, docs) on the project page.
 
-This is a convention, not a constraint. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar`. The working directory is a "home base," not a sandbox. In practice the heuristic is correct the vast majority of the time, since people launch agents from the repo they're working on.
+Sessions still carry a working directory, and that directory remains the agent's "home base," not a sandbox. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar`. But visibility and discovery now key off registered projects, with Relay normalizing registrations to the repo root.
 
 ## What It Does
 

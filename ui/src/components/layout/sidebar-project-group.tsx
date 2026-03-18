@@ -12,7 +12,7 @@ import {
   Bug,
   ChevronDown,
   ChevronRight,
-  EyeOff,
+  FolderMinus,
   MoreVertical,
   NotebookPen,
   Plus,
@@ -21,12 +21,26 @@ import {
 import { SidebarItem } from "./sidebar-item";
 import { Collapsible } from "../ui/collapsible";
 import { Menu } from "../ui/menu";
-import type { InstanceInfo } from "@shared/types";
+import type { InstanceInfo, Project } from "@shared/types";
+import {
+  getInstanceProjectRouteId,
+  getProjectName,
+  type RemoveProjectTarget,
+} from "../../lib/project-route";
 
 const MAX_SIDEBAR_SESSIONS = 10;
 
+function ProjectInitialBadge({ initial }: { initial: string }) {
+  return (
+    <span className="flex h-4 w-4 items-center justify-center rounded-sm bg-surface-hover text-[0.6875rem] font-extrabold uppercase leading-none text-text-bright/80">
+      {initial}
+    </span>
+  );
+}
+
 interface SidebarProjectGroupProps {
   dir: string;
+  project?: Pick<Project, "id" | "name" | "directory">;
   groupInstances: InstanceInfo[];
   currentId?: string;
   currentProjectId?: string;
@@ -40,7 +54,7 @@ interface SidebarProjectGroupProps {
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onMerge: (id: string) => void;
-  onHide?: (dir: string) => void;
+  onRemoveProject?: (project: RemoveProjectTarget) => void;
   /** Position flags for enabling/disabling reorder menu items */
   isFirst?: boolean;
   isLast?: boolean;
@@ -52,6 +66,7 @@ interface SidebarProjectGroupProps {
 
 export function SidebarProjectGroup({
   dir,
+  project,
   groupInstances,
   currentId,
   currentProjectId,
@@ -64,7 +79,7 @@ export function SidebarProjectGroup({
   onDelete,
   onRename,
   onMerge,
-  onHide,
+  onRemoveProject,
   isFirst,
   isLast,
   onMoveToTop,
@@ -76,9 +91,16 @@ export function SidebarProjectGroup({
   const [menuOpen, setMenuOpen] = useState(false);
   const [iconHovered, setIconHovered] = useState(false);
   const [imgError, setImgError] = useState(false);
-  const dirName = dir.split("/").pop() || dir;
+  const dirName = getProjectName(dir);
+  const initial = dirName.charAt(0).toUpperCase() || "?";
   const showFavicon = iconPath && !imgError;
-  const isActiveProject = currentProjectId === dirName;
+  const routeProjectId = project?.id ?? groupInstances[0]?.projectId ?? dirName;
+  const isActiveProject = currentProjectId === routeProjectId;
+  const removeProjectTarget: RemoveProjectTarget = {
+    id: project?.id ?? groupInstances.find((instance) => instance.projectId)?.projectId,
+    name: project?.name ?? dirName,
+    directory: dir,
+  };
 
   // Build parent/child ordered list: children appear right after their parent
   const childIds = new Set<string>();
@@ -144,7 +166,7 @@ export function SidebarProjectGroup({
       parentInstance={parentInst ? { id: parentInst.id, name: parentInst.name } : undefined}
       to="/projects/$projectId/chats/$chatId"
       params={{
-        projectId: inst.workingDirectory.split("/").pop() || inst.workingDirectory,
+        projectId: getInstanceProjectRouteId(inst),
         chatId: inst.id,
       }}
       onDelete={() => onDelete(inst.id)}
@@ -173,6 +195,8 @@ export function SidebarProjectGroup({
                   className="h-4 w-4 rounded-sm object-contain"
                   onError={() => setImgError(true)}
                 />
+              ) : !showFavicon && !iconHovered ? (
+                <ProjectInitialBadge initial={initial} />
               ) : isOpen ? (
                 <ChevronDown size={12} strokeWidth={3} className="text-text-bright/60" />
               ) : (
@@ -187,7 +211,7 @@ export function SidebarProjectGroup({
                 e.stopPropagation();
                 navigate({
                   to: "/projects/$projectId",
-                  params: { projectId: dirName },
+                  params: { projectId: routeProjectId },
                 });
               }}
             >
@@ -221,7 +245,7 @@ export function SidebarProjectGroup({
                       e.stopPropagation();
                       navigate({
                         to: "/projects/$projectId/plans",
-                        params: { projectId: dirName },
+                        params: { projectId: routeProjectId },
                       });
                     }}
                   >
@@ -234,7 +258,7 @@ export function SidebarProjectGroup({
                         e.stopPropagation();
                         navigate({
                           to: "/projects/$projectId/issues",
-                          params: { projectId: dirName },
+                          params: { projectId: routeProjectId },
                         });
                       }}
                     >
@@ -247,7 +271,7 @@ export function SidebarProjectGroup({
                       e.stopPropagation();
                       navigate({
                         to: "/projects/$projectId/skills",
-                        params: { projectId: dirName },
+                        params: { projectId: routeProjectId },
                       });
                     }}
                   >
@@ -303,19 +327,16 @@ export function SidebarProjectGroup({
                       Move to bottom
                     </Menu.Item>
                   )}
-                  {onHide && (
-                    <>
-                      <Menu.Separator />
-                      <Menu.Item
-                        onClick={(e: React.MouseEvent) => {
-                          e.stopPropagation();
-                          onHide(dir);
-                        }}
-                      >
-                        <EyeOff size={13} strokeWidth={2} className="text-muted" />
-                        Hide project
-                      </Menu.Item>
-                    </>
+                  {onRemoveProject && <Menu.Separator />}
+                  {onRemoveProject && (
+                    <Menu.Item
+                      onClick={() => {
+                        onRemoveProject(removeProjectTarget);
+                      }}
+                    >
+                      <FolderMinus size={13} strokeWidth={2} className="text-muted" />
+                      Remove project
+                    </Menu.Item>
                   )}
                 </Menu.Content>
               </Menu.Root>
@@ -343,7 +364,7 @@ export function SidebarProjectGroup({
             {hiddenCount > 0 && (
               <Link
                 to="/projects/$projectId/chats"
-                params={{ projectId: dirName }}
+                params={{ projectId: routeProjectId }}
                 className="flex w-full items-center gap-1 rounded-md py-1.5 pl-8 pr-3 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
               >
                 +{hiddenCount} more

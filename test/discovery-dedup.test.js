@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
 import { InstanceManager } from "../dist/core/instance-manager.js";
 import { resolveConfig } from "../dist/server/config.js";
 
@@ -48,6 +49,7 @@ function makeConfig(overrides = {}) {
  * captureSessionId has fired — the race window where duplicates occur).
  */
 function injectManagedInstance(manager, instanceId, workingDirectory) {
+  const projectId = manager.projectManager.getProjectByDirectory(workingDirectory)?.id;
   const instances = manager["instances"];
   const info = {
     id: instanceId,
@@ -56,6 +58,7 @@ function injectManagedInstance(manager, instanceId, workingDirectory) {
     status: "processing",
     createdAt: Date.now(),
     lastActivityAt: Date.now(),
+    projectId,
     // No "external" flag — this is managed
   };
   const instance = {
@@ -82,12 +85,16 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
     tempDir = setup.tempDir;
     claudeDir = join(tempDir, ".claude");
 
-    // Set up a fake working directory and its corresponding .claude/projects/ dir
+    // Set up a fake working directory (git repo) and its corresponding .claude/projects/ dir
     fakeCwd = join(tempDir, "projects", "my-repo");
     mkdirSync(fakeCwd, { recursive: true });
+    execSync("git init", { cwd: fakeCwd, stdio: "pipe" });
     const encoded = fakeCwd.replace(/\//g, "-");
     projectDir = join(claudeDir, "projects", encoded);
     mkdirSync(projectDir, { recursive: true });
+
+    // Register as a project so listInstances() includes it
+    manager.projectManager.addProject(fakeCwd);
   });
 
   afterEach(() => {
@@ -158,6 +165,7 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
         status: "idle",
         createdAt: Date.now(),
         lastActivityAt: Date.now(),
+        projectId: manager.projectManager.getProjectByDirectory(fakeCwd)?.id,
       },
       process: null,
       providerBinding: { provider: "claude" },

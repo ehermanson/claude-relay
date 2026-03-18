@@ -18,6 +18,7 @@ import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { OpenInMenu } from "../project/open-in-menu";
 import { ContextRing } from "./input-area/shared";
+import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
 import { formatTokens } from "../../lib/utils";
 import type { InstanceInfo, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
@@ -171,7 +172,7 @@ export function InstanceHeader({
         <Link
           to="/projects/$projectId/chats"
           params={{
-            projectId: instance.workingDirectory.split("/").pop() || "",
+            projectId: getInstanceProjectRouteId(instance),
           }}
           className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
         >
@@ -194,11 +195,11 @@ export function InstanceHeader({
             <Link
               to="/projects/$projectId/chats"
               params={{
-                projectId: instance.workingDirectory.split("/").pop() || instance.workingDirectory,
+                projectId: getInstanceProjectRouteId(instance),
               }}
               className="truncate transition-colors hover:text-accent"
             >
-              {instance.workingDirectory.split("/").pop() || instance.workingDirectory}
+              {getProjectName(instance.workingDirectory)}
             </Link>
           </Tooltip>
           {(instance.gitBranch || instance.gitInfo?.branch) && (

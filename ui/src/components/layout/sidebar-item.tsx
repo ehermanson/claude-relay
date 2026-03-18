@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { Columns2, GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { Menu } from "../ui/menu";
 import { Tooltip } from "../ui/tooltip";
+import { getInstanceProjectRouteId } from "../../lib/project-route";
 import { formatTimeAgo } from "../../lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
@@ -147,11 +148,12 @@ export function SidebarItem({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                const projectId =
-                  instance.workingDirectory.split("/").pop() || instance.workingDirectory;
                 navigate({
                   to: "/projects/$projectId/chats/$chatId",
-                  params: { projectId, chatId: parentInstance.id },
+                  params: {
+                    projectId: getInstanceProjectRouteId(instance),
+                    chatId: parentInstance.id,
+                  },
                 });
               }}
               className="mt-0.5 max-w-full truncate text-[0.6875rem] leading-tight text-muted transition-colors hover:text-accent"

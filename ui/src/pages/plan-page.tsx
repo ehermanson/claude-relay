@@ -14,12 +14,13 @@ function formatDate(epoch: number): string {
 }
 
 export function PlanPage() {
-  const { projectId, planSlug } = useParams({ strict: false }) as {
+  const { projectId: routeProjectId, planSlug } = useParams({ strict: false }) as {
     projectId: string;
     planSlug: string;
   };
 
   const { artifacts } = useProjectContext();
+  const projectId = artifacts.projectId || routeProjectId;
 
   const plan = artifacts.plans.find((p) => p.slug === planSlug);
   const dirName = artifacts.directory.split("/").pop() || projectId;

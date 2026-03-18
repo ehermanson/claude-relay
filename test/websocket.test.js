@@ -10,6 +10,7 @@ import { createWebSocketServer } from "../dist/server/websocket.js";
 import { AuthManager } from "../dist/server/auth.js";
 import { InstanceManager } from "../dist/core/instance-manager.js";
 import { resolveConfig } from "../dist/server/config.js";
+import { addWSHelpers } from "./helpers.js";
 
 const noopLogger = {
   info() {},
@@ -57,23 +58,7 @@ function createClient(server, sessionId) {
     });
   };
 
-  /** Wait for N messages. */
-  ws.collectMessages = async (count, timeoutMs = 5000) => {
-    const messages = [];
-    for (let i = 0; i < count; i++) {
-      messages.push(await ws.nextMessage(timeoutMs));
-    }
-    return messages;
-  };
-
-  /** Wait for the initial connected + instance_list + hidden_directories handshake. */
-  ws.waitForHandshake = async () => {
-    const msgs = await ws.collectMessages(3);
-    assert.equal(msgs[0].type, "connected");
-    assert.equal(msgs[1].type, "instance_list");
-    assert.equal(msgs[2].type, "hidden_directories");
-    return msgs;
-  };
+  addWSHelpers(ws);
 
   const ready = new Promise((resolve, reject) => {
     ws.on("open", () => resolve(ws));
@@ -107,6 +92,7 @@ describe("WebSocket Server", () => {
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
+    manager.projectManager.addProject(process.cwd());
     const handler = createRequestHandler(config, auth, manager);
     server = http.createServer(handler);
     wsHandle = createWebSocketServer(server, manager, auth, config);
@@ -157,7 +143,7 @@ describe("WebSocket Server", () => {
       assert.equal(messages[0].type, "connected");
       assert.equal(messages[1].type, "instance_list");
       assert.ok(Array.isArray(messages[1].instances));
-      assert.equal(messages[2].type, "hidden_directories");
+      assert.equal(messages[2].type, "projects_changed");
     });
   });
 
@@ -169,8 +155,7 @@ describe("WebSocket Server", () => {
 
       ws.send(JSON.stringify({ type: "create_instance", name: "WS Test" }));
 
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_created");
+      const msg = await ws.nextMessageOfType("instance_created");
       assert.equal(msg.instance.name, "WS Test");
       assert.ok(msg.instance.id);
     });
@@ -182,8 +167,7 @@ describe("WebSocket Server", () => {
 
       ws.send(JSON.stringify({ type: "create_instance", name: "Codex Test", provider: "codex" }));
 
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_created");
+      const msg = await ws.nextMessageOfType("instance_created");
       assert.equal(msg.instance.name, "Codex Test");
       assert.equal(msg.instance.provider, "codex");
     });
@@ -200,8 +184,7 @@ describe("WebSocket Server", () => {
 
       ws.send(JSON.stringify({ type: "subscribe", instanceId: info.id }));
 
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_history");
+      const msg = await ws.nextMessageOfType("instance_history");
       assert.equal(msg.instanceId, info.id);
       assert.ok(Array.isArray(msg.history));
     });
@@ -219,8 +202,7 @@ describe("WebSocket Server", () => {
 
       ws.send(JSON.stringify({ type: "list_instances" }));
 
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_list");
+      const msg = await ws.nextMessageOfType("instance_list");
       assert.equal(msg.instances.length, 2);
     });
   });
@@ -236,8 +218,7 @@ describe("WebSocket Server", () => {
 
       ws.send(JSON.stringify({ type: "remove_instance", instanceId: info.id }));
 
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_removed");
+      const msg = await ws.nextMessageOfType("instance_removed");
       assert.equal(msg.instanceId, info.id);
       assert.equal(manager.listInstances().length, 0);
     });

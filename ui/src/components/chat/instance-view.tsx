@@ -18,6 +18,7 @@ import { DebugModal } from "./debug-modal";
 import { TerminalPermissionBar } from "./terminal-permission-bar";
 import { InstanceHeader } from "./instance-header";
 import { createInstance, fetchInstanceHistory } from "../../lib/api";
+import { getInstanceProjectRouteId } from "../../lib/project-route";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
 import type { ServerMessage, ProviderKind, UserInputAnswer } from "@shared/types";
 
@@ -147,8 +148,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     await navigate({
       to: "/projects/$projectId/chats/$chatId",
       params: {
-        projectId:
-          projectId || instance.workingDirectory.split("/").pop() || instance.workingDirectory,
+        projectId: getInstanceProjectRouteId(nextInstance),
         chatId: nextInstance.id,
       },
     });

@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { useParams, Link } from "@tanstack/react-router";
 import { useWSState } from "../context/websocket-context";
+import { useProjectContext } from "../context/project-context";
 import { useMediaQuery } from "../hooks/use-media-query";
 import { Tooltip } from "../components/ui/tooltip";
 import { Badge } from "../components/ui/badge";
+import { instanceMatchesProject } from "../lib/project-route";
 import { formatTimeAgo, formatTokens, formatModel } from "../lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
@@ -141,17 +143,16 @@ function SessionCard({
 }
 
 export function ChatsPage() {
-  const { projectId } = useParams({ strict: false }) as { projectId: string };
+  const { projectId: routeProjectId } = useParams({ strict: false }) as { projectId: string };
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { instances } = useWSState();
+  const { artifacts } = useProjectContext();
+  const projectId = artifacts.projectId || routeProjectId;
 
   // Filter instances for this project (same matching logic as sidebar)
   const projectInstances = useMemo(() => {
     return instances
-      .filter((inst) => {
-        const dirName = inst.workingDirectory.split("/").pop();
-        return dirName === projectId;
-      })
+      .filter((inst) => instanceMatchesProject(inst, projectId))
       .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
   }, [instances, projectId]);
 

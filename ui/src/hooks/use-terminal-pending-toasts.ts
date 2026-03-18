@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useWSState } from "../context/websocket-context";
+import { getInstanceProjectRouteId } from "../lib/project-route";
 
 interface PrevState {
   pendingTool?: string;
@@ -24,7 +25,6 @@ export function useTerminalPendingToasts(currentId?: string) {
       // Pending tool approval (any instance type)
       if (inst.pendingTool && !prev?.pendingTool) {
         const instanceId = inst.id;
-        const projectId = inst.workingDirectory.split("/").pop() || inst.workingDirectory;
         toast.warning(inst.name, {
           description: `Waiting for approval to use ${inst.pendingTool}`,
           action: {
@@ -32,7 +32,7 @@ export function useTerminalPendingToasts(currentId?: string) {
             onClick: () =>
               navigate({
                 to: "/projects/$projectId/chats/$chatId",
-                params: { projectId, chatId: instanceId },
+                params: { projectId: getInstanceProjectRouteId(inst), chatId: instanceId },
               }),
           },
         });

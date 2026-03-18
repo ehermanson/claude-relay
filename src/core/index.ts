@@ -60,7 +60,10 @@ export type { Logger } from "./logger.js";
 export { defaultLogger, noopLogger } from "./logger.js";
 
 export { SessionDB } from "./db.js";
-export type { SessionRow } from "./db.js";
+export type { SessionRow, ProjectRow } from "./db.js";
+
+export { ProjectManager } from "./project-manager.js";
+export type { ProjectManagerEvents } from "./project-manager.js";
 
 export {
   describeToolUse,
@@ -129,6 +132,7 @@ export type {
   TaskItem,
   FileChange,
   SetPlanModePayload,
+  Project,
   ProjectPlan,
   ProjectStats,
   ProjectArtifacts,

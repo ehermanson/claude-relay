@@ -14,6 +14,7 @@ import { promisify } from "util";
 import type { FileChange } from "./types.js";
 
 const WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
+const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /** Pattern matching ~/.relay/worktrees/<id> paths */
 const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][a-f0-9]+\/?$/;
@@ -119,6 +120,19 @@ export function getCurrentBranch(dir: string): string | null {
       .trim();
   } catch {
     return null;
+  }
+}
+
+function hasHeadCommit(dir: string): boolean {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "HEAD"], {
+      cwd: dir,
+      timeout: 3000,
+      stdio: "pipe",
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -294,6 +308,7 @@ export function removeWorktree(repoRoot: string, worktreePath: string, branchNam
  * Used to establish a diff baseline for a session's lifetime.
  */
 function getBaseCommit(cwd: string, beforeTimestamp: number): string | null {
+  if (!hasHeadCommit(cwd)) return null;
   try {
     const isoDate = new Date(beforeTimestamp).toISOString();
     const hash = execFileSync("git", ["log", "--before=" + isoDate, "-1", "--format=%H"], {
@@ -328,7 +343,7 @@ export function enrichDiffStats(
     if (!repoRoot) return;
 
     // Determine the base ref to diff against
-    let baseRef = "HEAD";
+    let baseRef = hasHeadCommit(cwd) ? "HEAD" : EMPTY_TREE_HASH;
     if (opts?.originalBranch) {
       // Worktree: diff against merge-base with original branch
       try {
@@ -449,7 +464,7 @@ function resolveBaseRef(
   cwd: string,
   opts?: { originalBranch?: string; sessionCreatedAt?: number },
 ): string {
-  let baseRef = "HEAD";
+  let baseRef = hasHeadCommit(cwd) ? "HEAD" : EMPTY_TREE_HASH;
   if (opts?.originalBranch) {
     try {
       baseRef = execFileSync("git", ["merge-base", opts.originalBranch, "HEAD"], {
@@ -513,6 +528,7 @@ export function getFileDiff(
 }
 
 async function getBaseCommitAsync(cwd: string, beforeTimestamp: number): Promise<string | null> {
+  if (!(await hasHeadCommitAsync(cwd))) return null;
   try {
     const isoDate = new Date(beforeTimestamp).toISOString();
     const { stdout } = await execFileAsync(
@@ -538,6 +554,18 @@ async function getRepoRootAsync(dir: string): Promise<string | null> {
   }
 }
 
+async function hasHeadCommitAsync(dir: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["rev-parse", "--verify", "HEAD"], {
+      cwd: dir,
+      timeout: 3000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function enrichDiffStatsAsync(
   cwd: string,
   files: Map<string, FileChange>,
@@ -547,7 +575,7 @@ export async function enrichDiffStatsAsync(
     const repoRoot = await getRepoRootAsync(cwd);
     if (!repoRoot) return;
 
-    let baseRef = "HEAD";
+    let baseRef = (await hasHeadCommitAsync(cwd)) ? "HEAD" : EMPTY_TREE_HASH;
     if (opts?.originalBranch) {
       try {
         const { stdout } = await execFileAsync("git", ["merge-base", opts.originalBranch, "HEAD"], {

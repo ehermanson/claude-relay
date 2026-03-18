@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useWSState, useWSMethods } from "../context/websocket-context";
+import { getInstanceProjectRouteId } from "../lib/project-route";
 import { Tooltip } from "../components/ui/tooltip";
 import { formatTimeAgo } from "../lib/utils";
 import { useProjectOrder } from "../hooks/use-project-order";
@@ -68,7 +69,7 @@ function ProjectRow({
 // ─── Dashboard ──────────────────────────────────────────────────────────────
 
 export function Dashboard() {
-  const { instances } = useWSState();
+  const { instances, projects } = useWSState();
   const { send } = useWSMethods();
   const { sortEntries } = useProjectOrder();
   const navigate = useNavigate();
@@ -82,10 +83,9 @@ export function Dashboard() {
       for (const inst of instances) {
         if (!prevInstanceIds.current.has(inst.id) && !inst.external) {
           pendingCreate.current = false;
-          const projectId = inst.workingDirectory.split("/").pop() || inst.workingDirectory;
           navigate({
             to: "/projects/$projectId/chats/$chatId",
-            params: { projectId, chatId: inst.id },
+            params: { projectId: getInstanceProjectRouteId(inst), chatId: inst.id },
           });
           break;
         }
@@ -108,6 +108,7 @@ export function Dashboard() {
   }
   // Sort projects by custom order (falls back to alphabetical for new projects)
   const projectGroups = sortEntries(Array.from(projectMap.entries()));
+  const projectByDir = new Map(projects.map((project) => [project.directory, project]));
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
@@ -127,7 +128,9 @@ export function Dashboard() {
                 key={dir}
                 directory={dir}
                 instances={groupInstances}
-                projectId={dir.split("/").pop() || dir}
+                projectId={
+                  projectByDir.get(dir)?.id ?? getInstanceProjectRouteId(groupInstances[0])
+                }
                 onNewSession={handleNewSession}
               />
             ))}

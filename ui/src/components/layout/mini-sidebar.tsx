@@ -7,10 +7,11 @@ import { useTheme } from "../../context/theme-context";
 import { RelayLogo } from "../ui/relay-logo";
 import { Tooltip } from "../ui/tooltip";
 import { ProviderLogo } from "../chat/input-area/shared";
+import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
 import { formatTimeAgo } from "../../lib/utils";
 import { fetchProjectIcons } from "../../lib/api";
 import { useProjectOrder } from "../../hooks/use-project-order";
-import type { InstanceInfo } from "@shared/types";
+import type { InstanceInfo, Project } from "@shared/types";
 
 /** Extract project groups sorted by custom project order, sessions within are MRU. */
 function useProjectGroups() {
@@ -41,16 +42,18 @@ function statusDotClass(instance: InstanceInfo): string {
 
 function ProjectFlyout({
   dir,
+  projectId,
   instances,
   currentId,
   onNewChat,
 }: {
   dir: string;
+  projectId: string;
   instances: InstanceInfo[];
   currentId?: string;
   onNewChat: (dir: string) => void;
 }) {
-  const name = dir.split("/").pop() || dir;
+  const name = getProjectName(dir);
 
   return (
     <div className="flex max-h-full flex-col overflow-hidden">
@@ -58,7 +61,7 @@ function ProjectFlyout({
       <div className="flex items-center justify-between border-b border-border/50 px-3 py-2.5">
         <Link
           to="/projects/$projectId"
-          params={{ projectId: name }}
+          params={{ projectId }}
           className="min-w-0 truncate text-[0.8125rem] font-semibold text-text-bright transition-colors hover:text-accent"
         >
           {name}
@@ -79,12 +82,11 @@ function ProjectFlyout({
         ) : (
           instances.map((inst) => {
             const isActive = inst.id === currentId;
-            const projectId = inst.workingDirectory.split("/").pop() || inst.workingDirectory;
             return (
               <Link
                 key={inst.id}
                 to="/projects/$projectId/chats/$chatId"
-                params={{ projectId, chatId: inst.id }}
+                params={{ projectId: getInstanceProjectRouteId(inst), chatId: inst.id }}
                 className={`flex items-start gap-2 rounded-lg px-2.5 py-2 transition-colors ${
                   isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"
                 }`}
@@ -149,7 +151,7 @@ function ProjectIcon({
   onHover: () => void;
   onLeave: () => void;
 }) {
-  const name = dir.split("/").pop() || dir;
+  const name = getProjectName(dir);
   const initial = name.charAt(0).toUpperCase();
   const [imgError, setImgError] = useState(false);
   const showIcon = iconPath && !imgError;
@@ -175,7 +177,15 @@ function ProjectIcon({
           onError={() => setImgError(true)}
         />
       ) : (
-        initial
+        <span
+          className={`flex h-6 w-6 items-center justify-center rounded-md text-[0.8125rem] font-bold uppercase transition-colors ${
+            isActive || isHovered
+              ? "bg-accent/10 text-accent"
+              : "bg-surface-hover text-text-bright/75"
+          }`}
+        >
+          {initial}
+        </span>
       )}
       {hasActivity && (
         <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 animate-pulse-dot rounded-full bg-warning" />
@@ -187,7 +197,7 @@ function ProjectIcon({
 // ── Main component ───────────────────────────────────────────────────
 
 export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
-  const { isConnected } = useWSState();
+  const { isConnected, projects } = useWSState();
   const { send } = useWSMethods();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
@@ -197,6 +207,10 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   };
   const location = useLocation();
   const groups = useProjectGroups();
+  const projectByDir = new Map<string, Project>();
+  for (const project of projects) {
+    projectByDir.set(project.directory, project);
+  }
 
   // Fetch project icons once on mount
   const [projectIcons, setProjectIcons] = useState<Record<string, string>>({});
@@ -268,8 +282,8 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
         {/* Project icons */}
         <div className="flex flex-1 flex-col items-center gap-1 overflow-y-auto">
           {groups.map(([dir]) => {
-            const name = dir.split("/").pop() || dir;
-            const isActive = currentProjectId === name;
+            const projectId = projectByDir.get(dir)?.id ?? getProjectName(dir);
+            const isActive = currentProjectId === projectId;
             const hasActivity =
               groups.find(([d]) => d === dir)?.[1].some((i) => i.status === "processing") ?? false;
 
@@ -329,6 +343,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
         >
           <ProjectFlyout
             dir={flyoutGroup[0]}
+            projectId={projectByDir.get(flyoutGroup[0])?.id ?? getProjectName(flyoutGroup[0])}
             instances={flyoutGroup[1]}
             currentId={currentId}
             onNewChat={handleNewChat}

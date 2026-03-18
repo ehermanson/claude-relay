@@ -7,6 +7,7 @@ import { OpenInMenu } from "../../../components/project/open-in-menu";
 import { RelayLogo } from "../../../components/ui/relay-logo";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { fetchProjectArtifacts } from "../../../lib/api";
+import { getProjectName, instanceMatchesProject } from "../../../lib/project-route";
 import { formatTokens } from "../../../lib/utils";
 import { ProjectContext } from "../../../context/project-context";
 
@@ -73,15 +74,14 @@ function ProjectLayout() {
   const { instances } = useWSState();
 
   const artifacts = Route.useLoaderData();
-  const projectId = artifacts.directory.split("/").pop() || "";
+  const projectId = artifacts.projectId;
+  const dirName = getProjectName(artifacts.directory);
 
   const isChildView = !!chatId || !!planSlug;
 
   // Session stats
   const sessionStats = useMemo(() => {
-    const projectInstances = instances.filter(
-      (inst) => inst.workingDirectory.split("/").pop() === projectId,
-    );
+    const projectInstances = instances.filter((inst) => instanceMatchesProject(inst, projectId));
     const activeCount = projectInstances.filter(
       (i) => i.status === "idle" || i.status === "processing",
     ).length;
@@ -96,7 +96,6 @@ function ProjectLayout() {
   const isChatsTab = pathname.includes("/chats");
   const isOverviewTab = !isPlansTab && !isIssuesTab && !isSkillsTab && !isChatsTab;
 
-  const dirName = artifacts.directory.split("/").pop() || projectId;
   const planCount = artifacts.plans.length;
   const issueCount = artifacts.beadsIssues?.length ?? 0;
   const skillCount = artifacts.skills.length;

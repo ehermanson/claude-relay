@@ -19,6 +19,7 @@ import { createWebSocketServer } from "../dist/server/websocket.js";
 import { AuthManager } from "../dist/server/auth.js";
 import { InstanceManager } from "../dist/core/instance-manager.js";
 import { resolveConfig } from "../dist/server/config.js";
+import { addWSHelpers } from "./helpers.js";
 
 const noopLogger = {
   info() {},
@@ -60,21 +61,7 @@ function createClient(server, sessionId) {
     });
   };
 
-  ws.collectMessages = async (count, timeoutMs = 5000) => {
-    const messages = [];
-    for (let i = 0; i < count; i++) {
-      messages.push(await ws.nextMessage(timeoutMs));
-    }
-    return messages;
-  };
-
-  ws.waitForHandshake = async () => {
-    const msgs = await ws.collectMessages(3);
-    assert.equal(msgs[0].type, "connected");
-    assert.equal(msgs[1].type, "instance_list");
-    assert.equal(msgs[2].type, "hidden_directories");
-    return msgs;
-  };
+  addWSHelpers(ws);
 
   /** Drain any buffered messages */
   ws.drain = () => {
@@ -151,16 +138,14 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Subscribe first
       ws.send(JSON.stringify({ type: "subscribe", instanceId: info.id }));
-      const histMsg = await ws.nextMessage();
-      assert.equal(histMsg.type, "instance_history");
+      const histMsg = await ws.nextMessageOfType("instance_history");
 
       // Unsubscribe — should not produce any response message
       ws.send(JSON.stringify({ type: "unsubscribe", instanceId: info.id }));
 
       // Send a list_instances to verify the connection still works
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const listMsg = await ws.nextMessage();
-      assert.equal(listMsg.type, "instance_list");
+      const listMsg = await ws.nextMessageOfType("instance_list");
     });
   });
 
@@ -177,8 +162,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
         }),
       );
 
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "error");
+      const msg = await ws.nextMessageOfType("error");
       assert.ok(msg.message.includes("not found"));
     });
 
@@ -202,8 +186,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
       // The cancel call shouldn't crash even though the process isn't actually running
       // Send a followup to verify connection is healthy
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_list");
+      const msg = await ws.nextMessageOfType("instance_list");
     });
   });
 
@@ -225,8 +208,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Verify connection is still healthy
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_list");
+      const msg = await ws.nextMessageOfType("instance_list");
     });
 
     it("handles refresh_title for unknown instance", async () => {
@@ -244,8 +226,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Verify connection is still healthy
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_list");
+      const msg = await ws.nextMessageOfType("instance_list");
     });
   });
 
@@ -259,8 +240,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Connection should still work
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_list");
+      const msg = await ws.nextMessageOfType("instance_list");
     });
   });
 
@@ -274,8 +254,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Connection should still work
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessage();
-      assert.equal(msg.type, "instance_list");
+      const msg = await ws.nextMessageOfType("instance_list");
     });
   });
 
@@ -291,10 +270,8 @@ describe("WebSocket Messages — Additional Coverage", () => {
       ws1.send(JSON.stringify({ type: "create_instance", name: "Broadcast Test" }));
 
       // Both clients should receive instance_created
-      const msg1 = await ws1.nextMessage();
-      const msg2 = await ws2.nextMessage();
-      assert.equal(msg1.type, "instance_created");
-      assert.equal(msg2.type, "instance_created");
+      const msg1 = await ws1.nextMessageOfType("instance_created");
+      const msg2 = await ws2.nextMessageOfType("instance_created");
       assert.equal(msg1.instance.name, "Broadcast Test");
       assert.equal(msg2.instance.name, "Broadcast Test");
     });
@@ -310,13 +287,11 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Only ws1 subscribes
       ws1.send(JSON.stringify({ type: "subscribe", instanceId: info.id }));
-      const histMsg = await ws1.nextMessage();
-      assert.equal(histMsg.type, "instance_history");
+      const histMsg = await ws1.nextMessageOfType("instance_history");
 
       // ws2 should not have received the history
       ws2.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws2.nextMessage();
-      assert.equal(msg.type, "instance_list"); // This is the response to list_instances, not history
+      const msg = await ws2.nextMessageOfType("instance_list"); // This is the response to list_instances, not history
     });
   });
 

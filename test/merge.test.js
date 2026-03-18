@@ -13,6 +13,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
+import { addWSHelpers } from "./helpers.js";
 import { WebSocket } from "ws";
 import {
   isWorktreeDirty,
@@ -320,21 +321,7 @@ function createClient(server, sessionId) {
     });
   };
 
-  ws.collectMessages = async (count, timeoutMs = 5000) => {
-    const messages = [];
-    for (let i = 0; i < count; i++) {
-      messages.push(await ws.nextMessage(timeoutMs));
-    }
-    return messages;
-  };
-
-  ws.waitForHandshake = async () => {
-    const msgs = await ws.collectMessages(3);
-    assert.equal(msgs[0].type, "connected");
-    assert.equal(msgs[1].type, "instance_list");
-    assert.equal(msgs[2].type, "hidden_directories");
-    return msgs;
-  };
+  addWSHelpers(ws);
 
   const ready = new Promise((resolve, reject) => {
     ws.on("open", () => resolve(ws));
@@ -406,8 +393,7 @@ describe("WebSocket merge_instance", () => {
       }),
     );
 
-    const msg = await ws.nextMessage();
-    assert.equal(msg.type, "error");
+    const msg = await ws.nextMessageOfType("error");
     assert.ok(msg.message.includes("not found"));
   });
 

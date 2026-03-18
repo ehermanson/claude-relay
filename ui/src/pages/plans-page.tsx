@@ -116,7 +116,7 @@ function PlanCard({
 }
 
 export function PlansPage() {
-  const { projectId } = useParams({ strict: false }) as { projectId: string };
+  const { projectId: routeProjectId } = useParams({ strict: false }) as { projectId: string };
   const {
     plan: selectedPlan,
     sort: sortParam,
@@ -126,6 +126,7 @@ export function PlansPage() {
   });
   const navigate = useNavigate();
   const { artifacts } = useProjectContext();
+  const projectId = artifacts.projectId || routeProjectId;
   const [searchInput, setSearchInput] = useState(searchParam ?? "");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

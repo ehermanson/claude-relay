@@ -208,13 +208,35 @@ describe("JSONL Parsing", () => {
 function seedDB(tempDir, entries) {
   const dbPath = join(tempDir, "sessions.db");
   const db = new SessionDB(dbPath, noopLogger);
+
+  // Register projects for each unique working directory so listInstances() includes them
+  const seenDirs = new Set();
   for (const entry of entries) {
+    const dir = entry.workingDirectory || "/Users/test/projects/my-app";
+    if (!seenDirs.has(dir)) {
+      seenDirs.add(dir);
+      const projId = "proj-" + dir.replace(/\//g, "-");
+      db.upsertProject({
+        id: projId,
+        name: dir.split("/").pop() || dir,
+        directory: dir,
+        repo_root: null,
+        remote_url: null,
+        target_branch: null,
+        created_at: Date.now(),
+        last_activity_at: null,
+      });
+    }
+  }
+
+  for (const entry of entries) {
+    const dir = entry.workingDirectory || "/Users/test/projects/my-app";
     db.upsert({
       session_id: entry.sessionId || "test-session",
       instance_id: entry.id || "test-id",
       provider_name: "claude",
       name: entry.name || "Test Session",
-      working_directory: entry.workingDirectory || "/Users/test/projects/my-app",
+      working_directory: dir,
       jsonl_path: entry.jsonlPath,
       created_at: entry.createdAt || Date.now(),
       last_activity_at: entry.lastActivityAt || entry.createdAt || Date.now(),
@@ -243,6 +265,7 @@ function seedDB(tempDir, entries) {
       git_info_branch: entry.gitInfoBranch || null,
       git_info_is_worktree:
         entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
+      project_id: "proj-" + dir.replace(/\//g, "-"),
     });
   }
   db.close();
@@ -373,6 +396,20 @@ describe("DB Persistence", () => {
       },
     ];
     writeFileSync(manifestFile, JSON.stringify(entries));
+
+    // Pre-register the project so listInstances() includes migrated sessions
+    const db = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+    db.upsertProject({
+      id: "proj-manifest",
+      name: "my-app",
+      directory: "/Users/test/projects/my-app",
+      repo_root: null,
+      remote_url: null,
+      target_branch: null,
+      created_at: Date.now(),
+      last_activity_at: null,
+    });
+    db.close();
 
     const config = makeConfig(tempDir, { manifestFile });
     const manager = new InstanceManager(config);

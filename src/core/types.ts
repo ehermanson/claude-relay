@@ -151,6 +151,8 @@ export interface InstanceInfo {
   pendingPlan?: string;
   /** Latest plan document content for sidecar display (persists after approval) */
   planContent?: string;
+  /** Project ID this instance belongs to */
+  projectId?: string;
 }
 
 export interface HistoryEntry {
@@ -271,16 +273,6 @@ export interface SetProviderPayload {
   provider: ProviderKind;
 }
 
-export interface HideDirectoryPayload {
-  type: "hide_directory";
-  path: string;
-}
-
-export interface UnhideDirectoryPayload {
-  type: "unhide_directory";
-  path: string;
-}
-
 export type ClientMessage =
   | MessagePayload
   | CancelPayload
@@ -298,9 +290,7 @@ export type ClientMessage =
   | SetReasoningBudgetPayload
   | SetPermissionsPayload
   | SetPlanModePayload
-  | SetProviderPayload
-  | HideDirectoryPayload
-  | UnhideDirectoryPayload;
+  | SetProviderPayload;
 
 // =============================================================================
 // Server -> Client Messages
@@ -423,9 +413,9 @@ export interface ScanCompleteMessage {
   type: "scan_complete";
 }
 
-export interface HiddenDirectoriesMessage {
-  type: "hidden_directories";
-  directories: string[];
+export interface ProjectsChangedMessage {
+  type: "projects_changed";
+  projects: Project[];
 }
 
 export type ServerMessage =
@@ -443,7 +433,7 @@ export type ServerMessage =
   | InstanceHistoryMessage
   | TranscriptMessage
   | ScanCompleteMessage
-  | HiddenDirectoriesMessage;
+  | ProjectsChangedMessage;
 
 // =============================================================================
 // Session Types
@@ -458,6 +448,17 @@ export interface Session {
 // =============================================================================
 // Project Artifact Types
 // =============================================================================
+
+export interface Project {
+  id: string;
+  name: string;
+  directory: string;
+  repoRoot: string | null;
+  remoteUrl: string | null;
+  targetBranch: string | null;
+  createdAt: number;
+  lastActivityAt: number | null;
+}
 
 export interface ProjectPlan {
   slug: string;
