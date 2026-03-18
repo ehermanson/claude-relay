@@ -1,3 +1,5 @@
+import type { ProviderKind } from "@shared/types";
+
 export function escapeHtml(text: string): string {
   const div = document.createElement("div");
   div.textContent = text;
@@ -43,6 +45,31 @@ export function formatTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
   return String(n);
+}
+
+export function getDisplayTokenBreakdown(usage: {
+  providerName?: ProviderKind | string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}): {
+  inputTokens: number;
+  outputTokens: number;
+  cacheTokens: number;
+  totalTokens: number;
+} {
+  const cacheTokens = usage.cacheCreationTokens + usage.cacheReadTokens;
+  const inputTokens =
+    usage.providerName === "codex"
+      ? Math.max(0, usage.inputTokens - usage.cacheReadTokens)
+      : usage.inputTokens;
+  return {
+    inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheTokens,
+    totalTokens: inputTokens + usage.outputTokens + cacheTokens,
+  };
 }
 
 /** Turn a model ID like "claude-opus-4-6" into a short display name like "Opus 4.6" */

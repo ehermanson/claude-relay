@@ -266,6 +266,7 @@ function seedDB(tempDir, entries) {
       git_info_is_worktree:
         entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
       project_id: "proj-" + dir.replace(/\//g, "-"),
+      model: null,
     });
   }
   db.close();
@@ -325,6 +326,395 @@ describe("DB Persistence", () => {
     assert.equal(list[0].name, "External Test");
     assert.equal(list[0].external, true);
     assert.equal(list[0].status, "stopped");
+    manager.stopAll();
+  });
+
+  it("backfills model for previously indexed Claude sessions during scan", () => {
+    const workingDirectory = join(tempDir, "claude-workspace");
+    const encodedProjectDir = "-" + workingDirectory.slice(1).replace(/\//g, "-");
+    const projectDir = join(tempDir, ".claude", "projects", encodedProjectDir);
+    const jsonlPath = join(projectDir, "claude-backfill.jsonl");
+    mkdirSync(workingDirectory, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(
+      jsonlPath,
+      [
+        JSON.stringify({
+          type: "system",
+          subtype: "init",
+          cwd: workingDirectory,
+          timestamp: "2026-02-10T10:00:00.000Z",
+        }),
+        JSON.stringify({
+          type: "assistant",
+          timestamp: "2026-02-10T10:00:05.000Z",
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-6",
+            usage: { input_tokens: 10, output_tokens: 5 },
+            content: [{ type: "text", text: "Hello" }],
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const db = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+    db.upsertProject({
+      id: "proj-claude-backfill",
+      name: "claude-workspace",
+      directory: workingDirectory,
+      repo_root: null,
+      remote_url: null,
+      target_branch: null,
+      created_at: Date.now(),
+      last_activity_at: null,
+    });
+    db.upsert({
+      session_id: "claude-backfill-session",
+      instance_id: "claude-backfill-instance",
+      provider_name: "claude",
+      name: "Claude Backfill",
+      working_directory: workingDirectory,
+      jsonl_path: jsonlPath,
+      created_at: Date.now() - 1_000,
+      last_activity_at: Date.now(),
+      type: "external",
+      archived: 0,
+      custom_title: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      summary: null,
+      first_prompt: null,
+      git_branch: null,
+      message_count: 0,
+      allowed_tools: "[]",
+      worktree_path: null,
+      original_directory: null,
+      parent_session_id: null,
+      preferred_model: null,
+      reasoning_budget: null,
+      skip_permissions: 0,
+      last_message_text: null,
+      last_message_from: null,
+      last_message_at: null,
+      git_info_branch: null,
+      git_info_is_worktree: null,
+      project_id: null,
+      model: null,
+    });
+    db.close();
+
+    const manager = new InstanceManager(makeConfig(tempDir));
+    manager.restoreAndScan();
+    manager.stopAll();
+
+    const verifyDb = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+    const row = verifyDb.getBySessionId("claude-backfill-session");
+    assert.equal(row?.model, "claude-opus-4-6");
+    verifyDb.close();
+  });
+
+  it("persists model for newly discovered external Codex sessions", () => {
+    const workingDirectory = join(tempDir, "codex-discovery-workspace");
+    const codexDir = join(tempDir, ".codex", "sessions", "2026", "03", "18");
+    const jsonlPath = join(codexDir, "rollout-2026-03-18T12-00-00-codex-discovery-session.jsonl");
+    mkdirSync(workingDirectory, { recursive: true });
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(
+      jsonlPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-03-18T12:00:00.000Z",
+          type: "session_meta",
+          payload: {
+            id: "codex-discovery-session",
+            timestamp: "2026-03-18T12:00:00.000Z",
+            cwd: workingDirectory,
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-18T12:00:01.000Z",
+          type: "turn_context",
+          payload: { model: "gpt-5.4" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-18T12:00:01.100Z",
+          type: "event_msg",
+          payload: { type: "user_message", message: "How do I build this?" },
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const manager = new InstanceManager(makeConfig(tempDir));
+    manager.restoreAndScan();
+    manager.stopAll();
+
+    const db = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+    const row = db.getBySessionId("codex-discovery-session");
+    assert.equal(row?.provider_name, "codex");
+    assert.equal(row?.model, "gpt-5.4");
+    db.close();
+  });
+
+  it("backfills model for previously indexed external Codex sessions during scan", () => {
+    const workingDirectory = join(tempDir, "codex-backfill-workspace");
+    const codexDir = join(tempDir, ".codex", "sessions", "2026", "03", "18");
+    const jsonlPath = join(codexDir, "rollout-2026-03-18T12-00-00-codex-backfill-session.jsonl");
+    mkdirSync(workingDirectory, { recursive: true });
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(
+      jsonlPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-03-18T12:00:00.000Z",
+          type: "session_meta",
+          payload: {
+            id: "codex-backfill-session",
+            timestamp: "2026-03-18T12:00:00.000Z",
+            cwd: workingDirectory,
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-18T12:00:01.000Z",
+          type: "turn_context",
+          payload: { model: "gpt-5.4-mini" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-18T12:00:01.100Z",
+          type: "event_msg",
+          payload: { type: "user_message", message: "Run the tests" },
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const db = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+    db.upsert({
+      session_id: "codex-backfill-session",
+      instance_id: "codex-backfill-instance",
+      provider_name: "codex",
+      name: "Codex Backfill",
+      working_directory: workingDirectory,
+      jsonl_path: jsonlPath,
+      created_at: Date.now() - 1_000,
+      last_activity_at: Date.now(),
+      type: "external",
+      archived: 0,
+      custom_title: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      summary: null,
+      first_prompt: null,
+      git_branch: null,
+      message_count: 0,
+      allowed_tools: "[]",
+      worktree_path: null,
+      original_directory: null,
+      parent_session_id: null,
+      preferred_model: null,
+      reasoning_budget: null,
+      skip_permissions: 0,
+      last_message_text: null,
+      last_message_from: null,
+      last_message_at: null,
+      git_info_branch: null,
+      git_info_is_worktree: null,
+      project_id: null,
+      model: null,
+    });
+    db.close();
+
+    const manager = new InstanceManager(makeConfig(tempDir));
+    manager.restoreAndScan();
+    manager.stopAll();
+
+    const verifyDb = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+    const row = verifyDb.getBySessionId("codex-backfill-session");
+    assert.equal(row?.model, "gpt-5.4-mini");
+    verifyDb.close();
+  });
+
+  it("backfills transcript stats for historical project sessions before aggregating artifacts", () => {
+    const workingDirectory = join(tempDir, "project-artifacts-workspace");
+    const projectId = "proj-" + workingDirectory.replace(/\//g, "-");
+    const encodedProjectDir = "-" + workingDirectory.slice(1).replace(/\//g, "-");
+    const claudeProjectDir = join(tempDir, ".claude", "projects", encodedProjectDir);
+    const claudeJsonlPath = join(claudeProjectDir, "claude-usage.jsonl");
+    const codexDir = join(tempDir, ".codex", "sessions", "2026", "03", "18");
+    const codexJsonlPath = join(codexDir, "rollout-2026-03-18T12-00-00-codex-usage.jsonl");
+
+    mkdirSync(workingDirectory, { recursive: true });
+    mkdirSync(claudeProjectDir, { recursive: true });
+    mkdirSync(codexDir, { recursive: true });
+
+    writeFileSync(
+      claudeJsonlPath,
+      [
+        JSON.stringify({
+          type: "system",
+          subtype: "init",
+          cwd: workingDirectory,
+          timestamp: "2026-02-10T10:00:00.000Z",
+        }),
+        JSON.stringify({
+          type: "assistant",
+          timestamp: "2026-02-10T10:00:05.000Z",
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-6",
+            usage: {
+              input_tokens: 100,
+              output_tokens: 50,
+              cache_creation_input_tokens: 20,
+              cache_read_input_tokens: 30,
+            },
+            content: [{ type: "text", text: "Hello" }],
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+
+    writeFileSync(
+      codexJsonlPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-03-18T12:00:00.000Z",
+          type: "session_meta",
+          payload: {
+            id: "codex-usage-session",
+            timestamp: "2026-03-18T12:00:00.000Z",
+            cwd: workingDirectory,
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-18T12:00:01.000Z",
+          type: "turn_context",
+          payload: { model: "gpt-5.4" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-03-18T12:00:01.600Z",
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            info: {
+              total_token_usage: {
+                input_tokens: 1000,
+                cached_input_tokens: 400,
+                output_tokens: 200,
+              },
+            },
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const db = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+    db.upsertProject({
+      id: projectId,
+      name: "project-artifacts-workspace",
+      directory: workingDirectory,
+      repo_root: null,
+      remote_url: null,
+      target_branch: null,
+      created_at: Date.now(),
+      last_activity_at: null,
+    });
+    db.upsert({
+      session_id: "claude-usage-session",
+      instance_id: "claude-usage-instance",
+      provider_name: "claude",
+      name: "Claude Usage",
+      working_directory: workingDirectory,
+      jsonl_path: claudeJsonlPath,
+      created_at: Date.now() - 2_000,
+      last_activity_at: Date.now(),
+      type: "external",
+      archived: 0,
+      custom_title: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      summary: null,
+      first_prompt: null,
+      git_branch: null,
+      message_count: 0,
+      allowed_tools: "[]",
+      worktree_path: null,
+      original_directory: null,
+      parent_session_id: null,
+      preferred_model: null,
+      reasoning_budget: null,
+      skip_permissions: 0,
+      last_message_text: null,
+      last_message_from: null,
+      last_message_at: null,
+      git_info_branch: null,
+      git_info_is_worktree: null,
+      project_id: projectId,
+      model: null,
+    });
+    db.upsert({
+      session_id: "codex-usage-session",
+      instance_id: "codex-usage-instance",
+      provider_name: "codex",
+      name: "Codex Usage",
+      working_directory: workingDirectory,
+      jsonl_path: codexJsonlPath,
+      created_at: Date.now() - 1_000,
+      last_activity_at: Date.now(),
+      type: "external",
+      archived: 0,
+      custom_title: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      summary: null,
+      first_prompt: null,
+      git_branch: null,
+      message_count: 0,
+      allowed_tools: "[]",
+      worktree_path: null,
+      original_directory: null,
+      parent_session_id: null,
+      preferred_model: null,
+      reasoning_budget: null,
+      skip_permissions: 0,
+      last_message_text: null,
+      last_message_from: null,
+      last_message_at: null,
+      git_info_branch: null,
+      git_info_is_worktree: null,
+      project_id: projectId,
+      model: null,
+    });
+    db.close();
+
+    const manager = new InstanceManager(makeConfig(tempDir));
+    manager.restoreAndScan();
+
+    const artifacts = manager.getProjectArtifacts(projectId);
+    assert.ok(artifacts);
+    assert.equal(artifacts.stats.modelUsage.length, 2);
+
+    const claudeUsage = artifacts.stats.modelUsage.find((row) => row.model === "claude-opus-4-6");
+    const codexUsage = artifacts.stats.modelUsage.find((row) => row.model === "gpt-5.4");
+    assert.ok(claudeUsage);
+    assert.equal(claudeUsage.inputTokens, 100);
+    assert.equal(claudeUsage.cacheCreationTokens, 20);
+    assert.equal(claudeUsage.cacheReadTokens, 30);
+    assert.ok(codexUsage);
+    assert.equal(codexUsage.inputTokens, 1000);
+    assert.equal(codexUsage.cacheReadTokens, 400);
+
+    const verifyDb = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
+    assert.equal(verifyDb.getBySessionId("claude-usage-session")?.output_tokens, 50);
+    assert.equal(verifyDb.getBySessionId("codex-usage-session")?.output_tokens, 200);
+    verifyDb.close();
     manager.stopAll();
   });
 

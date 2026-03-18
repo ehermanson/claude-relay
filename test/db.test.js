@@ -41,6 +41,7 @@ function makeRow(overrides = {}) {
     git_info_branch: null,
     git_info_is_worktree: null,
     project_id: null,
+    model: null,
     ...overrides,
   };
 }
@@ -194,6 +195,15 @@ describe("SessionDB", () => {
       db.updateLastActivity("sess-1", 99999);
       const row = db.getBySessionId("sess-1");
       assert.equal(row.last_activity_at, 99999);
+    });
+  });
+
+  describe("updateSessionModel", () => {
+    it("updates the persisted model for a session", () => {
+      db.upsert(makeRow());
+      db.updateSessionModel("sess-1", "claude-opus-4-6");
+      const row = db.getBySessionId("sess-1");
+      assert.equal(row.model, "claude-opus-4-6");
     });
   });
 

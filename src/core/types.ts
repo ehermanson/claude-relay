@@ -467,12 +467,23 @@ export interface ProjectPlan {
   content: string;
 }
 
+export interface ModelUsageStats {
+  model: string;
+  providerName: string;
+  sessionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
+
 export interface ProjectStats {
   sessionCount: number;
   inputTokens: number;
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  modelUsage: ModelUsageStats[];
 }
 
 export interface DashboardStats {

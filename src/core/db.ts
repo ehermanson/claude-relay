@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 12;
+const CURRENT_SCHEMA_VERSION = 13;
 
 export interface ProjectRow {
   id: string;
@@ -56,6 +56,7 @@ export interface SessionRow {
   git_info_branch: string | null;
   git_info_is_worktree: number | null;
   project_id: string | null;
+  model: string | null;
 }
 
 export interface ManagedInstanceRow {
@@ -89,6 +90,7 @@ export interface ManagedInstanceRow {
   git_info_branch: string | null;
   git_info_is_worktree: number | null;
   project_id: string | null;
+  model: string | null;
 }
 
 export class SessionDB {
@@ -119,6 +121,7 @@ export class SessionDB {
   private stmtDeleteBySessionId!: Database.Statement;
   private stmtUpdateAllowedTools!: Database.Statement;
   private stmtUpdateWorkingDirectory!: Database.Statement;
+  private stmtUpdateSessionModel!: Database.Statement;
   private stmtUpdatePreferredModel!: Database.Statement;
   private stmtUpdateReasoningBudget!: Database.Statement;
   private stmtUpdateSkipPermissions!: Database.Statement;
@@ -133,6 +136,7 @@ export class SessionDB {
   private stmtUpdateSessionProjectId!: Database.Statement;
   private stmtUpdateManagedSessionProjectId!: Database.Statement;
   private stmtGetDistinctSessionDirs!: Database.Statement;
+  private stmtGetProjectModelStats!: Database.Statement;
 
   constructor(dbPath: string, logger: Logger) {
     this.logger = logger;
@@ -369,6 +373,20 @@ export class SessionDB {
       `CREATE INDEX IF NOT EXISTS idx_managed_sessions_project_id ON managed_sessions(project_id)`,
     );
 
+    // v13: persist actual model ID from API responses
+    {
+      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!sessionCols.some((c) => c.name === "model")) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN model TEXT`);
+      }
+      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
+        name: string;
+      }>;
+      if (!managedCols.some((c) => c.name === "model")) {
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN model TEXT`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -386,7 +404,7 @@ export class SessionDB {
         summary, first_prompt, git_branch, message_count, allowed_tools,
         worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, skip_permissions,
         last_message_text, last_message_from, last_message_at,
-        git_info_branch, git_info_is_worktree, project_id
+        git_info_branch, git_info_is_worktree, project_id, model
       ) VALUES (
         @session_id, @instance_id, @provider_name, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
@@ -394,7 +412,7 @@ export class SessionDB {
         @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
         @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @skip_permissions,
         @last_message_text, @last_message_from, @last_message_at,
-        @git_info_branch, @git_info_is_worktree, @project_id
+        @git_info_branch, @git_info_is_worktree, @project_id, @model
       )
       ON CONFLICT(session_id) DO UPDATE SET
         instance_id = excluded.instance_id,
@@ -426,7 +444,8 @@ export class SessionDB {
         last_message_at = excluded.last_message_at,
         git_info_branch = excluded.git_info_branch,
         git_info_is_worktree = excluded.git_info_is_worktree,
-        project_id = excluded.project_id
+        project_id = excluded.project_id,
+        model = excluded.model
     `);
 
     this.stmtUpsertManaged = this.db.prepare(`
@@ -438,7 +457,7 @@ export class SessionDB {
         preferred_model, reasoning_budget, skip_permissions, runtime_mode,
         resume_cursor_json, runtime_payload_json, transcript_path,
         last_message_text, last_message_from, last_message_at,
-        git_info_branch, git_info_is_worktree, project_id
+        git_info_branch, git_info_is_worktree, project_id, model
       ) VALUES (
         @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
         @created_at, @last_activity_at, @archived, @custom_title,
@@ -447,7 +466,7 @@ export class SessionDB {
         @preferred_model, @reasoning_budget, @skip_permissions, @runtime_mode,
         @resume_cursor_json, @runtime_payload_json, @transcript_path,
         @last_message_text, @last_message_from, @last_message_at,
-        @git_info_branch, @git_info_is_worktree, @project_id
+        @git_info_branch, @git_info_is_worktree, @project_id, @model
       )
       ON CONFLICT(instance_id) DO UPDATE SET
         provider_name = excluded.provider_name,
@@ -477,7 +496,8 @@ export class SessionDB {
         last_message_at = excluded.last_message_at,
         git_info_branch = excluded.git_info_branch,
         git_info_is_worktree = excluded.git_info_is_worktree,
-        project_id = excluded.project_id
+        project_id = excluded.project_id,
+        model = excluded.model
     `);
 
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
@@ -541,6 +561,10 @@ export class SessionDB {
 
     this.stmtUpdateWorkingDirectory = this.db.prepare(
       "UPDATE sessions SET working_directory = ? WHERE session_id = ?",
+    );
+
+    this.stmtUpdateSessionModel = this.db.prepare(
+      "UPDATE sessions SET model = ? WHERE session_id = ?",
     );
 
     this.stmtUpdatePreferredModel = this.db.prepare(
@@ -644,6 +668,31 @@ export class SessionDB {
         UNION
         SELECT working_directory FROM managed_sessions WHERE archived = 0
       )
+    `);
+    this.stmtGetProjectModelStats = this.db.prepare(`
+      SELECT
+        model,
+        provider_name,
+        COALESCE(SUM(session_count), 0) as session_count,
+        COALESCE(SUM(input_tokens), 0) as input_tokens,
+        COALESCE(SUM(output_tokens), 0) as output_tokens,
+        COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
+        COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens
+      FROM (
+        SELECT model, provider_name, COUNT(*) as session_count,
+          SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens,
+          SUM(cache_creation_tokens) as cache_creation_tokens, SUM(cache_read_tokens) as cache_read_tokens
+        FROM sessions WHERE archived = 0 AND working_directory = ? AND model IS NOT NULL
+        GROUP BY model, provider_name
+        UNION ALL
+        SELECT model, provider_name, COUNT(*) as session_count,
+          SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens,
+          SUM(cache_creation_tokens) as cache_creation_tokens, SUM(cache_read_tokens) as cache_read_tokens
+        FROM managed_sessions WHERE archived = 0 AND working_directory = ? AND model IS NOT NULL
+        GROUP BY model, provider_name
+      )
+      GROUP BY model, provider_name
+      ORDER BY (input_tokens + output_tokens) DESC
     `);
   }
 
@@ -752,6 +801,10 @@ export class SessionDB {
     this.stmtUpdateWorkingDirectory.run(workingDirectory, sessionId);
   }
 
+  updateSessionModel(sessionId: string, model: string | null): void {
+    this.stmtUpdateSessionModel.run(model, sessionId);
+  }
+
   updatePreferredModel(sessionId: string, model: string | null): void {
     this.stmtUpdatePreferredModel.run(model, sessionId);
   }
@@ -846,6 +899,36 @@ export class SessionDB {
   assignSessionsToProject(projectId: string | null, directory: string): void {
     this.stmtUpdateSessionProjectId.run(projectId, directory);
     this.stmtUpdateManagedSessionProjectId.run(projectId, directory);
+  }
+
+  /** Get token usage breakdown by model for a project directory */
+  getProjectModelStats(workingDirectory: string): Array<{
+    model: string;
+    providerName: string;
+    sessionCount: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+  }> {
+    const rows = this.stmtGetProjectModelStats.all(workingDirectory, workingDirectory) as Array<{
+      model: string;
+      provider_name: string;
+      session_count: number;
+      input_tokens: number;
+      output_tokens: number;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+    }>;
+    return rows.map((r) => ({
+      model: r.model,
+      providerName: r.provider_name,
+      sessionCount: r.session_count,
+      inputTokens: r.input_tokens,
+      outputTokens: r.output_tokens,
+      cacheCreationTokens: r.cache_creation_tokens,
+      cacheReadTokens: r.cache_read_tokens,
+    }));
   }
 
   /** Get distinct working directories from active sessions (for migration backfill) */

@@ -504,6 +504,171 @@ function readLastMessage(jsonlPath: string): LastMessagePreview | null {
 }
 
 /**
+ * Extract the most recent model ID from the tail of a JSONL file.
+ * Reads last 32KB and walks backwards for an assistant entry with `message.model`.
+ */
+function readModelFromJsonl(jsonlPath: string): string | null {
+  try {
+    const fd = openSync(jsonlPath, "r");
+    try {
+      const stat = fstatSync(fd);
+      const tailSize = Math.min(stat.size, 32768);
+      const offset = stat.size - tailSize;
+      const buf = Buffer.alloc(tailSize);
+      readSync(fd, buf, 0, tailSize, offset);
+      const text = buf.toString("utf-8");
+      const lines = text.split("\n");
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (!line || !line.includes('"model"')) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.type === "assistant" && parsed.message?.model) {
+            return parsed.message.model;
+          }
+        } catch {
+          // partial line
+        }
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    // file read error
+  }
+  return null;
+}
+
+function hasPersistedTokenUsage(entry: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+}): boolean {
+  return (
+    entry.input_tokens > 0 ||
+    entry.output_tokens > 0 ||
+    entry.cache_creation_tokens > 0 ||
+    entry.cache_read_tokens > 0
+  );
+}
+
+function readClaudeStatsFromJsonl(jsonlPath: string): SessionStats | undefined {
+  try {
+    const content = readFileSync(jsonlPath, "utf-8");
+    const stats: SessionStats = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+    };
+
+    for (const line of content.split("\n")) {
+      if (!line || !line.includes('"assistant"')) continue;
+      try {
+        const entry = JSON.parse(line) as {
+          type?: string;
+          message?: {
+            model?: string;
+            usage?: {
+              input_tokens?: number;
+              output_tokens?: number;
+              cache_creation_input_tokens?: number;
+              cache_read_input_tokens?: number;
+            };
+          };
+        };
+        if (entry.type !== "assistant" || !entry.message) continue;
+        if (entry.message.model) {
+          stats.model = entry.message.model;
+        }
+        if (!entry.message.usage) continue;
+        stats.inputTokens += entry.message.usage.input_tokens ?? 0;
+        stats.outputTokens += entry.message.usage.output_tokens ?? 0;
+        stats.cacheCreationTokens += entry.message.usage.cache_creation_input_tokens ?? 0;
+        stats.cacheReadTokens += entry.message.usage.cache_read_input_tokens ?? 0;
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    return hasSessionStats(stats) ? stats : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readCodexStatsFromJsonl(jsonlPath: string): SessionStats | undefined {
+  try {
+    const content = readFileSync(jsonlPath, "utf-8");
+    const stats: SessionStats = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+    };
+
+    for (const line of content.split("\n")) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line) as {
+          type?: string;
+          payload?: Record<string, unknown>;
+        };
+
+        if (entry.type === "turn_context") {
+          const model = entry.payload?.model;
+          if (typeof model === "string" && model.trim()) {
+            stats.model = model;
+          }
+          continue;
+        }
+
+        if (entry.type !== "event_msg" || entry.payload?.type !== "token_count") continue;
+        const info =
+          typeof entry.payload.info === "object" && entry.payload.info !== null
+            ? (entry.payload.info as Record<string, unknown>)
+            : null;
+        const total =
+          info && typeof info.total_token_usage === "object" && info.total_token_usage !== null
+            ? (info.total_token_usage as Record<string, unknown>)
+            : null;
+        const last =
+          info && typeof info.last_token_usage === "object" && info.last_token_usage !== null
+            ? (info.last_token_usage as Record<string, unknown>)
+            : null;
+
+        if (total) {
+          stats.inputTokens =
+            typeof total.input_tokens === "number" ? total.input_tokens : stats.inputTokens;
+          stats.cacheReadTokens =
+            typeof total.cached_input_tokens === "number"
+              ? total.cached_input_tokens
+              : stats.cacheReadTokens;
+          stats.outputTokens =
+            typeof total.output_tokens === "number" ? total.output_tokens : stats.outputTokens;
+          if (typeof total.reasoning_output_tokens === "number") {
+            stats.reasoningTokens = total.reasoning_output_tokens;
+          }
+        }
+        if (last && typeof last.input_tokens === "number") {
+          stats.contextTokens = last.input_tokens;
+        }
+        if (info && typeof info.model_context_window === "number") {
+          stats.contextWindow = info.model_context_window;
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    return hasSessionStats(stats) ? stats : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Read cwd from a JSONL file by scanning the first ~32KB for an entry with a `cwd` field.
  * The init/system entry contains `cwd` but isn't always the first line
  * (file-history-snapshot can precede it), and can span many KB.
@@ -699,12 +864,14 @@ function dbStatsToSessionStats(entry: {
   output_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
+  model?: string | null;
 }): SessionStats | undefined {
   const stats: SessionStats = {
     inputTokens: entry.input_tokens,
     outputTokens: entry.output_tokens,
     cacheCreationTokens: entry.cache_creation_tokens,
     cacheReadTokens: entry.cache_read_tokens,
+    model: entry.model ?? undefined,
   };
   return hasSessionStats(stats) ? stats : undefined;
 }
@@ -2110,8 +2277,14 @@ export class InstanceManager extends EventEmitter {
         /* ignore */
       }
 
+    // Backfill transcript-derived stats/model metadata for unopened historical sessions
+    // in this project before aggregating usage.
+    this.backfillProjectTranscriptStats(directory);
+
     // Aggregate token/cost stats from DB
-    const stats = this.db.getProjectStats(directory);
+    const baseStats = this.db.getProjectStats(directory);
+    const modelUsage = this.db.getProjectModelStats(directory);
+    const stats = { ...baseStats, modelUsage };
 
     // GitHub URL from git remote
     const githubUrl = getRemoteUrl(directory);
@@ -3790,6 +3963,7 @@ export class InstanceManager extends EventEmitter {
             : 0
           : null,
       project_id: instance.info.projectId ?? null,
+      model: stats?.model ?? null,
     };
   }
 
@@ -3834,6 +4008,7 @@ export class InstanceManager extends EventEmitter {
             : 0
           : null,
       project_id: instance.info.projectId ?? null,
+      model: stats?.model ?? null,
     };
   }
 
@@ -3860,6 +4035,137 @@ export class InstanceManager extends EventEmitter {
       }
     } catch (err) {
       this.baseConfig.logger.warn(`[InstanceManager] Failed to persist session: ${err}`);
+    }
+  }
+
+  private backfillSessionModel(sessionId: string, model: string): void {
+    this.db.updateSessionModel(sessionId, model);
+    for (const instance of this.instances.values()) {
+      if (instance.sessionId !== sessionId && instance.info.sessionId !== sessionId) continue;
+      const nextStats = instance.info.stats
+        ? { ...instance.info.stats, model }
+        : {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreationTokens: 0,
+            cacheReadTokens: 0,
+            model,
+          };
+      instance.info.stats = nextStats;
+      if (instance.watchState) {
+        instance.watchState.stats = { ...instance.watchState.stats, model };
+      }
+    }
+  }
+
+  private backfillSessionStats(
+    instanceId: string,
+    sessionId: string | undefined,
+    stats: SessionStats,
+  ): void {
+    for (const instance of this.instances.values()) {
+      if (instance.info.id !== instanceId && instance.sessionId !== sessionId) continue;
+      const nextStats: SessionStats = {
+        inputTokens: stats.inputTokens,
+        outputTokens: stats.outputTokens,
+        cacheCreationTokens: stats.cacheCreationTokens,
+        cacheReadTokens: stats.cacheReadTokens,
+        model: stats.model ?? instance.info.stats?.model,
+        contextTokens: stats.contextTokens ?? instance.info.stats?.contextTokens,
+        contextWindow: stats.contextWindow ?? instance.info.stats?.contextWindow,
+        reasoningTokens: stats.reasoningTokens ?? instance.info.stats?.reasoningTokens,
+      };
+      instance.info.stats = nextStats;
+      if (instance.watchState) {
+        instance.watchState.stats = { ...instance.watchState.stats, ...nextStats };
+      }
+      return;
+    }
+  }
+
+  private readTranscriptStats(
+    provider: ProviderKind,
+    transcriptPath: string,
+  ): SessionStats | undefined {
+    if (!existsSync(transcriptPath)) return undefined;
+    if (provider === "claude") return readClaudeStatsFromJsonl(transcriptPath);
+    if (provider === "codex") return readCodexStatsFromJsonl(transcriptPath);
+    return undefined;
+  }
+
+  private backfillProjectTranscriptStats(directory: string): void {
+    for (const row of this.db.getAllActive()) {
+      if (row.working_directory !== directory) continue;
+      if (hasPersistedTokenUsage(row) && row.model) continue;
+      const stats = this.readTranscriptStats(row.provider_name as ProviderKind, row.jsonl_path);
+      if (!stats) continue;
+      const nextRow: SessionRow = {
+        ...row,
+        input_tokens: stats.inputTokens,
+        output_tokens: stats.outputTokens,
+        cache_creation_tokens: stats.cacheCreationTokens,
+        cache_read_tokens: stats.cacheReadTokens,
+        model: row.model ?? stats.model ?? null,
+      };
+      if (
+        nextRow.input_tokens === row.input_tokens &&
+        nextRow.output_tokens === row.output_tokens &&
+        nextRow.cache_creation_tokens === row.cache_creation_tokens &&
+        nextRow.cache_read_tokens === row.cache_read_tokens &&
+        nextRow.model === row.model
+      ) {
+        continue;
+      }
+      this.db.upsert(nextRow);
+      this.backfillSessionStats(row.instance_id, row.session_id, {
+        ...stats,
+        model: nextRow.model ?? undefined,
+      });
+    }
+
+    for (const row of this.db.getAllManagedActive()) {
+      if (row.working_directory !== directory) continue;
+      if (hasPersistedTokenUsage(row) && row.model) continue;
+
+      let resumeCursor: unknown;
+      try {
+        resumeCursor = row.resume_cursor_json ? JSON.parse(row.resume_cursor_json) : undefined;
+      } catch {
+        resumeCursor = undefined;
+      }
+      const transcriptPath = this.resolveManagedTranscriptPath(row.provider_name as ProviderKind, {
+        sessionId: row.provider_session_id ?? extractResumeSessionId(resumeCursor),
+        transcriptPath: row.transcript_path ?? undefined,
+        workingDirectory: row.working_directory,
+      });
+      if (!transcriptPath) continue;
+
+      const stats = this.readTranscriptStats(row.provider_name as ProviderKind, transcriptPath);
+      if (!stats) continue;
+      const nextRow: ManagedInstanceRow = {
+        ...row,
+        input_tokens: stats.inputTokens,
+        output_tokens: stats.outputTokens,
+        cache_creation_tokens: stats.cacheCreationTokens,
+        cache_read_tokens: stats.cacheReadTokens,
+        model: row.model ?? stats.model ?? null,
+        transcript_path: transcriptPath,
+      };
+      if (
+        nextRow.input_tokens === row.input_tokens &&
+        nextRow.output_tokens === row.output_tokens &&
+        nextRow.cache_creation_tokens === row.cache_creation_tokens &&
+        nextRow.cache_read_tokens === row.cache_read_tokens &&
+        nextRow.model === row.model &&
+        nextRow.transcript_path === row.transcript_path
+      ) {
+        continue;
+      }
+      this.db.upsertManaged(nextRow);
+      this.backfillSessionStats(row.instance_id, row.provider_session_id ?? undefined, {
+        ...stats,
+        model: nextRow.model ?? undefined,
+      });
     }
   }
 
@@ -3930,6 +4236,7 @@ export class InstanceManager extends EventEmitter {
           git_info_is_worktree: null,
           project_id:
             this._projectManager.getProjectByDirectory(entry.workingDirectory)?.id ?? null,
+          model: null,
         });
       }
 
@@ -4056,6 +4363,12 @@ export class InstanceManager extends EventEmitter {
                     this.db.updateWorkingDirectory(existing.session_id, correctCwd);
                   }
                 }
+                if (!existing.model) {
+                  const model = readModelFromJsonl(jsonlPath);
+                  if (model) {
+                    this.backfillSessionModel(existing.session_id, model);
+                  }
+                }
               }
             } catch {
               // ignore stat errors
@@ -4124,6 +4437,7 @@ export class InstanceManager extends EventEmitter {
           const name = indexEntry?.summary || (firstMsg ? generateTitle(firstMsg) : "New session");
           const gitInfo = scanWorktreePath ? getGitInfo(scanWorktreePath) : getGitInfo(cwd);
           const lastMsg = readLastMessage(jsonlPath);
+          const model = readModelFromJsonl(jsonlPath);
 
           rows.push({
             session_id: sessionId,
@@ -4161,6 +4475,7 @@ export class InstanceManager extends EventEmitter {
               gitInfo?.isWorktree !== undefined ? (gitInfo.isWorktree ? 1 : 0) : null,
             project_id:
               this._projectManager.getProjectByDirectory(scanOriginalDir ?? cwd)?.id ?? null,
+            model,
           });
           discovered++;
         }
@@ -4249,7 +4564,16 @@ export class InstanceManager extends EventEmitter {
             walk(fullPath);
           } else if (entry.endsWith(".jsonl")) {
             diskPaths.add(fullPath);
-            if (knownPaths.has(fullPath)) continue;
+            if (knownPaths.has(fullPath)) {
+              const existing = this.db.getByJsonlPath(fullPath);
+              if (existing && !existing.model) {
+                const meta = this.readCodexSessionMeta(fullPath);
+                if (meta?.model) {
+                  this.backfillSessionModel(existing.session_id, meta.model);
+                }
+              }
+              continue;
+            }
 
             // Read session_meta from first line
             const meta = this.readCodexSessionMeta(fullPath);
@@ -4294,6 +4618,7 @@ export class InstanceManager extends EventEmitter {
               git_info_branch: null,
               git_info_is_worktree: null,
               project_id: this._projectManager.getProjectByDirectory(cwd)?.id ?? null,
+              model: meta.model,
             });
           }
         } catch {
@@ -4313,9 +4638,13 @@ export class InstanceManager extends EventEmitter {
   }
 
   /** Read session_meta + first user message from a Codex JSONL file. */
-  private readCodexSessionMeta(
-    jsonlPath: string,
-  ): { id: string; cwd: string; createdAt: number; firstUserMessage: string | null } | null {
+  private readCodexSessionMeta(jsonlPath: string): {
+    id: string;
+    cwd: string;
+    createdAt: number;
+    firstUserMessage: string | null;
+    model: string | null;
+  } | null {
     try {
       const fd = openSync(jsonlPath, "r");
       try {
@@ -4327,6 +4656,7 @@ export class InstanceManager extends EventEmitter {
         let cwd: string | null = null;
         let createdAt = 0;
         let firstUserMessage: string | null = null;
+        let model: string | null = null;
 
         for (const line of text.split("\n")) {
           if (!line.trim()) continue;
@@ -4347,16 +4677,23 @@ export class InstanceManager extends EventEmitter {
               if (msg && !isTrivialMessage(msg)) {
                 firstUserMessage = msg;
               }
+            } else if (
+              !model &&
+              parsed.type === "turn_context" &&
+              typeof parsed.payload?.model === "string" &&
+              parsed.payload.model.trim()
+            ) {
+              model = parsed.payload.model;
             }
-            // Stop once we have both
-            if (id && firstUserMessage) break;
+            // Stop once we have all metadata we care about.
+            if (id && firstUserMessage && model) break;
           } catch {
             // partial line
           }
         }
 
         if (!id || !cwd) return null;
-        return { id, cwd, createdAt, firstUserMessage };
+        return { id, cwd, createdAt, firstUserMessage, model };
       } finally {
         closeSync(fd);
       }
@@ -4401,6 +4738,7 @@ export class InstanceManager extends EventEmitter {
           git_info_branch: row.git_info_branch,
           git_info_is_worktree: row.git_info_is_worktree,
           project_id: row.project_id,
+          model: row.model ?? null,
         });
       } catch (err) {
         this.baseConfig.logger.warn(

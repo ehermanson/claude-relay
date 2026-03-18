@@ -8,7 +8,7 @@ import { RelayLogo } from "../../../components/ui/relay-logo";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { fetchProjectArtifacts } from "../../../lib/api";
 import { getProjectName, instanceMatchesProject } from "../../../lib/project-route";
-import { formatTokens } from "../../../lib/utils";
+import { formatTokens, getDisplayTokenBreakdown } from "../../../lib/utils";
 import { ProjectContext } from "../../../context/project-context";
 
 const MotionLogo = motion.create(RelayLogo);
@@ -120,6 +120,19 @@ function ProjectLayout() {
     sessionLabel += ")";
   }
 
+  const modelUsage = artifacts.stats.modelUsage ?? [];
+  const normalizedUsage = modelUsage.map(getDisplayTokenBreakdown);
+  const normalizedInputTokens = normalizedUsage.reduce((sum, row) => sum + row.inputTokens, 0);
+  const normalizedOutputTokens = normalizedUsage.reduce((sum, row) => sum + row.outputTokens, 0);
+  const normalizedCacheTokens = normalizedUsage.reduce((sum, row) => sum + row.cacheTokens, 0);
+  const normalizedTotalTokens =
+    modelUsage.length > 0
+      ? normalizedUsage.reduce((sum, row) => sum + row.totalTokens, 0)
+      : artifacts.stats.inputTokens +
+        artifacts.stats.outputTokens +
+        artifacts.stats.cacheCreationTokens +
+        artifacts.stats.cacheReadTokens;
+
   return (
     <ProjectContext.Provider value={ctxValue}>
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -135,28 +148,23 @@ function ProjectLayout() {
               <Tooltip content={artifacts.directory} side="bottom">
                 <span className="hidden truncate sm:inline">{artifacts.directory}</span>
               </Tooltip>
-              {artifacts.stats.inputTokens + artifacts.stats.outputTokens > 0 && (
+              {normalizedTotalTokens > 0 && (
                 <>
                   <span className="hidden text-border sm:inline">·</span>
                   <Tooltip
                     content={
                       <div className="flex flex-col gap-0.5">
-                        <div>Input: {formatTokens(artifacts.stats.inputTokens)}</div>
-                        <div>Output: {formatTokens(artifacts.stats.outputTokens)}</div>
-                        {artifacts.stats.cacheCreationTokens > 0 && (
-                          <div>
-                            Cache write: {formatTokens(artifacts.stats.cacheCreationTokens)}
-                          </div>
-                        )}
-                        {artifacts.stats.cacheReadTokens > 0 && (
-                          <div>Cache read: {formatTokens(artifacts.stats.cacheReadTokens)}</div>
+                        <div>Input: {formatTokens(normalizedInputTokens)}</div>
+                        <div>Output: {formatTokens(normalizedOutputTokens)}</div>
+                        {normalizedCacheTokens > 0 && (
+                          <div>Cache: {formatTokens(normalizedCacheTokens)}</div>
                         )}
                       </div>
                     }
                   >
                     <span className="shrink-0">
-                      {formatTokens(artifacts.stats.inputTokens + artifacts.stats.outputTokens)}{" "}
-                      tokens across {artifacts.stats.sessionCount} session
+                      {formatTokens(normalizedTotalTokens)} tokens across{" "}
+                      {artifacts.stats.sessionCount} session
                       {artifacts.stats.sessionCount !== 1 ? "s" : ""}
                     </span>
                   </Tooltip>

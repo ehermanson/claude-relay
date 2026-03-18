@@ -74,6 +74,7 @@ function seedDB(tempDir, entries) {
       git_info_is_worktree:
         entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
       project_id: null,
+      model: entry.model || null,
     });
   }
   db.close();
@@ -130,6 +131,7 @@ function seedManagedDB(tempDir, entries) {
       git_info_is_worktree:
         entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
       project_id: null,
+      model: entry.model || null,
     });
   }
   db.close();
@@ -386,6 +388,40 @@ describe("History Parsing via DB Restore", () => {
       assert.equal(info.lastMessage.from, "user");
       assert.equal(info.lastMessage.timestamp, lastMessageAt);
       assert.deepEqual(info.gitInfo, { branch: "main", isWorktree: false });
+
+      manager.stopAll();
+    });
+  });
+
+  describe("persisted model restore", () => {
+    it("restores persisted model metadata for external and managed sessions before hydration", () => {
+      seedDB(tempDir, [
+        makeExternalEntry({
+          id: "external-with-model",
+          sessionId: "external-session",
+          jsonlPath: join(fixturesDir, "basic-session.jsonl"),
+          model: "claude-opus-4-6",
+        }),
+      ]);
+      seedManagedDB(tempDir, [
+        {
+          id: "managed-with-model",
+          provider: "codex",
+          providerSessionId: "codex-test-session",
+          transcriptPath: join(fixturesDir, "codex-managed-session.jsonl"),
+          workingDirectory: "/Users/test/projects/my-app",
+          model: "gpt-5.4",
+        },
+      ]);
+
+      const manager = makeManager(tempDir);
+      manager.restoreAndScan();
+
+      const external = manager.getInstance("external-with-model");
+      const managed = manager.getInstance("managed-with-model");
+
+      assert.equal(external.stats?.model, "claude-opus-4-6");
+      assert.equal(managed.stats?.model, "gpt-5.4");
 
       manager.stopAll();
     });

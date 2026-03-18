@@ -135,5 +135,6 @@ export type {
   Project,
   ProjectPlan,
   ProjectStats,
+  ModelUsageStats,
   ProjectArtifacts,
 } from "./types.js";
