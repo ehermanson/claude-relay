@@ -418,6 +418,12 @@ export interface ProjectsChangedMessage {
   projects: Project[];
 }
 
+export interface TasksChangedMessage {
+  type: "tasks_changed";
+  projectId: string;
+  tasks: Task[];
+}
+
 export type ServerMessage =
   | ConnectedMessage
   | OutputMessage
@@ -433,7 +439,8 @@ export type ServerMessage =
   | InstanceHistoryMessage
   | TranscriptMessage
   | ScanCompleteMessage
-  | ProjectsChangedMessage;
+  | ProjectsChangedMessage
+  | TasksChangedMessage;
 
 // =============================================================================
 // Session Types
@@ -532,26 +539,23 @@ export interface NativeOpenRequest {
   rememberForProject?: boolean;
 }
 
-export interface BeadIssueDep {
-  id: string;
-  title: string;
-  status: string;
-}
+export type TaskStatus = "open" | "in_progress" | "blocked" | "done";
+export type TaskType = "epic" | "task" | "bug";
 
-export interface BeadIssue {
+export interface Task {
   id: string;
   title: string;
   description: string;
-  status: string;
+  status: TaskStatus;
   priority: number;
-  issue_type: string;
-  owner: string;
-  created_at: string;
-  updated_at: string;
-  dependency_count: number;
-  dependent_count: number;
-  dependencies?: BeadIssueDep[];
-  dependents?: BeadIssueDep[];
+  type: TaskType;
+  tags: string[];
+  parent: string | null;
+  blockedBy: string[];
+  createdAt: string;
+  updatedAt: string;
+  /** Tombstone flag for append-only deletion */
+  deleted?: boolean;
 }
 
 export interface SkillInfo {
@@ -580,8 +584,8 @@ export interface ProjectArtifacts {
   stats: ProjectStats;
   /** GitHub/GitLab repository URL for this project (from git remote) */
   githubUrl: string | null;
-  /** Open issues from beads (bd) issue tracker, if present in the project */
-  beadsIssues: BeadIssue[] | null;
+  /** Tasks from .relay/tasks.jsonl, if present in the project */
+  tasks: Task[] | null;
   /** Installed skills discovered from .claude/skills/, ~/.claude/skills/, etc. */
   skills: SkillInfo[];
 }

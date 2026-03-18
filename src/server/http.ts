@@ -22,6 +22,7 @@ import type {
   ProviderModelOption,
 } from "../core/types.js";
 import { ProjectOpener } from "./project-opener.js";
+import * as taskManager from "../core/task-manager.js";
 
 const uiDistDir = path.join(import.meta.dirname, "..", "..", "ui", "dist");
 const indexHtmlPath = path.join(uiDistDir, "index.html");
@@ -591,14 +592,97 @@ export function createRequestHandler(
         return;
       }
 
-      // GET /api/beads-projects — directories that have beads issue tracker
-      if (method === "GET" && pathname === "/api/beads-projects") {
+      // =====================================================================
+      // Task CRUD routes — /api/projects/:id/tasks[/:taskId]
+      // =====================================================================
+      const tasksMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/tasks(?:\/([a-f0-9]+))?$/);
+      const tasksInitMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/tasks\/init$/);
+
+      if (tasksInitMatch && method === "POST") {
         if (!isAuthenticated) {
           sendJson(res, 401, { error: "Unauthorized" });
           return;
         }
-        sendJson(res, 200, instanceManager.getBeadsDirectories());
+        const project = instanceManager.projectManager.getProject(tasksInitMatch[1]);
+        if (!project) {
+          sendJson(res, 404, { error: "Project not found" });
+          return;
+        }
+        taskManager.initTasks(project.directory);
+        sendJson(res, 200, { snippet: taskManager.TASKS_CLAUDE_MD_SNIPPET });
         return;
+      }
+
+      if (tasksMatch) {
+        if (!isAuthenticated) {
+          sendJson(res, 401, { error: "Unauthorized" });
+          return;
+        }
+        const projectId = tasksMatch[1];
+        const taskId = tasksMatch[2];
+        const project = instanceManager.projectManager.getProject(projectId);
+        if (!project) {
+          sendJson(res, 404, { error: "Project not found" });
+          return;
+        }
+        const dir = project.directory;
+
+        // GET /api/projects/:id/tasks
+        if (method === "GET" && !taskId) {
+          const tasks = taskManager.hasTasks(dir) ? taskManager.loadTasks(dir) : null;
+          sendJson(res, 200, { tasks });
+          return;
+        }
+
+        // POST /api/projects/:id/tasks
+        if (method === "POST" && !taskId) {
+          try {
+            const body = (await parseJsonBody(req)) as taskManager.CreateTaskInput;
+            if (!body.title || typeof body.title !== "string") {
+              sendJson(res, 400, { error: "Missing title" });
+              return;
+            }
+            const task = taskManager.createTask(dir, body);
+            instanceManager.emit("tasks:changed", projectId, taskManager.loadTasks(dir));
+            sendJson(res, 201, task);
+          } catch (err) {
+            sendJson(res, 400, {
+              error: err instanceof Error ? err.message : "Failed to create task",
+            });
+          }
+          return;
+        }
+
+        // PATCH /api/projects/:id/tasks/:taskId
+        if (method === "PATCH" && taskId) {
+          try {
+            const body = (await parseJsonBody(req)) as taskManager.UpdateTaskInput;
+            const task = taskManager.updateTask(dir, taskId, body);
+            instanceManager.emit("tasks:changed", projectId, taskManager.loadTasks(dir));
+            sendJson(res, 200, task);
+          } catch (err) {
+            const status = (err as Error).message?.includes("not found") ? 404 : 400;
+            sendJson(res, status, {
+              error: err instanceof Error ? err.message : "Failed to update task",
+            });
+          }
+          return;
+        }
+
+        // DELETE /api/projects/:id/tasks/:taskId
+        if (method === "DELETE" && taskId) {
+          try {
+            taskManager.deleteTask(dir, taskId);
+            instanceManager.emit("tasks:changed", projectId, taskManager.loadTasks(dir));
+            sendJson(res, 204, null);
+          } catch (err) {
+            const status = (err as Error).message?.includes("not found") ? 404 : 400;
+            sendJson(res, status, {
+              error: err instanceof Error ? err.message : "Failed to delete task",
+            });
+          }
+          return;
+        }
       }
 
       // =====================================================================

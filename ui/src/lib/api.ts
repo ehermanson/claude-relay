@@ -137,9 +137,86 @@ export async function fetchDashboardStats(): Promise<import("@shared/types").Das
   return res.json();
 }
 
-export async function fetchBeadsProjects(): Promise<string[]> {
-  const res = await fetch("/api/beads-projects");
-  if (!res.ok) return [];
+// ─── Task CRUD ────────────────────────────────────────────────────────────
+
+export interface CreateTaskInput {
+  title: string;
+  description?: string;
+  priority?: number;
+  type?: import("@shared/types").TaskType;
+  tags?: string[];
+  parent?: string | null;
+  blockedBy?: string[];
+}
+
+export interface UpdateTaskInput {
+  title?: string;
+  description?: string;
+  status?: import("@shared/types").TaskStatus;
+  priority?: number;
+  type?: import("@shared/types").TaskType;
+  tags?: string[];
+  parent?: string | null;
+  blockedBy?: string[];
+}
+
+export async function fetchTasks(
+  projectId: string,
+): Promise<import("@shared/types").Task[] | null> {
+  const res = await fetch(`/api/projects/${projectId}/tasks`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.tasks;
+}
+
+export async function createTaskApi(
+  projectId: string,
+  input: CreateTaskInput,
+): Promise<import("@shared/types").Task> {
+  const res = await fetch(`/api/projects/${projectId}/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to create task" }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function updateTaskApi(
+  projectId: string,
+  taskId: string,
+  patch: UpdateTaskInput,
+): Promise<import("@shared/types").Task> {
+  const res = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to update task" }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function deleteTaskApi(projectId: string, taskId: string): Promise<void> {
+  const res = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to delete task" }));
+    throw new Error(err.error);
+  }
+}
+
+export async function initTasksApi(projectId: string): Promise<{ snippet: string }> {
+  const res = await fetch(`/api/projects/${projectId}/tasks/init`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to initialize tasks");
   return res.json();
 }
 

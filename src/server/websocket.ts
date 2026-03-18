@@ -144,6 +144,10 @@ export function createWebSocketServer(
     });
   });
 
+  instanceManager.on("tasks:changed", (projectId: string, tasks) => {
+    broadcast({ type: "tasks_changed", projectId, tasks });
+  });
+
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
     const cookieHeader = req.headers.cookie;
     const session = auth.getSessionFromCookies(cookieHeader);

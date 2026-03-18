@@ -38,6 +38,7 @@ import type { SessionRow, ManagedInstanceRow } from "./db.js";
 import { ProjectManager } from "./project-manager.js";
 import type { Project } from "./types.js";
 import { discoverSkills } from "./skills.js";
+import { hasTasks, loadTasks } from "./task-manager.js";
 import type { CoreConfig } from "./config.js";
 import type {
   ServerMessage,
@@ -50,12 +51,12 @@ import type {
   LastMessagePreview,
   InstanceInfo,
   HistoryEntry,
+  Task,
   TaskItem,
   FileChange,
   SessionStats,
   ProjectArtifacts,
   ProjectPlan,
-  BeadIssue,
   ProviderKind,
   ProviderDescriptor,
   ProviderRequest,
@@ -173,6 +174,8 @@ interface Instance {
   actualCwd?: string;
   /** False when only skeleton metadata is loaded from DB; true after full JSONL parse + git info */
   hydrated: boolean;
+  /** True after task context has been injected into this session */
+  taskContextInjected?: boolean;
 }
 
 export interface InstanceManagerEvents {
@@ -186,6 +189,7 @@ export interface InstanceManagerEvents {
   "instance:transcript": [instanceId: string, message: TranscriptMessage];
   "scan:complete": [];
   "projects:changed": [];
+  "tasks:changed": [projectId: string, tasks: Task[]];
 }
 
 export interface InstanceManager {
@@ -1348,6 +1352,31 @@ export class InstanceManager extends EventEmitter {
       throw new Error("Instance could not be started");
     }
 
+    // Inject task context on first message for projects with .relay/tasks.jsonl
+    if (!instance.taskContextInjected && !internal) {
+      instance.taskContextInjected = true;
+      const dir = instance.info.workingDirectory;
+      if (hasTasks(dir)) {
+        const taskContext =
+          "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). " +
+          "Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), " +
+          "priority (0-4), type (epic|task|bug), tags (string[]), parent (nullable task ID), " +
+          "blockedBy (task ID[]), createdAt, updatedAt (ISO timestamps). " +
+          "Blocked status is auto-derived from unresolved blockedBy refs. " +
+          "To create: append a new JSON line. To update: append a line with same id and changed fields. " +
+          "When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.jsonl to find it.";
+        // Send as internal message — hidden from UI
+        const internalMsg: UserMessage = {
+          type: "user",
+          text: taskContext,
+          instanceId: id,
+          internal: true,
+        };
+        this.pushHistory(instance, internalMsg);
+        instance.process!.send(taskContext);
+      }
+    }
+
     // Auto-title from first user message
     if (instance.autoTitle) {
       instance.info.name = generateTitle(text);
@@ -2289,8 +2318,8 @@ export class InstanceManager extends EventEmitter {
     // GitHub URL from git remote
     const githubUrl = getRemoteUrl(directory);
 
-    // Beads issues
-    const beadsIssues = this.getBeadsIssues(directory);
+    // Tasks
+    const tasks = hasTasks(directory) ? loadTasks(directory) : null;
 
     // Skills
     const skills = discoverSkills(directory || undefined);
@@ -2310,54 +2339,11 @@ export class InstanceManager extends EventEmitter {
       plans,
       stats,
       githubUrl,
-      beadsIssues,
+      tasks,
       skills,
     };
   }
 
-  /**
-   * Fetch open issues from beads (bd) issue tracker if the project uses it.
-   * Returns null if .beads/ directory doesn't exist or bd is not installed.
-   */
-  private getBeadsIssues(directory: string): BeadIssue[] | null {
-    if (!directory) return null;
-    try {
-      const beadsDir = join(directory, ".beads");
-      if (!existsSync(beadsDir)) return null;
-
-      // Get all issue IDs
-      const listResult = execFileSync(
-        "bd",
-        ["list", "--json", "--all", "--limit", "0", "--no-daemon"],
-        {
-          cwd: directory,
-          timeout: 15000,
-          encoding: "utf-8",
-          stdio: ["pipe", "pipe", "pipe"],
-        },
-      );
-      const listed = JSON.parse(listResult) as BeadIssue[];
-      if (listed.length === 0) return [];
-
-      // Fetch full details with dependencies via bd show
-      const ids = listed.map((i) => i.id);
-      const showResult = execFileSync("bd", ["show", ...ids, "--json", "--no-daemon"], {
-        cwd: directory,
-        timeout: 10000,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      const detailed = JSON.parse(showResult) as BeadIssue[];
-      return detailed;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Return a set of working directories that have a .beads/ issue tracker.
-   * Checks all known instance directories for a .beads/ subdirectory.
-   */
   /**
    * Scan a project directory for a favicon/icon file.
    * Returns the absolute path of the first match, or null.
@@ -2488,20 +2474,6 @@ export class InstanceManager extends EventEmitter {
       }
       const icon = this.projectIconCache.get(dir);
       if (icon) result[dir] = icon;
-    }
-    return result;
-  }
-
-  getBeadsDirectories(): string[] {
-    const dirs = new Set<string>();
-    for (const instance of this.instances.values()) {
-      dirs.add(instance.info.workingDirectory);
-    }
-    const result: string[] = [];
-    for (const dir of dirs) {
-      if (existsSync(join(dir, ".beads"))) {
-        result.push(dir);
-      }
     }
     return result;
   }

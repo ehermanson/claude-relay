@@ -137,4 +137,18 @@ export type {
   ProjectStats,
   ModelUsageStats,
   ProjectArtifacts,
+  Task,
+  TaskStatus,
+  TaskType,
+  TasksChangedMessage,
 } from "./types.js";
+
+export {
+  loadTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  hasTasks,
+  initTasks,
+  migrateFromBeads,
+} from "./task-manager.js";

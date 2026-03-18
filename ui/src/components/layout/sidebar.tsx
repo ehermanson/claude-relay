@@ -14,7 +14,6 @@ import { AddProjectForm } from "../forms/add-project-form";
 import {
   addProject as apiAddProject,
   removeProject as apiRemoveProject,
-  fetchBeadsProjects,
   fetchProjectIcons,
 } from "../../lib/api";
 import { getInstanceProjectRouteId, type RemoveProjectTarget } from "../../lib/project-route";
@@ -45,14 +44,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
 
   // Project ordering
   const { sortEntries, moveToTop, moveUp, moveDown, moveToBottom } = useProjectOrder();
-
-  // Beads directories
-  const [beadsDirs, setBeadsDirs] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    fetchBeadsProjects()
-      .then((dirs) => setBeadsDirs(new Set(dirs)))
-      .catch(() => {});
-  }, []);
 
   // Project icons
   const [projectIcons, setProjectIcons] = useState<Record<string, string>>({});
@@ -255,7 +246,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 isOpen={!collapsedDirs.has(dir)}
                 onToggle={() => toggleDir(dir)}
                 sessionIdMap={sessionIdMap}
-                hasBeads={beadsDirs.has(dir)}
                 onQuickCreate={handleQuickCreate}
                 onDelete={handleDelete}
                 onRename={handleRename}

@@ -97,7 +97,7 @@ function ProjectLayout() {
   const isOverviewTab = !isPlansTab && !isIssuesTab && !isSkillsTab && !isChatsTab;
 
   const planCount = artifacts.plans.length;
-  const issueCount = artifacts.beadsIssues?.length ?? 0;
+  const issueCount = artifacts.tasks?.length ?? 0;
   const skillCount = artifacts.skills.length;
 
   const ctxValue = useMemo(() => ({ artifacts }), [artifacts]);

@@ -49,7 +49,7 @@ interface SidebarProjectGroupProps {
   isOpen: boolean;
   onToggle: () => void;
   sessionIdMap: Map<string, InstanceInfo>;
-  hasBeads: boolean;
+
   onQuickCreate: (dir: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
@@ -74,7 +74,6 @@ export function SidebarProjectGroup({
   isOpen,
   onToggle,
   sessionIdMap,
-  hasBeads,
   onQuickCreate,
   onDelete,
   onRename,
@@ -252,20 +251,18 @@ export function SidebarProjectGroup({
                     <NotebookPen size={13} strokeWidth={2} className="text-muted" />
                     Plans
                   </Menu.Item>
-                  {hasBeads && (
-                    <Menu.Item
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        navigate({
-                          to: "/projects/$projectId/issues",
-                          params: { projectId: routeProjectId },
-                        });
-                      }}
-                    >
-                      <Bug size={13} strokeWidth={2} className="text-muted" />
-                      Issues
-                    </Menu.Item>
-                  )}
+                  <Menu.Item
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      navigate({
+                        to: "/projects/$projectId/issues",
+                        params: { projectId: routeProjectId },
+                      });
+                    }}
+                  >
+                    <Bug size={13} strokeWidth={2} className="text-muted" />
+                    Tasks
+                  </Menu.Item>
                   <Menu.Item
                     onClick={(e: React.MouseEvent) => {
                       e.stopPropagation();
