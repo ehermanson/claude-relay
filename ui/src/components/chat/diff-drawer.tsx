@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { PatchDiff } from "@pierre/diffs/react";
 import { ChevronRight, X } from "lucide-react";
 import { useTheme } from "../../context/theme-context";
@@ -76,9 +77,15 @@ export function DiffDrawer({
   scrollToFile,
 }: DiffDrawerProps) {
   const { theme } = useTheme();
-  const [diff, setDiff] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: diff = null,
+    isLoading: loading,
+    error: queryError,
+  } = useQuery({
+    queryKey: ["instanceDiff", instanceId],
+    queryFn: () => fetchInstanceDiff(instanceId),
+  });
+  const error = queryError ? (queryError as Error).message : null;
   const [diffStyle, setDiffStyle] = useState<"unified" | "split">("unified");
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
   const [otherExpanded, setOtherExpanded] = useState(false);
@@ -141,30 +148,6 @@ export function DiffDrawer({
       return next;
     });
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    fetchInstanceDiff(instanceId)
-      .then((d) => {
-        if (!cancelled) {
-          setDiff(d);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err.message);
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [instanceId]);
 
   // Scroll to file after diff loads
   useEffect(() => {

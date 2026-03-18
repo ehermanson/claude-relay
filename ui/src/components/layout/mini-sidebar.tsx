@@ -16,7 +16,7 @@ import type { InstanceInfo, Project } from "@shared/types";
 /** Extract project groups sorted by custom project order, sessions within are MRU. */
 function useProjectGroups() {
   const { instances } = useWSState();
-  const { sortEntries } = useProjectOrder();
+  const { sortEntries, syncVisibleDirs } = useProjectOrder();
   const groupMap = new Map<string, InstanceInfo[]>();
   for (const inst of instances) {
     const dir = inst.workingDirectory;
@@ -26,6 +26,9 @@ function useProjectGroups() {
   for (const group of groupMap.values()) {
     group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
+  useEffect(() => {
+    syncVisibleDirs([...groupMap.keys()]);
+  }, [instances, syncVisibleDirs]);
   // Sort projects by custom order (falls back to alphabetical for new projects)
   return sortEntries([...groupMap.entries()]);
 }

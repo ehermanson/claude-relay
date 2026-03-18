@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, ExternalLink, FolderOpen, TerminalSquare } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -84,46 +85,16 @@ function OpenTargetIcon({ target, className }: { target: NativeOpenTarget; class
 
 export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
   const { theme } = useTheme();
-  const [targets, setTargets] = useState<NativeOpenTarget[]>([]);
-  const [preferredTargetId, setPreferredTargetId] = useState<string | null>(null);
+  const openTargetPath = path ?? "";
+  const { data: openTargetsData, isLoading: loading } = useQuery({
+    queryKey: ["openTargets", openTargetPath],
+    queryFn: () => fetchOpenTargets(openTargetPath),
+    enabled: openTargetPath.length > 0,
+  });
+  const targets = openTargetsData?.targets ?? [];
+  const preferredTargetId = openTargetsData?.preferredTargetId ?? null;
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [openingTargetId, setOpeningTargetId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!path) {
-      setTargets([]);
-      setPreferredTargetId(null);
-      setSelectedTargetId(null);
-      return;
-    }
-
-    setLoading(true);
-    fetchOpenTargets(path)
-      .then((result) => {
-        if (cancelled) return;
-        setTargets(result.targets);
-        setPreferredTargetId(result.preferredTargetId);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setTargets([]);
-        setPreferredTargetId(null);
-        setSelectedTargetId(null);
-        toast.error(err instanceof Error ? err.message : "Failed to load open targets");
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [path]);
 
   useEffect(() => {
     if (!path || targets.length === 0) {
@@ -148,12 +119,9 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
     setSelectedTargetId(nextTargetId);
   }, [path, preferredTargetId, targets]);
 
-  const selectedTarget = useMemo(() => {
-    if (selectedTargetId) {
-      return targets.find((target) => target.id === selectedTargetId) ?? null;
-    }
-    return targets[0] ?? null;
-  }, [selectedTargetId, targets]);
+  const selectedTarget = selectedTargetId
+    ? (targets.find((target) => target.id === selectedTargetId) ?? null)
+    : (targets[0] ?? null);
 
   if (!path || (!loading && targets.length === 0)) {
     return null;
@@ -182,7 +150,6 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
         targetId,
         rememberForProject: true,
       });
-      setPreferredTargetId(targetId);
       rememberSelection(targetId);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to open path");

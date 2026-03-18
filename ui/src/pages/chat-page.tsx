@@ -71,7 +71,7 @@ function ProjectRow({
 export function Dashboard() {
   const { instances, projects } = useWSState();
   const { send } = useWSMethods();
-  const { sortEntries } = useProjectOrder();
+  const { sortEntries, syncVisibleDirs } = useProjectOrder();
   const navigate = useNavigate();
   const pendingCreate = useRef(false);
   const prevInstanceIds = useRef(new Set<string>());
@@ -108,6 +108,9 @@ export function Dashboard() {
   }
   // Sort projects by custom order (falls back to alphabetical for new projects)
   const projectGroups = sortEntries(Array.from(projectMap.entries()));
+  useEffect(() => {
+    syncVisibleDirs([...projectMap.keys()]);
+  }, [instances, syncVisibleDirs]);
   const projectByDir = new Map(projects.map((project) => [project.directory, project]));
 
   return (

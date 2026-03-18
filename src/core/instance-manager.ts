@@ -1352,11 +1352,11 @@ export class InstanceManager extends EventEmitter {
       throw new Error("Instance could not be started");
     }
 
-    // Inject task context on first message for projects with .relay/tasks.jsonl
-    if (!instance.taskContextInjected && !internal) {
+    // Inject task context on first user message for projects with .relay/tasks.jsonl
+    if (!instance.taskContextInjected && !internal && instance.info.projectId) {
       instance.taskContextInjected = true;
-      const dir = instance.info.workingDirectory;
-      if (hasTasks(dir)) {
+      const taskProject = this._projectManager.getProject(instance.info.projectId);
+      if (taskProject && hasTasks(taskProject.directory)) {
         const taskContext =
           "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). " +
           "Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), " +
@@ -1365,7 +1365,6 @@ export class InstanceManager extends EventEmitter {
           "Blocked status is auto-derived from unresolved blockedBy refs. " +
           "To create: append a new JSON line. To update: append a line with same id and changed fields. " +
           "When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.jsonl to find it.";
-        // Send as internal message — hidden from UI
         const internalMsg: UserMessage = {
           type: "user",
           text: taskContext,

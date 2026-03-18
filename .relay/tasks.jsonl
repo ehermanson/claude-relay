@@ -1,0 +1,14 @@
+{"id":"a3f4c9d1","title":"Investigate last commit runtime/config breakage","description":"Inspect the most recent commit, reproduce reported React/browser console errors, fix the misconfiguration or code regression, and verify with build/tests. Also update docs if needed.","status":"open","priority":1,"type":"bug","tags":["react","runtime","regression"],"parent":null,"blockedBy":[],"createdAt":"2026-03-18T23:07:52Z","updatedAt":"2026-03-18T23:07:52Z"}
+{"id":"a3f4c9d1","status":"in_progress","updatedAt":"2026-03-18T23:07:52Z"}
+{"id":"a3f4c9d1","status":"done","updatedAt":"2026-03-18T23:16:30Z"}
+{"id":"a3f4c9d1","status":"in_progress","updatedAt":"2026-03-18T23:20:30Z"}
+{"id":"a3f4c9d1","status":"done","updatedAt":"2026-03-18T23:22:10Z"}
+{"id":"a3f4c9d1","status":"in_progress","updatedAt":"2026-03-18T23:24:40Z"}
+{"id":"a3f4c9d1","status":"done","updatedAt":"2026-03-18T23:25:20Z"}
+{"id":"a3f4c9d1","status":"in_progress","updatedAt":"2026-03-18T23:27:20Z"}
+{"id":"a3f4c9d1","status":"done","updatedAt":"2026-03-18T23:31:40Z"}
+{"id":"a3f4c9d1","status":"in_progress","updatedAt":"2026-03-18T23:35:10Z"}
+{"id":"a3f4c9d1","status":"done","updatedAt":"2026-03-18T23:36:10Z"}
+{"id":"a3f4c9d1","status":"in_progress","updatedAt":"2026-03-18T23:41:20Z"}
+{"id":"a3f4c9d1","status":"in_progress","updatedAt":"2026-03-18T23:44:20Z"}
+{"id":"a3f4c9d1","status":"done","updatedAt":"2026-03-18T23:48:10Z"}

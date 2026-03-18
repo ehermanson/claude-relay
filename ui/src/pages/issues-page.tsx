@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useProjectContext } from "../context/project-context";
 import { useMediaQuery } from "../hooks/use-media-query";
 import { useWSMethods } from "../context/websocket-context";
@@ -161,10 +162,17 @@ function TaskCard({
   const blockerCount = task.blockedBy?.length ?? 0;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-border-bright hover:bg-surface-hover"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className="w-full cursor-pointer rounded-lg border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-border-bright hover:bg-surface-hover"
     >
       <div className="mb-1 flex items-start gap-2">
         <button
@@ -215,7 +223,7 @@ function TaskCard({
         )}
         <span className="ml-auto shrink-0 text-[0.5625rem] text-muted/70">{timeAgo}</span>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -861,34 +869,34 @@ export function IssuesPage() {
   });
   const navigate = useNavigate();
   const [stack, setStack] = useState<StackItem[]>([]);
-  const [tasks, setTasks] = useState<Task[] | null>(artifacts.tasks);
   const [snippet, setSnippet] = useState<string | null>(null);
   const projectId = artifacts.projectId;
   const { addMessageHandler } = useWSMethods();
+  const queryClient = useQueryClient();
+
+  const { data: tasks = artifacts.tasks } = useQuery({
+    queryKey: ["tasks", projectId],
+    queryFn: () => fetchTasks(projectId),
+    initialData: artifacts.tasks,
+  });
 
   const currentSort: SortKey =
     sortParam && SORT_OPTIONS.some((o) => o.key === sortParam)
       ? (sortParam as SortKey)
       : "priority";
 
-  // Sync from artifacts on load
-  useEffect(() => {
-    setTasks(artifacts.tasks);
-  }, [artifacts.tasks]);
-
-  // Listen for WebSocket task updates
+  // Invalidate query on WebSocket task updates
   useEffect(() => {
     return addMessageHandler((msg) => {
       if (msg.type === "tasks_changed" && (msg as TasksChangedMessage).projectId === projectId) {
-        setTasks((msg as TasksChangedMessage).tasks);
+        queryClient.setQueryData(["tasks", projectId], (msg as TasksChangedMessage).tasks);
       }
     });
-  }, [addMessageHandler, projectId]);
+  }, [addMessageHandler, projectId, queryClient]);
 
   const refreshTasks = useCallback(async () => {
-    const updated = await fetchTasks(projectId);
-    setTasks(updated);
-  }, [projectId]);
+    await queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
+  }, [projectId, queryClient]);
 
   const handleUpdate = useCallback(
     async (taskId: string, patch: Partial<Task>) => {
@@ -991,7 +999,7 @@ export function IssuesPage() {
             try {
               const result = await initTasksApi(projectId);
               setSnippet(result.snippet);
-              setTasks([]);
+              await queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
             } catch (e) {
               console.error("Failed to init tasks:", e);
             }

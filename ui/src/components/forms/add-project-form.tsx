@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { GitBranch, Loader2, Search } from "lucide-react";
 import { fetchGitRepos } from "../../lib/api";
 
@@ -11,20 +12,15 @@ interface AddProjectFormProps {
 }
 
 export function AddProjectForm({ onSubmit, onCancel, error, registeredDirs }: AddProjectFormProps) {
-  const [repos, setRepos] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [scanError, setScanError] = useState(false);
+  const {
+    data: repos = [],
+    isLoading: loading,
+    isError: scanError,
+  } = useQuery({ queryKey: ["gitRepos"], queryFn: fetchGitRepos });
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    fetchGitRepos()
-      .then(setRepos)
-      .catch(() => setScanError(true))
-      .finally(() => setLoading(false));
-  }, []);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return repos;

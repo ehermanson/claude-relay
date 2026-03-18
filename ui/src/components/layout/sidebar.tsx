@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
 import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Sun } from "lucide-react";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
@@ -35,7 +36,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const location = useLocation();
   const [showAddProject, setShowAddProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
-  const { collapsed: collapsedDirs, toggleCollapsed: toggleDir } = useProjectOrder();
   const [confirmRemoveProject, setConfirmRemoveProject] = useState<RemoveProjectTarget | null>(
     null,
   );
@@ -43,15 +43,22 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const pendingCreate = useRef(false);
 
   // Project ordering
-  const { sortEntries, moveToTop, moveUp, moveDown, moveToBottom } = useProjectOrder();
+  const {
+    sortEntries,
+    moveToTop,
+    moveUp,
+    moveDown,
+    moveToBottom,
+    syncVisibleDirs,
+    collapsed: collapsedDirs,
+    toggleCollapsed: toggleDir,
+  } = useProjectOrder();
 
   // Project icons
-  const [projectIcons, setProjectIcons] = useState<Record<string, string>>({});
-  useEffect(() => {
-    fetchProjectIcons()
-      .then(setProjectIcons)
-      .catch(() => {});
-  }, []);
+  const { data: projectIcons = {} } = useQuery({
+    queryKey: ["projectIcons"],
+    queryFn: fetchProjectIcons,
+  });
 
   // Navigate to newly created instance
   useEffect(() => {
@@ -99,6 +106,10 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
 
   // Sort projects by custom order
   const groups = sortEntries([...groupMap.entries()]);
+
+  useEffect(() => {
+    syncVisibleDirs([...groupMap.keys()]);
+  }, [instances, projects, syncVisibleDirs]);
 
   // Build a sessionId->instance lookup for parent linking
   const sessionIdMap = new Map<string, InstanceInfo>();
