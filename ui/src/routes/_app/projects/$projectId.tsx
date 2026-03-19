@@ -58,7 +58,7 @@ function NavTab({
         </span>
       )}
       {badge && (
-        <span className="flex items-center gap-1 rounded-full bg-accent/10 px-1.5 py-px text-[0.625rem] font-medium text-accent">
+        <span className="flex items-center gap-1 rounded-md bg-accent/10 px-1.5 py-px text-[0.625rem] font-medium text-accent">
           <span className="inline-block h-1 w-1 rounded-full bg-accent" />
           {badge}
         </span>
@@ -134,7 +134,7 @@ function ProjectLayout() {
     <ProjectContext.Provider value={ctxValue}>
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-5 py-2.5">
           {isMobile && <BackButton to="/" />}
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
@@ -189,7 +189,7 @@ function ProjectLayout() {
         </div>
 
         {/* Sub-nav */}
-        <nav className="flex shrink-0 items-center gap-1 border-b border-border px-6">
+        <nav className="flex shrink-0 items-center gap-1 border-b border-border/70 px-6">
           <NavTab
             to="/projects/$projectId"
             params={{ projectId }}

@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearch, Link } from "@tanstack/react-router"
 import { ArrowDownNarrowWide, Check, ChevronRight, ExternalLink, Search } from "lucide-react";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Collapsible } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
 import { Menu } from "@/components/ui/menu";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useProjectContext } from "@/context/project-context";
@@ -65,7 +66,7 @@ function PlanCard({
   }, []); // Only on mount
 
   return (
-    <div ref={cardRef} className="group/plan rounded-lg border border-border bg-surface">
+    <div ref={cardRef} className="group/plan rounded-lg border border-border/70 bg-surface">
       <Collapsible.Root open={isOpen} onOpenChange={onToggle}>
         <Collapsible.Trigger className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-surface-hover">
           <ChevronRight className="h-3 w-3 shrink-0 text-muted transition-transform data-[open]:rotate-90" />
@@ -180,12 +181,12 @@ export function PlansPage() {
         <div className="mb-3 flex items-center gap-2">
           <div className="relative flex-1">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
-            <input
+            <Input
               type="text"
               value={searchInput}
               onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search plans..."
-              className="h-8 w-full rounded-md border border-border bg-surface pl-8 pr-3 text-[0.8125rem] text-text placeholder:text-muted/60 outline-none transition-colors focus:border-accent"
+              className="h-8 !rounded-md !bg-surface !py-1.5 pl-8 pr-3"
             />
           </div>
           <Menu.Root>

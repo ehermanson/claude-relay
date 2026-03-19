@@ -266,14 +266,15 @@ const FilesPanel = memo(function FilesPanel({
             </span>
           )}
           {onViewChanges && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={onViewChanges}
-              className="ml-auto flex items-center gap-1 rounded-md border border-accent/30 bg-accent/8 px-2 py-0.5 text-[0.6875rem] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/15"
+              className="ml-auto !text-accent hover:!bg-accent/10"
             >
               <FileDiff size={12} className="shrink-0" />
               Full Diff
-            </button>
+            </Button>
           )}
         </div>
       </div>

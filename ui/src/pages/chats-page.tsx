@@ -43,7 +43,7 @@ function SessionCard({
     <Link
       to="/projects/$projectId/chats/$chatId"
       params={{ projectId, chatId: instance.id }}
-      className="group flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 transition-colors hover:border-accent/30 hover:bg-surface-hover"
+      className="group flex items-center gap-3 rounded-lg border border-border/80 bg-surface px-4 py-3 transition-all duration-150 hover:border-accent/30 hover:bg-surface-hover hover:shadow-sm"
     >
       {/* Status dot */}
       <StatusDot instance={instance} />
@@ -151,11 +151,23 @@ export function ChatsPage() {
   return (
     <div className="flex-1 overflow-y-auto">
       {projectInstances.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="mb-1 text-sm text-muted">No chats found</p>
-          <span className="text-xs text-muted opacity-60">
-            Chats for this project will appear here
-          </span>
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-surface-hover text-muted">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          </div>
+          <p className="mb-1 text-sm font-medium text-text">No chats yet</p>
+          <span className="text-xs text-muted">Chats for this project will appear here</span>
         </div>
       ) : (
         <div className="mx-auto px-6 py-4">

@@ -21,7 +21,7 @@ function StatCard({
   help?: string;
 }) {
   return (
-    <div className="flex flex-col gap-0.5 rounded-lg border border-border bg-surface px-4 py-3">
+    <div className="flex flex-col gap-0.5 rounded-lg border border-border/70 bg-surface px-4 py-3">
       <span className="flex items-center gap-1 text-[0.6875rem] font-medium text-muted">
         {label}
         {help && (
@@ -62,7 +62,7 @@ function ModelUsageBreakdown({ models }: { models: ModelUsageStats[] }) {
   const totalTokens = rows.reduce((sum, row) => sum + row.display.totalTokens, 0);
 
   return (
-    <div className="rounded-lg border border-border bg-surface">
+    <div className="rounded-lg border border-border/70 bg-surface">
       {/* Stacked bar */}
       <div className="flex h-2 overflow-hidden rounded-t-lg">
         {rows.map(({ model: m, display }, i) => {
@@ -146,7 +146,7 @@ function DocSection({ tabs }: { tabs: DocTab[] }) {
   return (
     <div>
       <h3 className="mb-2 text-[0.8125rem] font-semibold text-text-bright">Documentation</h3>
-      <div className="rounded-lg border border-border bg-surface">
+      <div className="rounded-lg border border-border/70 bg-surface">
         {tabs.length === 1 ? (
           <div className="px-4 py-3 text-[0.75rem]">
             <MarkdownContent text={tabs[0].content} />

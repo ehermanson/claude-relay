@@ -178,7 +178,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const hasProjects = projects.length > 0;
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-border bg-surface">
+    <aside className="flex h-full w-full flex-col border-r border-border/70 bg-surface">
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between px-4 py-3">
         <Link
@@ -205,9 +205,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               if (!open) setAddProjectError(null);
             }}
           >
-            <Popover.Trigger className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
-              <FolderPlus size={14} strokeWidth={2} />
-              Add Project
+            <Popover.Trigger>
+              <Button variant="ghost" size="sm">
+                <FolderPlus size={14} strokeWidth={2} />
+                Add Project
+              </Button>
             </Popover.Trigger>
             <Popover.Content className="w-96" align="end">
               <AddProjectForm
@@ -219,12 +221,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
             </Popover.Content>
           </Popover.Root>
           {onCollapse && (
-            <button
-              onClick={onCollapse}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
-            >
+            <Button variant="icon" onClick={onCollapse}>
               <PanelLeftClose size={15} strokeWidth={2} />
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -285,20 +284,14 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
       {/* Footer */}
       <div className="shrink-0 border-t border-border">
         <div className="flex items-center justify-between px-4 py-2">
-          <button
-            onClick={toggleTheme}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
+          <Button variant="ghost" size="sm" onClick={toggleTheme}>
             {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             {theme === "dark" ? "Light" : "Dark"}
-          </button>
-          <button
-            onClick={logout}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
+          </Button>
+          <Button variant="ghost" size="sm" onClick={logout}>
             <LogOut size={13} />
             Sign out
-          </button>
+          </Button>
         </div>
       </div>
 

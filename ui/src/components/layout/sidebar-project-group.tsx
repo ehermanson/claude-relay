@@ -19,6 +19,7 @@ import {
   Toolbox,
 } from "lucide-react";
 import { SidebarItem } from "./sidebar-item";
+import { Button } from "../ui/button";
 import { Collapsible } from "../ui/collapsible";
 import { Menu } from "../ui/menu";
 import type { InstanceInfo, Project } from "@shared/types";
@@ -218,16 +219,18 @@ export function SidebarProjectGroup({
             </span>
           </Collapsible.Trigger>
           <div className="flex shrink-0 items-center gap-0.5">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={(e) => {
                 e.stopPropagation();
                 onQuickCreate(dir);
               }}
-              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
+              className="opacity-0 transition-all group-hover/project:opacity-100 hover:!bg-accent/10 hover:!text-accent"
             >
               <Plus size={12} strokeWidth={2.5} />
               New Chat
-            </button>
+            </Button>
             {menuOpen ? (
               <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
                 <Menu.Trigger
@@ -338,15 +341,17 @@ export function SidebarProjectGroup({
                 </Menu.Content>
               </Menu.Root>
             ) : (
-              <button
+              <Button
+                variant="icon"
+                size="icon-sm"
                 onClick={(e) => {
                   e.stopPropagation();
                   setMenuOpen(true);
                 }}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100 hover:text-text"
+                className="!h-5 !w-5 text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100"
               >
                 <MoreVertical size={12} />
-              </button>
+              </Button>
             )}
           </div>
         </div>

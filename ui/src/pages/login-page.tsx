@@ -46,10 +46,14 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-bg p-6">
-      <ThemeToggle className="absolute right-4 top-4 h-8 w-8" />
-      <div className="w-full max-w-[360px]">
-        <div className="mb-10 flex flex-col items-center text-center">
+    <div className="relative flex min-h-[100dvh] flex-col items-center justify-center bg-bg p-6">
+      {/* Ambient glow */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute left-1/2 top-1/3 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/[0.04] blur-[120px]" />
+      </div>
+      <ThemeToggle className="absolute right-4 top-4 z-10 h-8 w-8" />
+      <div className="relative w-full max-w-[360px]">
+        <div className="mb-12 flex flex-col items-center text-center">
           <MotionLogo
             size={160}
             hovered={hovered}
@@ -63,11 +67,11 @@ export function LoginPage() {
             onHoverEnd={() => setHovered(false)}
           />
           <motion.h1
-            className="mb-2 text-2xl text-text-bright"
+            className="mb-2 text-3xl text-text-bright"
             style={{
               fontFamily: "'Orbitron', sans-serif",
               fontWeight: 900,
-              letterSpacing: "0.04em",
+              letterSpacing: "0.06em",
             }}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -86,7 +90,7 @@ export function LoginPage() {
         </div>
 
         <motion.div
-          className="rounded-xl border border-border bg-surface p-7 shadow-sm"
+          className="glass rounded-xl p-7"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, type: "spring", duration: 0.8, bounce: 0.2 }}

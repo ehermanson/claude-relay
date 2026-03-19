@@ -46,9 +46,11 @@ export function AppLayout() {
       theme={theme}
       toastOptions={{
         style: {
-          background: "var(--color-surface-raised)",
-          border: "1px solid var(--color-border)",
+          background: "var(--color-glass)",
+          border: "1px solid var(--color-glass-border)",
           color: "var(--color-text)",
+          backdropFilter: "blur(20px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(20px) saturate(1.4)",
         },
       }}
     />

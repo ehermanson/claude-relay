@@ -6,6 +6,7 @@ import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
+import { Input, Textarea, Select } from "@/components/ui/input";
 import { Menu } from "@/components/ui/menu";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useProjectContext } from "@/context/project-context";
@@ -178,7 +179,7 @@ function TaskCard({
           onClick();
         }
       }}
-      className="w-full cursor-pointer rounded-lg border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-border-bright hover:bg-surface-hover"
+      className="w-full cursor-pointer rounded-lg border border-border/70 bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-border-hover hover:bg-surface-hover hover:shadow-sm"
     >
       <div className="mb-1 flex items-start gap-2">
         <button
@@ -274,21 +275,18 @@ function TaskDrawerBody({
       <Drawer.Header className="items-start">
         <div className="flex min-w-0 flex-1 items-start gap-2">
           {showBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
-            >
+            <Button variant="icon" size="icon-sm" onClick={onBack} className="mt-0.5 shrink-0">
               <ChevronLeft size={14} />
-            </button>
+            </Button>
           )}
           <div className="min-w-0 flex-1">
             {editing ? (
-              <input
+              <Input
                 type="text"
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
-                className="w-full rounded border border-border bg-surface-hover px-2 py-1 text-sm font-semibold text-text-bright outline-none focus:border-accent"
+                inputSize="sm"
+                className="!text-[0.9375rem] font-semibold text-text-bright"
               />
             ) : (
               <Drawer.Title>{task.title}</Drawer.Title>
@@ -299,48 +297,37 @@ function TaskDrawerBody({
         <Drawer.Close />
       </Drawer.Header>
       <Drawer.Body className="px-5 py-4">
-        {/* Status + metadata badges */}
+        {/* Status + metadata */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Menu.Root>
-            <Menu.Trigger>
-              <Badge variant={statusVariants[task.status] ?? "default"} className="cursor-pointer">
-                {statusLabels[task.status] ?? task.status}
-              </Badge>
-            </Menu.Trigger>
-            <Menu.Content>
-              {STATUS_ORDER.filter((s) => s !== "blocked").map((s) => (
-                <Menu.Item key={s} onClick={() => onUpdate(task.id, { status: s })}>
-                  <StatusIcon status={s} size={12} />
-                  <span className="flex-1">{statusLabels[s]}</span>
-                  {task.status === s && <Check size={14} className="shrink-0" />}
-                </Menu.Item>
-              ))}
-            </Menu.Content>
-          </Menu.Root>
+          <Select
+            value={task.status}
+            onChange={(e) => onUpdate(task.id, { status: e.target.value as TaskStatus })}
+          >
+            {STATUS_ORDER.filter((s) => s !== "blocked").map((s) => (
+              <option key={s} value={s}>
+                {statusLabels[s]}
+              </option>
+            ))}
+          </Select>
           {editing ? (
             <>
-              <select
+              <Select
                 value={editPriority}
                 onChange={(e) => setEditPriority(Number(e.target.value))}
-                className="rounded border border-border bg-surface-hover px-2 py-0.5 text-xs text-text outline-none"
               >
                 {[0, 1, 2, 3, 4].map((p) => (
                   <option key={p} value={p}>
                     {priorityLabels[p]}
                   </option>
                 ))}
-              </select>
-              <select
-                value={editType}
-                onChange={(e) => setEditType(e.target.value as TaskType)}
-                className="rounded border border-border bg-surface-hover px-2 py-0.5 text-xs text-text outline-none"
-              >
+              </Select>
+              <Select value={editType} onChange={(e) => setEditType(e.target.value as TaskType)}>
                 {(["epic", "task", "bug"] as TaskType[]).map((t) => (
                   <option key={t} value={t}>
                     {typeLabels[t]}
                   </option>
                 ))}
-              </select>
+              </Select>
             </>
           ) : (
             <>
@@ -355,14 +342,14 @@ function TaskDrawerBody({
         {/* Tags */}
         {editing ? (
           <div className="mb-4">
-            <label className="mb-1 block text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
+            <label className="mb-1.5 block text-[0.6875rem] font-medium text-muted">
               Tags (comma-separated)
             </label>
-            <input
+            <Input
               type="text"
               value={editTags}
               onChange={(e) => setEditTags(e.target.value)}
-              className="w-full rounded border border-border bg-surface-hover px-2 py-1 text-xs text-text outline-none focus:border-accent"
+              inputSize="sm"
               placeholder="e.g. ui, perf, backend"
             />
           </div>
@@ -382,9 +369,7 @@ function TaskDrawerBody({
         {/* Parent */}
         {parentTask && (
           <div className="mb-4">
-            <h4 className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
-              Parent
-            </h4>
+            <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">Parent</h4>
             <button
               type="button"
               onClick={() => onSelectTask(parentTask.id)}
@@ -400,9 +385,7 @@ function TaskDrawerBody({
         {/* Children */}
         {children.length > 0 && (
           <div className="mb-4">
-            <h4 className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
-              Children
-            </h4>
+            <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">Children</h4>
             <div className="flex flex-col gap-1">
               {children.map((child) => (
                 <button
@@ -423,9 +406,7 @@ function TaskDrawerBody({
         {/* Blockers */}
         {blockers.length > 0 && (
           <div className="mb-4">
-            <h4 className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
-              Blocked by
-            </h4>
+            <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">Blocked by</h4>
             <div className="flex flex-col gap-1">
               {blockers.map((dep) => (
                 <button
@@ -446,9 +427,7 @@ function TaskDrawerBody({
         {/* Dependents */}
         {dependents.length > 0 && (
           <div className="mb-4">
-            <h4 className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
-              Blocks
-            </h4>
+            <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">Blocks</h4>
             <div className="flex flex-col gap-1">
               {dependents.map((dep) => (
                 <button
@@ -473,14 +452,15 @@ function TaskDrawerBody({
         {/* Description */}
         {editing ? (
           <div className="mb-4">
-            <label className="mb-1 block text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
+            <label className="mb-1.5 block text-[0.6875rem] font-medium text-muted">
               Description
             </label>
-            <textarea
+            <Textarea
               value={editDescription}
               onChange={(e) => setEditDescription(e.target.value)}
               rows={6}
-              className="w-full rounded border border-border bg-surface-hover px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
+              inputSize="sm"
+              className="!text-[0.8125rem]"
               placeholder="Markdown description..."
             />
           </div>
@@ -625,9 +605,7 @@ function KanbanColumn({
     <div className={mobile ? "flex flex-col" : "flex min-w-[280px] max-w-[320px] flex-1 flex-col"}>
       <div className="mb-2 flex items-center gap-2 px-1">
         <StatusIcon status={status} size={14} />
-        <h3 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
-          {label}
-        </h3>
+        <h3 className="text-[0.6875rem] font-medium text-muted">{label}</h3>
         <span className="text-[0.625rem] text-muted/60">{tasks.length}</span>
       </div>
       <div
@@ -707,25 +685,22 @@ function CreateTaskForm({
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex items-center gap-1 rounded-md px-2 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
-      >
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
         <Plus size={14} />
         New Task
-      </button>
+      </Button>
     );
   }
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-3">
-      <input
+    <div className="rounded-lg border border-border/70 bg-surface p-3">
+      <Input
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Task title"
-        className="mb-2 w-full rounded border border-border bg-surface-hover px-2 py-1.5 text-sm text-text-bright outline-none focus:border-accent"
+        inputSize="sm"
+        className="mb-2 !text-sm text-text-bright"
         autoFocus
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) handleSubmit();
@@ -735,56 +710,46 @@ function CreateTaskForm({
           }
         }}
       />
-      <textarea
+      <Textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder="Description (markdown)"
         rows={3}
-        className="mb-2 w-full rounded border border-border bg-surface-hover px-2 py-1.5 text-xs text-text outline-none focus:border-accent"
+        inputSize="sm"
+        className="mb-2"
       />
       <div className="mb-2 flex flex-wrap gap-2">
-        <select
-          value={priority}
-          onChange={(e) => setPriority(Number(e.target.value))}
-          className="rounded border border-border bg-surface-hover px-2 py-1 text-xs text-text outline-none"
-        >
+        <Select value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
           {[0, 1, 2, 3, 4].map((p) => (
             <option key={p} value={p}>
               {priorityLabels[p]}
             </option>
           ))}
-        </select>
-        <select
-          value={type}
-          onChange={(e) => setType(e.target.value as TaskType)}
-          className="rounded border border-border bg-surface-hover px-2 py-1 text-xs text-text outline-none"
-        >
+        </Select>
+        <Select value={type} onChange={(e) => setType(e.target.value as TaskType)}>
           {(["task", "epic", "bug"] as TaskType[]).map((t) => (
             <option key={t} value={t}>
               {typeLabels[t]}
             </option>
           ))}
-        </select>
-        <input
+        </Select>
+        <Input
           type="text"
           value={tags}
           onChange={(e) => setTags(e.target.value)}
           placeholder="Tags (comma-sep)"
-          className="rounded border border-border bg-surface-hover px-2 py-1 text-xs text-text outline-none"
+          inputSize="sm"
+          className="!w-auto"
         />
         {allTasks.length > 0 && (
-          <select
-            value={parent}
-            onChange={(e) => setParent(e.target.value)}
-            className="rounded border border-border bg-surface-hover px-2 py-1 text-xs text-text outline-none"
-          >
+          <Select value={parent} onChange={(e) => setParent(e.target.value)}>
             <option value="">No parent</option>
             {allTasks.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.id} — {t.title}
               </option>
             ))}
-          </select>
+          </Select>
         )}
       </div>
       {error && <p className="mb-2 text-xs text-error">{error}</p>}
@@ -879,9 +844,18 @@ export function TasksPage() {
     if (selectedId) {
       setStack((prev) => {
         if (prev.length === 0 || prev[0].taskId !== selectedId) {
-          return [{ key: "base", taskId: selectedId, open: true }];
+          return [{ key: "base", taskId: selectedId, open: false }];
         }
         return prev;
+      });
+      requestAnimationFrame(() => {
+        setStack((prev) => {
+          const first = prev[0];
+          if (first && !first.open && first.taskId === selectedId) {
+            return [{ ...first, open: true }];
+          }
+          return prev;
+        });
       });
     } else {
       setStack([]);
@@ -889,8 +863,17 @@ export function TasksPage() {
   }, [selectedId]);
 
   const selectTask = (id: string) => {
-    setStack([{ key: "base", taskId: id, open: true }]);
+    setStack([{ key: "base", taskId: id, open: false }]);
     navigate({ search: { task: id } });
+    requestAnimationFrame(() => {
+      setStack((prev) => {
+        const first = prev[0];
+        if (first && !first.open) {
+          return [{ ...first, open: true }];
+        }
+        return prev;
+      });
+    });
   };
 
   const pushDrawer = (taskId: string) => {
@@ -953,13 +936,14 @@ export function TasksPage() {
             </p>
             <div className="relative rounded-md border border-border bg-surface p-3">
               <pre className="overflow-x-auto text-xs text-text">{snippet}</pre>
-              <button
-                type="button"
-                className="absolute top-2 right-2 rounded px-1.5 py-0.5 text-[0.625rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute top-2 right-2 !text-[0.625rem]"
                 onClick={() => navigator.clipboard.writeText(snippet)}
               >
                 Copy
-              </button>
+              </Button>
             </div>
           </div>
         )}

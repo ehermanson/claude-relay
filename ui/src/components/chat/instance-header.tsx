@@ -63,8 +63,9 @@ function SidecarToggles({
             <Tooltip content={activePanels.has("tasks") ? "Hide tasks" : "Show tasks"}>
               <Button
                 variant="icon"
+                toggled={activePanels.has("tasks")}
                 onClick={() => onTogglePanel("tasks")}
-                className={`shrink-0 ${activePanels.has("tasks") ? "!bg-accent/10 !text-accent" : ""}`}
+                className="shrink-0"
               >
                 <ListChecks size={15} strokeWidth={2} />
               </Button>
@@ -74,8 +75,9 @@ function SidecarToggles({
             <Tooltip content={activePanels.has("files") ? "Hide files" : "Show files"}>
               <Button
                 variant="icon"
+                toggled={activePanels.has("files")}
                 onClick={() => onTogglePanel("files")}
-                className={`shrink-0 ${activePanels.has("files") ? "!bg-accent/10 !text-accent" : ""}`}
+                className="shrink-0"
               >
                 <FileText size={15} strokeWidth={2} />
               </Button>
@@ -85,8 +87,9 @@ function SidecarToggles({
             <Tooltip content={activePanels.has("plan") ? "Hide plan" : "Show plan"}>
               <Button
                 variant="icon"
+                toggled={activePanels.has("plan")}
                 onClick={() => onTogglePanel("plan")}
-                className={`shrink-0 ${activePanels.has("plan") ? "!bg-accent/10 !text-accent" : ""}`}
+                className="shrink-0"
               >
                 <ScrollText size={15} strokeWidth={2} />
               </Button>
@@ -167,7 +170,7 @@ export function InstanceHeader({
   }
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
+    <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-5 py-2.5">
       <Tooltip content="Back">
         <Link
           to="/projects/$projectId/chats"
