@@ -80,6 +80,9 @@ describe("HTTP Routes — Additional Coverage", () => {
       rateLimitMax: 10,
       rateLimitWindow: 60_000,
       sessionFile: join(tempDir, "sessions.json"),
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
@@ -239,6 +242,9 @@ describe("HTTP Routes — Additional Coverage", () => {
         rateLimitMax: 10,
         rateLimitWindow: 60_000,
         sessionFile: join(tempDir, "sessions.json"),
+        dbPath: join(tempDir, "sessions.db"),
+        claudeDir: join(tempDir, ".claude"),
+        codexDir: join(tempDir, ".codex"),
       });
       const handler = createRequestHandler(config, auth, manager, undefined, {
         getProviderModels,
@@ -303,6 +309,9 @@ describe("HTTP Routes — Additional Coverage", () => {
         rateLimitMax: 10,
         rateLimitWindow: 60_000,
         sessionFile: join(tempDir, "sessions.json"),
+        dbPath: join(tempDir, "sessions.db"),
+        claudeDir: join(tempDir, ".claude"),
+        codexDir: join(tempDir, ".codex"),
       });
       const handler = createRequestHandler(config, auth, manager, undefined, {
         getProviderModels,
