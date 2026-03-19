@@ -8,6 +8,7 @@ import { Tooltip } from "../components/ui/tooltip";
 import { formatTimeAgo, formatTokens, formatModel, getDisplayTokenBreakdown } from "../lib/utils";
 import { ProviderLogo } from "../components/chat/input-area/shared";
 import { useProjectOrder } from "../hooks/use-project-order";
+import { useActionToasts } from "../hooks/use-action-toasts";
 import { fetchProjectIcons, fetchProjectArtifacts } from "../lib/api";
 import type { InstanceInfo, ProjectArtifacts, ProviderKind } from "@shared/types";
 
@@ -170,6 +171,7 @@ function ProjectCard({
 export function Dashboard() {
   const { instances, projects } = useWSState();
   const { send } = useWSMethods();
+  const { trackInstanceCreate } = useActionToasts();
   const { sortEntries, syncVisibleDirs } = useProjectOrder();
   const navigate = useNavigate();
   const pendingCreate = useRef(false);
@@ -201,6 +203,7 @@ export function Dashboard() {
 
   const handleNewSession = (workingDirectory: string) => {
     pendingCreate.current = true;
+    trackInstanceCreate(workingDirectory);
     send({ type: "create_instance", workingDirectory });
   };
 

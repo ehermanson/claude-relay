@@ -8,6 +8,7 @@ import { SidebarItem } from "@/components/layout/sidebar-item";
 import { useAuthContext } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
+import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useProjectOrder } from "@/hooks/use-project-order";
 import { fetchProjectIcons } from "@/lib/api";
 import { getInstanceProjectRouteId, getProjectName } from "@/lib/project-route";
@@ -159,6 +160,7 @@ function ProjectIcon({
 export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   const { isConnected, projects } = useWSState();
   const { send } = useWSMethods();
+  const { trackInstanceCreate } = useActionToasts();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
   const { chatId: currentId, projectId: currentProjectId } = useParams({ strict: false }) as {
@@ -217,6 +219,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   }, [location.pathname]);
 
   const handleNewChat = (dir: string) => {
+    trackInstanceCreate(dir);
     send({ type: "create_instance", workingDirectory: dir });
     setFlyoutDir(null);
   };

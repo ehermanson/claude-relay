@@ -14,7 +14,7 @@ interface SidebarItemProps {
   parentInstance?: { id: string; name: string };
   to: string;
   params: Record<string, string>;
-  onDelete?: () => void;
+  onDelete?: (instance: Pick<InstanceInfo, "id" | "name">) => void;
   deleteDisabled?: boolean;
   onRename?: (name: string) => void;
   onMerge?: () => void;
@@ -231,7 +231,7 @@ export function SidebarItem({
                       disabled={deleteDisabled}
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
-                        onDelete();
+                        onDelete({ id: instance.id, name: instance.name });
                       }}
                     >
                       <Trash2 size={13} strokeWidth={2} />

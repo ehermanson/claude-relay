@@ -1,6 +1,7 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
 import { WebSocketProvider } from "../context/websocket-context";
 import { AppLayout } from "../components/layout/app-layout";
+import { ActionToastProvider } from "../hooks/use-action-toasts";
 import { useTerminalPendingToasts } from "../hooks/use-terminal-pending-toasts";
 
 function AppLayoutWithToasts() {
@@ -12,7 +13,9 @@ function AppLayoutWithToasts() {
 export const Route = createFileRoute("/_app")({
   component: () => (
     <WebSocketProvider>
-      <AppLayoutWithToasts />
+      <ActionToastProvider>
+        <AppLayoutWithToasts />
+      </ActionToastProvider>
     </WebSocketProvider>
   ),
 });

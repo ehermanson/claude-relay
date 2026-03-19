@@ -52,7 +52,7 @@ interface SidebarProjectGroupProps {
   sessionIdMap: Map<string, InstanceInfo>;
 
   onQuickCreate: (dir: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (instance: Pick<InstanceInfo, "id" | "name">) => void;
   onRename: (id: string, name: string) => void;
   onMerge: (id: string) => void;
   onRemoveProject?: (project: RemoveProjectTarget) => void;
@@ -169,7 +169,7 @@ export function SidebarProjectGroup({
         projectId: getInstanceProjectRouteId(inst),
         chatId: inst.id,
       }}
-      onDelete={() => onDelete(inst.id)}
+      onDelete={onDelete}
       deleteDisabled={inst.external === true && inst.status !== "stopped"}
       onRename={(name) => onRename(inst.id, name)}
       onMerge={inst.gitBranch && inst.hasChanges ? () => onMerge(inst.id) : undefined}

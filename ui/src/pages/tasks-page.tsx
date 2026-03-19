@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { Drawer } from "@/components/ui/drawer";
 import { Input, Textarea, Select } from "@/components/ui/input";
@@ -425,28 +426,32 @@ function TaskDrawerBody({
             </Button>
           )}
           <div className="flex-1" />
-          {confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-error">Delete this task?</span>
-              <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="danger" onClick={() => onDelete(task.id)}>
-                Delete
-              </Button>
-            </div>
-          ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-muted hover:text-error"
-              onClick={() => setConfirmDelete(true)}
-            >
-              Delete
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted hover:text-error"
+            onClick={() => setConfirmDelete(true)}
+          >
+            Delete
+          </Button>
         </div>
       </Drawer.Body>
+      <ConfirmActionDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete task?"
+        description={
+          <>
+            <span className="font-medium text-text">{task.title}</span> will be deleted from this
+            project&apos;s task list.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={() => {
+          setConfirmDelete(false);
+          onDelete(task.id);
+        }}
+      />
     </>
   );
 }
@@ -756,6 +761,16 @@ export function TasksPage() {
     await queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
   };
 
+  const handleCopySnippet = async () => {
+    if (!snippet) return;
+    try {
+      await navigator.clipboard.writeText(snippet);
+      toast.success("Copied task instructions");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to copy task instructions");
+    }
+  };
+
   const handleUpdate = async (taskId: string, patch: Partial<Task>) => {
     try {
       await updateTaskApi(projectId, taskId, patch);
@@ -869,8 +884,10 @@ export function TasksPage() {
               const result = await initTasksApi(projectId);
               setSnippet(result.snippet);
               await queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
+              toast.success("Initialized tasks");
             } catch (e) {
               console.error("Failed to init tasks:", e);
+              toast.error(e instanceof Error ? e.message : "Failed to initialize tasks");
             }
           }}
         >
@@ -887,7 +904,9 @@ export function TasksPage() {
                 variant="ghost"
                 size="sm"
                 className="absolute top-2 right-2 !text-[0.625rem]"
-                onClick={() => navigator.clipboard.writeText(snippet)}
+                onClick={() => {
+                  void handleCopySnippet();
+                }}
               >
                 Copy
               </Button>

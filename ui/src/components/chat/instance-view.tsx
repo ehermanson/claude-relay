@@ -15,6 +15,7 @@ import { RelayLogo } from "@/components/ui/relay-logo";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useInstanceMessages } from "@/hooks/use-instance-messages";
+import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSidecarPanels } from "@/hooks/use-sidecar-panels";
 import { createInstance, fetchInstanceHistory } from "@/lib/api";
@@ -39,6 +40,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
   const { isConnected, connectionId, instances } = useWSState();
+  const { trackInstanceMerge } = useActionToasts();
 
   const {
     items,
@@ -181,7 +183,8 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   });
 
   const handleMerge = () => {
-    if (!id) return;
+    if (!id || !instance) return;
+    trackInstanceMerge(instance);
     send({ type: "merge_instance", instanceId: id });
   };
 

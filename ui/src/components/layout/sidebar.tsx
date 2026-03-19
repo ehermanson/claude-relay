@@ -2,13 +2,15 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
 import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Sun } from "lucide-react";
+import { toast } from "sonner";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useAuthContext } from "../../context/auth-context";
 import { useTheme } from "../../context/theme-context";
+import { useActionToasts } from "../../hooks/use-action-toasts";
 import { RelayLogo } from "../ui/relay-logo";
 import { Popover } from "../ui/popover";
-import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { ConfirmActionDialog } from "../ui/confirm-action-dialog";
 import { SidebarProjectGroup } from "./sidebar-project-group";
 
 import { AddProjectForm } from "../forms/add-project-form";
@@ -24,6 +26,7 @@ import type { InstanceInfo, Project } from "@shared/types";
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { send } = useWSMethods();
   const { isConnected, isSyncing, instances, projects } = useWSState();
+  const { trackInstanceCreate, trackInstanceRemove, trackInstanceMerge } = useActionToasts();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -36,6 +39,10 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const location = useLocation();
   const [showAddProject, setShowAddProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
+  const [confirmRemoveInstance, setConfirmRemoveInstance] = useState<Pick<
+    InstanceInfo,
+    "id" | "name"
+  > | null>(null);
   const [confirmRemoveProject, setConfirmRemoveProject] = useState<RemoveProjectTarget | null>(
     null,
   );
@@ -119,11 +126,12 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
 
   const handleQuickCreate = (workingDirectory: string) => {
     pendingCreate.current = true;
+    trackInstanceCreate(workingDirectory);
     send({ type: "create_instance", workingDirectory });
   };
 
-  const handleDelete = (instanceId: string) => {
-    send({ type: "remove_instance", instanceId });
+  const handleDelete = (instance: Pick<InstanceInfo, "id" | "name">) => {
+    setConfirmRemoveInstance(instance);
   };
 
   const handleRename = (instanceId: string, name: string) => {
@@ -131,14 +139,17 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   };
 
   const handleMerge = (instanceId: string) => {
+    const instance = instances.find((entry) => entry.id === instanceId);
+    if (instance) trackInstanceMerge(instance);
     send({ type: "merge_instance", instanceId });
   };
 
   const handleAddProject = async (directory: string) => {
     setAddProjectError(null);
     try {
-      await apiAddProject(directory);
+      const project = await apiAddProject(directory);
       setShowAddProject(false);
+      toast.success(`Added "${project.name}"`);
     } catch (err) {
       setAddProjectError(err instanceof Error ? err.message : "Failed to add project");
     }
@@ -161,7 +172,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   };
 
   const confirmRemoveAction = async () => {
-    const projectId = confirmRemoveProject?.id;
+    const project = confirmRemoveProject;
+    const projectId = project?.id;
     if (!projectId) return;
 
     try {
@@ -169,10 +181,19 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
       if (currentProjectId === projectId) {
         navigate({ to: "/" });
       }
-    } catch {
-      // ignore
+      toast.success(`Removed "${project.name}"`);
+      setConfirmRemoveProject(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove project");
     }
-    setConfirmRemoveProject(null);
+  };
+
+  const confirmDeleteInstanceAction = () => {
+    const instance = confirmRemoveInstance;
+    if (!instance) return;
+    trackInstanceRemove(instance);
+    send({ type: "remove_instance", instanceId: instance.id });
+    setConfirmRemoveInstance(null);
   };
 
   const hasProjects = projects.length > 0;
@@ -295,33 +316,39 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         </div>
       </div>
 
-      {/* Confirm remove project dialog */}
-      <Dialog.Root
+      <ConfirmActionDialog
+        open={!!confirmRemoveInstance}
+        onOpenChange={(open) => !open && setConfirmRemoveInstance(null)}
+        title="Delete chat?"
+        description={
+          confirmRemoveInstance ? (
+            <>
+              <span className="font-medium text-text">{confirmRemoveInstance.name}</span> will be
+              removed from Relay. Chat history is preserved on disk if it can be recovered later,
+              but this sidebar entry will be deleted now.
+            </>
+          ) : null
+        }
+        confirmLabel="Delete"
+        onConfirm={confirmDeleteInstanceAction}
+      />
+
+      <ConfirmActionDialog
         open={!!confirmRemoveProject}
         onOpenChange={(open) => !open && setConfirmRemoveProject(null)}
-      >
-        {confirmRemoveProject && (
-          <Dialog.Content maxWidth="max-w-xs">
-            <Dialog.Header>
-              <Dialog.Title>Remove project?</Dialog.Title>
-              <Dialog.Close />
-            </Dialog.Header>
-            <p className="text-[0.8125rem] text-muted">
+        title="Remove project?"
+        description={
+          confirmRemoveProject ? (
+            <>
               <span className="font-medium text-text">{confirmRemoveProject.name}</span> will be
               removed from Relay. Session history is preserved but won&apos;t appear in the sidebar
               until the project is re-added.
-            </p>
-            <div className="mt-3 flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setConfirmRemoveProject(null)}>
-                Cancel
-              </Button>
-              <Button variant="danger" size="sm" onClick={confirmRemoveAction}>
-                Remove
-              </Button>
-            </div>
-          </Dialog.Content>
-        )}
-      </Dialog.Root>
+            </>
+          ) : null
+        }
+        confirmLabel="Remove"
+        onConfirm={confirmRemoveAction}
+      />
     </aside>
   );
 }
