@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownNarrowWide, Ban, Check, ChevronLeft, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Drawer } from "@/components/ui/drawer";
 import { Input, Textarea, Select } from "@/components/ui/input";
 import { Menu } from "@/components/ui/menu";
@@ -476,8 +478,8 @@ function TaskDrawerBody({
         <div className="mt-6 flex items-center gap-2 border-t border-border pt-4">
           {editing ? (
             <>
-              <Button size="sm" onClick={handleSave}>
-                Save
+              <Button variant="primary" size="sm" onClick={handleSave}>
+                Save changes
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
                 Cancel
@@ -495,12 +497,7 @@ function TaskDrawerBody({
               <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
                 Cancel
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-error hover:text-error"
-                onClick={() => onDelete(task.id)}
-              >
+              <Button size="sm" variant="danger" onClick={() => onDelete(task.id)}>
                 Delete
               </Button>
             </div>
@@ -657,6 +654,11 @@ function CreateTaskForm({
     setError("");
   };
 
+  const close = () => {
+    setOpen(false);
+    reset();
+  };
+
   const handleSubmit = async () => {
     if (!title.trim()) return;
     setSubmitting(true);
@@ -673,9 +675,10 @@ function CreateTaskForm({
           .filter(Boolean),
         parent: parent || null,
       });
-      reset();
-      setOpen(false);
+      const createdTitle = title.trim();
+      close();
       onCreated();
+      toast.success(`Created "${createdTitle}"`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create task");
     } finally {
@@ -683,92 +686,96 @@ function CreateTaskForm({
     }
   };
 
-  if (!open) {
-    return (
+  return (
+    <>
       <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
         <Plus size={14} />
         New Task
       </Button>
-    );
-  }
-
-  return (
-    <div className="rounded-lg border border-border/70 bg-surface p-3">
-      <Input
-        type="text"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Task title"
-        inputSize="sm"
-        className="mb-2 !text-sm text-text-bright"
-        autoFocus
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) handleSubmit();
-          if (e.key === "Escape") {
-            reset();
-            setOpen(false);
-          }
-        }}
-      />
-      <Textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        placeholder="Description (markdown)"
-        rows={3}
-        inputSize="sm"
-        className="mb-2"
-      />
-      <div className="mb-2 flex flex-wrap gap-2">
-        <Select value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
-          {[0, 1, 2, 3, 4].map((p) => (
-            <option key={p} value={p}>
-              {priorityLabels[p]}
-            </option>
-          ))}
-        </Select>
-        <Select value={type} onChange={(e) => setType(e.target.value as TaskType)}>
-          {(["task", "epic", "bug"] as TaskType[]).map((t) => (
-            <option key={t} value={t}>
-              {typeLabels[t]}
-            </option>
-          ))}
-        </Select>
-        <Input
-          type="text"
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          placeholder="Tags (comma-sep)"
-          inputSize="sm"
-          className="!w-auto"
-        />
-        {allTasks.length > 0 && (
-          <Select value={parent} onChange={(e) => setParent(e.target.value)}>
-            <option value="">No parent</option>
-            {allTasks.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.id} — {t.title}
-              </option>
-            ))}
-          </Select>
+      <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
+        {open && (
+          <Dialog.Content maxWidth="max-w-md">
+            <Dialog.Header>
+              <Dialog.Title>New task</Dialog.Title>
+              <Dialog.Close />
+            </Dialog.Header>
+            <div className="flex flex-col gap-3">
+              <Input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Task title"
+                inputSize="sm"
+                className="!text-sm text-text-bright"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) handleSubmit();
+                }}
+              />
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Description (markdown)"
+                rows={3}
+                inputSize="sm"
+              />
+              <div className="flex flex-wrap gap-2">
+                <Select value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
+                  {[0, 1, 2, 3, 4].map((p) => (
+                    <option key={p} value={p}>
+                      {priorityLabels[p]}
+                    </option>
+                  ))}
+                </Select>
+                <Select value={type} onChange={(e) => setType(e.target.value as TaskType)}>
+                  {(["task", "epic", "bug"] as TaskType[]).map((t) => (
+                    <option key={t} value={t}>
+                      {typeLabels[t]}
+                    </option>
+                  ))}
+                </Select>
+                <Input
+                  type="text"
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                  placeholder="Tags (comma-sep)"
+                  inputSize="sm"
+                  className="!w-auto"
+                />
+                {allTasks.length > 0 && (
+                  <Select value={parent} onChange={(e) => setParent(e.target.value)}>
+                    <option value="">No parent</option>
+                    {allTasks.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.id} — {t.title}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </div>
+              {error && (
+                <div className="rounded-lg border border-error/25 bg-error/5 px-3 py-2 text-[0.8125rem] text-error">
+                  {error}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={close} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleSubmit}
+                disabled={submitting || !title.trim()}
+              >
+                {submitting ? "Creating..." : "Create task"}
+              </Button>
+            </div>
+          </Dialog.Content>
         )}
-      </div>
-      {error && <p className="mb-2 text-xs text-error">{error}</p>}
-      <div className="flex items-center gap-2">
-        <Button size="sm" onClick={handleSubmit} disabled={submitting || !title.trim()}>
-          {submitting ? "Creating..." : "Create"}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            reset();
-            setOpen(false);
-          }}
-        >
-          Cancel
-        </Button>
-      </div>
-    </div>
+      </Dialog.Root>
+    </>
   );
 }
 
@@ -815,21 +822,23 @@ export function TasksPage() {
     try {
       await updateTaskApi(projectId, taskId, patch);
       await refreshTasks();
+      if (patch.title || patch.description || patch.priority != null || patch.type || patch.tags) {
+        toast.success("Task updated");
+      }
     } catch (e) {
-      // Could add toast notification here
-      console.error("Failed to update task:", e);
+      toast.error(e instanceof Error ? e.message : "Failed to update task");
     }
   };
 
   const handleDelete = async (taskId: string) => {
     try {
       await deleteTaskApi(projectId, taskId);
-      // Close drawers
       setStack([]);
       navigate({ search: {} });
       await refreshTasks();
+      toast.success("Task deleted");
     } catch (e) {
-      console.error("Failed to delete task:", e);
+      toast.error(e instanceof Error ? e.message : "Failed to delete task");
     }
   };
 
