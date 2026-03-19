@@ -1009,7 +1009,7 @@ describe("Plan Discovery", () => {
               id: "tool_1",
               name: "Write",
               input: {
-                file_path: "/Users/test/.claude/plans/native-expansion-plan.md",
+                file_path: join(claudeDir, "plans", "native-expansion-plan.md"),
                 content: "# Native Expansion Plan\nDetails here.",
               },
             },
@@ -1070,7 +1070,7 @@ describe("Plan Discovery", () => {
               id: "tool_1",
               name: "Write",
               input: {
-                file_path: "/home/user/.claude/plans/my-custom-plan.md",
+                file_path: join(claudeDir, "plans", "my-custom-plan.md"),
                 content: "# Custom Plan\nWritten with custom name.",
               },
             },
@@ -1139,7 +1139,7 @@ describe("Plan Discovery", () => {
               id: "tool_1",
               name: "Write",
               input: {
-                file_path: "/whatever/.claude/plans/happy-dancing-otter.md",
+                file_path: join(claudeDir, "plans", "happy-dancing-otter.md"),
                 content: "# My Plan\nContent.",
               },
             },
@@ -1174,7 +1174,7 @@ describe("Plan Discovery", () => {
         type: "file-history-snapshot",
         snapshot: {
           trackedFileBackups: {
-            "/Users/test/.claude/plans/snapshot-discovered-plan.md": {
+            [join(claudeDir, "plans", "snapshot-discovered-plan.md")]: {
               backupFileName: null,
               version: 1,
             },
