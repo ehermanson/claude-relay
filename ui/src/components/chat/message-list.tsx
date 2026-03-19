@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ArrowDown } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { ActivityGroup } from "@/components/chat/activity-group";
 import { AgentTranscript } from "@/components/chat/agent-transcript";
 import { ClaudeMessage } from "@/components/chat/claude-message";
@@ -274,7 +276,12 @@ export function MessageList({
   planChildId,
   planChildName,
 }: MessageListProps) {
-  const { ref: scrollRef, scrollToBottom, forceStickToBottom } = useAutoScroll<HTMLDivElement>();
+  const {
+    ref: scrollRef,
+    scrollToBottom,
+    forceStickToBottom,
+    showScrollToBottom,
+  } = useAutoScroll<HTMLDivElement>();
 
   // ── Build render rows ────────────────────────────────────────────
   const rows = useMemo(() => buildRows(items), [items]);
@@ -399,43 +406,65 @@ export function MessageList({
   const hasNonVirtual = nonVirtualizedRows.length > 0 || showThinking;
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-6">
-        {/* Virtualized section — absolute-positioned items in a sized container */}
-        {hasVirtual && (
-          <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-            {virtualRows.map((virtualRow) => (
-              <div
-                key={virtualRow.key}
-                data-index={virtualRow.index}
-                ref={rowVirtualizer.measureElement}
-                className="absolute left-0 top-0 flex w-full flex-col"
-                style={{ transform: `translateY(${virtualRow.start}px)` }}
-              >
-                {renderRow(rows[virtualRow.index])}
-              </div>
-            ))}
-          </div>
-        )}
+    <div className="relative flex min-h-0 flex-1">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl px-6 py-6">
+          {/* Virtualized section — absolute-positioned items in a sized container */}
+          {hasVirtual && (
+            <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+              {virtualRows.map((virtualRow) => (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="absolute left-0 top-0 flex w-full flex-col"
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                >
+                  {renderRow(rows[virtualRow.index])}
+                </div>
+              ))}
+            </div>
+          )}
 
-        {/* Non-virtualized section — current turn during processing */}
-        {hasNonVirtual && (
-          <div className={`flex flex-col gap-4${hasVirtual ? " mt-4" : ""}`}>
-            {nonVirtualizedRows.map((row) => (
-              <div key={row.id} className="flex animate-fade-in flex-col">
-                {renderRow(row)}
-              </div>
-            ))}
-            {showThinking && (
-              <LiveStatusStrip
-                activity={lastActivity ?? null}
-                processingStartedAt={processingStartedAt ?? null}
-                isProcessing={!!isProcessing}
-                instanceStatus={instanceStatus}
-              />
-            )}
-          </div>
-        )}
+          {/* Non-virtualized section — current turn during processing */}
+          {hasNonVirtual && (
+            <div className={`flex flex-col gap-4${hasVirtual ? " mt-4" : ""}`}>
+              {nonVirtualizedRows.map((row) => (
+                <div key={row.id} className="flex animate-fade-in flex-col">
+                  {renderRow(row)}
+                </div>
+              ))}
+              {showThinking && (
+                <LiveStatusStrip
+                  activity={lastActivity ?? null}
+                  processingStartedAt={processingStartedAt ?? null}
+                  isProcessing={!!isProcessing}
+                  instanceStatus={instanceStatus}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-6">
+        <AnimatePresence>
+          {showScrollToBottom && (
+            <motion.button
+              type="button"
+              onClick={() => forceStickToBottom(true)}
+              aria-label="Scroll to bottom"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 12 }}
+              transition={{ type: "spring", duration: 0.5, bounce: 0.3 }}
+              className="glass pointer-events-auto inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[0.75rem] font-medium text-text-bright hover:brightness-110 active:scale-[0.97]"
+            >
+              <ArrowDown size={13} strokeWidth={2.5} />
+              Jump to latest
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

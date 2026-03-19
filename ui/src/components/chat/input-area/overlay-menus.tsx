@@ -28,7 +28,7 @@ export function MentionMenu({
 }) {
   return (
     <div
-      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[7rem]"}`}
+      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[5.5rem]"}`}
     >
       <div className="pointer-events-auto overflow-hidden rounded-2xl border border-border/80 bg-surface-raised/95 shadow-lg backdrop-blur">
         <Command
@@ -98,7 +98,7 @@ export function SlashMenu({
 }) {
   return (
     <div
-      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[7rem]"}`}
+      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[5.5rem]"}`}
     >
       <div className="pointer-events-auto overflow-hidden rounded-2xl border border-border/80 bg-surface-raised/95 shadow-lg backdrop-blur">
         <Command

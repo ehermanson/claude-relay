@@ -46,6 +46,7 @@ export function AppLayout() {
       theme={theme}
       toastOptions={{
         style: {
+          fontFamily: "var(--font-sans)",
           background: "var(--color-glass)",
           border: "1px solid var(--color-glass-border)",
           color: "var(--color-text)",

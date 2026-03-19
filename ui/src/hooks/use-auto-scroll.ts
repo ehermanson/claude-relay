@@ -1,6 +1,7 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 
 const NEAR_BOTTOM_PX = 64;
+const SHOW_SCROLL_TO_BOTTOM_PX = 500;
 const FORCE_SCROLL_MAX_FRAMES = 48;
 const FORCE_SCROLL_STABLE_FRAMES = 3;
 
@@ -9,6 +10,14 @@ export function useAutoScroll<T extends HTMLElement>() {
   const stickToBottom = useRef(true);
   const forceScrollRunId = useRef(0);
   const forceScrollUntil = useRef(0);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const showScrollToBottomRef = useRef(false);
+
+  const setShowScrollToBottomIfChanged = useCallback((next: boolean) => {
+    if (showScrollToBottomRef.current === next) return;
+    showScrollToBottomRef.current = next;
+    setShowScrollToBottom(next);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     const el = ref.current;
@@ -21,43 +30,55 @@ export function useAutoScroll<T extends HTMLElement>() {
     forceScrollUntil.current = 0;
   }, []);
 
-  // Force scroll to bottom — session switch / initial load
-  const forceStickToBottom = useCallback(() => {
-    stickToBottom.current = true;
-    const runId = forceScrollRunId.current + 1;
-    forceScrollRunId.current = runId;
-    forceScrollUntil.current = performance.now() + 1000;
+  // Force scroll to bottom — session switch / initial load / user click
+  const forceStickToBottom = useCallback(
+    (smooth?: boolean) => {
+      stickToBottom.current = true;
+      setShowScrollToBottomIfChanged(false);
 
-    let lastScrollHeight = -1;
-    let stableFrames = 0;
-    let frames = 0;
-
-    const settleToBottom = () => {
-      if (forceScrollRunId.current !== runId) return;
-
-      const el = ref.current;
-      if (!el) return;
-
-      scrollToBottom();
-
-      const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
-      const heightStable = Math.abs(el.scrollHeight - lastScrollHeight) <= 1;
-      stableFrames = remaining <= 1 && heightStable ? stableFrames + 1 : 0;
-      lastScrollHeight = el.scrollHeight;
-      frames += 1;
-
-      if (stableFrames >= FORCE_SCROLL_STABLE_FRAMES || frames >= FORCE_SCROLL_MAX_FRAMES) {
-        if (forceScrollRunId.current === runId) {
-          forceScrollUntil.current = 0;
-        }
+      // Smooth scroll for user-initiated clicks — let the browser animate
+      if (smooth) {
+        const el = ref.current;
+        if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
         return;
       }
 
-      requestAnimationFrame(settleToBottom);
-    };
+      const runId = forceScrollRunId.current + 1;
+      forceScrollRunId.current = runId;
+      forceScrollUntil.current = performance.now() + 1000;
 
-    settleToBottom();
-  }, [scrollToBottom]);
+      let lastScrollHeight = -1;
+      let stableFrames = 0;
+      let frames = 0;
+
+      const settleToBottom = () => {
+        if (forceScrollRunId.current !== runId) return;
+
+        const el = ref.current;
+        if (!el) return;
+
+        scrollToBottom();
+
+        const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const heightStable = Math.abs(el.scrollHeight - lastScrollHeight) <= 1;
+        stableFrames = remaining <= 1 && heightStable ? stableFrames + 1 : 0;
+        lastScrollHeight = el.scrollHeight;
+        frames += 1;
+
+        if (stableFrames >= FORCE_SCROLL_STABLE_FRAMES || frames >= FORCE_SCROLL_MAX_FRAMES) {
+          if (forceScrollRunId.current === runId) {
+            forceScrollUntil.current = 0;
+          }
+          return;
+        }
+
+        requestAnimationFrame(settleToBottom);
+      };
+
+      settleToBottom();
+    },
+    [scrollToBottom, setShowScrollToBottomIfChanged],
+  );
 
   // Conditionally scroll — content changes while user is at bottom
   const onContentChange = useCallback(() => {
@@ -72,7 +93,8 @@ export function useAutoScroll<T extends HTMLElement>() {
 
     const onScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
-      const nearBottom = scrollHeight - scrollTop - clientHeight <= NEAR_BOTTOM_PX;
+      const remainingDistance = scrollHeight - scrollTop - clientHeight;
+      const nearBottom = remainingDistance <= NEAR_BOTTOM_PX;
       const forcingBottom = performance.now() < forceScrollUntil.current;
 
       if (nearBottom) {
@@ -80,6 +102,10 @@ export function useAutoScroll<T extends HTMLElement>() {
       } else if (!forcingBottom && scrollTop < lastScrollTop - 1) {
         stickToBottom.current = false;
       }
+
+      setShowScrollToBottomIfChanged(
+        !forcingBottom && remainingDistance > SHOW_SCROLL_TO_BOTTOM_PX,
+      );
 
       lastScrollTop = scrollTop;
     };
@@ -98,7 +124,7 @@ export function useAutoScroll<T extends HTMLElement>() {
       el.removeEventListener("touchstart", onUserIntent);
       el.removeEventListener("pointerdown", onUserIntent);
     };
-  }, [cancelForcedScroll]);
+  }, [cancelForcedScroll, setShowScrollToBottomIfChanged]);
 
   // Auto-scroll when content/container size changes
   // (virtualizer measuring, images loading, panel resizing, etc.)
@@ -116,5 +142,5 @@ export function useAutoScroll<T extends HTMLElement>() {
     return () => ro.disconnect();
   }, [scrollToBottom]);
 
-  return { ref, scrollToBottom, forceStickToBottom, onContentChange };
+  return { ref, scrollToBottom, forceStickToBottom, onContentChange, showScrollToBottom };
 }

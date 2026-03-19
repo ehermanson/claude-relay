@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { GitBranch, Loader2, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { fetchGitRepos } from "../../lib/api";
 
 interface AddProjectFormProps {
@@ -78,7 +79,7 @@ export function AddProjectForm({ onSubmit, onCancel, error, registeredDirs }: Ad
           size={14}
           className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
         />
-        <input
+        <Input
           ref={inputRef}
           type="text"
           value={query}
@@ -88,7 +89,7 @@ export function AddProjectForm({ onSubmit, onCancel, error, registeredDirs }: Ad
           autoFocus
           autoComplete="off"
           spellCheck={false}
-          className="w-full rounded-lg border border-border bg-bg py-2 pr-3 pl-8 text-[0.8125rem] text-text transition-colors placeholder:text-muted/50 focus:border-accent focus:ring-1 focus:ring-accent-dim focus:outline-none"
+          className="pl-8"
         />
       </div>
 
