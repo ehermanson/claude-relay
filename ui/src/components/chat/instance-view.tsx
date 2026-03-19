@@ -19,7 +19,7 @@ import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSidecarPanels } from "@/hooks/use-sidecar-panels";
 import { createInstance, fetchInstanceHistory } from "@/lib/api";
-import { getInstanceProjectRouteId } from "@/lib/project-route";
+import { getInstanceChatRoute } from "@/lib/project-route";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
 import type { ServerMessage, ProviderKind, UserInputAnswer } from "@shared/types";
 
@@ -125,6 +125,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       provider: targetProvider,
       name: instance.customTitle ? instance.name : undefined,
       workingDirectory: instance.workingDirectory,
+      spaceId: instance.spaceId,
       dangerouslySkipPermissions: instance.skipPermissions ?? false,
       model: model ?? undefined,
     });
@@ -146,12 +147,15 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       });
     }
 
+    const nextRoute = getInstanceChatRoute({
+      ...nextInstance,
+      projectId: nextInstance.projectId ?? instance.projectId,
+      originalDirectory: nextInstance.originalDirectory ?? instance.originalDirectory,
+      spaceId: nextInstance.spaceId ?? instance.spaceId,
+    });
+
     await navigate({
-      to: "/projects/$projectId/chats/$chatId",
-      params: {
-        projectId: getInstanceProjectRouteId(nextInstance),
-        chatId: nextInstance.id,
-      },
+      ...nextRoute,
     });
   };
 

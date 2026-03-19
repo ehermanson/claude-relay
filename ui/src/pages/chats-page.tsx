@@ -1,13 +1,16 @@
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "@tanstack/react-router";
 import { GitBranch } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useProjectContext } from "@/context/project-context";
-import { useWSState } from "@/context/websocket-context";
+import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { instanceMatchesProject } from "@/lib/project-route";
+import { fetchSpaces } from "@/lib/api";
+import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
 import { formatModel, formatTimeAgo, formatTokens } from "@/lib/utils";
-import type { InstanceInfo } from "@shared/types";
+import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
 function StatusDot({ instance }: { instance: InstanceInfo }) {
   const hasPendingTool = !!instance.pendingTool;
@@ -30,19 +33,19 @@ function StatusDot({ instance }: { instance: InstanceInfo }) {
 
 function SessionCard({
   instance,
-  projectId,
   parentName,
   isMobile,
 }: {
   instance: InstanceInfo;
-  projectId: string;
   parentName?: string;
   isMobile: boolean;
 }) {
+  const route = getInstanceChatRoute(instance);
+
   return (
     <Link
-      to="/projects/$projectId/chats/$chatId"
-      params={{ projectId, chatId: instance.id }}
+      to={route.to}
+      params={route.params}
       className="group flex items-center gap-3 rounded-lg border border-border/80 bg-surface px-4 py-3 transition-all duration-150 hover:border-accent/30 hover:bg-surface-hover hover:shadow-sm"
     >
       {/* Status dot */}
@@ -127,17 +130,122 @@ function SessionCard({
   );
 }
 
+function SpaceCard({
+  projectId,
+  space,
+  chats,
+  isMobile,
+}: {
+  projectId: string;
+  space: SpaceInfo;
+  chats: InstanceInfo[];
+  isMobile: boolean;
+}) {
+  const lastActivity = Math.max(
+    space.lastActivityAt || 0,
+    ...chats.map((chat) => chat.lastActivityAt),
+  );
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/80 bg-surface">
+      <Link
+        to="/projects/$projectId/spaces/$spaceId"
+        params={{ projectId, spaceId: space.id }}
+        className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-hover"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
+          <GitBranch size={14} strokeWidth={2.2} />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[0.8125rem] font-semibold text-text-bright">
+            {space.name}
+          </div>
+          <div className="mt-0.5 flex items-center gap-2 text-[0.6875rem] text-muted">
+            {space.gitBranch && <span className="truncate">{space.gitBranch}</span>}
+            <span>
+              {chats.length} chat{chats.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+        </div>
+
+        {!isMobile && lastActivity > 0 && (
+          <div className="shrink-0 text-right text-[0.6875rem] text-muted">
+            {formatTimeAgo(lastActivity)}
+          </div>
+        )}
+      </Link>
+
+      <div className="border-t border-border/60 bg-background/25 px-3 py-2">
+        {chats.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border/60 px-4 py-3 text-[0.75rem] text-muted">
+            No chats yet in this space
+          </div>
+        ) : (
+          chats.map((chat) => {
+            const route = getInstanceChatRoute(chat);
+            return (
+              <Link
+                key={chat.id}
+                to={route.to}
+                params={route.params}
+                className="group ml-4 flex items-center gap-3 rounded-md border border-transparent px-3 py-2 transition-colors hover:border-border/60 hover:bg-surface-hover/70"
+              >
+                <StatusDot instance={chat} />
+
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[0.75rem] font-medium text-text">{chat.name}</div>
+                  {chat.lastMessage && (
+                    <div className="mt-0.5 truncate text-[0.6875rem] text-muted">
+                      {chat.lastMessage.text}
+                    </div>
+                  )}
+                </div>
+
+                {!isMobile && chat.lastActivityAt > 0 && (
+                  <div className="shrink-0 text-[0.6875rem] text-muted">
+                    {formatTimeAgo(chat.lastActivityAt)}
+                  </div>
+                )}
+              </Link>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ChatsPage() {
   const { projectId: routeProjectId } = useParams({ strict: false }) as { projectId: string };
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const queryClient = useQueryClient();
+  const { addMessageHandler } = useWSMethods();
   const { instances } = useWSState();
   const { artifacts } = useProjectContext();
   const projectId = artifacts.projectId || routeProjectId;
+  const spacesQueryKey = ["spaces", projectId] as const;
+
+  const { data: spaces = [] } = useQuery({
+    queryKey: spacesQueryKey,
+    queryFn: () => fetchSpaces(projectId),
+    enabled: !!projectId,
+  });
+
+  useEffect(() => {
+    return addMessageHandler((message) => {
+      if (message.type !== "space_list" || message.projectDirectory !== artifacts.directory) {
+        return;
+      }
+      queryClient.setQueryData(spacesQueryKey, message.spaces);
+    });
+  }, [addMessageHandler, artifacts.directory, queryClient, spacesQueryKey]);
 
   // Filter instances for this project (same matching logic as sidebar)
   const projectInstances = instances
     .filter((inst) => instanceMatchesProject(inst, projectId))
     .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
+  const standaloneInstances = projectInstances.filter((inst) => !inst.spaceId);
 
   // Build a lookup for parent session names
   const parentNames = new Map<string, string>();
@@ -148,9 +256,35 @@ export function ChatsPage() {
     }
   }
 
+  const chatsBySpace = new Map<string, InstanceInfo[]>();
+  for (const instance of projectInstances) {
+    if (!instance.spaceId) continue;
+    const chats = chatsBySpace.get(instance.spaceId) ?? [];
+    chats.push(instance);
+    chatsBySpace.set(instance.spaceId, chats);
+  }
+  for (const chats of chatsBySpace.values()) {
+    chats.sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
+  }
+
+  const visibleSpaces = spaces
+    .filter((space) => !space.isDefault)
+    .map((space) => ({
+      space,
+      chats: chatsBySpace.get(space.id) ?? [],
+      lastActivity: Math.max(
+        space.lastActivityAt || 0,
+        ...(chatsBySpace.get(space.id) ?? []).map((chat) => chat.lastActivityAt || 0),
+      ),
+    }))
+    .sort((a, b) => b.lastActivity - a.lastActivity);
+
+  const hasMainChats = standaloneInstances.length > 0;
+  const hasSpaces = visibleSpaces.length > 0;
+
   return (
     <div className="flex-1 overflow-y-auto">
-      {projectInstances.length === 0 ? (
+      {!hasMainChats && !hasSpaces ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-surface-hover text-muted">
             <svg
@@ -171,16 +305,27 @@ export function ChatsPage() {
         </div>
       ) : (
         <div className="mx-auto px-6 py-4">
-          <div className="flex flex-col gap-2">
-            {projectInstances.map((inst) => (
-              <SessionCard
-                key={inst.id}
-                instance={inst}
-                projectId={projectId}
-                parentName={parentNames.get(inst.id)}
-                isMobile={isMobile}
-              />
-            ))}
+          <div className="flex flex-col gap-3">
+            {hasSpaces &&
+              visibleSpaces.map(({ space, chats }) => (
+                <SpaceCard
+                  key={space.id}
+                  projectId={projectId}
+                  space={space}
+                  chats={chats}
+                  isMobile={isMobile}
+                />
+              ))}
+
+            {hasMainChats &&
+              standaloneInstances.map((inst) => (
+                <SessionCard
+                  key={inst.id}
+                  instance={inst}
+                  parentName={parentNames.get(inst.id)}
+                  isMobile={isMobile}
+                />
+              ))}
           </div>
         </div>
       )}

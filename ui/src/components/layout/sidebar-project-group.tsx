@@ -114,10 +114,11 @@ export function SidebarProjectGroup({
     name: project?.name ?? dirName,
     directory: dir,
   };
+  const mainInstances = groupInstances.filter((instance) => !instance.spaceId);
 
   const childIds = new Set<string>();
   const parentChildren = new Map<string, InstanceInfo[]>();
-  for (const inst of groupInstances) {
+  for (const inst of mainInstances) {
     if (inst.parentSessionId) {
       const parent = sessionIdMap.get(inst.parentSessionId);
       if (parent && parent.workingDirectory === inst.workingDirectory) {
@@ -130,7 +131,7 @@ export function SidebarProjectGroup({
   }
 
   const ordered: Array<{ inst: InstanceInfo; isChild: boolean; parentInst?: InstanceInfo }> = [];
-  for (const inst of groupInstances) {
+  for (const inst of mainInstances) {
     if (childIds.has(inst.id)) continue;
     ordered.push({ inst, isChild: false });
     const children = parentChildren.get(inst.id);
