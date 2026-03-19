@@ -1,11 +1,11 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { useAuthContext } from "../context/auth-context";
-import { ThemeToggle } from "../components/ui/theme-toggle";
-import { RelayLogo } from "../components/ui/relay-logo";
-import { Input } from "../components/ui/input";
-import { Button } from "../components/ui/button";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { RelayLogo } from "@/components/ui/relay-logo";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { useAuthContext } from "@/context/auth-context";
 
 const MotionLogo = motion.create(RelayLogo);
 
@@ -17,10 +17,6 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,6 +104,7 @@ export function LoginPage() {
               </label>
               <Input
                 ref={inputRef}
+                autoFocus
                 type="password"
                 id="password"
                 value={password}

@@ -1,10 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { Outlet, useParams } from "@tanstack/react-router";
 import { Toaster } from "sonner";
-import { Sidebar } from "./sidebar";
-import { MiniSidebar } from "./mini-sidebar";
-import { useMediaQuery } from "../../hooks/use-media-query";
-import { useTheme } from "../../context/theme-context";
+import { MiniSidebar } from "@/components/layout/mini-sidebar";
+import { Sidebar } from "@/components/layout/sidebar";
+import { useTheme } from "@/context/theme-context";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 const STORAGE_KEY = "relay-sidebar-collapsed";
 
@@ -25,7 +25,7 @@ export function AppLayout() {
   const { theme } = useTheme();
   const [collapsed, setCollapsed] = useState(readCollapsed);
 
-  const toggleCollapsed = useCallback(() => {
+  const toggleCollapsed = () => {
     setCollapsed((prev) => {
       const next = !prev;
       try {
@@ -33,7 +33,7 @@ export function AppLayout() {
       } catch {}
       return next;
     });
-  }, []);
+  };
 
   // On mobile: show sidebar only when on / with no instance selected
   const hasContent = !!chatId || !!projectId;

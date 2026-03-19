@@ -1,11 +1,8 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
-import { useMediaQuery } from "../../../../../hooks/use-media-query";
-import { InstanceView } from "../../../../../components/chat/instance-view";
-import { SplitChatView } from "../../../../../components/chat/split-chat-view";
-
-interface ChatSearch {
-  split?: string;
-}
+import { InstanceView } from "@/components/chat/instance-view";
+import { SplitChatView } from "@/components/chat/split-chat-view";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { validateChatSearch } from "@/routes/_app/projects/$projectId/chats/-search";
 
 function ChatRoute() {
   const { split } = useSearch({ from: "/_app/projects/$projectId/chats/$chatId" });
@@ -20,7 +17,5 @@ function ChatRoute() {
 
 export const Route = createFileRoute("/_app/projects/$projectId/chats/$chatId")({
   component: ChatRoute,
-  validateSearch: (search: Record<string, unknown>): ChatSearch => ({
-    split: typeof search.split === "string" ? search.split : undefined,
-  }),
+  validateSearch: validateChatSearch,
 });

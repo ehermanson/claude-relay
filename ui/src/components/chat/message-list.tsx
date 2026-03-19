@@ -1,14 +1,14 @@
-import { useMemo, useRef, useEffect } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { UserMessage } from "./user-message";
-import { ClaudeMessage } from "./claude-message";
-import { SystemMessage } from "./system-message";
-import { ThinkingBlock } from "./thinking-block";
-import { LiveStatusStrip } from "./live-status-strip";
-import { ActivityGroup } from "./activity-group";
-import { AgentTranscript } from "./agent-transcript";
-import { useAutoScroll } from "../../hooks/use-auto-scroll";
-import type { ChatItem, LiveActivity } from "../../hooks/use-instance-messages";
+import { ActivityGroup } from "@/components/chat/activity-group";
+import { AgentTranscript } from "@/components/chat/agent-transcript";
+import { ClaudeMessage } from "@/components/chat/claude-message";
+import { LiveStatusStrip } from "@/components/chat/live-status-strip";
+import { SystemMessage } from "@/components/chat/system-message";
+import { ThinkingBlock } from "@/components/chat/thinking-block";
+import { UserMessage } from "@/components/chat/user-message";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import type { ChatItem, LiveActivity } from "@/hooks/use-instance-messages";
 import { INTERACTIVE_TOOLS } from "@shared/tools";
 import type { ActivityMessage, UserInputAnswer } from "@shared/types";
 
@@ -274,12 +274,7 @@ export function MessageList({
   planChildId,
   planChildName,
 }: MessageListProps) {
-  const {
-    ref: scrollRef,
-    scrollToBottom,
-    forceStickToBottom,
-    onContentChange,
-  } = useAutoScroll<HTMLDivElement>();
+  const { ref: scrollRef, scrollToBottom, forceStickToBottom } = useAutoScroll<HTMLDivElement>();
 
   // ── Build render rows ────────────────────────────────────────────
   const rows = useMemo(() => buildRows(items), [items]);

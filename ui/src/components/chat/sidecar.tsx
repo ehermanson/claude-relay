@@ -1,18 +1,18 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronRight, FileDiff, X } from "lucide-react";
-import { Progress } from "../ui/progress";
-import { Spinner } from "../ui/spinner";
-import { Button } from "../ui/button";
-import { Tooltip } from "../ui/tooltip";
-import { Collapsible } from "../ui/collapsible";
-import { FileIcon } from "../ui/file-icon";
-import hljs from "../../lib/markdown";
-import { escapeHtml, formatTokens, formatModel, formatTimestamp } from "../../lib/utils";
+import { MarkdownContent } from "@/components/chat/markdown-content";
+import { Button } from "@/components/ui/button";
+import { Collapsible } from "@/components/ui/collapsible";
+import { FileIcon } from "@/components/ui/file-icon";
+import { Progress } from "@/components/ui/progress";
+import { Spinner } from "@/components/ui/spinner";
+import { Tooltip } from "@/components/ui/tooltip";
+import type { ChatItem } from "@/hooks/use-instance-messages";
+import hljs from "@/lib/markdown";
+import { escapeHtml, formatModel, formatTimestamp, formatTokens } from "@/lib/utils";
 import type { TaskItem, FileChange, SessionStats, HistoryEntry } from "@shared/types";
-import type { ChatItem } from "../../hooks/use-instance-messages";
 
 const DiffDrawer = lazy(() => import("./diff-drawer").then((m) => ({ default: m.DiffDrawer })));
-import { MarkdownContent } from "./markdown-content";
 
 const PlanPanel = memo(function PlanPanel({ content }: { content: string }) {
   return (
@@ -812,6 +812,7 @@ interface SidecarProps {
   rawHistory?: HistoryEntry[] | null;
   provider?: string;
   preferredModel?: string;
+  /** @deprecated Currently unused but kept for the custom comparator. */
   instanceName?: string;
   instanceId?: string;
   createdAt?: number;

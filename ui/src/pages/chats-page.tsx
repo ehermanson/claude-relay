@@ -1,13 +1,12 @@
-import { useMemo } from "react";
 import { useParams, Link } from "@tanstack/react-router";
 import { GitBranch } from "lucide-react";
-import { useWSState } from "../context/websocket-context";
-import { useProjectContext } from "../context/project-context";
-import { useMediaQuery } from "../hooks/use-media-query";
-import { Tooltip } from "../components/ui/tooltip";
-import { Badge } from "../components/ui/badge";
-import { instanceMatchesProject } from "../lib/project-route";
-import { formatTimeAgo, formatTokens, formatModel } from "../lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useProjectContext } from "@/context/project-context";
+import { useWSState } from "@/context/websocket-context";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { instanceMatchesProject } from "@/lib/project-route";
+import { formatModel, formatTimeAgo, formatTokens } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
 function StatusDot({ instance }: { instance: InstanceInfo }) {
@@ -136,23 +135,18 @@ export function ChatsPage() {
   const projectId = artifacts.projectId || routeProjectId;
 
   // Filter instances for this project (same matching logic as sidebar)
-  const projectInstances = useMemo(() => {
-    return instances
-      .filter((inst) => instanceMatchesProject(inst, projectId))
-      .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
-  }, [instances, projectId]);
+  const projectInstances = instances
+    .filter((inst) => instanceMatchesProject(inst, projectId))
+    .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
 
   // Build a lookup for parent session names
-  const parentNames = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const inst of projectInstances) {
-      if (inst.parentSessionId) {
-        const parent = instances.find((i) => i.sessionId === inst.parentSessionId);
-        if (parent) map.set(inst.id, parent.name);
-      }
+  const parentNames = new Map<string, string>();
+  for (const inst of projectInstances) {
+    if (inst.parentSessionId) {
+      const parent = instances.find((i) => i.sessionId === inst.parentSessionId);
+      if (parent) parentNames.set(inst.id, parent.name);
     }
-    return map;
-  }, [projectInstances, instances]);
+  }
 
   return (
     <div className="flex-1 overflow-y-auto">

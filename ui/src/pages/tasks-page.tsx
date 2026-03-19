@@ -1,19 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownNarrowWide, Ban, Check, ChevronLeft, Plus } from "lucide-react";
-import { useProjectContext } from "../context/project-context";
-import { useMediaQuery } from "../hooks/use-media-query";
-import { useWSMethods } from "../context/websocket-context";
-import { Badge } from "../components/ui/badge";
-import { Tooltip } from "../components/ui/tooltip";
-import { Drawer } from "../components/ui/drawer";
-import { Menu } from "../components/ui/menu";
-import { Button } from "../components/ui/button";
-import { MarkdownContent } from "../components/chat/markdown-content";
+import { MarkdownContent } from "@/components/chat/markdown-content";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Drawer } from "@/components/ui/drawer";
+import { Menu } from "@/components/ui/menu";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useProjectContext } from "@/context/project-context";
+import { useWSMethods } from "@/context/websocket-context";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import type { Task, TaskStatus, TaskType, TasksChangedMessage } from "@shared/types";
-import { formatTimeAgo } from "../lib/utils";
-import { fetchTasks, createTaskApi, updateTaskApi, deleteTaskApi, initTasksApi } from "../lib/api";
+import { fetchTasks, createTaskApi, updateTaskApi, deleteTaskApi, initTasksApi } from "@/lib/api";
+import { formatTimeAgo } from "@/lib/utils";
+import { patchTasksSearch } from "@/routes/_app/projects/$projectId/tasks/-search";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -246,17 +247,6 @@ function TaskDrawerBody({
   const [editType, setEditType] = useState(task.type);
   const [editTags, setEditTags] = useState(task.tags?.join(", ") ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  // Reset edit state when task changes
-  useEffect(() => {
-    setEditTitle(task.title);
-    setEditDescription(task.description);
-    setEditPriority(task.priority);
-    setEditType(task.type);
-    setEditTags(task.tags?.join(", ") ?? "");
-    setEditing(false);
-    setConfirmDelete(false);
-  }, [task.id, task.title, task.description, task.priority, task.type, task.tags]);
 
   const handleSave = () => {
     const tags = editTags
@@ -597,6 +587,7 @@ function StackedDrawer({
       <Drawer.Content showBackdrop={isFirst} style={stackStyle}>
         {display && (
           <TaskDrawerBody
+            key={display.id}
             task={display}
             allTasks={allTasks}
             onSelectTask={onSelectTask}
@@ -824,7 +815,7 @@ export function TasksPage() {
   const { task: selectedId, sort: sortParam } = useSearch({
     from: "/_app/projects/$projectId/tasks/",
   });
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/projects/$projectId/tasks/" });
   const [stack, setStack] = useState<StackItem[]>([]);
   const [snippet, setSnippet] = useState<string | null>(null);
   const projectId = artifacts.projectId;
@@ -851,46 +842,37 @@ export function TasksPage() {
     });
   }, [addMessageHandler, projectId, queryClient]);
 
-  const refreshTasks = useCallback(async () => {
+  const refreshTasks = async () => {
     await queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
-  }, [projectId, queryClient]);
+  };
 
-  const handleUpdate = useCallback(
-    async (taskId: string, patch: Partial<Task>) => {
-      try {
-        await updateTaskApi(projectId, taskId, patch);
-        await refreshTasks();
-      } catch (e) {
-        // Could add toast notification here
-        console.error("Failed to update task:", e);
-      }
-    },
-    [projectId, refreshTasks],
-  );
+  const handleUpdate = async (taskId: string, patch: Partial<Task>) => {
+    try {
+      await updateTaskApi(projectId, taskId, patch);
+      await refreshTasks();
+    } catch (e) {
+      // Could add toast notification here
+      console.error("Failed to update task:", e);
+    }
+  };
 
-  const handleDelete = useCallback(
-    async (taskId: string) => {
-      try {
-        await deleteTaskApi(projectId, taskId);
-        // Close drawers
-        setStack([]);
-        navigate({ search: {} });
-        await refreshTasks();
-      } catch (e) {
-        console.error("Failed to delete task:", e);
-      }
-    },
-    [projectId, refreshTasks, navigate],
-  );
+  const handleDelete = async (taskId: string) => {
+    try {
+      await deleteTaskApi(projectId, taskId);
+      // Close drawers
+      setStack([]);
+      navigate({ search: {} });
+      await refreshTasks();
+    } catch (e) {
+      console.error("Failed to delete task:", e);
+    }
+  };
 
-  const handleCycleStatus = useCallback(
-    (task: Task) => {
-      const currentIdx = CYCLE_STATUSES.indexOf(task.status as TaskStatus);
-      const nextStatus = CYCLE_STATUSES[(currentIdx + 1) % CYCLE_STATUSES.length];
-      handleUpdate(task.id, { status: nextStatus });
-    },
-    [handleUpdate],
-  );
+  const handleCycleStatus = (task: Task) => {
+    const currentIdx = CYCLE_STATUSES.indexOf(task.status as TaskStatus);
+    const nextStatus = CYCLE_STATUSES[(currentIdx + 1) % CYCLE_STATUSES.length];
+    handleUpdate(task.id, { status: nextStatus });
+  };
 
   // Sync URL → stack (initial load, browser back/forward)
   useEffect(() => {
@@ -1002,8 +984,7 @@ export function TasksPage() {
 
   const setSort = (key: SortKey) => {
     navigate({
-      search: (prev: Record<string, unknown>) => ({
-        ...prev,
+      search: patchTasksSearch({
         sort: key === "priority" ? undefined : key,
       }),
       replace: true,

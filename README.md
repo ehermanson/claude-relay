@@ -367,6 +367,7 @@ manager.sendMessage(instance.id, "Hello!");
 ```bash
 npm run dev    # Watch mode — rebuilds server + UI on changes
 npm test       # Run tests (build first: npm run build:server)
+npm run typecheck  # Run server + UI TypeScript checks
 npm run build  # Build everything
 ```
 

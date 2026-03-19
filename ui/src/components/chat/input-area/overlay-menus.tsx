@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
-import { Badge } from "../../ui/badge";
+import type { MentionEntry, SlashMenuItem } from "@/components/chat/input-area/shared";
+import { Badge } from "@/components/ui/badge";
 import {
   Command,
   CommandEmpty,
@@ -7,10 +8,8 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-  CommandShortcut,
-} from "../../ui/command";
-import { FileIcon } from "../../ui/file-icon";
-import type { MentionEntry, SlashMenuItem } from "./shared";
+} from "@/components/ui/command";
+import { FileIcon } from "@/components/ui/file-icon";
 
 export function MentionMenu({
   isMobile,

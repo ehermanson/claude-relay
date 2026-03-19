@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearch, Link } from "@tanstack/react-router";
 import { ArrowDownNarrowWide, Check, ChevronRight, ExternalLink, Search } from "lucide-react";
-import { useProjectContext } from "../context/project-context";
-import { MarkdownContent } from "../components/chat/markdown-content";
-import { Collapsible } from "../components/ui/collapsible";
-import { Tooltip } from "../components/ui/tooltip";
-import { Menu } from "../components/ui/menu";
+import { MarkdownContent } from "@/components/chat/markdown-content";
+import { Collapsible } from "@/components/ui/collapsible";
+import { Menu } from "@/components/ui/menu";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useProjectContext } from "@/context/project-context";
+import {
+  patchPlansSearch,
+  togglePlanSearch,
+} from "@/routes/_app/projects/$projectId/plans/-search";
 import type { ProjectPlan } from "@shared/types";
 
 function formatDate(epoch: number): string {
@@ -54,7 +58,6 @@ function PlanCard({
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // Scroll into view when opened via URL param
   useEffect(() => {
     if (isOpen) {
       cardRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -102,7 +105,7 @@ export function PlansPage() {
   } = useSearch({
     from: "/_app/projects/$projectId/plans/",
   });
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/projects/$projectId/plans/" });
   const { artifacts } = useProjectContext();
   const projectId = artifacts.projectId || routeProjectId;
   const [searchInput, setSearchInput] = useState(searchParam ?? "");
@@ -129,10 +132,7 @@ export function PlansPage() {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
       navigate({
-        search: (prev: Record<string, unknown>) => ({
-          ...prev,
-          q: value || undefined,
-        }),
+        search: patchPlansSearch({ q: value || undefined }),
         replace: true,
       });
     }, 200);
@@ -157,18 +157,14 @@ export function PlansPage() {
 
   const togglePlan = (slug: string) => {
     navigate({
-      search: (prev: Record<string, unknown>) => ({
-        ...prev,
-        plan: prev.plan === slug ? undefined : slug,
-      }),
+      search: togglePlanSearch(slug),
       replace: true,
     });
   };
 
   const setSort = (key: SortKey) => {
     navigate({
-      search: (prev: Record<string, unknown>) => ({
-        ...prev,
+      search: patchPlansSearch({
         sort: key === "newest" ? undefined : key,
       }),
       replace: true,

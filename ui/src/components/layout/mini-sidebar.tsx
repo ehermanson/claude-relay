@@ -1,16 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useParams, useLocation } from "@tanstack/react-router";
 import { LogOut, Moon, PanelLeftOpen, Plus, SquareTerminal, Sun } from "lucide-react";
-import { useWSMethods, useWSState } from "../../context/websocket-context";
-import { useAuthContext } from "../../context/auth-context";
-import { useTheme } from "../../context/theme-context";
-import { RelayLogo } from "../ui/relay-logo";
-import { Tooltip } from "../ui/tooltip";
-import { ProviderLogo } from "../chat/input-area/shared";
-import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
-import { formatTimeAgo } from "../../lib/utils";
-import { fetchProjectIcons } from "../../lib/api";
-import { useProjectOrder } from "../../hooks/use-project-order";
+import { ProviderLogo } from "@/components/chat/input-area/shared";
+import { RelayLogo } from "@/components/ui/relay-logo";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useAuthContext } from "@/context/auth-context";
+import { useTheme } from "@/context/theme-context";
+import { useWSMethods, useWSState } from "@/context/websocket-context";
+import { useProjectOrder } from "@/hooks/use-project-order";
+import { fetchProjectIcons } from "@/lib/api";
+import { getInstanceProjectRouteId, getProjectName } from "@/lib/project-route";
+import { formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo, Project } from "@shared/types";
 
 /** Extract project groups sorted by custom project order, sessions within are MRU. */
@@ -225,13 +225,13 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
 
   // Which project flyout is open (by dir path), null = none
   const [flyoutDir, setFlyoutDir] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track the icon element's vertical position for flyout alignment
   const iconRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [flyoutTop, setFlyoutTop] = useState(0);
 
   const openFlyout = useCallback((dir: string) => {
-    clearTimeout(timerRef.current);
+    if (timerRef.current) clearTimeout(timerRef.current);
     const el = iconRefs.current.get(dir);
     if (el) {
       setFlyoutTop(el.getBoundingClientRect().top);
@@ -244,10 +244,15 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   }, []);
 
   const keepFlyout = useCallback(() => {
-    clearTimeout(timerRef.current);
+    if (timerRef.current) clearTimeout(timerRef.current);
   }, []);
 
-  useEffect(() => () => clearTimeout(timerRef.current), []);
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
 
   // Close flyout on navigation
   useEffect(() => {

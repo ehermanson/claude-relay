@@ -39,8 +39,8 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { splitPromptIntoComposerSegments } from "../../lib/composer-mentions";
-import { basenameOfPath, getFileIconUrl } from "../../lib/file-icons";
+import { splitPromptIntoComposerSegments } from "@/lib/composer-mentions";
+import { basenameOfPath, getFileIconUrl } from "@/lib/file-icons";
 
 export interface ComposerEditorHandle {
   focus: () => void;
@@ -208,7 +208,7 @@ function getSelectionOffsetFromPoint(point: PointType): number {
   let current: LexicalNode | null = node;
 
   while (current) {
-    const parent = current.getParent();
+    const parent: LexicalNode | null = current.getParent();
     if (!parent || !$isElementNode(parent)) break;
     const siblings = parent.getChildren();
     const index = current.getIndexWithinParent();
@@ -410,6 +410,7 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
             contentEditable={
               <ContentEditable
                 aria-placeholder={placeholder}
+                placeholder={() => null}
                 className={className}
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}

@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Columns2, GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "lucide-react";
-import { Menu } from "../ui/menu";
-import { Tooltip } from "../ui/tooltip";
-import { getInstanceProjectRouteId } from "../../lib/project-route";
-import { formatTimeAgo } from "../../lib/utils";
+import { Menu } from "@/components/ui/menu";
+import { Tooltip } from "@/components/ui/tooltip";
+import { getInstanceProjectRouteId } from "@/lib/project-route";
+import { formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
 interface SidebarItemProps {
@@ -35,7 +35,7 @@ export function SidebarItem({
   onMerge,
   activeChatId,
 }: SidebarItemProps) {
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
@@ -217,10 +217,7 @@ export function SidebarItem({
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
                         navigate({
-                          search: (prev: Record<string, unknown>) => ({
-                            ...prev,
-                            split: instance.id,
-                          }),
+                          search: { split: instance.id },
                         });
                       }}
                     >

@@ -2,14 +2,14 @@ import { useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Columns2, Plus, Search, X } from "lucide-react";
 import { Group, Panel } from "react-resizable-panels";
-import { useWSState } from "../../context/websocket-context";
-import { Button } from "../ui/button";
-import { Tooltip } from "../ui/tooltip";
-import { ResizableHandle } from "../ui/resizable-handle";
-import { ProviderLogo } from "./input-area/shared";
-import { InstanceView } from "./instance-view";
-import { createInstance } from "../../lib/api";
-import { formatTimeAgo } from "../../lib/utils";
+import { ProviderLogo } from "@/components/chat/input-area/shared";
+import { InstanceView } from "@/components/chat/instance-view";
+import { Button } from "@/components/ui/button";
+import { ResizableHandle } from "@/components/ui/resizable-handle";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useWSState } from "@/context/websocket-context";
+import { createInstance } from "@/lib/api";
+import { formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
 function statusDot(instance: InstanceInfo): string {
@@ -176,7 +176,7 @@ export function SplitChatView({ splitId }: SplitChatViewProps) {
     chatId?: string;
     projectId?: string;
   };
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const { instances } = useWSState();
 
   const primaryInstance = instances.find((i) => i.id === primaryId);

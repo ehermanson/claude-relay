@@ -1,16 +1,15 @@
 import { createFileRoute, Outlet, useParams, useLocation, Link } from "@tanstack/react-router";
-import { useMemo } from "react";
 import { motion } from "motion/react";
 import { ChevronLeft } from "lucide-react";
-import { useWSState } from "../../../context/websocket-context";
-import { useMediaQuery } from "../../../hooks/use-media-query";
-import { OpenInMenu } from "../../../components/project/open-in-menu";
-import { RelayLogo } from "../../../components/ui/relay-logo";
-import { Tooltip } from "../../../components/ui/tooltip";
-import { fetchProjectArtifacts } from "../../../lib/api";
-import { getProjectName, instanceMatchesProject } from "../../../lib/project-route";
-import { formatTokens, getDisplayTokenBreakdown } from "../../../lib/utils";
-import { ProjectContext } from "../../../context/project-context";
+import { OpenInMenu } from "@/components/project/open-in-menu";
+import { RelayLogo } from "@/components/ui/relay-logo";
+import { Tooltip } from "@/components/ui/tooltip";
+import { ProjectContext } from "@/context/project-context";
+import { useWSState } from "@/context/websocket-context";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { fetchProjectArtifacts } from "@/lib/api";
+import { getProjectName, instanceMatchesProject } from "@/lib/project-route";
+import { formatTokens, getDisplayTokenBreakdown } from "@/lib/utils";
 
 const MotionLogo = motion.create(RelayLogo);
 
@@ -87,13 +86,12 @@ function ProjectLayout() {
   const isChildView = !!chatId || !!planSlug;
 
   // Session stats
-  const sessionStats = useMemo(() => {
-    const projectInstances = instances.filter((inst) => instanceMatchesProject(inst, projectId));
-    const activeCount = projectInstances.filter(
-      (i) => i.status === "idle" || i.status === "processing",
-    ).length;
-    return { total: projectInstances.length, activeCount };
-  }, [instances, projectId]);
+  const projectInstances = instances.filter((inst) => instanceMatchesProject(inst, projectId));
+  const sessionStats = {
+    total: projectInstances.length,
+    activeCount: projectInstances.filter((i) => i.status === "idle" || i.status === "processing")
+      .length,
+  };
 
   // Active tab
   const pathname = location.pathname;
@@ -107,7 +105,7 @@ function ProjectLayout() {
   const taskCount = artifacts.tasks?.length ?? 0;
   const skillCount = artifacts.skills.length;
 
-  const ctxValue = useMemo(() => ({ artifacts }), [artifacts]);
+  const ctxValue = { artifacts };
 
   if (isChildView) {
     return (
