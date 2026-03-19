@@ -1,36 +1,37 @@
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Check, Loader2 } from "lucide-react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { ArrowUp, Loader2 } from "lucide-react";
 import type {
   ProviderKind,
+  ProviderModelOption,
   ProviderRequest,
   UserInputAnswer,
   UserInputQuestion,
 } from "@shared/types";
 import { getProviderDisplayName } from "@shared/provider-catalog";
-import { ProjectContext } from "../../context/project-context";
-import { useMediaQuery } from "../../hooks/use-media-query";
-import { useWSMethods } from "../../context/websocket-context";
-import { formatModel } from "../../lib/utils";
-import { ComposerPanel } from "./input-area/composer-panel";
-import { ImageAttachmentStrip } from "./input-area/image-attachment-strip";
-import { InputToolbar } from "./input-area/input-toolbar";
-import { AskUserQuestionPanel } from "./input-area/ask-user-question-panel";
-import { PlanReviewPanel, type PlanComment } from "./plan-review-card";
+import { AskUserQuestionPanel } from "@/components/chat/input-area/ask-user-question-panel";
+import { ComposerPanel } from "@/components/chat/input-area/composer-panel";
+import { ImageAttachmentStrip } from "@/components/chat/input-area/image-attachment-strip";
+import { InputToolbar } from "@/components/chat/input-area/input-toolbar";
+import { ProviderSwitchDialog } from "@/components/chat/input-area/provider-switch-dialog";
+import { buildModelLabelLookup, REASONING_LEVELS } from "@/components/chat/input-area/shared";
+import { useAttachmentState } from "@/components/chat/input-area/use-attachment-state";
+import { useAvailableProviders } from "@/components/chat/input-area/use-available-providers";
+import { useComposerMenus } from "@/components/chat/input-area/use-composer-menus";
+import { useComposerState } from "@/components/chat/input-area/use-composer-state";
+import { useProviderModels } from "@/components/chat/input-area/use-provider-models";
+import { useProviderSwitchState } from "@/components/chat/input-area/use-provider-switch-state";
+import { ComposerEditorHandle } from "@/components/chat/composer-editor";
+import { PlanReviewPanel, type PlanComment } from "@/components/chat/plan-review-card";
+import { ProjectContext } from "@/context/project-context";
+import { useWSMethods } from "@/context/websocket-context";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { formatModel } from "@/lib/utils";
 import {
   PlanModePicker,
   PermissionsToggle,
   ProviderModelPicker,
   ReasoningPicker,
-} from "./input-area/provider-model-picker";
-import { ProviderSwitchDialog } from "./input-area/provider-switch-dialog";
-import { buildModelLabelLookup, REASONING_LEVELS } from "./input-area/shared";
-import { ComposerEditorHandle } from "./composer-editor";
-import { useAttachmentState } from "./input-area/use-attachment-state";
-import { useAvailableProviders } from "./input-area/use-available-providers";
-import { useComposerMenus } from "./input-area/use-composer-menus";
-import { useComposerState } from "./input-area/use-composer-state";
-import { useProviderModels } from "./input-area/use-provider-models";
-import { useProviderSwitchState } from "./input-area/use-provider-switch-state";
+} from "@/components/chat/input-area/provider-model-picker";
 
 interface InputAreaProps {
   onSend: (text: string, images?: string[], internal?: boolean) => void;
@@ -46,6 +47,7 @@ interface InputAreaProps {
   instanceId: string;
   sessionId?: string;
   isStopped?: boolean;
+  /** @deprecated Currently unused but kept for future terminal-pending UI. */
   isPendingInTerminal?: boolean;
   provider: ProviderKind;
   preferredModel?: string;
@@ -98,9 +100,8 @@ export function InputArea({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const projectCtx = useContext(ProjectContext);
-  const providerSkills = useMemo(
-    () => projectCtx?.artifacts.skills.filter((s) => s.providers.includes(provider)),
-    [projectCtx?.artifacts.skills, provider],
+  const providerSkills = projectCtx?.artifacts.skills.filter((skill) =>
+    skill.providers.includes(provider),
   );
   const { send } = useWSMethods();
   const { images, uploading, addImages, removeImage, clearImages, uploadAttachedImages } =
@@ -182,23 +183,20 @@ export function InputArea({
           label: preferredModel,
         }
       : null;
-  const currentProviderModels = selectedCustomModel
+  const currentProviderModels: ProviderModelOption[] = selectedCustomModel
     ? [...discoveredProviderModels, selectedCustomModel]
     : discoveredProviderModels;
-  const currentProviderModelIds = new Set(currentProviderModels.map((model) => model.id));
   const currentModelOptions = [
     {
       value: null,
       label: "Default",
       commandValue: "default",
     },
-    ...currentProviderModels
-      .filter((option) => currentProviderModelIds.has(option.id))
-      .map((option) => ({
-        value: option.id,
-        label: option.label,
-        commandValue: option.id,
-      })),
+    ...currentProviderModels.map((option) => ({
+      value: option.id,
+      label: option.label,
+      commandValue: option.id,
+    })),
   ];
   const currentProviderModelLabels = buildModelLabelLookup(currentProviderModels);
   const activeModelLabel = activeModel

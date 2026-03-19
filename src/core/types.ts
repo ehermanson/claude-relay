@@ -170,6 +170,8 @@ export interface InstanceInfo {
   pendingPlan?: string;
   /** Latest plan document content for sidecar display (persists after approval) */
   planContent?: string;
+  /** Project ID this instance belongs to */
+  projectId?: string;
   /** Space this instance belongs to (null = implicit main space) */
   spaceId?: string;
 }
@@ -310,17 +312,6 @@ export interface DeleteSpacePayload {
   type: "delete_space";
   spaceId: string;
 }
-
-export interface HideDirectoryPayload {
-  type: "hide_directory";
-  path: string;
-}
-
-export interface UnhideDirectoryPayload {
-  type: "unhide_directory";
-  path: string;
-}
-
 export type ClientMessage =
   | MessagePayload
   | CancelPayload
@@ -341,9 +332,7 @@ export type ClientMessage =
   | SetProviderPayload
   | CreateSpacePayload
   | CompleteSpacePayload
-  | DeleteSpacePayload
-  | HideDirectoryPayload
-  | UnhideDirectoryPayload;
+  | DeleteSpacePayload;
 
 // =============================================================================
 // Server -> Client Messages
@@ -466,9 +455,15 @@ export interface ScanCompleteMessage {
   type: "scan_complete";
 }
 
-export interface HiddenDirectoriesMessage {
-  type: "hidden_directories";
-  directories: string[];
+export interface ProjectsChangedMessage {
+  type: "projects_changed";
+  projects: Project[];
+}
+
+export interface TasksChangedMessage {
+  type: "tasks_changed";
+  projectId: string;
+  tasks: Task[];
 }
 
 export interface SpaceCreatedMessage {
@@ -508,7 +503,8 @@ export type ServerMessage =
   | InstanceHistoryMessage
   | TranscriptMessage
   | ScanCompleteMessage
-  | HiddenDirectoriesMessage
+  | ProjectsChangedMessage
+  | TasksChangedMessage
   | SpaceCreatedMessage
   | SpaceCompletedMessage
   | SpaceRemovedMessage
@@ -528,11 +524,32 @@ export interface Session {
 // Project Artifact Types
 // =============================================================================
 
+export interface Project {
+  id: string;
+  name: string;
+  directory: string;
+  repoRoot: string | null;
+  remoteUrl: string | null;
+  targetBranch: string | null;
+  createdAt: number;
+  lastActivityAt: number | null;
+}
+
 export interface ProjectPlan {
   slug: string;
   title: string;
   modifiedAt: number;
   content: string;
+}
+
+export interface ModelUsageStats {
+  model: string;
+  providerName: string;
+  sessionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
 }
 
 export interface ProjectStats {
@@ -541,6 +558,7 @@ export interface ProjectStats {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  modelUsage: ModelUsageStats[];
 }
 
 export interface DashboardStats {
@@ -589,26 +607,23 @@ export interface NativeOpenRequest {
   rememberForProject?: boolean;
 }
 
-export interface BeadIssueDep {
-  id: string;
-  title: string;
-  status: string;
-}
+export type TaskStatus = "open" | "in_progress" | "blocked" | "done";
+export type TaskType = "epic" | "task" | "bug";
 
-export interface BeadIssue {
+export interface Task {
   id: string;
   title: string;
   description: string;
-  status: string;
+  status: TaskStatus;
   priority: number;
-  issue_type: string;
-  owner: string;
-  created_at: string;
-  updated_at: string;
-  dependency_count: number;
-  dependent_count: number;
-  dependencies?: BeadIssueDep[];
-  dependents?: BeadIssueDep[];
+  type: TaskType;
+  tags: string[];
+  parent: string | null;
+  blockedBy: string[];
+  createdAt: string;
+  updatedAt: string;
+  /** Tombstone flag for append-only deletion */
+  deleted?: boolean;
 }
 
 export interface SkillInfo {
@@ -637,8 +652,8 @@ export interface ProjectArtifacts {
   stats: ProjectStats;
   /** GitHub/GitLab repository URL for this project (from git remote) */
   githubUrl: string | null;
-  /** Open issues from beads (bd) issue tracker, if present in the project */
-  beadsIssues: BeadIssue[] | null;
+  /** Tasks from .relay/tasks.jsonl, if present in the project */
+  tasks: Task[] | null;
   /** Installed skills discovered from .claude/skills/, ~/.claude/skills/, etc. */
   skills: SkillInfo[];
   /** Spaces in this project */

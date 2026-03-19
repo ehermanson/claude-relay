@@ -2,14 +2,15 @@ import { useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Columns2, Plus, Search, X } from "lucide-react";
 import { Group, Panel } from "react-resizable-panels";
-import { useWSState } from "../../context/websocket-context";
-import { Button } from "../ui/button";
-import { Tooltip } from "../ui/tooltip";
-import { ResizableHandle } from "../ui/resizable-handle";
-import { ProviderLogo } from "./input-area/shared";
-import { InstanceView } from "./instance-view";
-import { createInstance } from "../../lib/api";
-import { formatTimeAgo } from "../../lib/utils";
+import { ProviderLogo } from "@/components/chat/input-area/shared";
+import { InstanceView } from "@/components/chat/instance-view";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ResizableHandle } from "@/components/ui/resizable-handle";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useWSState } from "@/context/websocket-context";
+import { createInstance } from "@/lib/api";
+import { formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
 function statusDot(instance: InstanceInfo): string {
@@ -80,7 +81,9 @@ function SessionPicker({
       {/* Header */}
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/50 px-3">
         <Columns2 size={14} className="shrink-0 text-muted" />
-        <span className="text-[0.8125rem] font-medium text-text-bright">Pick a session</span>
+        <span className="text-[0.8125rem] font-medium text-text-bright">
+          Pick a session for split view
+        </span>
         <Tooltip content="Close split">
           <Button variant="icon" size="icon-sm" onClick={onClose} className="ml-auto shrink-0">
             <X size={14} />
@@ -90,14 +93,18 @@ function SessionPicker({
 
       {/* Search + new chat */}
       <div className="flex items-center gap-2 border-b border-border/30 px-3 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-surface-hover/50 px-2.5 py-1.5">
-          <Search size={13} className="shrink-0 text-muted" />
-          <input
+        <div className="relative min-w-0 flex-1">
+          <Search
+            size={13}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <Input
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter sessions..."
-            className="min-w-0 flex-1 bg-transparent text-[0.8125rem] text-text outline-none placeholder:text-muted/50"
+            inputSize="sm"
+            className="pl-8"
             autoFocus
           />
         </div>
@@ -176,7 +183,7 @@ export function SplitChatView({ splitId }: SplitChatViewProps) {
     chatId?: string;
     projectId?: string;
   };
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const { instances } = useWSState();
 
   const primaryInstance = instances.find((i) => i.id === primaryId);

@@ -1,5 +1,5 @@
 import { useReducer, useRef, useEffect, useState } from "react";
-import type { ServerMessage, InstanceInfo, ClientMessage } from "@shared/types";
+import type { ServerMessage, InstanceInfo, ClientMessage, Project } from "@shared/types";
 
 // Instance list reducer
 type InstanceAction =
@@ -46,7 +46,7 @@ export function useWebSocket() {
   // independently of the visual isConnected state (which has a grace period).
   const [connectionId, setConnectionId] = useState(0);
   const [instances, dispatch] = useReducer(instanceReducer, []);
-  const [hiddenDirectories, setHiddenDirectories] = useState<string[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
@@ -134,9 +134,9 @@ export function useWebSocket() {
               instance: message.instance,
             });
             break;
-          case "hidden_directories":
-            setHiddenDirectories(
-              (message as { type: "hidden_directories"; directories: string[] }).directories,
+          case "projects_changed":
+            setProjects(
+              (message as { type: "projects_changed"; projects: Project[] }).projects ?? [],
             );
             break;
         }
@@ -193,7 +193,7 @@ export function useWebSocket() {
     isSyncing,
     connectionId,
     instances,
-    hiddenDirectories,
+    projects,
     send,
     subscribe,
     unsubscribe,

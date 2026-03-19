@@ -1,4 +1,5 @@
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
+import { X } from "lucide-react";
 import type { ReactNode } from "react";
 
 interface DialogProps {
@@ -32,7 +33,7 @@ export function DialogContent({
       <BaseDialog.Backdrop className="fixed inset-0 z-[9998] bg-black/60 backdrop-blur-sm animate-fade-in" />
       <BaseDialog.Popup className={`fixed inset-0 z-[9999] flex items-center justify-center p-4`}>
         <div
-          className={`mx-auto flex w-full ${maxWidth} flex-col gap-3 rounded-xl border border-border bg-surface p-5 shadow-2xl animate-fade-in ${className}`}
+          className={`mx-auto flex w-full ${maxWidth} flex-col gap-3 rounded-xl border border-border/70 bg-surface p-5 shadow-2xl animate-fade-in ${className}`}
           style={{ maxHeight: "85vh" }}
         >
           {children}
@@ -71,19 +72,7 @@ export function DialogClose({ className = "" }: { className?: string }) {
     <BaseDialog.Close
       className={`flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text ${className}`}
     >
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <line x1="18" y1="6" x2="6" y2="18" />
-        <line x1="6" y1="6" x2="18" y2="18" />
-      </svg>
+      <X size={16} />
     </BaseDialog.Close>
   );
 }

@@ -1,14 +1,15 @@
 import { createFileRoute, Outlet, useParams, useLocation, Link } from "@tanstack/react-router";
-import { useMemo } from "react";
 import { motion } from "motion/react";
-import { useWSState } from "../../../context/websocket-context";
-import { useMediaQuery } from "../../../hooks/use-media-query";
-import { OpenInMenu } from "../../../components/project/open-in-menu";
-import { RelayLogo } from "../../../components/ui/relay-logo";
-import { Tooltip } from "../../../components/ui/tooltip";
-import { fetchProjectArtifacts } from "../../../lib/api";
-import { formatTokens } from "../../../lib/utils";
-import { ProjectContext } from "../../../context/project-context";
+import { ChevronLeft } from "lucide-react";
+import { OpenInMenu } from "@/components/project/open-in-menu";
+import { RelayLogo } from "@/components/ui/relay-logo";
+import { Tooltip } from "@/components/ui/tooltip";
+import { ProjectContext } from "@/context/project-context";
+import { useWSState } from "@/context/websocket-context";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { fetchProjectArtifacts } from "@/lib/api";
+import { getProjectName, instanceMatchesProject } from "@/lib/project-route";
+import { formatTokens, getDisplayTokenBreakdown } from "@/lib/utils";
 
 const MotionLogo = motion.create(RelayLogo);
 
@@ -19,18 +20,7 @@ function BackButton({ to }: { to: string }) {
         to={to}
         className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="15 18 9 12 15 6" />
-        </svg>
+        <ChevronLeft size={16} />
       </Link>
     </Tooltip>
   );
@@ -40,22 +30,39 @@ function NavTab({
   to,
   params,
   active,
-  children,
+  label,
+  count,
+  badge,
 }: {
   to: string;
   params: Record<string, string>;
   active: boolean;
-  children: React.ReactNode;
+  label: string;
+  count?: number;
+  badge?: string;
 }) {
   return (
     <Link
       to={to}
       params={params}
-      className={`relative px-3 py-2.5 text-[0.8125rem] font-medium transition-colors ${
+      className={`relative flex items-center gap-1.5 px-3 py-2.5 text-[0.8125rem] font-medium transition-colors ${
         active ? "text-accent" : "text-muted hover:text-text"
       }`}
     >
-      {children}
+      {label}
+      {count != null && count > 0 && (
+        <span
+          className={`text-[0.6875rem] font-normal tabular-nums ${active ? "text-accent/60" : "text-muted/50"}`}
+        >
+          {count}
+        </span>
+      )}
+      {badge && (
+        <span className="flex items-center gap-1 rounded-md bg-accent/10 px-1.5 py-px text-[0.625rem] font-medium text-accent">
+          <span className="inline-block h-1 w-1 rounded-full bg-accent" />
+          {badge}
+        </span>
+      )}
       {active && (
         <span className="absolute bottom-0 left-3 right-3 h-[2px] rounded-full bg-accent" />
       )}
@@ -74,35 +81,32 @@ function ProjectLayout() {
   const { instances } = useWSState();
 
   const artifacts = Route.useLoaderData();
-  const projectId = artifacts.directory.split("/").pop() || "";
+  const projectId = artifacts.projectId;
+  const dirName = getProjectName(artifacts.directory);
 
   const isChildView = !!chatId || !!planSlug || !!spaceId;
 
   // Session stats
-  const sessionStats = useMemo(() => {
-    const projectInstances = instances.filter(
-      (inst) => inst.workingDirectory.split("/").pop() === projectId,
-    );
-    const activeCount = projectInstances.filter(
-      (i) => i.status === "idle" || i.status === "processing",
-    ).length;
-    return { total: projectInstances.length, activeCount };
-  }, [instances, projectId]);
+  const projectInstances = instances.filter((inst) => instanceMatchesProject(inst, projectId));
+  const sessionStats = {
+    total: projectInstances.length,
+    activeCount: projectInstances.filter((i) => i.status === "idle" || i.status === "processing")
+      .length,
+  };
 
   // Active tab
   const pathname = location.pathname;
   const isPlansTab = pathname.includes("/plans");
-  const isIssuesTab = pathname.includes("/issues");
+  const isTasksTab = pathname.includes("/tasks");
   const isSkillsTab = pathname.includes("/skills");
   const isChatsTab = pathname.includes("/chats");
-  const isOverviewTab = !isPlansTab && !isIssuesTab && !isSkillsTab && !isChatsTab;
+  const isOverviewTab = !isPlansTab && !isTasksTab && !isSkillsTab && !isChatsTab;
 
-  const dirName = artifacts.directory.split("/").pop() || projectId;
   const planCount = artifacts.plans.length;
-  const issueCount = artifacts.beadsIssues?.length ?? 0;
+  const taskCount = artifacts.tasks?.length ?? 0;
   const skillCount = artifacts.skills.length;
 
-  const ctxValue = useMemo(() => ({ artifacts }), [artifacts]);
+  const ctxValue = { artifacts };
 
   if (isChildView) {
     return (
@@ -112,21 +116,26 @@ function ProjectLayout() {
     );
   }
 
-  // Format session tab label
-  let sessionLabel = "Chats";
-  if (sessionStats.total > 0) {
-    sessionLabel += ` (${sessionStats.total}`;
-    if (sessionStats.activeCount > 0) {
-      sessionLabel += ` \u00b7 ${sessionStats.activeCount} active`;
-    }
-    sessionLabel += ")";
-  }
+  const chatBadge = sessionStats.activeCount > 0 ? `${sessionStats.activeCount} active` : undefined;
+
+  const modelUsage = artifacts.stats.modelUsage ?? [];
+  const normalizedUsage = modelUsage.map(getDisplayTokenBreakdown);
+  const normalizedInputTokens = normalizedUsage.reduce((sum, row) => sum + row.inputTokens, 0);
+  const normalizedOutputTokens = normalizedUsage.reduce((sum, row) => sum + row.outputTokens, 0);
+  const normalizedCacheTokens = normalizedUsage.reduce((sum, row) => sum + row.cacheTokens, 0);
+  const normalizedTotalTokens =
+    modelUsage.length > 0
+      ? normalizedUsage.reduce((sum, row) => sum + row.totalTokens, 0)
+      : artifacts.stats.inputTokens +
+        artifacts.stats.outputTokens +
+        artifacts.stats.cacheCreationTokens +
+        artifacts.stats.cacheReadTokens;
 
   return (
     <ProjectContext.Provider value={ctxValue}>
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-5 py-2.5">
           {isMobile && <BackButton to="/" />}
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
@@ -137,28 +146,23 @@ function ProjectLayout() {
               <Tooltip content={artifacts.directory} side="bottom">
                 <span className="hidden truncate sm:inline">{artifacts.directory}</span>
               </Tooltip>
-              {artifacts.stats.inputTokens + artifacts.stats.outputTokens > 0 && (
+              {normalizedTotalTokens > 0 && (
                 <>
                   <span className="hidden text-border sm:inline">·</span>
                   <Tooltip
                     content={
                       <div className="flex flex-col gap-0.5">
-                        <div>Input: {formatTokens(artifacts.stats.inputTokens)}</div>
-                        <div>Output: {formatTokens(artifacts.stats.outputTokens)}</div>
-                        {artifacts.stats.cacheCreationTokens > 0 && (
-                          <div>
-                            Cache write: {formatTokens(artifacts.stats.cacheCreationTokens)}
-                          </div>
-                        )}
-                        {artifacts.stats.cacheReadTokens > 0 && (
-                          <div>Cache read: {formatTokens(artifacts.stats.cacheReadTokens)}</div>
+                        <div>Input: {formatTokens(normalizedInputTokens)}</div>
+                        <div>Output: {formatTokens(normalizedOutputTokens)}</div>
+                        {normalizedCacheTokens > 0 && (
+                          <div>Cache: {formatTokens(normalizedCacheTokens)}</div>
                         )}
                       </div>
                     }
                   >
                     <span className="shrink-0">
-                      {formatTokens(artifacts.stats.inputTokens + artifacts.stats.outputTokens)}{" "}
-                      tokens across {artifacts.stats.sessionCount} session
+                      {formatTokens(normalizedTotalTokens)} tokens across{" "}
+                      {artifacts.stats.sessionCount} session
                       {artifacts.stats.sessionCount !== 1 ? "s" : ""}
                     </span>
                   </Tooltip>
@@ -186,26 +190,46 @@ function ProjectLayout() {
         </div>
 
         {/* Sub-nav */}
-        <nav className="flex shrink-0 items-center gap-1 border-b border-border px-6">
-          <NavTab to="/projects/$projectId" params={{ projectId }} active={isOverviewTab}>
-            Overview
-          </NavTab>
-          <NavTab to="/projects/$projectId/plans" params={{ projectId }} active={isPlansTab}>
-            Plans{planCount > 0 ? ` (${planCount})` : ""}
-          </NavTab>
-          {issueCount > 0 && (
-            <NavTab to="/projects/$projectId/issues" params={{ projectId }} active={isIssuesTab}>
-              Issues ({issueCount})
-            </NavTab>
+        <nav className="flex shrink-0 items-center gap-1 border-b border-border/70 px-6">
+          <NavTab
+            to="/projects/$projectId"
+            params={{ projectId }}
+            active={isOverviewTab}
+            label="Overview"
+          />
+          <NavTab
+            to="/projects/$projectId/plans"
+            params={{ projectId }}
+            active={isPlansTab}
+            label="Plans"
+            count={planCount}
+          />
+          {taskCount > 0 && (
+            <NavTab
+              to="/projects/$projectId/tasks"
+              params={{ projectId }}
+              active={isTasksTab}
+              label="Tasks"
+              count={taskCount}
+            />
           )}
           {skillCount > 0 && (
-            <NavTab to="/projects/$projectId/skills" params={{ projectId }} active={isSkillsTab}>
-              Skills ({skillCount})
-            </NavTab>
+            <NavTab
+              to="/projects/$projectId/skills"
+              params={{ projectId }}
+              active={isSkillsTab}
+              label="Skills"
+              count={skillCount}
+            />
           )}
-          <NavTab to="/projects/$projectId/chats" params={{ projectId }} active={isChatsTab}>
-            {sessionLabel}
-          </NavTab>
+          <NavTab
+            to="/projects/$projectId/chats"
+            params={{ projectId }}
+            active={isChatsTab}
+            label="Chats"
+            count={sessionStats.total}
+            badge={chatBadge}
+          />
         </nav>
 
         {/* Content */}

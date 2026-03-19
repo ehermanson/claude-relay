@@ -1,4 +1,5 @@
 import { Checkbox as BaseCheckbox } from "@base-ui/react/checkbox";
+import { Check } from "lucide-react";
 import type { ReactNode } from "react";
 
 interface CheckboxProps {
@@ -31,18 +32,7 @@ export function Checkbox({
       className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border border-border bg-bg transition-colors data-[checked]:border-accent data-[checked]:bg-accent disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     >
       <BaseCheckbox.Indicator className="flex items-center justify-center text-white">
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={3.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
+        <Check size={10} strokeWidth={3.5} />
       </BaseCheckbox.Indicator>
     </BaseCheckbox.Root>
   );

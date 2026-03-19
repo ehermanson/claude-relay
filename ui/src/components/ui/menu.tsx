@@ -35,8 +35,7 @@ interface MenuContentProps {
   sideOffset?: number;
 }
 
-const popupClass =
-  "z-50 min-w-[148px] overflow-hidden rounded-lg border border-border bg-surface-raised py-1 shadow-lg animate-fade-in";
+const popupClass = "glass z-50 min-w-[148px] overflow-hidden rounded-lg py-1 animate-fade-in";
 
 function MenuContent({
   children,

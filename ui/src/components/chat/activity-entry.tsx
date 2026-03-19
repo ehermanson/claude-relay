@@ -1,8 +1,13 @@
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import type { UserInputAnswer } from "@shared/types";
-import { escapeHtml, getCollapsedDetail } from "../../lib/utils";
-import { MarkdownContent } from "./markdown-content";
-import { DiffView, ActivityCodeBlock, langFromPath, truncateContent } from "./activity-code";
+import {
+  ActivityCodeBlock,
+  DiffView,
+  langFromPath,
+  truncateContent,
+} from "@/components/chat/activity-code";
+import { escapeHtml, getCollapsedDetail } from "@/lib/utils";
 import {
   Terminal,
   FileText,
@@ -43,8 +48,6 @@ interface ActivityEntryProps {
   approvedTools?: Set<string>;
   isExternalPending?: boolean;
   resolution?: "approved" | "dismissed" | "feedback";
-  planChildId?: string;
-  planChildName?: string;
   /** Merged result status from the paired tool_result. */
   resultStatus?: "success" | "error";
 }
@@ -174,8 +177,9 @@ function AskUserQuestionContent({
               <div className="flex flex-col">
                 {q.options.map((opt, oi) => {
                   const key = `${qi}-${oi}`;
+                  const optionLabel = opt.label;
                   const isSelected = isManagedPrompt
-                    ? selectedAnswer === opt.label
+                    ? selectedAnswer === optionLabel
                     : selectedKey === key;
                   const isDimmed = !isManagedPrompt && selectedKey !== null && !isSelected;
                   return (
@@ -185,18 +189,18 @@ function AskUserQuestionContent({
                         canClick || canRespond ? "cursor-pointer hover:bg-accent/5" : ""
                       } ${isDimmed ? "opacity-35" : ""} ${isSelected ? "bg-accent/5" : ""}`}
                       onClick={
-                        opt.label
+                        optionLabel
                           ? () => {
                               if (canClick) {
                                 setSelectedKey(key);
                                 setSubmitted(true);
-                                onSendMessage!(opt.label);
+                                onSendMessage!(optionLabel);
                                 return;
                               }
                               if (canRespond) {
                                 setSelectedAnswers((prev) => ({
                                   ...prev,
-                                  [questionId]: opt.label!,
+                                  [questionId]: optionLabel,
                                 }));
                               }
                             }
@@ -348,8 +352,6 @@ function ToolContent({
   onAnswerUserInput,
   isInteractive,
   resolution,
-  planChildId,
-  planChildName,
 }: {
   tool: string;
   input: Record<string, unknown>;
@@ -357,8 +359,6 @@ function ToolContent({
   onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
   isInteractive?: boolean;
   resolution?: "approved" | "dismissed" | "feedback";
-  planChildId?: string;
-  planChildName?: string;
 }) {
   switch (tool) {
     case "Edit": {
@@ -482,8 +482,6 @@ export function ActivityEntry({
   approvedTools,
   isExternalPending,
   resolution,
-  planChildId,
-  planChildName,
   resultStatus,
 }: ActivityEntryProps) {
   const hasRichContent = !!input && !!tool;
@@ -565,21 +563,12 @@ export function ActivityEntry({
           )}
         </div>
         {isExpandable && (
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          <ChevronRight
+            size={10}
             className={`mt-[5px] shrink-0 text-muted/40 transition-transform ${
               expanded ? "rotate-90" : "opacity-0"
             }`}
-          >
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
+          />
         )}
       </div>
       {expanded && hasRichContent && (
@@ -591,8 +580,6 @@ export function ActivityEntry({
             onAnswerUserInput={onAnswerUserInput}
             isInteractive={isInteractive}
             resolution={resolution}
-            planChildId={planChildId}
-            planChildName={planChildName}
           />
         </div>
       )}

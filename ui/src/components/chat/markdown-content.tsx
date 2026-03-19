@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import hljs from "../../lib/markdown";
@@ -39,19 +40,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
         onClick={onClose}
         aria-label="Close"
       >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
+        <X size={18} />
       </button>
       <img
         src={src}
@@ -251,12 +240,21 @@ function MarkdownLink({
   }
 
   const external = /^https?:\/\//i.test(href);
+  const isAnchor = href.startsWith("#");
   return (
     <a
       href={href}
       {...props}
       target={external ? "_blank" : props.target}
       rel={external ? "noreferrer" : props.rel}
+      onClick={
+        !external && !isAnchor
+          ? (e) => {
+              // Relative links would navigate the SPA to a bogus route — just suppress.
+              e.preventDefault();
+            }
+          : undefined
+      }
     >
       {children}
     </a>

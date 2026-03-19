@@ -2,22 +2,24 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { Group, Panel } from "react-resizable-panels";
-import { useWSMethods, useWSState } from "../../context/websocket-context";
-import { useInstanceMessages } from "../../hooks/use-instance-messages";
-import { useMediaQuery } from "../../hooks/use-media-query";
-import { useSidecarPanels } from "../../hooks/use-sidecar-panels";
-import { MessageList } from "./message-list";
-import { ExternalSessionBar } from "./external-session-bar";
-import { InputArea } from "./input-area";
-import { Sidecar } from "./sidecar";
-import { ResizableHandle } from "../ui/resizable-handle";
-import { RelayLogo } from "../ui/relay-logo";
-import { PermissionBanner } from "./permission-banner";
-import { MergeBanner } from "./merge-banner";
-import { DebugModal } from "./debug-modal";
-import { TerminalPermissionBar } from "./terminal-permission-bar";
-import { InstanceHeader } from "./instance-header";
-import { createInstance, fetchInstanceHistory } from "../../lib/api";
+import { DebugModal } from "@/components/chat/debug-modal";
+import { ExternalSessionBar } from "@/components/chat/external-session-bar";
+import { InputArea } from "@/components/chat/input-area";
+import { InstanceHeader } from "@/components/chat/instance-header";
+import { MergeBanner } from "@/components/chat/merge-banner";
+import { MessageList } from "@/components/chat/message-list";
+import { PermissionBanner } from "@/components/chat/permission-banner";
+import { Sidecar } from "@/components/chat/sidecar";
+import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
+import { RelayLogo } from "@/components/ui/relay-logo";
+import { ResizableHandle } from "@/components/ui/resizable-handle";
+import { useWSMethods, useWSState } from "@/context/websocket-context";
+import { useInstanceMessages } from "@/hooks/use-instance-messages";
+import { useActionToasts } from "@/hooks/use-action-toasts";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { useSidecarPanels } from "@/hooks/use-sidecar-panels";
+import { createInstance, fetchInstanceHistory } from "@/lib/api";
+import { getInstanceProjectRouteId } from "@/lib/project-route";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
 import type { ServerMessage, ProviderKind, UserInputAnswer } from "@shared/types";
 
@@ -31,14 +33,14 @@ interface InstanceViewProps {
 }
 
 export function InstanceView({ instanceId: propId, compact }: InstanceViewProps = {}) {
-  const { chatId: paramId, projectId } = useParams({ strict: false }) as {
+  const { chatId: paramId } = useParams({ strict: false }) as {
     chatId?: string;
-    projectId?: string;
   };
   const id = propId ?? paramId;
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
   const { isConnected, connectionId, instances } = useWSState();
+  const { trackInstanceMerge } = useActionToasts();
 
   const {
     items,
@@ -147,8 +149,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     await navigate({
       to: "/projects/$projectId/chats/$chatId",
       params: {
-        projectId:
-          projectId || instance.workingDirectory.split("/").pop() || instance.workingDirectory,
+        projectId: getInstanceProjectRouteId(nextInstance),
         chatId: nextInstance.id,
       },
     });
@@ -182,7 +183,8 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   });
 
   const handleMerge = () => {
-    if (!id) return;
+    if (!id || !instance) return;
+    trackInstanceMerge(instance);
     send({ type: "merge_instance", instanceId: id });
   };
 

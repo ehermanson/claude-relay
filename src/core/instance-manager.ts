@@ -36,7 +36,10 @@ import { convertCodexTranscriptEntry } from "./providers/codex-transcript.js";
 import { SessionDB } from "./db.js";
 import type { SessionRow, ManagedInstanceRow } from "./db.js";
 import { SpaceManager } from "./space-manager.js";
+import { ProjectManager } from "./project-manager.js";
+import type { Project } from "./types.js";
 import { discoverSkills } from "./skills.js";
+import { hasTasks, loadTasks } from "./task-manager.js";
 import type { CoreConfig } from "./config.js";
 import type {
   ServerMessage,
@@ -49,12 +52,12 @@ import type {
   LastMessagePreview,
   InstanceInfo,
   HistoryEntry,
+  Task,
   TaskItem,
   FileChange,
   SessionStats,
   ProjectArtifacts,
   ProjectPlan,
-  BeadIssue,
   ProviderKind,
   ProviderDescriptor,
   ProviderRequest,
@@ -172,6 +175,8 @@ interface Instance {
   actualCwd?: string;
   /** False when only skeleton metadata is loaded from DB; true after full JSONL parse + git info */
   hydrated: boolean;
+  /** True after task context has been injected into this session */
+  taskContextInjected?: boolean;
 }
 
 export interface InstanceManagerEvents {
@@ -184,7 +189,8 @@ export interface InstanceManagerEvents {
   "instance:user": [instanceId: string, message: UserMessage];
   "instance:transcript": [instanceId: string, message: TranscriptMessage];
   "scan:complete": [];
-  "directory:visibility": [];
+  "projects:changed": [];
+  "tasks:changed": [projectId: string, tasks: Task[]];
 }
 
 export interface InstanceManager {
@@ -503,6 +509,171 @@ function readLastMessage(jsonlPath: string): LastMessagePreview | null {
 }
 
 /**
+ * Extract the most recent model ID from the tail of a JSONL file.
+ * Reads last 32KB and walks backwards for an assistant entry with `message.model`.
+ */
+function readModelFromJsonl(jsonlPath: string): string | null {
+  try {
+    const fd = openSync(jsonlPath, "r");
+    try {
+      const stat = fstatSync(fd);
+      const tailSize = Math.min(stat.size, 32768);
+      const offset = stat.size - tailSize;
+      const buf = Buffer.alloc(tailSize);
+      readSync(fd, buf, 0, tailSize, offset);
+      const text = buf.toString("utf-8");
+      const lines = text.split("\n");
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        if (!line || !line.includes('"model"')) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.type === "assistant" && parsed.message?.model) {
+            return parsed.message.model;
+          }
+        } catch {
+          // partial line
+        }
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    // file read error
+  }
+  return null;
+}
+
+function hasPersistedTokenUsage(entry: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+}): boolean {
+  return (
+    entry.input_tokens > 0 ||
+    entry.output_tokens > 0 ||
+    entry.cache_creation_tokens > 0 ||
+    entry.cache_read_tokens > 0
+  );
+}
+
+function readClaudeStatsFromJsonl(jsonlPath: string): SessionStats | undefined {
+  try {
+    const content = readFileSync(jsonlPath, "utf-8");
+    const stats: SessionStats = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+    };
+
+    for (const line of content.split("\n")) {
+      if (!line || !line.includes('"assistant"')) continue;
+      try {
+        const entry = JSON.parse(line) as {
+          type?: string;
+          message?: {
+            model?: string;
+            usage?: {
+              input_tokens?: number;
+              output_tokens?: number;
+              cache_creation_input_tokens?: number;
+              cache_read_input_tokens?: number;
+            };
+          };
+        };
+        if (entry.type !== "assistant" || !entry.message) continue;
+        if (entry.message.model) {
+          stats.model = entry.message.model;
+        }
+        if (!entry.message.usage) continue;
+        stats.inputTokens += entry.message.usage.input_tokens ?? 0;
+        stats.outputTokens += entry.message.usage.output_tokens ?? 0;
+        stats.cacheCreationTokens += entry.message.usage.cache_creation_input_tokens ?? 0;
+        stats.cacheReadTokens += entry.message.usage.cache_read_input_tokens ?? 0;
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    return hasSessionStats(stats) ? stats : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readCodexStatsFromJsonl(jsonlPath: string): SessionStats | undefined {
+  try {
+    const content = readFileSync(jsonlPath, "utf-8");
+    const stats: SessionStats = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+    };
+
+    for (const line of content.split("\n")) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line) as {
+          type?: string;
+          payload?: Record<string, unknown>;
+        };
+
+        if (entry.type === "turn_context") {
+          const model = entry.payload?.model;
+          if (typeof model === "string" && model.trim()) {
+            stats.model = model;
+          }
+          continue;
+        }
+
+        if (entry.type !== "event_msg" || entry.payload?.type !== "token_count") continue;
+        const info =
+          typeof entry.payload.info === "object" && entry.payload.info !== null
+            ? (entry.payload.info as Record<string, unknown>)
+            : null;
+        const total =
+          info && typeof info.total_token_usage === "object" && info.total_token_usage !== null
+            ? (info.total_token_usage as Record<string, unknown>)
+            : null;
+        const last =
+          info && typeof info.last_token_usage === "object" && info.last_token_usage !== null
+            ? (info.last_token_usage as Record<string, unknown>)
+            : null;
+
+        if (total) {
+          stats.inputTokens =
+            typeof total.input_tokens === "number" ? total.input_tokens : stats.inputTokens;
+          stats.cacheReadTokens =
+            typeof total.cached_input_tokens === "number"
+              ? total.cached_input_tokens
+              : stats.cacheReadTokens;
+          stats.outputTokens =
+            typeof total.output_tokens === "number" ? total.output_tokens : stats.outputTokens;
+          if (typeof total.reasoning_output_tokens === "number") {
+            stats.reasoningTokens = total.reasoning_output_tokens;
+          }
+        }
+        if (last && typeof last.input_tokens === "number") {
+          stats.contextTokens = last.input_tokens;
+        }
+        if (info && typeof info.model_context_window === "number") {
+          stats.contextWindow = info.model_context_window;
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+
+    return hasSessionStats(stats) ? stats : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Read cwd from a JSONL file by scanning the first ~32KB for an entry with a `cwd` field.
  * The init/system entry contains `cwd` but isn't always the first line
  * (file-history-snapshot can precede it), and can span many KB.
@@ -698,12 +869,14 @@ function dbStatsToSessionStats(entry: {
   output_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
+  model?: string | null;
 }): SessionStats | undefined {
   const stats: SessionStats = {
     inputTokens: entry.input_tokens,
     outputTokens: entry.output_tokens,
     cacheCreationTokens: entry.cache_creation_tokens,
     cacheReadTokens: entry.cache_read_tokens,
+    model: entry.model ?? undefined,
   };
   return hasSessionStats(stats) ? stats : undefined;
 }
@@ -751,10 +924,10 @@ export class InstanceManager extends EventEmitter {
   scanComplete = false;
   /** Guard to prevent concurrent discovery polls from overlapping */
   private discovering = false;
-  /** Cached hidden directories set — null means needs reload from DB */
-  private _hiddenDirs: Set<string> | null = null;
   /** Space lifecycle manager */
   private spaceManager: SpaceManager;
+  /** Project manager for explicit project registration */
+  private _projectManager: ProjectManager;
 
   constructor(config: CoreConfig) {
     super();
@@ -767,6 +940,46 @@ export class InstanceManager extends EventEmitter {
     };
     this.db = new SessionDB(config.dbPath, config.logger);
     this.spaceManager = new SpaceManager(this.db, config.logger);
+    this._projectManager = new ProjectManager(this.db, config.logger);
+    // Keep in-memory instances aligned with project registration changes.
+    this._projectManager.on("project:created", (project) => {
+      this.refreshInstanceProjectIds(project);
+      this.emit("projects:changed");
+    });
+    this._projectManager.on("project:removed", (removedId) => {
+      // Clear projectId on instances that belonged to the removed project
+      for (const instance of this.instances.values()) {
+        if (instance.info.projectId === removedId) {
+          instance.info.projectId = undefined;
+        }
+      }
+      this.emit("projects:changed");
+    });
+    this._projectManager.on("project:updated", () => {
+      this.emit("projects:changed");
+    });
+  }
+
+  /** Access the project manager for project CRUD operations. */
+  get projectManager(): ProjectManager {
+    return this._projectManager;
+  }
+
+  /**
+   * Assign projectId to instances that don't have one yet but match
+   * the given project's directory.
+   */
+  private refreshInstanceProjectIds(project: Project): void {
+    for (const instance of this.instances.values()) {
+      if (instance.info.projectId) continue;
+      const instanceProjectDir =
+        instance.originalDirectory ??
+        instance.info.originalDirectory ??
+        instance.info.workingDirectory;
+      if (instanceProjectDir === project.directory) {
+        instance.info.projectId = project.id;
+      }
+    }
   }
 
   /**
@@ -887,6 +1100,17 @@ export class InstanceManager extends EventEmitter {
 
     const skipPerms =
       options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions;
+
+    // Auto-register project if not already registered
+    let project = this._projectManager.getProjectByDirectory(workingDirectory);
+    if (!project) {
+      try {
+        project = this._projectManager.addProject(workingDirectory);
+      } catch {
+        // Directory may not exist (e.g. remote sessions) — skip project registration
+      }
+    }
+
     const info: InstanceInfo = {
       id,
       provider,
@@ -900,6 +1124,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: options?.reasoningBudget,
       planMode: options?.planMode,
       skipPermissions: skipPerms,
+      projectId: project?.id,
       spaceId,
     };
 
@@ -1073,33 +1298,6 @@ export class InstanceManager extends EventEmitter {
     return { targetBranch };
   }
 
-  private _getHiddenDirs(): Set<string> {
-    if (!this._hiddenDirs) {
-      try {
-        this._hiddenDirs = this.db.getHiddenDirectories();
-      } catch {
-        return new Set();
-      }
-    }
-    return this._hiddenDirs;
-  }
-
-  hideDirectory(path: string): void {
-    this.db.hideDirectory(path);
-    this._hiddenDirs = null;
-    this.emit("directory:visibility");
-  }
-
-  unhideDirectory(path: string): void {
-    this.db.unhideDirectory(path);
-    this._hiddenDirs = null;
-    this.emit("directory:visibility");
-  }
-
-  getHiddenDirectories(): string[] {
-    return [...this._getHiddenDirs()];
-  }
-
   // ===========================================================================
   // Space management (delegates to SpaceManager)
   // ===========================================================================
@@ -1107,11 +1305,9 @@ export class InstanceManager extends EventEmitter {
   getSpaceManager(): SpaceManager {
     return this.spaceManager;
   }
-
   listInstances(): InstanceInfo[] {
-    const hidden = this._getHiddenDirs();
     return Array.from(this.instances.values())
-      .filter((i) => !hidden.has(i.info.workingDirectory))
+      .filter((i) => !!i.info.projectId)
       .map((i) => ({ ...i.info }));
   }
 
@@ -1188,6 +1384,31 @@ export class InstanceManager extends EventEmitter {
 
     if (!instance.process) {
       throw new Error("Instance could not be started");
+    }
+
+    // Inject task context on first user message for projects with .relay/tasks.jsonl
+    if (!instance.taskContextInjected && !internal && instance.info.projectId) {
+      instance.taskContextInjected = true;
+      const taskProject = this._projectManager.getProject(instance.info.projectId);
+      if (taskProject && hasTasks(taskProject.directory)) {
+        const taskContext =
+          "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). " +
+          "Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. Ask if unsure whether a request should map to a task. " +
+          "Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), " +
+          "priority (0-4), type (epic|task|bug), tags (string[]), parent (nullable task ID), " +
+          "blockedBy (task ID[]), createdAt, updatedAt (ISO timestamps). " +
+          "Blocked status is auto-derived from unresolved blockedBy refs. " +
+          "To create: append a new JSON line. To update: append a line with same id and changed fields. " +
+          "When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.jsonl to find it.";
+        const internalMsg: UserMessage = {
+          type: "user",
+          text: taskContext,
+          instanceId: id,
+          internal: true,
+        };
+        this.pushHistory(instance, internalMsg);
+        instance.process!.send(taskContext);
+      }
     }
 
     // Auto-title from first user message
@@ -1817,60 +2038,14 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Return directories where Claude has been used, sorted by most recent activity.
-   * Scans ~/.claude/projects/ and decodes the encoded directory names.
+   * Return registered project directories, sorted by most recent activity.
    */
   getKnownDirectories(): { path: string; lastUsed: number }[] {
-    const projectsDir = join(this.providerDirs.claude, "projects");
-    if (!existsSync(projectsDir)) return [];
-    const hidden = this._getHiddenDirs();
-
     try {
-      return readdirSync(projectsDir)
-        .filter((name) => {
-          // Encoded dirs start with a dash (encoded leading /)
-          if (!name.startsWith("-")) return false;
-          try {
-            return statSync(join(projectsDir, name)).isDirectory();
-          } catch {
-            return false;
-          }
-        })
-        .map((name) => {
-          const projectDir = join(projectsDir, name);
-          let lastUsed = 0;
-          let resolvedPath = decodeProjectDir(name);
-
-          try {
-            const jsonlFiles = readdirSync(projectDir)
-              .filter((f) => f.endsWith(".jsonl"))
-              .map((f) => {
-                const fullPath = join(projectDir, f);
-                try {
-                  return { path: fullPath, mtime: statSync(fullPath).mtimeMs };
-                } catch {
-                  return null;
-                }
-              })
-              .filter((f): f is { path: string; mtime: number } => f !== null);
-
-            if (jsonlFiles.length > 0) {
-              lastUsed = Math.max(...jsonlFiles.map((f) => f.mtime));
-
-              // Read the cwd from the most recent JSONL for accurate path
-              jsonlFiles.sort((a, b) => b.mtime - a.mtime);
-              const cwdFromJsonl = readCwdFromJsonl(jsonlFiles[0].path);
-              if (cwdFromJsonl && existsSync(cwdFromJsonl)) {
-                resolvedPath = cwdFromJsonl;
-              }
-            }
-          } catch {
-            // ignore
-          }
-          return { path: resolvedPath, lastUsed };
-        })
-        .filter((d) => existsSync(d.path)) // only include dirs that still exist
-        .filter((d) => !hidden.has(d.path)) // exclude hidden directories
+      return this._projectManager
+        .listProjects()
+        .filter((p) => existsSync(p.directory))
+        .map((p) => ({ path: p.directory, lastUsed: p.lastActivityAt ?? p.createdAt }))
         .sort((a, b) => b.lastUsed - a.lastUsed);
     } catch {
       return [];
@@ -1961,14 +2136,20 @@ export class InstanceManager extends EventEmitter {
   }
 
   getProjectArtifacts(projectId: string): ProjectArtifacts | null {
-    const resolvedId = this.resolveProjectId(projectId);
+    const registeredProject = this._projectManager.getProject(projectId);
+    const resolvedId = registeredProject ? null : this.resolveProjectId(projectId);
+    const claudeProjectsDir = join(this.providerDirs.claude, "projects");
 
     // projectDir is the provider-specific metadata directory (e.g. ~/.claude/projects/...).
     // May not exist for projects that only have sessions from other providers (e.g. Codex-only).
-    const projectDir = resolvedId ? join(this.providerDirs.claude, "projects", resolvedId) : null;
+    const projectDir = registeredProject
+      ? this.cwdToProjectDir(registeredProject.directory, claudeProjectsDir)
+      : resolvedId
+        ? join(claudeProjectsDir, resolvedId)
+        : null;
 
     // Resolve real path — JSONL cwd is authoritative, with instance-based fallback.
-    let directory = "";
+    let directory = registeredProject?.directory ?? "";
     if (projectDir) {
       try {
         const jsonlFiles = readdirSync(projectDir)
@@ -2019,7 +2200,7 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    if (!directory && !resolvedId) return null;
+    if (!directory && !resolvedId && !registeredProject) return null;
 
     // Last resort: filesystem-validated decode
     if (!directory && resolvedId) {
@@ -2159,20 +2340,32 @@ export class InstanceManager extends EventEmitter {
         /* ignore */
       }
 
+    // Backfill transcript-derived stats/model metadata for unopened historical sessions
+    // in this project before aggregating usage.
+    this.backfillProjectTranscriptStats(directory);
+
     // Aggregate token/cost stats from DB
-    const stats = this.db.getProjectStats(directory);
+    const baseStats = this.db.getProjectStats(directory);
+    const modelUsage = this.db.getProjectModelStats(directory);
+    const stats = { ...baseStats, modelUsage };
 
     // GitHub URL from git remote
     const githubUrl = getRemoteUrl(directory);
 
-    // Beads issues
-    const beadsIssues = this.getBeadsIssues(directory);
+    // Tasks
+    const tasks = hasTasks(directory) ? loadTasks(directory) : null;
 
     // Skills
     const skills = discoverSkills(directory || undefined);
 
+    const resolvedProjectId =
+      registeredProject?.id ??
+      this._projectManager.getProjectByDirectory(directory)?.id ??
+      resolvedId ??
+      projectId;
+
     return {
-      projectId: resolvedId || projectId,
+      projectId: resolvedProjectId,
       directory,
       memory,
       claudeMd,
@@ -2180,55 +2373,12 @@ export class InstanceManager extends EventEmitter {
       plans,
       stats,
       githubUrl,
-      beadsIssues,
+      tasks,
       skills,
       spaces: directory ? this.spaceManager.listSpaces(directory) : [],
     };
   }
 
-  /**
-   * Fetch open issues from beads (bd) issue tracker if the project uses it.
-   * Returns null if .beads/ directory doesn't exist or bd is not installed.
-   */
-  private getBeadsIssues(directory: string): BeadIssue[] | null {
-    if (!directory) return null;
-    try {
-      const beadsDir = join(directory, ".beads");
-      if (!existsSync(beadsDir)) return null;
-
-      // Get all issue IDs
-      const listResult = execFileSync(
-        "bd",
-        ["list", "--json", "--all", "--limit", "0", "--no-daemon"],
-        {
-          cwd: directory,
-          timeout: 15000,
-          encoding: "utf-8",
-          stdio: ["pipe", "pipe", "pipe"],
-        },
-      );
-      const listed = JSON.parse(listResult) as BeadIssue[];
-      if (listed.length === 0) return [];
-
-      // Fetch full details with dependencies via bd show
-      const ids = listed.map((i) => i.id);
-      const showResult = execFileSync("bd", ["show", ...ids, "--json", "--no-daemon"], {
-        cwd: directory,
-        timeout: 10000,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      const detailed = JSON.parse(showResult) as BeadIssue[];
-      return detailed;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Return a set of working directories that have a .beads/ issue tracker.
-   * Checks all known instance directories for a .beads/ subdirectory.
-   */
   /**
    * Scan a project directory for a favicon/icon file.
    * Returns the absolute path of the first match, or null.
@@ -2359,20 +2509,6 @@ export class InstanceManager extends EventEmitter {
       }
       const icon = this.projectIconCache.get(dir);
       if (icon) result[dir] = icon;
-    }
-    return result;
-  }
-
-  getBeadsDirectories(): string[] {
-    const dirs = new Set<string>();
-    for (const instance of this.instances.values()) {
-      dirs.add(instance.info.workingDirectory);
-    }
-    const result: string[] = [];
-    for (const dir of dirs) {
-      if (existsSync(join(dir, ".beads"))) {
-        result.push(dir);
-      }
     }
     return result;
   }
@@ -2508,9 +2644,18 @@ export class InstanceManager extends EventEmitter {
     }
 
     // For each cwd, find N most recently modified JSONLs (N = number of PIDs in that cwd)
-    // Track the first PID per JSONL for external state
+    // Track the first PID per JSONL for external state — scoped to registered projects
     const activeJsonls = new Map<string, { cwd: string; pid?: number }>(); // jsonlPath → info
     for (const [cwd, info] of cwdInfoMap) {
+      const isRegisteredDir = !!this._projectManager.getProjectByDirectory(cwd);
+      const worktreeOrigin =
+        !isRegisteredDir && isRelayWorktreePath(cwd) ? resolveWorktreeOrigin(cwd) : null;
+      if (
+        !isRegisteredDir &&
+        (!worktreeOrigin || !this._projectManager.getProjectByDirectory(worktreeOrigin))
+      ) {
+        continue;
+      }
       const projectDir = this.cwdToProjectDir(cwd, projectsDir);
       if (!projectDir || !existsSync(projectDir)) continue;
 
@@ -2825,6 +2970,7 @@ export class InstanceManager extends EventEmitter {
       gitBranch,
       originalDirectory,
       parentSessionId,
+      projectId: this._projectManager.getProjectByDirectory(workingDirectory)?.id,
     };
 
     let fileSize: number;
@@ -3824,6 +3970,8 @@ export class InstanceManager extends EventEmitter {
             : 0
           : null,
       space_id: instance.info.spaceId ?? null,
+      project_id: instance.info.projectId ?? null,
+      model: stats?.model ?? null,
     };
   }
 
@@ -3868,6 +4016,8 @@ export class InstanceManager extends EventEmitter {
             : 0
           : null,
       space_id: instance.info.spaceId ?? null,
+      project_id: instance.info.projectId ?? null,
+      model: stats?.model ?? null,
     };
   }
 
@@ -3894,6 +4044,137 @@ export class InstanceManager extends EventEmitter {
       }
     } catch (err) {
       this.baseConfig.logger.warn(`[InstanceManager] Failed to persist session: ${err}`);
+    }
+  }
+
+  private backfillSessionModel(sessionId: string, model: string): void {
+    this.db.updateSessionModel(sessionId, model);
+    for (const instance of this.instances.values()) {
+      if (instance.sessionId !== sessionId && instance.info.sessionId !== sessionId) continue;
+      const nextStats = instance.info.stats
+        ? { ...instance.info.stats, model }
+        : {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreationTokens: 0,
+            cacheReadTokens: 0,
+            model,
+          };
+      instance.info.stats = nextStats;
+      if (instance.watchState) {
+        instance.watchState.stats = { ...instance.watchState.stats, model };
+      }
+    }
+  }
+
+  private backfillSessionStats(
+    instanceId: string,
+    sessionId: string | undefined,
+    stats: SessionStats,
+  ): void {
+    for (const instance of this.instances.values()) {
+      if (instance.info.id !== instanceId && instance.sessionId !== sessionId) continue;
+      const nextStats: SessionStats = {
+        inputTokens: stats.inputTokens,
+        outputTokens: stats.outputTokens,
+        cacheCreationTokens: stats.cacheCreationTokens,
+        cacheReadTokens: stats.cacheReadTokens,
+        model: stats.model ?? instance.info.stats?.model,
+        contextTokens: stats.contextTokens ?? instance.info.stats?.contextTokens,
+        contextWindow: stats.contextWindow ?? instance.info.stats?.contextWindow,
+        reasoningTokens: stats.reasoningTokens ?? instance.info.stats?.reasoningTokens,
+      };
+      instance.info.stats = nextStats;
+      if (instance.watchState) {
+        instance.watchState.stats = { ...instance.watchState.stats, ...nextStats };
+      }
+      return;
+    }
+  }
+
+  private readTranscriptStats(
+    provider: ProviderKind,
+    transcriptPath: string,
+  ): SessionStats | undefined {
+    if (!existsSync(transcriptPath)) return undefined;
+    if (provider === "claude") return readClaudeStatsFromJsonl(transcriptPath);
+    if (provider === "codex") return readCodexStatsFromJsonl(transcriptPath);
+    return undefined;
+  }
+
+  private backfillProjectTranscriptStats(directory: string): void {
+    for (const row of this.db.getAllActive()) {
+      if (row.working_directory !== directory) continue;
+      if (hasPersistedTokenUsage(row) && row.model) continue;
+      const stats = this.readTranscriptStats(row.provider_name as ProviderKind, row.jsonl_path);
+      if (!stats) continue;
+      const nextRow: SessionRow = {
+        ...row,
+        input_tokens: stats.inputTokens,
+        output_tokens: stats.outputTokens,
+        cache_creation_tokens: stats.cacheCreationTokens,
+        cache_read_tokens: stats.cacheReadTokens,
+        model: row.model ?? stats.model ?? null,
+      };
+      if (
+        nextRow.input_tokens === row.input_tokens &&
+        nextRow.output_tokens === row.output_tokens &&
+        nextRow.cache_creation_tokens === row.cache_creation_tokens &&
+        nextRow.cache_read_tokens === row.cache_read_tokens &&
+        nextRow.model === row.model
+      ) {
+        continue;
+      }
+      this.db.upsert(nextRow);
+      this.backfillSessionStats(row.instance_id, row.session_id, {
+        ...stats,
+        model: nextRow.model ?? undefined,
+      });
+    }
+
+    for (const row of this.db.getAllManagedActive()) {
+      if (row.working_directory !== directory) continue;
+      if (hasPersistedTokenUsage(row) && row.model) continue;
+
+      let resumeCursor: unknown;
+      try {
+        resumeCursor = row.resume_cursor_json ? JSON.parse(row.resume_cursor_json) : undefined;
+      } catch {
+        resumeCursor = undefined;
+      }
+      const transcriptPath = this.resolveManagedTranscriptPath(row.provider_name as ProviderKind, {
+        sessionId: row.provider_session_id ?? extractResumeSessionId(resumeCursor),
+        transcriptPath: row.transcript_path ?? undefined,
+        workingDirectory: row.working_directory,
+      });
+      if (!transcriptPath) continue;
+
+      const stats = this.readTranscriptStats(row.provider_name as ProviderKind, transcriptPath);
+      if (!stats) continue;
+      const nextRow: ManagedInstanceRow = {
+        ...row,
+        input_tokens: stats.inputTokens,
+        output_tokens: stats.outputTokens,
+        cache_creation_tokens: stats.cacheCreationTokens,
+        cache_read_tokens: stats.cacheReadTokens,
+        model: row.model ?? stats.model ?? null,
+        transcript_path: transcriptPath,
+      };
+      if (
+        nextRow.input_tokens === row.input_tokens &&
+        nextRow.output_tokens === row.output_tokens &&
+        nextRow.cache_creation_tokens === row.cache_creation_tokens &&
+        nextRow.cache_read_tokens === row.cache_read_tokens &&
+        nextRow.model === row.model &&
+        nextRow.transcript_path === row.transcript_path
+      ) {
+        continue;
+      }
+      this.db.upsertManaged(nextRow);
+      this.backfillSessionStats(row.instance_id, row.provider_session_id ?? undefined, {
+        ...stats,
+        model: nextRow.model ?? undefined,
+      });
     }
   }
 
@@ -3962,6 +4243,9 @@ export class InstanceManager extends EventEmitter {
           last_message_at: null,
           git_info_branch: null,
           git_info_is_worktree: null,
+          project_id:
+            this._projectManager.getProjectByDirectory(entry.workingDirectory)?.id ?? null,
+          model: null,
           space_id: null,
         });
       }
@@ -3980,8 +4264,8 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Scan all JSONL files on disk to discover sessions the DB doesn't know about.
-   * If the JSONL exists, the session exists — period.
+   * Scan JSONL files on disk for registered project directories.
+   * Only scans directories that match an explicit project registration.
    */
   private scanAllSessions(): void {
     const scanStart = performance.now();
@@ -3989,6 +4273,8 @@ export class InstanceManager extends EventEmitter {
 
     const knownPaths = this.db.getJsonlPaths();
     const diskPaths = new Set<string>();
+    /** Project subdirs under ~/.claude/projects/ that were actually scanned */
+    const scannedProjectDirs = new Set<string>();
     let discovered = 0;
 
     // --- Scan Codex sessions (~/.codex/sessions/) ---
@@ -4000,16 +4286,26 @@ export class InstanceManager extends EventEmitter {
       const projectDirs = readdirSync(projectsDir).filter((name) => {
         if (!name.startsWith("-")) return false;
         try {
-          return statSync(join(projectsDir, name)).isDirectory();
+          if (!statSync(join(projectsDir, name)).isDirectory()) return false;
         } catch {
           return false;
         }
+        // Only scan directories matching registered projects (or worktrees thereof)
+        const decoded = decodeProjectDir(name);
+        if (this._projectManager.getProjectByDirectory(decoded)) return true;
+        // Worktree paths resolve to the original repo — check if that's registered
+        if (isRelayWorktreePath(decoded)) {
+          const origin = resolveWorktreeOrigin(decoded);
+          if (origin && this._projectManager.getProjectByDirectory(origin)) return true;
+        }
+        return false;
       });
 
       const rows: SessionRow[] = [];
 
       for (const projDir of projectDirs) {
         const fullProjDir = join(projectsDir, projDir);
+        scannedProjectDirs.add(fullProjDir);
         let jsonlFiles: string[];
         try {
           jsonlFiles = readdirSync(fullProjDir).filter((f) => f.endsWith(".jsonl"));
@@ -4075,6 +4371,12 @@ export class InstanceManager extends EventEmitter {
                   }
                   if (correctCwd && correctCwd !== existing.working_directory) {
                     this.db.updateWorkingDirectory(existing.session_id, correctCwd);
+                  }
+                }
+                if (!existing.model) {
+                  const model = readModelFromJsonl(jsonlPath);
+                  if (model) {
+                    this.backfillSessionModel(existing.session_id, model);
                   }
                 }
               }
@@ -4145,6 +4447,7 @@ export class InstanceManager extends EventEmitter {
           const name = indexEntry?.summary || (firstMsg ? generateTitle(firstMsg) : "New session");
           const gitInfo = scanWorktreePath ? getGitInfo(scanWorktreePath) : getGitInfo(cwd);
           const lastMsg = readLastMessage(jsonlPath);
+          const model = readModelFromJsonl(jsonlPath);
 
           rows.push({
             session_id: sessionId,
@@ -4180,6 +4483,9 @@ export class InstanceManager extends EventEmitter {
             git_info_branch: gitInfo?.branch ?? null,
             git_info_is_worktree:
               gitInfo?.isWorktree !== undefined ? (gitInfo.isWorktree ? 1 : 0) : null,
+            project_id:
+              this._projectManager.getProjectByDirectory(scanOriginalDir ?? cwd)?.id ?? null,
+            model,
             space_id: null,
           });
           discovered++;
@@ -4194,11 +4500,26 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Archive sessions whose JSONL no longer exists on disk
-    // Only consider paths under scanned directories (Claude projects + Codex sessions)
+    // Only consider paths under directories we actually scanned — don't archive
+    // sessions from unregistered projects that were simply skipped.
     const codexSessionsDir = join(this.providerDirs.codex, "sessions");
     let archived = 0;
     for (const knownPath of knownPaths) {
-      if (!knownPath.startsWith(projectsDir) && !knownPath.startsWith(codexSessionsDir)) continue;
+      // Codex sessions: always check
+      if (knownPath.startsWith(codexSessionsDir)) {
+        if (!diskPaths.has(knownPath)) {
+          const row = this.db.getByJsonlPath(knownPath);
+          if (row && !row.archived) {
+            this.db.archive(row.session_id);
+            archived++;
+          }
+        }
+        continue;
+      }
+      // Claude sessions: only archive if the parent project dir was scanned
+      if (!knownPath.startsWith(projectsDir)) continue;
+      const parentDir = knownPath.substring(0, knownPath.lastIndexOf("/"));
+      if (!scannedProjectDirs.has(parentDir)) continue;
       if (!diskPaths.has(knownPath)) {
         const row = this.db.getByJsonlPath(knownPath);
         if (row && !row.archived) {
@@ -4254,7 +4575,16 @@ export class InstanceManager extends EventEmitter {
             walk(fullPath);
           } else if (entry.endsWith(".jsonl")) {
             diskPaths.add(fullPath);
-            if (knownPaths.has(fullPath)) continue;
+            if (knownPaths.has(fullPath)) {
+              const existing = this.db.getByJsonlPath(fullPath);
+              if (existing && !existing.model) {
+                const meta = this.readCodexSessionMeta(fullPath);
+                if (meta?.model) {
+                  this.backfillSessionModel(existing.session_id, meta.model);
+                }
+              }
+              continue;
+            }
 
             // Read session_meta from first line
             const meta = this.readCodexSessionMeta(fullPath);
@@ -4298,6 +4628,8 @@ export class InstanceManager extends EventEmitter {
               last_message_at: lastMsg?.timestamp ?? null,
               git_info_branch: null,
               git_info_is_worktree: null,
+              project_id: this._projectManager.getProjectByDirectory(cwd)?.id ?? null,
+              model: meta.model,
               space_id: null,
             });
           }
@@ -4318,9 +4650,13 @@ export class InstanceManager extends EventEmitter {
   }
 
   /** Read session_meta + first user message from a Codex JSONL file. */
-  private readCodexSessionMeta(
-    jsonlPath: string,
-  ): { id: string; cwd: string; createdAt: number; firstUserMessage: string | null } | null {
+  private readCodexSessionMeta(jsonlPath: string): {
+    id: string;
+    cwd: string;
+    createdAt: number;
+    firstUserMessage: string | null;
+    model: string | null;
+  } | null {
     try {
       const fd = openSync(jsonlPath, "r");
       try {
@@ -4332,6 +4668,7 @@ export class InstanceManager extends EventEmitter {
         let cwd: string | null = null;
         let createdAt = 0;
         let firstUserMessage: string | null = null;
+        let model: string | null = null;
 
         for (const line of text.split("\n")) {
           if (!line.trim()) continue;
@@ -4352,16 +4689,23 @@ export class InstanceManager extends EventEmitter {
               if (msg && !isTrivialMessage(msg)) {
                 firstUserMessage = msg;
               }
+            } else if (
+              !model &&
+              parsed.type === "turn_context" &&
+              typeof parsed.payload?.model === "string" &&
+              parsed.payload.model.trim()
+            ) {
+              model = parsed.payload.model;
             }
-            // Stop once we have both
-            if (id && firstUserMessage) break;
+            // Stop once we have all metadata we care about.
+            if (id && firstUserMessage && model) break;
           } catch {
             // partial line
           }
         }
 
         if (!id || !cwd) return null;
-        return { id, cwd, createdAt, firstUserMessage };
+        return { id, cwd, createdAt, firstUserMessage, model };
       } finally {
         closeSync(fd);
       }
@@ -4405,6 +4749,8 @@ export class InstanceManager extends EventEmitter {
           last_message_at: row.last_message_at,
           git_info_branch: row.git_info_branch,
           git_info_is_worktree: row.git_info_is_worktree,
+          project_id: row.project_id,
+          model: row.model ?? null,
           space_id: row.space_id,
         });
       } catch (err) {
@@ -4460,6 +4806,7 @@ export class InstanceManager extends EventEmitter {
       planMode: false,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
       spaceId: entry.space_id ?? undefined,
+      projectId: entry.project_id ?? undefined,
     };
 
     const instance: Instance = {
@@ -4569,6 +4916,7 @@ export class InstanceManager extends EventEmitter {
       planMode: entry.runtime_mode === "plan" ? true : undefined,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
       spaceId: entry.space_id ?? undefined,
+      projectId: entry.project_id ?? undefined,
     };
 
     const instance: Instance = {
@@ -4712,6 +5060,14 @@ export class InstanceManager extends EventEmitter {
    */
   restoreAndScan(): void {
     this.restoreInstances();
+    this.scanAndRestoreNew();
+  }
+
+  /**
+   * Re-run the filesystem scan to discover sessions for newly registered projects.
+   * Not scoped — rescans all registered project directories.
+   */
+  rescanAll(): void {
     this.scanAndRestoreNew();
   }
 

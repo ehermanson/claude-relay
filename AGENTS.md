@@ -4,7 +4,7 @@
 
 - **Self-maintenance**: After any codebase change, check whether AGENTS.md and/or README.md need updating. Stale docs are worse than no docs.
 - **Plan mode**: Make the plan extremely concise. Sacrifice grammar for the sake of concision. At the end of each plan, give a list of unresolved questions to answer, if any.
-- **Workflow**: For anything beyond a trivial fix, create Beads (`bd`) issues before starting work. Break the task into discrete issues, claim with `bd update <id> --claim`, close with `bd close <id>`. Use `bd list`, `bd show <id>`, `bd status` to review state.
+- **Workflow**: For anything beyond a trivial fix, create tasks in `.relay/tasks.jsonl` before starting work. Append a JSON line with `{id, title, status: "open", ...}` to create, append a line with the same `id` and changed fields to update. Set `status: "in_progress"` when starting, `status: "done"` when complete.
 
 ## Project Overview
 
@@ -40,7 +40,8 @@ In the backend, Relay manages providers through a provider-driver registry (`pro
 ```bash
 npm run build          # tsc + vite build
 npm run build:server   # tsc only
-npm run build:ui       # vite build only
+npm run build:ui       # UI typecheck + vite build
+npm run typecheck      # server + UI TypeScript checks
 npm test               # node --test test/*.test.js
 npm run dev            # concurrent: node --watch, tsc --watch, vite dev
 ```
@@ -90,6 +91,18 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 
 - Provider-specific plan output should normalize onto Relay's shared `ExitPlanMode` / `pendingPlan` / `planContent` flow instead of inventing a separate UI path
 - Codex `<proposed_plan>...</proposed_plan>` blocks are treated as plan-review events, not plain assistant markdown, in both live app-server streaming and transcript replay
+
+### Task Tracking
+
+- Tasks stored in `.relay/tasks.jsonl` (append-only JSONL, one JSON object per line)
+- Not every request needs a task. Create a task only when the user asks to create one, pick up a task only when the user asks or the request clearly matches an existing task, and otherwise just do the work without creating a new task. Ask the user if it's unclear whether a request should map to a task.
+- Fields: `id` (8-char hex), `title`, `description` (markdown), `status` (open|in_progress|done), `priority` (0-4), `type` (epic|task|bug), `tags` (string[]), `parent` (nullable task ID), `blockedBy` (task ID[]), `createdAt`, `updatedAt` (ISO timestamps)
+- `blocked` status auto-derived from unresolved `blockedBy` refs — never set manually
+- Create: append new JSON line. Update: append line with same `id` + changed fields (sparse merge). Delete: append `{id, deleted: true}`
+- Relay compacts (dedupes, strips tombstones) on every write through the API
+- Core module: `src/core/task-manager.ts` (pure functions, no server deps)
+- API: `GET|POST /api/projects/:id/tasks`, `PATCH|DELETE /api/projects/:id/tasks/:taskId`
+- On managed session start, Relay injects an internal message telling the model about the task format
 
 ## Common Pitfalls
 

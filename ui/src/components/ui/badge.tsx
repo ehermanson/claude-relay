@@ -40,7 +40,7 @@ export function Badge({
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-full font-medium ${sizes[size]} ${variants[variant]} ${className}`}
+      className={`inline-flex shrink-0 items-center rounded-md font-medium ${sizes[size]} ${variants[variant]} ${className}`}
       {...props}
     >
       {dot && <span className={`h-1.5 w-1.5 rounded-full ${resolvedDotClass}`} />}

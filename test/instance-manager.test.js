@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
 import { InstanceManager } from "../dist/core/instance-manager.js";
 import { SessionDB } from "../dist/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
@@ -17,6 +18,7 @@ const noopLogger = {
 
 function makeConfig(overrides = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "relay-im-test-"));
+  execSync("git init -q", { cwd: tempDir });
   return resolveConfig({
     password: "test",
     logger: noopLogger,
@@ -24,6 +26,7 @@ function makeConfig(overrides = {}) {
     dbPath: join(tempDir, "sessions.db"),
     claudeDir: join(tempDir, ".claude"),
     codexDir: join(tempDir, ".codex"),
+    workingDirectory: tempDir,
     ...overrides,
   });
 }

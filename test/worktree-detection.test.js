@@ -249,6 +249,7 @@ describe("scanAllSessions worktree recovery", () => {
       codexDir: join(tempDir, ".codex"),
     });
     const manager = new InstanceManager(config);
+    manager.projectManager.addProject(repoDir);
     manager.restoreAndScan();
 
     // The instance should have workingDirectory = original repo dir, not the worktree
@@ -377,6 +378,7 @@ describe("scanAllSessions archive protection", () => {
 
     // First scan discovers the session and resolves worktree
     const manager1 = new InstanceManager(config);
+    manager1.projectManager.addProject(repoDir);
     manager1.restoreAndScan();
 
     let instances = manager1.listInstances();
@@ -395,5 +397,75 @@ describe("scanAllSessions archive protection", () => {
     instances = manager2.listInstances();
     assert.equal(instances.length, 1, "instance should survive re-scan after worktree removal");
     manager2.stopAll();
+  });
+});
+
+describe("live discovery worktree recovery", () => {
+  let repoDir;
+  let tempDir;
+  const cleanupWorktrees = [];
+
+  beforeEach(() => {
+    repoDir = createTempRepo();
+    tempDir = mkdtempSync(join(tmpdir(), "relay-live-wt-"));
+  });
+
+  afterEach(() => {
+    for (const wt of cleanupWorktrees) {
+      try {
+        removeWorktree(repoDir, wt.worktreePath, wt.branchName);
+      } catch {}
+    }
+    cleanupWorktrees.length = 0;
+    try {
+      execSync("git worktree prune", { cwd: repoDir, stdio: "pipe" });
+    } catch {}
+    rmSync(repoDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("discovers running Claude sessions from relay worktrees under the registered repo", async () => {
+    const wt = createWorktree(repoDir, "aabbccdd");
+    assert.ok(wt, "worktree should be created");
+    cleanupWorktrees.push(wt);
+
+    const claudeDir = join(tempDir, ".claude");
+    const encoded = wt.worktreePath.replace(/\//g, "-");
+    const projectDir = join(claudeDir, "projects", encoded);
+    mkdirSync(projectDir, { recursive: true });
+
+    const sessionId = "00000000-0000-0000-0000-000000000004";
+    const jsonlPath = join(projectDir, `${sessionId}.jsonl`);
+    writeFileSync(
+      jsonlPath,
+      JSON.stringify({
+        type: "system",
+        cwd: wt.worktreePath,
+        timestamp: new Date().toISOString(),
+      }) + "\n",
+    );
+
+    const config = resolveConfig({
+      password: "test",
+      logger: noopLogger,
+      maxProcesses: 3,
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir,
+      codexDir: join(tempDir, ".codex"),
+    });
+    const manager = new InstanceManager(config);
+    manager.projectManager.addProject(repoDir);
+
+    manager["findRunningClaudeCwdsAsync"] = () =>
+      Promise.resolve(new Map([[wt.worktreePath, { count: 1, pids: [99999] }]]));
+
+    await manager["discoverExisting"]();
+
+    const instances = manager.listInstances();
+    assert.equal(instances.length, 1, "should discover the worktree-backed session");
+    assert.equal(realpathSync(instances[0].workingDirectory), realpathSync(repoDir));
+    assert.equal(instances[0].projectId, manager.projectManager.getProjectByDirectory(repoDir)?.id);
+
+    manager.stopAll();
   });
 });

@@ -12,7 +12,7 @@ import {
   Bug,
   ChevronDown,
   ChevronRight,
-  EyeOff,
+  FolderMinus,
   GitBranch,
   MessageSquarePlus,
   MoreVertical,
@@ -20,37 +20,50 @@ import {
   Plus,
   Toolbox,
 } from "lucide-react";
-import { SidebarItem } from "./sidebar-item";
-import { SidebarSpaceGroup } from "./sidebar-space-group";
+import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
+import {
+  getInstanceProjectRouteId,
+  getProjectName,
+  type RemoveProjectTarget,
+} from "../../lib/project-route";
+import { Button } from "../ui/button";
 import { Collapsible } from "../ui/collapsible";
 import { Menu } from "../ui/menu";
-import type { InstanceInfo, SpaceInfo } from "@shared/types";
+import { SidebarItem } from "./sidebar-item";
+import { SidebarSpaceGroup } from "./sidebar-space-group";
 
 const MAX_SIDEBAR_SESSIONS = 10;
 
+function ProjectInitialBadge({ initial }: { initial: string }) {
+  return (
+    <span className="flex h-4 w-4 items-center justify-center rounded-sm bg-surface-hover text-[0.6875rem] font-extrabold uppercase leading-none text-text-bright/80">
+      {initial}
+    </span>
+  );
+}
+
 interface SidebarProjectGroupProps {
   dir: string;
+  project?: Pick<Project, "id" | "name" | "directory">;
   groupInstances: InstanceInfo[];
   currentId?: string;
   currentProjectId?: string;
+  locationPathname: string;
   iconPath?: string;
   isOpen: boolean;
   onToggle: () => void;
   sessionIdMap: Map<string, InstanceInfo>;
-  hasBeads: boolean;
   onQuickCreate: (dir: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (instance: Pick<InstanceInfo, "id" | "name">) => void;
   onRename: (id: string, name: string) => void;
   onMerge: (id: string) => void;
-  onHide?: (dir: string) => void;
-  /** Position flags for enabling/disabling reorder menu items */
+  onRemoveProject?: (project: RemoveProjectTarget) => void;
   isFirst?: boolean;
   isLast?: boolean;
   onMoveToTop?: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   onMoveToBottom?: () => void;
-  /** Spaces for this project (non-default spaces shown as clickable items) */
   spaces?: SpaceInfo[];
   activeSpaceId?: string;
   onCreateSpace?: (dir: string) => void;
@@ -60,6 +73,7 @@ interface SidebarProjectGroupProps {
 
 export function SidebarProjectGroup({
   dir,
+  project,
   groupInstances,
   currentId,
   currentProjectId,
@@ -67,12 +81,11 @@ export function SidebarProjectGroup({
   isOpen,
   onToggle,
   sessionIdMap,
-  hasBeads,
   onQuickCreate,
   onDelete,
   onRename,
   onMerge,
-  onHide,
+  onRemoveProject,
   isFirst,
   isLast,
   onMoveToTop,
@@ -90,11 +103,18 @@ export function SidebarProjectGroup({
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [iconHovered, setIconHovered] = useState(false);
   const [imgError, setImgError] = useState(false);
-  const dirName = dir.split("/").pop() || dir;
-  const showFavicon = iconPath && !imgError;
-  const isActiveProject = currentProjectId === dirName;
 
-  // Build parent/child ordered list: children appear right after their parent
+  const dirName = getProjectName(dir);
+  const initial = dirName.charAt(0).toUpperCase() || "?";
+  const showFavicon = iconPath && !imgError;
+  const routeProjectId = project?.id ?? groupInstances[0]?.projectId ?? dirName;
+  const isActiveProject = currentProjectId === routeProjectId;
+  const removeProjectTarget: RemoveProjectTarget = {
+    id: project?.id ?? groupInstances.find((instance) => instance.projectId)?.projectId,
+    name: project?.name ?? dirName,
+    directory: dir,
+  };
+
   const childIds = new Set<string>();
   const parentChildren = new Map<string, InstanceInfo[]>();
   for (const inst of groupInstances) {
@@ -109,11 +129,7 @@ export function SidebarProjectGroup({
     }
   }
 
-  const ordered: Array<{
-    inst: InstanceInfo;
-    isChild: boolean;
-    parentInst?: InstanceInfo;
-  }> = [];
+  const ordered: Array<{ inst: InstanceInfo; isChild: boolean; parentInst?: InstanceInfo }> = [];
   for (const inst of groupInstances) {
     if (childIds.has(inst.id)) continue;
     ordered.push({ inst, isChild: false });
@@ -125,19 +141,18 @@ export function SidebarProjectGroup({
     }
   }
 
-  // Determine visible sessions: active + recent up to MAX
   let visible = ordered;
   let hiddenCount = 0;
   {
-    const activeSessions = ordered.filter((o) => o.inst.status !== "stopped");
-    const stoppedSessions = ordered.filter((o) => o.inst.status === "stopped");
+    const activeSessions = ordered.filter((entry) => entry.inst.status !== "stopped");
+    const stoppedSessions = ordered.filter((entry) => entry.inst.status === "stopped");
     const slotsForStopped = Math.max(0, MAX_SIDEBAR_SESSIONS - activeSessions.length);
     const visibleIds = new Set([
-      ...activeSessions.map((o) => o.inst.id),
-      ...stoppedSessions.slice(0, slotsForStopped).map((o) => o.inst.id),
+      ...activeSessions.map((entry) => entry.inst.id),
+      ...stoppedSessions.slice(0, slotsForStopped).map((entry) => entry.inst.id),
     ]);
     if (currentId) visibleIds.add(currentId);
-    visible = ordered.filter((o) => visibleIds.has(o.inst.id));
+    visible = ordered.filter((entry) => visibleIds.has(entry.inst.id));
     hiddenCount = ordered.length - visible.length;
   }
 
@@ -158,10 +173,10 @@ export function SidebarProjectGroup({
       parentInstance={parentInst ? { id: parentInst.id, name: parentInst.name } : undefined}
       to="/projects/$projectId/chats/$chatId"
       params={{
-        projectId: inst.workingDirectory.split("/").pop() || inst.workingDirectory,
+        projectId: getInstanceProjectRouteId(inst),
         chatId: inst.id,
       }}
-      onDelete={() => onDelete(inst.id)}
+      onDelete={onDelete}
       deleteDisabled={inst.external === true && inst.status !== "stopped"}
       onRename={(name) => onRename(inst.id, name)}
       onMerge={inst.gitBranch && inst.hasChanges ? () => onMerge(inst.id) : undefined}
@@ -172,7 +187,6 @@ export function SidebarProjectGroup({
   return (
     <Collapsible.Root key={dir} open={isOpen} onOpenChange={() => onToggle()}>
       <div className="group/project mb-0.5">
-        {/* Project header -- collapse toggle + quick create as one row */}
         <div className="mx-2 flex items-center rounded-lg transition-colors hover:bg-surface-hover">
           <Collapsible.Trigger
             className="flex min-w-0 flex-1 items-center gap-1.5 py-2 pl-2 text-left"
@@ -187,6 +201,8 @@ export function SidebarProjectGroup({
                   className="h-4 w-4 rounded-sm object-contain"
                   onError={() => setImgError(true)}
                 />
+              ) : !showFavicon && !iconHovered ? (
+                <ProjectInitialBadge initial={initial} />
               ) : isOpen ? (
                 <ChevronDown size={12} strokeWidth={3} className="text-text-bright/60" />
               ) : (
@@ -197,49 +213,50 @@ export function SidebarProjectGroup({
               className={`min-w-0 flex-1 truncate text-[0.8125rem] font-semibold ${
                 isActiveProject ? "text-accent" : "text-text-bright"
               }`}
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 navigate({
                   to: "/projects/$projectId",
-                  params: { projectId: dirName },
+                  params: { projectId: routeProjectId },
                 });
               }}
             >
               {dirName}
             </span>
           </Collapsible.Trigger>
+
           <div className="flex shrink-0 items-center gap-0.5">
-            <Menu.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-              <Menu.Trigger
-                onClick={(e: React.MouseEvent) => {
-                  e.stopPropagation();
-                }}
-                className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
-              >
-                <Plus size={12} strokeWidth={2.5} />
-                New
-              </Menu.Trigger>
-              <Menu.Content align="start">
-                <Menu.Item
-                  className="!items-start"
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    onQuickCreate(dir);
+            {onCreateSpace ? (
+              <Menu.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+                <Menu.Trigger
+                  onClick={(event: React.MouseEvent) => {
+                    event.stopPropagation();
                   }}
+                  className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
                 >
-                  <MessageSquarePlus size={13} strokeWidth={2} className="mt-1 text-muted" />
-                  <div>
-                    <div>New Chat</div>
-                    <div className="text-[0.6875rem] text-muted">
-                      Work with an agent on this branch
-                    </div>
-                  </div>
-                </Menu.Item>
-                {onCreateSpace && (
+                  <Plus size={12} strokeWidth={2.5} />
+                  New
+                </Menu.Trigger>
+                <Menu.Content align="start">
                   <Menu.Item
                     className="!items-start"
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
+                      onQuickCreate(dir);
+                    }}
+                  >
+                    <MessageSquarePlus size={13} strokeWidth={2} className="mt-1 text-muted" />
+                    <div>
+                      <div>New Chat</div>
+                      <div className="text-[0.6875rem] text-muted">
+                        Work with an agent on this branch
+                      </div>
+                    </div>
+                  </Menu.Item>
+                  <Menu.Item
+                    className="!items-start"
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
                       onCreateSpace(dir);
                     }}
                   >
@@ -247,18 +264,32 @@ export function SidebarProjectGroup({
                     <div>
                       <div>New Space</div>
                       <div className="text-[0.6875rem] text-muted">
-                        Agents on a separate worktree, merge back when ready
+                        Start an isolated worktree and merge back later
                       </div>
                     </div>
                   </Menu.Item>
-                )}
-              </Menu.Content>
-            </Menu.Root>
+                </Menu.Content>
+              </Menu.Root>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onQuickCreate(dir);
+                }}
+                className="opacity-0 transition-all group-hover/project:opacity-100 hover:!bg-accent/10 hover:!text-accent"
+              >
+                <Plus size={12} strokeWidth={2.5} />
+                New Chat
+              </Button>
+            )}
+
             {menuOpen ? (
               <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
                 <Menu.Trigger
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
+                  onClick={(event: React.MouseEvent) => {
+                    event.stopPropagation();
                   }}
                   className="flex h-5 w-5 items-center justify-center rounded text-muted hover:text-text"
                 >
@@ -266,37 +297,35 @@ export function SidebarProjectGroup({
                 </Menu.Trigger>
                 <Menu.Content>
                   <Menu.Item
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
                       navigate({
                         to: "/projects/$projectId/plans",
-                        params: { projectId: dirName },
+                        params: { projectId: routeProjectId },
                       });
                     }}
                   >
                     <NotebookPen size={13} strokeWidth={2} className="text-muted" />
                     Plans
                   </Menu.Item>
-                  {hasBeads && (
-                    <Menu.Item
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        navigate({
-                          to: "/projects/$projectId/issues",
-                          params: { projectId: dirName },
-                        });
-                      }}
-                    >
-                      <Bug size={13} strokeWidth={2} className="text-muted" />
-                      Issues
-                    </Menu.Item>
-                  )}
                   <Menu.Item
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
+                      navigate({
+                        to: "/projects/$projectId/tasks",
+                        params: { projectId: routeProjectId },
+                      });
+                    }}
+                  >
+                    <Bug size={13} strokeWidth={2} className="text-muted" />
+                    Tasks
+                  </Menu.Item>
+                  <Menu.Item
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
                       navigate({
                         to: "/projects/$projectId/skills",
-                        params: { projectId: dirName },
+                        params: { projectId: routeProjectId },
                       });
                     }}
                   >
@@ -307,8 +336,8 @@ export function SidebarProjectGroup({
                   {onMoveToTop && (
                     <Menu.Item
                       disabled={isFirst}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         onMoveToTop();
                       }}
                     >
@@ -319,8 +348,8 @@ export function SidebarProjectGroup({
                   {onMoveUp && (
                     <Menu.Item
                       disabled={isFirst}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         onMoveUp();
                       }}
                     >
@@ -331,8 +360,8 @@ export function SidebarProjectGroup({
                   {onMoveDown && (
                     <Menu.Item
                       disabled={isLast}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         onMoveDown();
                       }}
                     >
@@ -343,8 +372,8 @@ export function SidebarProjectGroup({
                   {onMoveToBottom && (
                     <Menu.Item
                       disabled={isLast}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         onMoveToBottom();
                       }}
                     >
@@ -352,48 +381,45 @@ export function SidebarProjectGroup({
                       Move to bottom
                     </Menu.Item>
                   )}
-                  {onHide && (
-                    <>
-                      <Menu.Separator />
-                      <Menu.Item
-                        onClick={(e: React.MouseEvent) => {
-                          e.stopPropagation();
-                          onHide(dir);
-                        }}
-                      >
-                        <EyeOff size={13} strokeWidth={2} className="text-muted" />
-                        Hide project
-                      </Menu.Item>
-                    </>
+                  {onRemoveProject && <Menu.Separator />}
+                  {onRemoveProject && (
+                    <Menu.Item
+                      onClick={() => {
+                        onRemoveProject(removeProjectTarget);
+                      }}
+                    >
+                      <FolderMinus size={13} strokeWidth={2} className="text-muted" />
+                      Remove project
+                    </Menu.Item>
                   )}
                 </Menu.Content>
               </Menu.Root>
             ) : (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
+              <Button
+                variant="icon"
+                size="icon-sm"
+                onClick={(event) => {
+                  event.stopPropagation();
                   setMenuOpen(true);
                 }}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100 hover:text-text"
+                className="!h-5 !w-5 text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100"
               >
                 <MoreVertical size={12} />
-              </button>
+              </Button>
             )}
           </div>
         </div>
 
-        {/* Content */}
         <Collapsible.Content>
-          {/* Spaces */}
-          {spaces && spaces.filter((s) => !s.isDefault).length > 0 && (
+          {spaces && spaces.filter((space) => !space.isDefault).length > 0 && (
             <div className="pl-4 pr-2 pb-1">
               {spaces
-                .filter((s) => !s.isDefault)
+                .filter((space) => !space.isDefault)
                 .map((space) => (
                   <SidebarSpaceGroup
                     key={space.id}
                     space={space}
-                    projectId={dirName}
+                    projectId={routeProjectId}
                     isActive={activeSpaceId === space.id}
                     onComplete={onCompleteSpace ?? (() => {})}
                     onDelete={onDeleteSpace ?? (() => {})}
@@ -402,15 +428,13 @@ export function SidebarProjectGroup({
             </div>
           )}
 
-          {/* Session items */}
-          <div className="pl-4 pr-2">
+          <div className="px-2">
             {visible.map(renderSessionItem)}
 
-            {/* Show all link */}
             {hiddenCount > 0 && (
               <Link
                 to="/projects/$projectId/chats"
-                params={{ projectId: dirName }}
+                params={{ projectId: routeProjectId }}
                 className="flex w-full items-center gap-1 rounded-md py-1.5 pl-8 pr-3 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
               >
                 +{hiddenCount} more

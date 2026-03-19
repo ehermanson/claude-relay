@@ -62,7 +62,10 @@ export type { Logger } from "./logger.js";
 export { defaultLogger, noopLogger } from "./logger.js";
 
 export { SessionDB } from "./db.js";
-export type { SessionRow } from "./db.js";
+export type { SessionRow, ProjectRow } from "./db.js";
+
+export { ProjectManager } from "./project-manager.js";
+export type { ProjectManagerEvents } from "./project-manager.js";
 
 export {
   describeToolUse,
@@ -139,11 +142,28 @@ export type {
   CreateSpacePayload,
   CompleteSpacePayload,
   DeleteSpacePayload,
+  Project,
   SpaceCreatedMessage,
   SpaceCompletedMessage,
   SpaceRemovedMessage,
   SpaceListMessage,
+  ProjectsChangedMessage,
   ProjectPlan,
   ProjectStats,
+  ModelUsageStats,
   ProjectArtifacts,
+  Task,
+  TaskStatus,
+  TaskType,
+  TasksChangedMessage,
 } from "./types.js";
+
+export {
+  loadTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  hasTasks,
+  initTasks,
+  migrateFromBeads,
+} from "./task-manager.js";

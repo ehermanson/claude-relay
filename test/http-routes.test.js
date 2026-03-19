@@ -10,7 +10,8 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { createRequestHandler } from "../dist/server/http.js";
@@ -79,6 +80,9 @@ describe("HTTP Routes — Additional Coverage", () => {
       rateLimitMax: 10,
       rateLimitWindow: 60_000,
       sessionFile: join(tempDir, "sessions.json"),
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
@@ -238,6 +242,9 @@ describe("HTTP Routes — Additional Coverage", () => {
         rateLimitMax: 10,
         rateLimitWindow: 60_000,
         sessionFile: join(tempDir, "sessions.json"),
+        dbPath: join(tempDir, "sessions.db"),
+        claudeDir: join(tempDir, ".claude"),
+        codexDir: join(tempDir, ".codex"),
       });
       const handler = createRequestHandler(config, auth, manager, undefined, {
         getProviderModels,
@@ -302,6 +309,9 @@ describe("HTTP Routes — Additional Coverage", () => {
         rateLimitMax: 10,
         rateLimitWindow: 60_000,
         sessionFile: join(tempDir, "sessions.json"),
+        dbPath: join(tempDir, "sessions.db"),
+        claudeDir: join(tempDir, ".claude"),
+        codexDir: join(tempDir, ".codex"),
       });
       const handler = createRequestHandler(config, auth, manager, undefined, {
         getProviderModels,
@@ -615,6 +625,50 @@ describe("HTTP Routes — Additional Coverage", () => {
         assert.ok("diff" in res.body);
         assert.equal(typeof res.body.diff, "string");
       }
+    });
+  });
+
+  describe("Task routes", () => {
+    it("deletes tasks with legacy non-hex ids", async () => {
+      const session = auth.createSession();
+      const projectDir = join(tempDir, "task-project");
+      mkdirSync(projectDir, { recursive: true });
+      execSync("git init", { cwd: projectDir, stdio: "pipe" });
+      execSync("git config user.email test@test.com", { cwd: projectDir, stdio: "pipe" });
+      execSync("git config user.name Test", { cwd: projectDir, stdio: "pipe" });
+      writeFileSync(join(projectDir, "README.md"), "# Task project\n");
+      execSync("git add .", { cwd: projectDir, stdio: "pipe" });
+      execSync("git commit -m initial", { cwd: projectDir, stdio: "pipe" });
+      mkdirSync(join(projectDir, ".relay"), { recursive: true });
+      writeFileSync(
+        join(projectDir, ".relay", "tasks.jsonl"),
+        `${JSON.stringify({
+          id: "relayul2",
+          title: "Legacy task",
+          description: "",
+          status: "open",
+          priority: 2,
+          type: "task",
+          tags: [],
+          parent: null,
+          blockedBy: [],
+          createdAt: "2026-03-08T15:17:47.774793-04:00",
+          updatedAt: "2026-03-08T15:17:47.774793-04:00",
+        })}\n`,
+      );
+      const project = manager.projectManager.addProject(projectDir);
+
+      const res = await request(server, "DELETE", `/api/projects/${project.id}/tasks/relayul2`, {
+        headers: { Cookie: `session=${session.id}` },
+      });
+
+      assert.equal(res.status, 204);
+
+      const listRes = await request(server, "GET", `/api/projects/${project.id}/tasks`, {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(listRes.status, 200);
+      assert.deepEqual(listRes.body.tasks, []);
     });
   });
 });

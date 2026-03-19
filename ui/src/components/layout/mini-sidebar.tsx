@@ -1,21 +1,23 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useParams, useLocation } from "@tanstack/react-router";
-import { LogOut, Moon, PanelLeftOpen, Plus, SquareTerminal, Sun } from "lucide-react";
-import { useWSMethods, useWSState } from "../../context/websocket-context";
-import { useAuthContext } from "../../context/auth-context";
-import { useTheme } from "../../context/theme-context";
-import { RelayLogo } from "../ui/relay-logo";
-import { Tooltip } from "../ui/tooltip";
-import { ProviderLogo } from "../chat/input-area/shared";
-import { formatTimeAgo } from "../../lib/utils";
-import { fetchProjectIcons } from "../../lib/api";
-import { useProjectOrder } from "../../hooks/use-project-order";
-import type { InstanceInfo } from "@shared/types";
+import { LogOut, Moon, PanelLeftOpen, Plus, Sun } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { RelayLogo } from "@/components/ui/relay-logo";
+import { Tooltip } from "@/components/ui/tooltip";
+import { SidebarItem } from "@/components/layout/sidebar-item";
+import { useAuthContext } from "@/context/auth-context";
+import { useTheme } from "@/context/theme-context";
+import { useWSMethods, useWSState } from "@/context/websocket-context";
+import { useActionToasts } from "@/hooks/use-action-toasts";
+import { useProjectOrder } from "@/hooks/use-project-order";
+import { fetchProjectIcons } from "@/lib/api";
+import { getInstanceProjectRouteId, getProjectName } from "@/lib/project-route";
+import type { InstanceInfo, Project } from "@shared/types";
 
 /** Extract project groups sorted by custom project order, sessions within are MRU. */
 function useProjectGroups() {
   const { instances } = useWSState();
-  const { sortEntries } = useProjectOrder();
+  const { sortEntries, syncVisibleDirs } = useProjectOrder();
   const groupMap = new Map<string, InstanceInfo[]>();
   for (const inst of instances) {
     const dir = inst.workingDirectory;
@@ -25,32 +27,29 @@ function useProjectGroups() {
   for (const group of groupMap.values()) {
     group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
+  useEffect(() => {
+    syncVisibleDirs([...groupMap.keys()]);
+  }, [instances, syncVisibleDirs]);
   // Sort projects by custom order (falls back to alphabetical for new projects)
   return sortEntries([...groupMap.entries()]);
 }
 
 // ── Project flyout (sessions for one project) ────────────────────────
 
-function statusDotClass(instance: InstanceInfo): string {
-  if (instance.pendingTool) return "animate-pulse-dot bg-warning";
-  if (instance.status === "processing") return "animate-pulse-dot bg-warning";
-  if (instance.status === "error") return "bg-error";
-  if (instance.status === "stopped") return "bg-muted/40";
-  return "bg-accent/60";
-}
-
 function ProjectFlyout({
   dir,
+  projectId,
   instances,
   currentId,
   onNewChat,
 }: {
   dir: string;
+  projectId: string;
   instances: InstanceInfo[];
   currentId?: string;
   onNewChat: (dir: string) => void;
 }) {
-  const name = dir.split("/").pop() || dir;
+  const name = getProjectName(dir);
 
   return (
     <div className="flex max-h-full flex-col overflow-hidden">
@@ -58,72 +57,36 @@ function ProjectFlyout({
       <div className="flex items-center justify-between border-b border-border/50 px-3 py-2.5">
         <Link
           to="/projects/$projectId"
-          params={{ projectId: name }}
+          params={{ projectId }}
           className="min-w-0 truncate text-[0.8125rem] font-semibold text-text-bright transition-colors hover:text-accent"
         >
           {name}
         </Link>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => onNewChat(dir)}
-          className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          className="hover:!bg-accent/10 hover:!text-accent"
         >
           <Plus size={12} strokeWidth={2.5} />
           New
-        </button>
+        </Button>
       </div>
 
       {/* Session list */}
-      <div className="flex-1 overflow-y-auto px-1.5 py-1">
+      <div className="flex-1 overflow-y-auto px-1 py-1">
         {instances.length === 0 ? (
           <div className="px-2 py-4 text-center text-[0.75rem] text-muted">No sessions</div>
         ) : (
-          instances.map((inst) => {
-            const isActive = inst.id === currentId;
-            const projectId = inst.workingDirectory.split("/").pop() || inst.workingDirectory;
-            return (
-              <Link
-                key={inst.id}
-                to="/projects/$projectId/chats/$chatId"
-                params={{ projectId, chatId: inst.id }}
-                className={`flex items-start gap-2 rounded-lg px-2.5 py-2 transition-colors ${
-                  isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"
-                }`}
-              >
-                {/* Status dot */}
-                <span className="mt-1.5 flex h-3 w-3 shrink-0 items-center justify-center">
-                  {inst.external && (inst.status === "idle" || inst.status === "processing") ? (
-                    <SquareTerminal size={11} strokeWidth={2} className="text-muted" />
-                  ) : inst.status !== "stopped" ? (
-                    <span className={`h-[6px] w-[6px] rounded-full ${statusDotClass(inst)}`} />
-                  ) : null}
-                </span>
-                {/* Name + meta */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="min-w-0 truncate text-[0.8125rem] font-medium leading-tight text-text-bright">
-                      {inst.name}
-                    </span>
-                    <ProviderLogo
-                      provider={inst.provider}
-                      className="h-3 w-3 shrink-0 text-muted/50"
-                      muted
-                    />
-                  </div>
-                  {inst.lastMessage && (
-                    <div className="mt-0.5 truncate text-[0.6875rem] leading-tight text-muted">
-                      {inst.lastMessage.text}
-                    </div>
-                  )}
-                </div>
-                {/* Timestamp */}
-                {inst.lastMessage && (
-                  <span className="shrink-0 pt-0.5 text-[0.625rem] text-muted/60">
-                    {formatTimeAgo(inst.lastMessage.timestamp)}
-                  </span>
-                )}
-              </Link>
-            );
-          })
+          instances.map((inst) => (
+            <SidebarItem
+              key={inst.id}
+              instance={inst}
+              isActive={inst.id === currentId}
+              to="/projects/$projectId/chats/$chatId"
+              params={{ projectId: getInstanceProjectRouteId(inst), chatId: inst.id }}
+            />
+          ))
         )}
       </div>
     </div>
@@ -149,7 +112,7 @@ function ProjectIcon({
   onHover: () => void;
   onLeave: () => void;
 }) {
-  const name = dir.split("/").pop() || dir;
+  const name = getProjectName(dir);
   const initial = name.charAt(0).toUpperCase();
   const [imgError, setImgError] = useState(false);
   const showIcon = iconPath && !imgError;
@@ -159,9 +122,9 @@ function ProjectIcon({
       type="button"
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
-      className={`relative flex h-9 w-9 items-center justify-center rounded-lg text-[0.8125rem] font-bold transition-colors ${
+      className={`relative flex h-9 w-9 items-center justify-center rounded-lg text-[0.8125rem] font-bold transition-all duration-150 ${
         isActive || isHovered
-          ? "bg-accent/15 text-accent"
+          ? "bg-accent/15 text-accent shadow-sm shadow-accent/10"
           : "text-muted hover:bg-surface-hover hover:text-text"
       }`}
     >
@@ -175,7 +138,15 @@ function ProjectIcon({
           onError={() => setImgError(true)}
         />
       ) : (
-        initial
+        <span
+          className={`flex h-6 w-6 items-center justify-center rounded-md text-[0.8125rem] font-bold uppercase transition-colors ${
+            isActive || isHovered
+              ? "bg-accent/10 text-accent"
+              : "bg-surface-hover text-text-bright/75"
+          }`}
+        >
+          {initial}
+        </span>
       )}
       {hasActivity && (
         <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 animate-pulse-dot rounded-full bg-warning" />
@@ -187,8 +158,9 @@ function ProjectIcon({
 // ── Main component ───────────────────────────────────────────────────
 
 export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
-  const { isConnected } = useWSState();
+  const { isConnected, projects } = useWSState();
   const { send } = useWSMethods();
+  const { trackInstanceCreate } = useActionToasts();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
   const { chatId: currentId, projectId: currentProjectId } = useParams({ strict: false }) as {
@@ -197,6 +169,10 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   };
   const location = useLocation();
   const groups = useProjectGroups();
+  const projectByDir = new Map<string, Project>();
+  for (const project of projects) {
+    projectByDir.set(project.directory, project);
+  }
 
   // Fetch project icons once on mount
   const [projectIcons, setProjectIcons] = useState<Record<string, string>>({});
@@ -208,13 +184,13 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
 
   // Which project flyout is open (by dir path), null = none
   const [flyoutDir, setFlyoutDir] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track the icon element's vertical position for flyout alignment
   const iconRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [flyoutTop, setFlyoutTop] = useState(0);
 
   const openFlyout = useCallback((dir: string) => {
-    clearTimeout(timerRef.current);
+    if (timerRef.current) clearTimeout(timerRef.current);
     const el = iconRefs.current.get(dir);
     if (el) {
       setFlyoutTop(el.getBoundingClientRect().top);
@@ -227,10 +203,15 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   }, []);
 
   const keepFlyout = useCallback(() => {
-    clearTimeout(timerRef.current);
+    if (timerRef.current) clearTimeout(timerRef.current);
   }, []);
 
-  useEffect(() => () => clearTimeout(timerRef.current), []);
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
 
   // Close flyout on navigation
   useEffect(() => {
@@ -238,6 +219,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   }, [location.pathname]);
 
   const handleNewChat = (dir: string) => {
+    trackInstanceCreate(dir);
     send({ type: "create_instance", workingDirectory: dir });
     setFlyoutDir(null);
   };
@@ -247,7 +229,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   return (
     <div className="relative flex h-full shrink-0">
       {/* Narrow icon rail */}
-      <aside className="flex h-full w-12 flex-col items-center border-r border-border bg-surface py-3">
+      <aside className="flex h-full w-12 flex-col items-center border-r border-border/70 bg-surface py-3">
         {/* Logo */}
         <Link to="/" className="mb-3 rounded-md transition-opacity hover:opacity-80">
           <RelayLogo size={24} connected={isConnected} />
@@ -255,12 +237,9 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
 
         {/* Expand button */}
         <Tooltip content="Expand sidebar" side="right">
-          <button
-            onClick={onExpand}
-            className="mb-2 flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
+          <Button variant="icon" onClick={onExpand} className="mb-2">
             <PanelLeftOpen size={15} strokeWidth={2} />
-          </button>
+          </Button>
         </Tooltip>
 
         <div className="mx-auto mb-2 h-px w-6 bg-border/60" />
@@ -268,8 +247,8 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
         {/* Project icons */}
         <div className="flex flex-1 flex-col items-center gap-1 overflow-y-auto">
           {groups.map(([dir]) => {
-            const name = dir.split("/").pop() || dir;
-            const isActive = currentProjectId === name;
+            const projectId = projectByDir.get(dir)?.id ?? getProjectName(dir);
+            const isActive = currentProjectId === projectId;
             const hasActivity =
               groups.find(([d]) => d === dir)?.[1].some((i) => i.status === "processing") ?? false;
 
@@ -298,20 +277,14 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
         {/* Footer icons */}
         <div className="mt-2 flex flex-col items-center gap-1">
           <Tooltip content={theme === "dark" ? "Light mode" : "Dark mode"} side="right">
-            <button
-              onClick={toggleTheme}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
-            >
+            <Button variant="icon" onClick={toggleTheme}>
               {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-            </button>
+            </Button>
           </Tooltip>
           <Tooltip content="Sign out" side="right">
-            <button
-              onClick={logout}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
-            >
+            <Button variant="icon" onClick={logout}>
               <LogOut size={13} />
-            </button>
+            </Button>
           </Tooltip>
         </div>
       </aside>
@@ -319,7 +292,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
       {/* Per-project flyout */}
       {flyoutGroup && (
         <div
-          className="fixed left-12 z-50 flex w-64 animate-slide-in-left flex-col overflow-hidden rounded-r-xl border border-l-0 border-border bg-surface shadow-xl"
+          className="glass fixed left-12 z-50 flex w-64 animate-slide-in-left flex-col overflow-hidden rounded-r-xl border-l-0"
           style={{
             top: Math.max(8, Math.min(flyoutTop - 8, window.innerHeight - 400)),
             maxHeight: "min(80vh, 500px)",
@@ -329,6 +302,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
         >
           <ProjectFlyout
             dir={flyoutGroup[0]}
+            projectId={projectByDir.get(flyoutGroup[0])?.id ?? getProjectName(flyoutGroup[0])}
             instances={flyoutGroup[1]}
             currentId={currentId}
             onNewChat={handleNewChat}

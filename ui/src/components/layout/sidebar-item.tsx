@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Columns2, GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "lucide-react";
-import { Menu } from "../ui/menu";
-import { Tooltip } from "../ui/tooltip";
-import { formatTimeAgo } from "../../lib/utils";
+import { Menu } from "@/components/ui/menu";
+import { Tooltip } from "@/components/ui/tooltip";
+import { getInstanceProjectRouteId } from "@/lib/project-route";
+import { formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
 interface SidebarItemProps {
@@ -13,7 +14,7 @@ interface SidebarItemProps {
   parentInstance?: { id: string; name: string };
   to: string;
   params: Record<string, string>;
-  onDelete?: () => void;
+  onDelete?: (instance: Pick<InstanceInfo, "id" | "name">) => void;
   deleteDisabled?: boolean;
   onRename?: (name: string) => void;
   onMerge?: () => void;
@@ -34,7 +35,7 @@ export function SidebarItem({
   onMerge,
   activeChatId,
 }: SidebarItemProps) {
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
@@ -106,7 +107,7 @@ export function SidebarItem({
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
-      className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-3 py-1.5 transition-colors ${
+      className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-3 py-1.5 transition-all duration-150 ${
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
     >
@@ -147,11 +148,12 @@ export function SidebarItem({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                const projectId =
-                  instance.workingDirectory.split("/").pop() || instance.workingDirectory;
                 navigate({
                   to: "/projects/$projectId/chats/$chatId",
-                  params: { projectId, chatId: parentInstance.id },
+                  params: {
+                    projectId: getInstanceProjectRouteId(instance),
+                    chatId: parentInstance.id,
+                  },
                 });
               }}
               className="mt-0.5 max-w-full truncate text-[0.6875rem] leading-tight text-muted transition-colors hover:text-accent"
@@ -215,10 +217,7 @@ export function SidebarItem({
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
                         navigate({
-                          search: (prev: Record<string, unknown>) => ({
-                            ...prev,
-                            split: instance.id,
-                          }),
+                          search: { split: instance.id },
                         });
                       }}
                     >
@@ -232,7 +231,7 @@ export function SidebarItem({
                       disabled={deleteDisabled}
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
-                        onDelete();
+                        onDelete({ id: instance.id, name: instance.name });
                       }}
                     >
                       <Trash2 size={13} strokeWidth={2} />

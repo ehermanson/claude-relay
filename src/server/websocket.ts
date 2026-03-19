@@ -133,9 +133,19 @@ export function createWebSocketServer(
     broadcast({ type: "scan_complete" });
   });
 
-  instanceManager.on("directory:visibility", () => {
-    broadcast({ type: "instance_list", instances: instanceManager.listInstances() });
-    broadcast({ type: "hidden_directories", directories: instanceManager.getHiddenDirectories() });
+  instanceManager.on("projects:changed", () => {
+    broadcast({
+      type: "instance_list",
+      instances: instanceManager.listInstances(),
+    });
+    broadcast({
+      type: "projects_changed",
+      projects: instanceManager.projectManager.listProjects(),
+    });
+  });
+
+  instanceManager.on("tasks:changed", (projectId: string, tasks) => {
+    broadcast({ type: "tasks_changed", projectId, tasks });
   });
 
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
@@ -158,15 +168,15 @@ export function createWebSocketServer(
       alive.set(ws, true);
     });
 
-    // Send connected + current instance list
+    // Send connected + current state
     sendMessage(ws, { type: "connected" });
     sendMessage(ws, {
       type: "instance_list",
       instances: instanceManager.listInstances(),
     });
     sendMessage(ws, {
-      type: "hidden_directories",
-      directories: instanceManager.getHiddenDirectories(),
+      type: "projects_changed",
+      projects: instanceManager.projectManager.listProjects(),
     });
     if (instanceManager.scanComplete) {
       sendMessage(ws, { type: "scan_complete" });
@@ -345,16 +355,6 @@ export function createWebSocketServer(
             break;
           }
 
-          case "hide_directory": {
-            instanceManager.hideDirectory(message.path);
-            break;
-          }
-
-          case "unhide_directory": {
-            instanceManager.unhideDirectory(message.path);
-            break;
-          }
-
           case "create_space": {
             try {
               const space = instanceManager
@@ -411,7 +411,6 @@ export function createWebSocketServer(
             }
             break;
           }
-
           case "merge_instance": {
             try {
               const { targetBranch } = instanceManager.mergeInstance(message.instanceId);

@@ -1,17 +1,18 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Check, X } from "lucide-react";
 import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { Collapsible } from "../ui/collapsible";
+import type { ChatItem } from "@/hooks/use-instance-messages";
 import hljs from "../../lib/markdown";
 import { escapeHtml, formatTokens, formatModel, formatTimestamp } from "../../lib/utils";
 import type { TaskItem, FileChange, SessionStats, HistoryEntry } from "@shared/types";
-import type { ChatItem } from "../../hooks/use-instance-messages";
-
-const DiffDrawer = lazy(() => import("./diff-drawer").then((m) => ({ default: m.DiffDrawer })));
 import { MarkdownContent } from "./markdown-content";
 import { ChevronIcon, FilesPanel, relativePath } from "./files-panel";
+
+const DiffDrawer = lazy(() => import("./diff-drawer").then((m) => ({ default: m.DiffDrawer })));
 
 const PlanPanel = memo(function PlanPanel({ content }: { content: string }) {
   return (
@@ -26,18 +27,7 @@ function StatusIcon({ status }: { status: TaskItem["status"] }) {
     case "completed":
       return (
         <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-accent-dim text-accent">
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <Check size={10} strokeWidth={3} />
         </div>
       );
     case "in_progress":
@@ -615,6 +605,7 @@ interface SidecarProps {
   rawHistory?: HistoryEntry[] | null;
   provider?: string;
   preferredModel?: string;
+  /** @deprecated Currently unused but kept for the custom comparator. */
   instanceName?: string;
   instanceId?: string;
   createdAt?: number;
@@ -738,19 +729,7 @@ export const Sidecar = memo(
             )}
             {isMobileOverlay && onClose && (
               <Button variant="icon" size="icon-sm" onClick={onClose} className="mr-2 shrink-0">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+                <X size={14} />
               </Button>
             )}
           </div>

@@ -29,7 +29,7 @@ export function Tooltip({
         )}
         <BaseTooltip.Portal>
           <BaseTooltip.Positioner side={side} align={align} sideOffset={6}>
-            <BaseTooltip.Popup className="z-[9999] max-w-xs rounded-lg border border-border bg-surface-raised px-2.5 py-1.5 text-[0.75rem] leading-snug text-text shadow-lg animate-fade-in">
+            <BaseTooltip.Popup className="glass z-[9999] max-w-xs rounded-lg px-2.5 py-1.5 text-[0.75rem] leading-snug text-text animate-fade-in">
               {content}
             </BaseTooltip.Popup>
           </BaseTooltip.Positioner>

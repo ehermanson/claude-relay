@@ -1,4 +1,5 @@
 import { useParams, Link } from "@tanstack/react-router";
+import { ChevronLeft } from "lucide-react";
 import { useProjectContext } from "../context/project-context";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import { Tooltip } from "../components/ui/tooltip";
@@ -14,12 +15,13 @@ function formatDate(epoch: number): string {
 }
 
 export function PlanPage() {
-  const { projectId, planSlug } = useParams({ strict: false }) as {
+  const { projectId: routeProjectId, planSlug } = useParams({ strict: false }) as {
     projectId: string;
     planSlug: string;
   };
 
   const { artifacts } = useProjectContext();
+  const projectId = artifacts.projectId || routeProjectId;
 
   const plan = artifacts.plans.find((p) => p.slug === planSlug);
   const dirName = artifacts.directory.split("/").pop() || projectId;
@@ -48,18 +50,7 @@ export function PlanPage() {
             params={{ projectId }}
             className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
+            <ChevronLeft size={16} />
           </Link>
         </Tooltip>
         <div className="min-w-0 flex-1">

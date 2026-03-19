@@ -29,6 +29,8 @@
     "start": "node dist/bin.js",
     "dev": "tsc && concurrently -n srv,tsc,ui \"DEV=1 node --watch dist/bin.js\" \"tsc --watch --preserveWatchOutput\" \"cd ui && npm run dev\"",
     "test": "node --test test/*.test.js",
+    "typecheck": "tsc --noEmit && npm --prefix ui run typecheck",
+    "typecheck:ui": "npm --prefix ui run typecheck",
     "fmt": "oxfmt src/ ui/src/",
     "fmt:check": "oxfmt --check src/ ui/src/",
     "lint": "oxlint src/ ui/src/",

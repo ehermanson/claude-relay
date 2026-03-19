@@ -406,7 +406,7 @@ export function SpaceView() {
         <Dialog.Content maxWidth="max-w-md">
           {mergeDialog?.phase === "merging" && (
             <div className="flex flex-col items-center gap-3 py-4">
-              <Spinner size="md" />
+              <Spinner size={18} />
               <p className="text-sm text-muted">Merging space into default branch...</p>
             </div>
           )}

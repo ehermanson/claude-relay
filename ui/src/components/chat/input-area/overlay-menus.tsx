@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
-import { Badge } from "../../ui/badge";
+import type { MentionEntry, SlashMenuItem } from "@/components/chat/input-area/shared";
+import { Badge } from "@/components/ui/badge";
 import {
   Command,
   CommandEmpty,
@@ -7,10 +8,8 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-  CommandShortcut,
-} from "../../ui/command";
-import { FileIcon } from "../../ui/file-icon";
-import type { MentionEntry, SlashMenuItem } from "./shared";
+} from "@/components/ui/command";
+import { FileIcon } from "@/components/ui/file-icon";
 
 export function MentionMenu({
   isMobile,
@@ -29,7 +28,7 @@ export function MentionMenu({
 }) {
   return (
     <div
-      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[7rem]"}`}
+      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[5.5rem]"}`}
     >
       <div className="pointer-events-auto overflow-hidden rounded-2xl border border-border/80 bg-surface-raised/95 shadow-lg backdrop-blur">
         <Command
@@ -99,7 +98,7 @@ export function SlashMenu({
 }) {
   return (
     <div
-      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[7rem]"}`}
+      className={`pointer-events-none absolute inset-x-2 z-20 ${isMobile ? "bottom-24" : "bottom-[5.5rem]"}`}
     >
       <div className="pointer-events-auto overflow-hidden rounded-2xl border border-border/80 bg-surface-raised/95 shadow-lg backdrop-blur">
         <Command

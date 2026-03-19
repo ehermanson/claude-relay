@@ -162,13 +162,23 @@ export function useProjectOrder() {
         .filter((d) => !storedSet.has(d))
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
+      return [...known, ...unknown];
+    },
+    [order],
+  );
+
+  const syncVisibleDirs = useCallback(
+    (dirs: string[]) => {
+      const storedSet = new Set(order);
+      const unknown = dirs
+        .filter((d) => !storedSet.has(d))
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+
       // Preserve directories that are temporarily absent so we don't wipe the
       // saved order during initial empty renders before websocket sync finishes.
       if (unknown.length > 0) {
         setOrder([...order, ...unknown]);
       }
-
-      return [...known, ...unknown];
     },
     [order, setOrder],
   );
@@ -191,6 +201,7 @@ export function useProjectOrder() {
     moveUp,
     moveDown,
     moveToBottom,
+    syncVisibleDirs,
     collapsed,
     toggleCollapsed,
     setCollapsed,

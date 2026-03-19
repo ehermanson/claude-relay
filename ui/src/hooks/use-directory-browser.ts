@@ -1,9 +1,10 @@
 import { useState, useRef } from "react";
 import { browsePath, fetchDirectories } from "../lib/api";
 
-export function useDirectoryBrowser() {
+export function useDirectoryBrowser(opts?: { gitOnly?: boolean }) {
   const [homeDir, setHomeDir] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [gitRepos, setGitRepos] = useState<Set<string>>(new Set());
   const [activeIndex, setActiveIndex] = useState(-1);
   const [isOpen, setIsOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -26,9 +27,10 @@ export function useDirectoryBrowser() {
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
-      const data = await browsePath(target);
+      const data = await browsePath(target, { gitOnly: opts?.gitOnly });
       if (!homeDir && data.home) setHomeDir(data.home);
       setSuggestions(data.directories || []);
+      setGitRepos(new Set(data.gitRepos ?? []));
       setActiveIndex(-1);
       setIsOpen((data.directories || []).length > 0);
     }, 100);
@@ -42,6 +44,7 @@ export function useDirectoryBrowser() {
   return {
     homeDir,
     suggestions,
+    gitRepos,
     activeIndex,
     setActiveIndex,
     isOpen,

@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import type { TaskItem } from "@shared/types";
 
 function StatusIcon({ status }: { status: TaskItem["status"] }) {
@@ -5,18 +6,7 @@ function StatusIcon({ status }: { status: TaskItem["status"] }) {
     case "completed":
       return (
         <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-accent-dim text-accent">
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <Check size={10} strokeWidth={3} />
         </div>
       );
     case "in_progress":

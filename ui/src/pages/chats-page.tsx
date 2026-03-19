@@ -1,10 +1,12 @@
-import { useMemo } from "react";
 import { useParams, Link } from "@tanstack/react-router";
-import { useWSState } from "../context/websocket-context";
-import { useMediaQuery } from "../hooks/use-media-query";
-import { Tooltip } from "../components/ui/tooltip";
-import { Badge } from "../components/ui/badge";
-import { formatTimeAgo, formatTokens, formatModel } from "../lib/utils";
+import { GitBranch } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useProjectContext } from "@/context/project-context";
+import { useWSState } from "@/context/websocket-context";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { instanceMatchesProject } from "@/lib/project-route";
+import { formatModel, formatTimeAgo, formatTokens } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
 function StatusDot({ instance }: { instance: InstanceInfo }) {
@@ -41,7 +43,7 @@ function SessionCard({
     <Link
       to="/projects/$projectId/chats/$chatId"
       params={{ projectId, chatId: instance.id }}
-      className="group flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 transition-colors hover:border-accent/30 hover:bg-surface-hover"
+      className="group flex items-center gap-3 rounded-lg border border-border/80 bg-surface px-4 py-3 transition-all duration-150 hover:border-accent/30 hover:bg-surface-hover hover:shadow-sm"
     >
       {/* Status dot */}
       <StatusDot instance={instance} />
@@ -73,22 +75,7 @@ function SessionCard({
       {/* Git branch badge */}
       {instance.gitBranch && (
         <Badge variant="default" className="hidden shrink-0 sm:flex">
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="mr-1"
-          >
-            <line x1="6" y1="3" x2="6" y2="15" />
-            <circle cx="18" cy="6" r="3" />
-            <circle cx="6" cy="18" r="3" />
-            <path d="M18 9a9 9 0 0 1-9 9" />
-          </svg>
+          <GitBranch size={10} className="mr-1" />
           <span className="max-w-[120px] truncate">{instance.gitBranch}</span>
         </Badge>
       )}
@@ -141,40 +128,46 @@ function SessionCard({
 }
 
 export function ChatsPage() {
-  const { projectId } = useParams({ strict: false }) as { projectId: string };
+  const { projectId: routeProjectId } = useParams({ strict: false }) as { projectId: string };
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { instances } = useWSState();
+  const { artifacts } = useProjectContext();
+  const projectId = artifacts.projectId || routeProjectId;
 
   // Filter instances for this project (same matching logic as sidebar)
-  const projectInstances = useMemo(() => {
-    return instances
-      .filter((inst) => {
-        const dirName = inst.workingDirectory.split("/").pop();
-        return dirName === projectId;
-      })
-      .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
-  }, [instances, projectId]);
+  const projectInstances = instances
+    .filter((inst) => instanceMatchesProject(inst, projectId))
+    .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
 
   // Build a lookup for parent session names
-  const parentNames = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const inst of projectInstances) {
-      if (inst.parentSessionId) {
-        const parent = instances.find((i) => i.sessionId === inst.parentSessionId);
-        if (parent) map.set(inst.id, parent.name);
-      }
+  const parentNames = new Map<string, string>();
+  for (const inst of projectInstances) {
+    if (inst.parentSessionId) {
+      const parent = instances.find((i) => i.sessionId === inst.parentSessionId);
+      if (parent) parentNames.set(inst.id, parent.name);
     }
-    return map;
-  }, [projectInstances, instances]);
+  }
 
   return (
     <div className="flex-1 overflow-y-auto">
       {projectInstances.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="mb-1 text-sm text-muted">No chats found</p>
-          <span className="text-xs text-muted opacity-60">
-            Chats for this project will appear here
-          </span>
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-surface-hover text-muted">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          </div>
+          <p className="mb-1 text-sm font-medium text-text">No chats yet</p>
+          <span className="text-xs text-muted">Chats for this project will appear here</span>
         </div>
       ) : (
         <div className="mx-auto px-6 py-4">
