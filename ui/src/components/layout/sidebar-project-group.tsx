@@ -411,9 +411,10 @@ export function SidebarProjectGroup({
         </div>
 
         <Collapsible.Content>
-          {spaces && spaces.filter((space) => !space.isDefault).length > 0 && (
-            <div className="pl-4 pr-2 pb-1">
-              {spaces
+          <div className="px-2">
+            {spaces &&
+              spaces.filter((space) => !space.isDefault).length > 0 &&
+              spaces
                 .filter((space) => !space.isDefault)
                 .map((space) => (
                   <SidebarSpaceGroup
@@ -425,10 +426,7 @@ export function SidebarProjectGroup({
                     onDelete={onDeleteSpace ?? (() => {})}
                   />
                 ))}
-            </div>
-          )}
 
-          <div className="px-2">
             {visible.map(renderSessionItem)}
 
             {hiddenCount > 0 && (

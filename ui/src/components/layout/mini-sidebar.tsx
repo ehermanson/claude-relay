@@ -10,26 +10,37 @@ import { useTheme } from "@/context/theme-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useProjectOrder } from "@/hooks/use-project-order";
-import { fetchProjectIcons } from "@/lib/api";
+import { fetchProjectIcons, fetchSpaces } from "@/lib/api";
 import { getInstanceProjectRouteId, getProjectName } from "@/lib/project-route";
-import type { InstanceInfo, Project } from "@shared/types";
+import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 
 /** Extract project groups sorted by custom project order, sessions within are MRU. */
-function useProjectGroups() {
+function useProjectGroups(projects: Project[]) {
   const { instances } = useWSState();
   const { sortEntries, syncVisibleDirs } = useProjectOrder();
+  const projectById = new Map(projects.map((project) => [project.id, project]));
+  const registeredDirs = new Set(projects.map((project) => project.directory));
   const groupMap = new Map<string, InstanceInfo[]>();
   for (const inst of instances) {
-    const dir = inst.workingDirectory;
+    const dir =
+      (inst.projectId ? projectById.get(inst.projectId)?.directory : undefined) ??
+      inst.originalDirectory ??
+      inst.workingDirectory;
+    if (registeredDirs.size > 0 && !registeredDirs.has(dir)) continue;
     if (!groupMap.has(dir)) groupMap.set(dir, []);
     groupMap.get(dir)!.push(inst);
+  }
+  for (const project of projects) {
+    if (!groupMap.has(project.directory)) {
+      groupMap.set(project.directory, []);
+    }
   }
   for (const group of groupMap.values()) {
     group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
   useEffect(() => {
     syncVisibleDirs([...groupMap.keys()]);
-  }, [instances, syncVisibleDirs]);
+  }, [instances, projects, syncVisibleDirs]);
   // Sort projects by custom order (falls back to alphabetical for new projects)
   return sortEntries([...groupMap.entries()]);
 }
@@ -40,16 +51,22 @@ function ProjectFlyout({
   dir,
   projectId,
   instances,
+  spaces,
   currentId,
+  activeSpaceId,
   onNewChat,
 }: {
   dir: string;
   projectId: string;
   instances: InstanceInfo[];
+  spaces?: SpaceInfo[];
   currentId?: string;
+  activeSpaceId?: string;
   onNewChat: (dir: string) => void;
 }) {
   const name = getProjectName(dir);
+  const mainInstances = instances.filter((inst) => !inst.spaceId);
+  const visibleSpaces = spaces?.filter((space) => !space.isDefault) ?? [];
 
   return (
     <div className="flex max-h-full flex-col overflow-hidden">
@@ -75,10 +92,43 @@ function ProjectFlyout({
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-1 py-1">
-        {instances.length === 0 ? (
+        {visibleSpaces.length > 0 && (
+          <div className="px-2 pb-2">
+            <div className="px-2 py-1 text-[0.625rem] font-semibold uppercase tracking-[0.08em] text-muted/70">
+              Spaces
+            </div>
+            <div className="space-y-0.5">
+              {visibleSpaces.map((space) => (
+                <Link
+                  key={space.id}
+                  to="/projects/$projectId/spaces/$spaceId"
+                  params={{ projectId, spaceId: space.id }}
+                  className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-[0.75rem] transition-colors ${
+                    activeSpaceId === space.id
+                      ? "bg-accent-dim text-accent"
+                      : "text-text hover:bg-surface-hover"
+                  }`}
+                >
+                  <span className="truncate font-medium">{space.name}</span>
+                  {space.gitBranch && (
+                    <span className="truncate text-[0.625rem] text-muted">{space.gitBranch}</span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="px-2 pb-1">
+          <div className="px-2 py-1 text-[0.625rem] font-semibold uppercase tracking-[0.08em] text-muted/70">
+            Chats
+          </div>
+        </div>
+
+        {mainInstances.length === 0 ? (
           <div className="px-2 py-4 text-center text-[0.75rem] text-muted">No sessions</div>
         ) : (
-          instances.map((inst) => (
+          mainInstances.map((inst) => (
             <SidebarItem
               key={inst.id}
               instance={inst}
@@ -159,20 +209,26 @@ function ProjectIcon({
 
 export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   const { isConnected, projects } = useWSState();
-  const { send } = useWSMethods();
+  const { send, addMessageHandler } = useWSMethods();
   const { trackInstanceCreate } = useActionToasts();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
-  const { chatId: currentId, projectId: currentProjectId } = useParams({ strict: false }) as {
+  const {
+    chatId: currentId,
+    projectId: currentProjectId,
+    spaceId: currentSpaceId,
+  } = useParams({ strict: false }) as {
     chatId?: string;
     projectId?: string;
+    spaceId?: string;
   };
   const location = useLocation();
-  const groups = useProjectGroups();
+  const groups = useProjectGroups(projects);
   const projectByDir = new Map<string, Project>();
   for (const project of projects) {
     projectByDir.set(project.directory, project);
   }
+  const [projectSpaces, setProjectSpaces] = useState<Record<string, SpaceInfo[]>>({});
 
   // Fetch project icons once on mount
   const [projectIcons, setProjectIcons] = useState<Record<string, string>>({});
@@ -181,6 +237,39 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
       .then(setProjectIcons)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      projects.map(async (project) => {
+        try {
+          return [project.directory, await fetchSpaces(project.id)] as const;
+        } catch {
+          return [project.directory, []] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!cancelled) {
+        setProjectSpaces(Object.fromEntries(entries));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projects]);
+
+  useEffect(() => {
+    return addMessageHandler((message) => {
+      if (message.type !== "space_list") {
+        return;
+      }
+      setProjectSpaces((current) => ({
+        ...current,
+        [message.projectDirectory]: message.spaces,
+      }));
+    });
+  }, [addMessageHandler]);
 
   // Which project flyout is open (by dir path), null = none
   const [flyoutDir, setFlyoutDir] = useState<string | null>(null);
@@ -304,7 +393,9 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
             dir={flyoutGroup[0]}
             projectId={projectByDir.get(flyoutGroup[0])?.id ?? getProjectName(flyoutGroup[0])}
             instances={flyoutGroup[1]}
+            spaces={projectSpaces[flyoutGroup[0]]}
             currentId={currentId}
+            activeSpaceId={currentSpaceId}
             onNewChat={handleNewChat}
           />
         </div>

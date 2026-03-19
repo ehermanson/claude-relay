@@ -33,7 +33,8 @@ function ProjectCard({
   const activeCount = instances.filter(
     (i) => i.status === "processing" || i.status === "idle",
   ).length;
-  const lastActivity = Math.max(...instances.map((i) => i.lastActivityAt));
+  const lastActivity =
+    instances.length > 0 ? Math.max(...instances.map((i) => i.lastActivityAt)) : null;
   const [imgError, setImgError] = useState(false);
   const showIcon = iconPath && !imgError;
 
@@ -80,7 +81,7 @@ function ProjectCard({
         <div className="min-w-0 flex-1">
           <div className="truncate text-[0.875rem] font-semibold text-text-bright">{dirName}</div>
           <div className="text-[0.6875rem] text-muted">
-            last active: {formatTimeAgo(lastActivity)}
+            {lastActivity ? `last active: ${formatTimeAgo(lastActivity)}` : "No chats yet"}
           </div>
         </div>
 
@@ -207,18 +208,30 @@ export function Dashboard() {
     send({ type: "create_instance", workingDirectory });
   };
 
-  // Group instances by working directory
+  const projectById = new Map(projects.map((project) => [project.id, project]));
+  const registeredDirs = new Set(projects.map((project) => project.directory));
+
+  // Group instances by registered project directory, not worktree path
   const projectMap = new Map<string, InstanceInfo[]>();
   for (const inst of instances) {
-    const dir = inst.workingDirectory;
+    const dir =
+      (inst.projectId ? projectById.get(inst.projectId)?.directory : undefined) ??
+      inst.originalDirectory ??
+      inst.workingDirectory;
+    if (registeredDirs.size > 0 && !registeredDirs.has(dir)) continue;
     if (!projectMap.has(dir)) projectMap.set(dir, []);
     projectMap.get(dir)!.push(inst);
+  }
+  for (const project of projects) {
+    if (!projectMap.has(project.directory)) {
+      projectMap.set(project.directory, []);
+    }
   }
 
   const projectGroups = sortEntries(Array.from(projectMap.entries()));
   useEffect(() => {
     syncVisibleDirs([...projectMap.keys()]);
-  }, [instances, syncVisibleDirs]);
+  }, [instances, projects, syncVisibleDirs]);
   const projectByDir = new Map(projects.map((project) => [project.directory, project]));
 
   // Fetch artifacts for each project (for stats)
@@ -226,7 +239,9 @@ export function Dashboard() {
     () =>
       projectGroups.map(([dir, groupInstances]) => ({
         dir,
-        id: projectByDir.get(dir)?.id ?? getInstanceProjectRouteId(groupInstances[0]),
+        id:
+          projectByDir.get(dir)?.id ??
+          (groupInstances[0] ? getInstanceProjectRouteId(groupInstances[0]) : dir),
       })),
     [projectGroups, projectByDir],
   );
@@ -280,7 +295,9 @@ export function Dashboard() {
         {projectGroups.length > 0 && (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {projectGroups.map(([dir, groupInstances]) => {
-              const pid = projectByDir.get(dir)?.id ?? getInstanceProjectRouteId(groupInstances[0]);
+              const pid =
+                projectByDir.get(dir)?.id ??
+                (groupInstances[0] ? getInstanceProjectRouteId(groupInstances[0]) : dir);
               return (
                 <ProjectCard
                   key={dir}

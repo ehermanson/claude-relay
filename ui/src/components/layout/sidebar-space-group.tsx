@@ -6,7 +6,7 @@
  */
 
 import { useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { GitBranch, GitMerge, MoreVertical, Trash2 } from "lucide-react";
 import { Menu } from "../ui/menu";
 import type { SpaceInfo } from "@shared/types";
@@ -26,7 +26,6 @@ export function SidebarSpaceGroup({
   onComplete,
   onDelete,
 }: SidebarSpaceGroupProps) {
-  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const hasMenu = !space.isDefault;
 
@@ -34,7 +33,7 @@ export function SidebarSpaceGroup({
     <Link
       to="/projects/$projectId/spaces/$spaceId"
       params={{ projectId, spaceId: space.id }}
-      className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-3 py-1.5 transition-colors ${
+      className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-3 py-1.5 transition-all duration-150 ${
         isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"
       }`}
     >
@@ -63,7 +62,7 @@ export function SidebarSpaceGroup({
 
       {/* Context menu */}
       {hasMenu && (
-        <span className="relative ml-auto flex w-8 shrink-0 items-center justify-end self-start">
+        <span className="relative ml-auto flex w-12 shrink-0 items-center justify-end self-start">
           {menuOpen ? (
             <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
               <Menu.Trigger
@@ -71,7 +70,7 @@ export function SidebarSpaceGroup({
                   e.preventDefault();
                   e.stopPropagation();
                 }}
-                className="absolute inset-0 flex items-center justify-end rounded text-muted hover:!text-text"
+                className="absolute inset-0 flex items-start justify-end rounded pt-px text-muted hover:!text-text"
               >
                 <MoreVertical size={12} />
               </Menu.Trigger>
@@ -105,7 +104,7 @@ export function SidebarSpaceGroup({
                 e.stopPropagation();
                 setMenuOpen(true);
               }}
-              className="absolute inset-0 flex items-center justify-end rounded text-muted/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:!text-text"
+              className="absolute inset-0 flex items-start justify-end rounded pt-px text-muted/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:!text-text"
             >
               <MoreVertical size={12} />
             </button>

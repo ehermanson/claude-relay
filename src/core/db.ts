@@ -149,6 +149,7 @@ export class SessionDB {
   private stmtUpdateProjectActivity!: Database.Statement;
   private stmtUpdateSessionProjectId!: Database.Statement;
   private stmtUpdateManagedSessionProjectId!: Database.Statement;
+  private stmtUpdateSpaceProjectDirectory!: Database.Statement;
   private stmtGetDistinctSessionDirs!: Database.Statement;
   private stmtGetProjectModelStats!: Database.Statement;
   private stmtUpsertSpace!: Database.Statement;
@@ -719,6 +720,9 @@ export class SessionDB {
     this.stmtUpdateManagedSessionProjectId = this.db.prepare(
       "UPDATE managed_sessions SET project_id = ? WHERE working_directory = ?",
     );
+    this.stmtUpdateSpaceProjectDirectory = this.db.prepare(
+      "UPDATE spaces SET project_directory = ? WHERE project_directory = ?",
+    );
     this.stmtGetDistinctSessionDirs = this.db.prepare(`
       SELECT DISTINCT working_directory FROM (
         SELECT working_directory FROM sessions WHERE archived = 0
@@ -992,6 +996,10 @@ export class SessionDB {
   assignSessionsToProject(projectId: string | null, directory: string): void {
     this.stmtUpdateSessionProjectId.run(projectId, directory);
     this.stmtUpdateManagedSessionProjectId.run(projectId, directory);
+  }
+
+  reassignSpacesToProjectDirectory(nextDirectory: string, previousDirectory: string): void {
+    this.stmtUpdateSpaceProjectDirectory.run(nextDirectory, previousDirectory);
   }
 
   /** Get token usage breakdown by model for a project directory */

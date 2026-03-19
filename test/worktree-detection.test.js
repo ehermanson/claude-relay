@@ -38,6 +38,17 @@ function createTempRepo() {
   return dir;
 }
 
+function createSpaceWorktree(repoDir, shortId = "aabbccdd") {
+  const worktreePath = join(homedir(), ".relay", "worktrees", `space-${shortId}`);
+  const branchName = `relay-space/${shortId}`;
+  mkdirSync(join(homedir(), ".relay", "worktrees"), { recursive: true });
+  execSync(`git worktree add -b "${branchName}" "${worktreePath}" HEAD`, {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  return { worktreePath, branchName };
+}
+
 // =============================================================================
 // git.ts — isRelayWorktreePath / resolveWorktreeOrigin
 // =============================================================================
@@ -47,6 +58,7 @@ describe("isRelayWorktreePath", () => {
     const home = homedir();
     assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/8c625689`), true);
     assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/abcdef01`), true);
+    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/space-abcdef01`), true);
     assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/abcdef01/`), true);
   });
 
@@ -56,11 +68,10 @@ describe("isRelayWorktreePath", () => {
     assert.equal(isRelayWorktreePath("/home/user/.relay/uploads/file.png"), false);
   });
 
-  it("rejects paths with non-hex worktree IDs", () => {
+  it("rejects paths outside the relay worktree root", () => {
     const home = homedir();
-    // The regex requires hex chars [a-f0-9]+
-    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/ZZZZZZZZ`), false);
-    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/hello-world`), false);
+    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees/space-abcdef01/nested`), false);
+    assert.equal(isRelayWorktreePath(`${home}/.relay/worktrees`), false);
   });
 });
 
@@ -95,6 +106,16 @@ describe("resolveWorktreeOrigin", () => {
     const origin = resolveWorktreeOrigin(worktree.worktreePath);
     assert.ok(origin, "origin should be resolved");
     // realpathSync to handle any remaining symlinks
+    assert.equal(realpathSync(origin), realpathSync(repoDir));
+  });
+
+  it("resolves space worktree origins to the main repo directory", () => {
+    worktree = createSpaceWorktree(repoDir);
+    assert.ok(worktree, "space worktree should be created");
+    cleanupWorktrees.push(worktree);
+
+    const origin = resolveWorktreeOrigin(worktree.worktreePath);
+    assert.ok(origin, "origin should be resolved");
     assert.equal(realpathSync(origin), realpathSync(repoDir));
   });
 

@@ -30,7 +30,7 @@ import { RelayLogo } from "../ui/relay-logo";
 import { SidebarProjectGroup } from "./sidebar-project-group";
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
-  const { send } = useWSMethods();
+  const { send, addMessageHandler } = useWSMethods();
   const { isConnected, isSyncing, instances, projects } = useWSState();
   const { trackInstanceCreate, trackInstanceMerge, trackInstanceRemove } = useActionToasts();
   const { logout } = useAuthContext();
@@ -103,6 +103,18 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     void refreshSpaces();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects]);
+
+  useEffect(() => {
+    return addMessageHandler((message) => {
+      if (message.type !== "space_list") {
+        return;
+      }
+      setProjectSpaces((current) => ({
+        ...current,
+        [message.projectDirectory]: message.spaces,
+      }));
+    });
+  }, [addMessageHandler]);
 
   useEffect(() => {
     const currentIds = new Set(instances.map((instance) => instance.id));

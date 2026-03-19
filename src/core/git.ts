@@ -16,8 +16,8 @@ import type { FileChange } from "./types.js";
 const WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
 const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-/** Pattern matching ~/.relay/worktrees/<id> paths */
-const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][a-f0-9]+\/?$/;
+/** Pattern matching ~/.relay/worktrees/<name> paths (instance and space worktrees) */
+const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][^/\\]+\/?$/;
 
 /**
  * Check if a directory path is a relay-managed worktree.

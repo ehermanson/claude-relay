@@ -28,6 +28,7 @@ import type { HttpDeps } from "./http/types.js";
 import { createAuthSystemRoutes } from "./http/routes/auth-system.js";
 import { createInstanceRoutes } from "./http/routes/instances.js";
 import { createProjectRoutes } from "./http/routes/projects.js";
+import { createSpaceRoutes } from "./http/routes/spaces.js";
 import { createWorkspaceRoutes } from "./http/routes/workspace.js";
 import { createProviderRoutes } from "./http/routes/providers.js";
 import { createNativeOpenRoutes } from "./http/routes/native-open.js";
@@ -252,6 +253,7 @@ export function createRequestHandler(
     ...createAuthSystemRoutes(deps),
     ...createInstanceRoutes(deps),
     ...createProjectRoutes(deps),
+    ...createSpaceRoutes(deps),
     ...createWorkspaceRoutes(deps),
     ...createProviderRoutes(deps),
     ...createNativeOpenRoutes(deps),

@@ -11,6 +11,7 @@ import { existsSync } from "fs";
 import { execSync } from "child_process";
 import { join } from "path";
 import { homedir } from "os";
+import { EventEmitter } from "events";
 
 import type { SessionDB } from "./db.js";
 import type { SpaceRow } from "./db.js";
@@ -43,11 +44,31 @@ function rowToInfo(row: SpaceRow, chatCount: number): SpaceInfo {
   };
 }
 
-export class SpaceManager {
+export interface SpaceManagerEvents {
+  "space:created": [space: SpaceInfo];
+  "space:completed": [spaceId: string, projectDirectory: string, targetBranch: string];
+  "space:removed": [spaceId: string, projectDirectory: string];
+}
+
+export interface SpaceManager {
+  on<E extends keyof SpaceManagerEvents>(
+    event: E,
+    listener: (...args: SpaceManagerEvents[E]) => void,
+  ): this;
+  emit<E extends keyof SpaceManagerEvents>(event: E, ...args: SpaceManagerEvents[E]): boolean;
+  off<E extends keyof SpaceManagerEvents>(
+    event: E,
+    listener: (...args: SpaceManagerEvents[E]) => void,
+  ): this;
+}
+
+export class SpaceManager extends EventEmitter {
   constructor(
     private db: SessionDB,
     private logger: Logger,
-  ) {}
+  ) {
+    super();
+  }
 
   /**
    * Get or lazily create the implicit default space for a project.
@@ -131,7 +152,9 @@ export class SpaceManager {
     this.logger.info(
       `[SpaceManager] Created space "${spaceName}" (${id}) with worktree at ${worktreePath}`,
     );
-    return rowToInfo(row, 0);
+    const info = rowToInfo(row, 0);
+    this.emit("space:created", info);
+    return info;
   }
 
   /**
@@ -211,6 +234,7 @@ export class SpaceManager {
 
     // Mark as completed
     this.db.updateSpaceStatus(id, "completed");
+    this.emit("space:completed", id, row.project_directory, defaultBranch);
 
     return { targetBranch: defaultBranch, mergeCommit };
   }
@@ -233,6 +257,7 @@ export class SpaceManager {
 
     this.db.updateSpaceStatus(id, "archived");
     this.logger.info(`[SpaceManager] Archived space "${row.name}" (${id})`);
+    this.emit("space:removed", id, row.project_directory);
   }
 
   /**

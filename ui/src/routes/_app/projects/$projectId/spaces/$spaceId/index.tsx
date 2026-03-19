@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Group, Panel } from "react-resizable-panels";
 import { useWSState, useWSMethods } from "@/context/websocket-context";
+import { useProjectContext } from "@/context/project-context";
 import { InstanceView } from "@/components/chat/instance-view";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -22,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { fetchSpaceDetail, fetchSpaceDiff, completeSpace, deleteSpace } from "@/lib/api";
+import { getProjectName } from "@/lib/project-route";
 import { formatTimeAgo, formatTokens } from "@/lib/utils";
 import { FilesPanel } from "@/components/chat/files-panel";
 import { ConfirmMergeDialog } from "@/components/spaces/confirm-merge-dialog";
@@ -42,6 +44,7 @@ export function SpaceView() {
     spaceId: string;
     chatId?: string;
   };
+  const { artifacts } = useProjectContext();
   const { instances } = useWSState();
   const { send } = useWSMethods();
   const navigate = useNavigate();
@@ -218,6 +221,7 @@ export function SpaceView() {
   }
 
   const activeInstance = spaceInstances.find((i) => i.id === activeTab);
+  const projectName = getProjectName(artifacts.directory);
 
   const chatTabs = (
     <div className="flex shrink-0 items-center border-b border-border bg-surface pl-1">
@@ -268,7 +272,7 @@ export function SpaceView() {
           params={{ projectId }}
           className="text-[0.8125rem] font-medium text-muted transition-colors hover:text-text"
         >
-          {projectId}
+          {projectName}
         </Link>
         <ChevronLeft size={12} strokeWidth={2.5} className="shrink-0 rotate-180 text-muted/40" />
         <GitBranch size={14} className="shrink-0 text-accent" />

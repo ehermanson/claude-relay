@@ -1059,10 +1059,14 @@ export class InstanceManager extends EventEmitter {
 
     // If a space is specified, its worktree path always wins as the CWD
     const spaceId = options?.spaceId;
+    let spaceOriginalDirectory: string | undefined;
     let spaceWorktreePath: string | undefined;
+    let spaceGitBranch: string | undefined;
     if (spaceId) {
       const space = this.spaceManager.getSpace(spaceId);
       if (space) {
+        spaceOriginalDirectory = space.projectDirectory;
+        spaceGitBranch = space.gitBranch ?? undefined;
         if (space.worktreePath) {
           spaceWorktreePath = space.worktreePath;
           workingDirectory = space.worktreePath;
@@ -1120,10 +1124,12 @@ export class InstanceManager extends EventEmitter {
       createdAt: now,
       lastActivityAt: now,
       gitInfo: getGitInfo(workingDirectory) ?? undefined,
+      gitBranch: spaceGitBranch,
       preferredModel: model,
       reasoningBudget: options?.reasoningBudget,
       planMode: options?.planMode,
       skipPermissions: skipPerms,
+      originalDirectory: spaceOriginalDirectory,
       projectId: project?.id,
       spaceId,
     };
@@ -1136,6 +1142,10 @@ export class InstanceManager extends EventEmitter {
       providerBinding: proc.getRuntimeBinding(),
       history: [],
       autoTitle: !hasCustomName && !resumeId,
+      worktreePath: spaceWorktreePath,
+      gitBranch: spaceGitBranch,
+      originalDirectory: spaceOriginalDirectory,
+      actualCwd: spaceWorktreePath ? workingDirectory : undefined,
       hydrated: true,
     };
     this.instances.set(id, instance);

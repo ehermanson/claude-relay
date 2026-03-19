@@ -53,6 +53,7 @@ export function createWebSocketServer(
 ): WebSocketServerHandle {
   const wss = new WebSocketServer({ server });
   const log = config.logger;
+  const spaceManager = instanceManager.getSpaceManager();
 
   // Per-client subscription sets
   const subscriptions = new Map<WebSocket, Set<string>>();
@@ -89,6 +90,14 @@ export function createWebSocketServer(
         sendMessage(ws, message);
       }
     }
+  }
+
+  function broadcastSpaceList(projectDirectory: string): void {
+    broadcast({
+      type: "space_list",
+      projectDirectory,
+      spaces: spaceManager.listSpaces(projectDirectory),
+    });
   }
 
   // Wire up InstanceManager events
@@ -146,6 +155,21 @@ export function createWebSocketServer(
 
   instanceManager.on("tasks:changed", (projectId: string, tasks) => {
     broadcast({ type: "tasks_changed", projectId, tasks });
+  });
+
+  spaceManager.on("space:created", (space) => {
+    broadcast({ type: "space_created", space });
+    broadcastSpaceList(space.projectDirectory);
+  });
+
+  spaceManager.on("space:completed", (spaceId, projectDirectory, targetBranch) => {
+    broadcast({ type: "space_completed", spaceId, targetBranch });
+    broadcastSpaceList(projectDirectory);
+  });
+
+  spaceManager.on("space:removed", (spaceId, projectDirectory) => {
+    broadcast({ type: "space_removed", spaceId });
+    broadcastSpaceList(projectDirectory);
   });
 
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
@@ -357,13 +381,10 @@ export function createWebSocketServer(
 
           case "create_space": {
             try {
-              const space = instanceManager
-                .getSpaceManager()
-                .createSpace(message.projectDirectory, {
-                  name: message.name,
-                  baseBranch: message.baseBranch,
-                });
-              broadcast({ type: "space_created", space });
+              instanceManager.getSpaceManager().createSpace(message.projectDirectory, {
+                name: message.name,
+                baseBranch: message.baseBranch,
+              });
             } catch (err) {
               sendMessage(ws, {
                 type: "error",
@@ -378,11 +399,6 @@ export function createWebSocketServer(
               const { targetBranch } = instanceManager
                 .getSpaceManager()
                 .completeSpace(message.spaceId);
-              broadcast({
-                type: "space_completed",
-                spaceId: message.spaceId,
-                targetBranch,
-              });
               sendMessage(ws, {
                 type: "notification",
                 message: `Space merged into ${targetBranch} successfully`,
@@ -399,10 +415,6 @@ export function createWebSocketServer(
           case "delete_space": {
             try {
               instanceManager.getSpaceManager().deleteSpace(message.spaceId);
-              broadcast({
-                type: "space_removed",
-                spaceId: message.spaceId,
-              });
             } catch (err) {
               sendMessage(ws, {
                 type: "error",
