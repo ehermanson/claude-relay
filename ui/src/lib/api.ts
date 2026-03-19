@@ -190,7 +190,7 @@ export async function updateTaskApi(
   taskId: string,
   patch: UpdateTaskInput,
 ): Promise<import("@shared/types").Task> {
-  const res = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
+  const res = await fetch(`/api/projects/${projectId}/tasks/${encodeURIComponent(taskId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -203,7 +203,7 @@ export async function updateTaskApi(
 }
 
 export async function deleteTaskApi(projectId: string, taskId: string): Promise<void> {
-  const res = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
+  const res = await fetch(`/api/projects/${projectId}/tasks/${encodeURIComponent(taskId)}`, {
     method: "DELETE",
   });
   if (!res.ok) {

@@ -595,7 +595,7 @@ export function createRequestHandler(
       // =====================================================================
       // Task CRUD routes — /api/projects/:id/tasks[/:taskId]
       // =====================================================================
-      const tasksMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/tasks(?:\/([a-f0-9]+))?$/);
+      const tasksMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/tasks(?:\/([^/]+))?$/);
       const tasksInitMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/tasks\/init$/);
 
       if (tasksInitMatch && method === "POST") {

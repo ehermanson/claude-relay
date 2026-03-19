@@ -82,6 +82,7 @@ Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a ch
 ### Task Tracking
 
 - Tasks stored in `.relay/tasks.jsonl` (append-only JSONL, one JSON object per line)
+- Not every request needs a task. Create a task only when the user asks to create one, pick up a task only when the user asks or the request clearly matches an existing task, and otherwise just do the work without creating a new task. Ask the user if it's unclear whether a request should map to a task.
 - Fields: `id` (8-char hex), `title`, `description` (markdown), `status` (open|in_progress|done), `priority` (0-4), `type` (epic|task|bug), `tags` (string[]), `parent` (nullable task ID), `blockedBy` (task ID[]), `createdAt`, `updatedAt` (ISO timestamps)
 - `blocked` status auto-derived from unresolved `blockedBy` refs — never set manually
 - Create: append new JSON line. Update: append line with same `id` + changed fields (sparse merge). Delete: append `{id, deleted: true}`

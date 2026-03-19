@@ -263,6 +263,7 @@ export function initTasks(dir: string): void {
 export const TASKS_CLAUDE_MD_SNIPPET = `## Tasks
 
 Tasks tracked in \`.relay/tasks.jsonl\` (append-only JSONL). Read this file for open tasks.
+Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. If unsure whether a request should map to a task, ask.
 Update by appending a JSON line with the task \`id\` and changed fields.
 Fields: id, title, description, status (open|in_progress|done), priority (0-4), type (epic|task|bug), tags, parent, blockedBy, createdAt, updatedAt.`;
 

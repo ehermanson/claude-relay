@@ -1359,6 +1359,7 @@ export class InstanceManager extends EventEmitter {
       if (taskProject && hasTasks(taskProject.directory)) {
         const taskContext =
           "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). " +
+          "Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. Ask if unsure whether a request should map to a task. " +
           "Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), " +
           "priority (0-4), type (epic|task|bug), tags (string[]), parent (nullable task ID), " +
           "blockedBy (task ID[]), createdAt, updatedAt (ISO timestamps). " +
