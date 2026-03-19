@@ -1,6 +1,7 @@
 import type { ProviderKind, ProviderModelOption, SessionStats } from "@shared/types";
 import { siClaude } from "simple-icons";
-import { Tooltip } from "../../ui/tooltip";
+import { Tooltip } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import { formatTokens } from "../../../lib/utils";
 
 const CONTEXT_WINDOW = 200_000;
@@ -164,10 +165,7 @@ export function ContextRing({
       }
       delay={200}
     >
-      <button
-        onClick={onClick}
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface-hover ${active ? "bg-accent/10 ring-1 ring-accent/25" : ""} ${textColor}`}
-      >
+      <Button variant="icon" onClick={onClick} toggled={active}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
           <circle
             cx={cx}
@@ -191,7 +189,7 @@ export function ContextRing({
             transform={`rotate(-90 ${cx} ${cy})`}
           />
         </svg>
-      </button>
+      </Button>
     </Tooltip>
   );
 }

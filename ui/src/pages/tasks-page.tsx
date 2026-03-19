@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDownNarrowWide, Ban, Check, ChevronLeft, Plus } from "lucide-react";
+import {
+  ArrowDownNarrowWide,
+  Ban,
+  Check,
+  ChevronLeft,
+  Circle,
+  CircleCheck,
+  CircleDashed,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Badge } from "@/components/ui/badge";
@@ -65,60 +74,57 @@ const typeLabels: Record<string, string> = {
 };
 
 function StatusIcon({ status, size = 14 }: { status: string; size?: number }) {
+  const sw = 2.5;
   switch (status) {
     case "open":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="text-accent">
-          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth={2.5} />
-        </svg>
-      );
+      return <Circle size={size} strokeWidth={sw} className="text-accent" />;
     case "in_progress":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="text-warning">
-          <circle
-            cx="12"
-            cy="12"
-            r="9"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            strokeDasharray="14 8"
-            strokeLinecap="round"
-          />
-        </svg>
-      );
+      return <CircleDashed size={size} strokeWidth={sw} className="text-warning" />;
     case "blocked":
-      return (
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-error"
-        >
-          <circle cx="12" cy="12" r="9" />
-          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-        </svg>
-      );
+      return <Ban size={size} strokeWidth={sw} className="text-error" />;
     case "done":
-      return (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="text-accent">
-          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth={2.5} />
-          <polyline
-            points="8 12 11 15 16 9"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
+      return <CircleCheck size={size} strokeWidth={sw} className="text-accent" />;
     default:
       return <span className={`h-2 w-2 rounded-full ${statusDotColors[status] ?? "bg-muted"}`} />;
   }
+}
+
+function TaskLink({ task, onClick }: { task: Task; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
+    >
+      <div className="flex gap-2 items-center pt-[2px]">
+        <StatusIcon status={task.status} size={12} />
+        <span className="shrink-0 font-mono text-[0.625rem] text-muted">{task.id}</span>
+      </div>
+      <span className="text-[0.8125rem] text-text-bright">{task.title}</span>
+    </button>
+  );
+}
+
+function TaskLinkSection({
+  label,
+  tasks,
+  onSelect,
+}: {
+  label: string;
+  tasks: Task[];
+  onSelect: (id: string) => void;
+}) {
+  if (tasks.length === 0) return null;
+  return (
+    <div className="mb-4">
+      <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">{label}</h4>
+      <div className="flex flex-col gap-1">
+        {tasks.map((t) => (
+          <TaskLink key={t.id} task={t} onClick={() => onSelect(t.id)} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 const STATUS_ORDER: TaskStatus[] = ["open", "in_progress", "blocked", "done"];
@@ -368,84 +374,12 @@ function TaskDrawerBody({
           )
         )}
 
-        {/* Parent */}
         {parentTask && (
-          <div className="mb-4">
-            <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">Parent</h4>
-            <button
-              type="button"
-              onClick={() => onSelectTask(parentTask.id)}
-              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
-            >
-              <StatusIcon status={parentTask.status} size={12} />
-              <span className="font-mono text-[0.625rem] text-muted">{parentTask.id}</span>
-              <span className="truncate text-[0.8125rem] text-text-bright">{parentTask.title}</span>
-            </button>
-          </div>
+          <TaskLinkSection label="Parent" tasks={[parentTask]} onSelect={onSelectTask} />
         )}
-
-        {/* Children */}
-        {children.length > 0 && (
-          <div className="mb-4">
-            <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">Children</h4>
-            <div className="flex flex-col gap-1">
-              {children.map((child) => (
-                <button
-                  key={child.id}
-                  type="button"
-                  onClick={() => onSelectTask(child.id)}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
-                >
-                  <StatusIcon status={child.status} size={12} />
-                  <span className="font-mono text-[0.625rem] text-muted">{child.id}</span>
-                  <span className="truncate text-[0.8125rem] text-text-bright">{child.title}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Blockers */}
-        {blockers.length > 0 && (
-          <div className="mb-4">
-            <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">Blocked by</h4>
-            <div className="flex flex-col gap-1">
-              {blockers.map((dep) => (
-                <button
-                  key={dep.id}
-                  type="button"
-                  onClick={() => onSelectTask(dep.id)}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
-                >
-                  <StatusIcon status={dep.status} size={12} />
-                  <span className="font-mono text-[0.625rem] text-muted">{dep.id}</span>
-                  <span className="truncate text-[0.8125rem] text-text-bright">{dep.title}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Dependents */}
-        {dependents.length > 0 && (
-          <div className="mb-4">
-            <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">Blocks</h4>
-            <div className="flex flex-col gap-1">
-              {dependents.map((dep) => (
-                <button
-                  key={dep.id}
-                  type="button"
-                  onClick={() => onSelectTask(dep.id)}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
-                >
-                  <StatusIcon status={dep.status} size={12} />
-                  <span className="font-mono text-[0.625rem] text-muted">{dep.id}</span>
-                  <span className="truncate text-[0.8125rem] text-text-bright">{dep.title}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <TaskLinkSection label="Children" tasks={children} onSelect={onSelectTask} />
+        <TaskLinkSection label="Blocked by" tasks={blockers} onSelect={onSelectTask} />
+        <TaskLinkSection label="Blocks" tasks={dependents} onSelect={onSelectTask} />
 
         <div className="mb-4 text-[0.6875rem] text-muted">
           Updated {formatTimeAgo(task.updatedAt)}
@@ -694,7 +628,7 @@ function CreateTaskForm({
       </Button>
       <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
         {open && (
-          <Dialog.Content maxWidth="max-w-md">
+          <Dialog.Content maxWidth="max-w-lg">
             <Dialog.Header>
               <Dialog.Title>New task</Dialog.Title>
               <Dialog.Close />
@@ -743,7 +677,11 @@ function CreateTaskForm({
                   className="!w-auto"
                 />
                 {allTasks.length > 0 && (
-                  <Select value={parent} onChange={(e) => setParent(e.target.value)}>
+                  <Select
+                    value={parent}
+                    onChange={(e) => setParent(e.target.value)}
+                    className="max-w-[200px]"
+                  >
                     <option value="">No parent</option>
                     {allTasks.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -1028,21 +966,7 @@ export function TasksPage() {
         {SORT_OPTIONS.map((option) => (
           <Menu.Item key={option.key} onClick={() => setSort(option.key)}>
             <span className="flex-1">{option.label}</span>
-            {currentSort === option.key && (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="shrink-0"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
+            {currentSort === option.key && <Check size={14} className="shrink-0" />}
           </Menu.Item>
         ))}
       </Menu.Content>
