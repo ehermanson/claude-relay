@@ -1,3 +1,4 @@
+import { Terminal } from "lucide-react";
 import type { ProviderKind } from "@shared/types";
 
 export function TerminalPermissionBar({
@@ -11,20 +12,7 @@ export function TerminalPermissionBar({
     <div className="animate-fade-in shrink-0 border-t border-warning/25 bg-warning/5">
       <div className="mx-auto flex max-w-3xl items-center gap-3 px-6 py-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/15">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-warning"
-          >
-            <path d="M4 17l6-6-6-6" />
-            <line x1="12" y1="19" x2="20" y2="19" />
-          </svg>
+          <Terminal size={16} className="text-warning" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[0.8125rem] font-medium text-warning">

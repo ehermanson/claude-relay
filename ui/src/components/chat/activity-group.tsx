@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { ChevronRight } from "lucide-react";
 import { ActivityEntry } from "./activity-entry";
 import type { ActivityMessage } from "@shared/types";
 import { INTERACTIVE_TOOLS } from "@shared/tools";
@@ -131,19 +132,11 @@ export function ActivityGroup({
               onClick={() => setExpanded(!expanded)}
               className="flex items-center gap-1.5 border-none bg-transparent px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted/55 transition-colors duration-150 hover:text-muted/80"
             >
-              <svg
-                width="8"
-                height="8"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
+              <ChevronRight
+                size={8}
                 strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
                 className={`transition-transform ${expanded ? "rotate-90" : ""}`}
-              >
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
+              />
               {expanded ? "Show less" : `${hiddenCount} more`}
             </button>
           </motion.div>

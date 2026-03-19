@@ -1,4 +1,5 @@
 import { DrawerPreview as BaseDrawer } from "@base-ui/react/drawer";
+import { X } from "lucide-react";
 import type { ReactNode } from "react";
 
 interface DrawerProps {
@@ -71,19 +72,7 @@ function DrawerClose({ className = "" }: { className?: string }) {
     <BaseDrawer.Close
       className={`flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text ${className}`}
     >
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <line x1="18" y1="6" x2="6" y2="18" />
-        <line x1="6" y1="6" x2="18" y2="18" />
-      </svg>
+      <X size={16} />
     </BaseDrawer.Close>
   );
 }

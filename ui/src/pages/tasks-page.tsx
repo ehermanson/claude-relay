@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDownNarrowWide, Ban, Check, ChevronLeft, Plus } from "lucide-react";
 import { useProjectContext } from "../context/project-context";
 import { useMediaQuery } from "../hooks/use-media-query";
 import { useWSMethods } from "../context/websocket-context";
@@ -147,6 +148,10 @@ function sortTasks(tasks: Task[], sortKey: SortKey): Task[] {
   });
 }
 
+function getColumnSortKey(status: TaskStatus, boardSort: SortKey): SortKey {
+  return status === "done" ? "updated" : boardSort;
+}
+
 // ─── Task Card ──────────────────────────────────────────────────────────────
 
 function TaskCard({
@@ -204,19 +209,7 @@ function TaskCard({
         {blockerCount > 0 && (
           <Tooltip content={`Blocked by ${blockerCount} task${blockerCount !== 1 ? "s" : ""}`}>
             <span className="inline-flex items-center gap-0.5 text-[0.5625rem] text-muted">
-              <svg
-                width="9"
-                height="9"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-              </svg>
+              <Ban size={9} />
               {blockerCount}
             </span>
           </Tooltip>
@@ -296,18 +289,7 @@ function TaskDrawerBody({
               onClick={onBack}
               className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
+              <ChevronLeft size={14} />
             </button>
           )}
           <div className="min-w-0 flex-1">
@@ -340,21 +322,7 @@ function TaskDrawerBody({
                 <Menu.Item key={s} onClick={() => onUpdate(task.id, { status: s })}>
                   <StatusIcon status={s} size={12} />
                   <span className="flex-1">{statusLabels[s]}</span>
-                  {task.status === s && (
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2.5}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="shrink-0"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  )}
+                  {task.status === s && <Check size={14} className="shrink-0" />}
                 </Menu.Item>
               ))}
             </Menu.Content>
@@ -753,18 +721,7 @@ function CreateTaskForm({
         onClick={() => setOpen(true)}
         className="flex items-center gap-1 rounded-md px-2 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
       >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-        >
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
+        <Plus size={14} />
         New Task
       </button>
     );
@@ -861,11 +818,11 @@ function CreateTaskForm({
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
-export function IssuesPage() {
+export function TasksPage() {
   const { artifacts } = useProjectContext();
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const { issue: selectedId, sort: sortParam } = useSearch({
-    from: "/_app/projects/$projectId/issues/",
+  const { task: selectedId, sort: sortParam } = useSearch({
+    from: "/_app/projects/$projectId/tasks/",
   });
   const navigate = useNavigate();
   const [stack, setStack] = useState<StackItem[]>([]);
@@ -951,7 +908,7 @@ export function IssuesPage() {
 
   const selectTask = (id: string) => {
     setStack([{ key: "base", taskId: id, open: true }]);
-    navigate({ search: { issue: id } });
+    navigate({ search: { task: id } });
   };
 
   const pushDrawer = (taskId: string) => {
@@ -1058,7 +1015,7 @@ export function IssuesPage() {
       s,
       sortTasks(
         tasks.filter((t) => t.status === s),
-        currentSort,
+        getColumnSortKey(s, currentSort),
       ),
     ]),
   );
@@ -1090,20 +1047,7 @@ export function IssuesPage() {
   const sortMenu = (
     <Menu.Root>
       <Menu.Trigger className="flex items-center gap-1 rounded-md px-2 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <line x1="4" y1="6" x2="20" y2="6" />
-          <line x1="4" y1="12" x2="14" y2="12" />
-          <line x1="4" y1="18" x2="8" y2="18" />
-        </svg>
+        <ArrowDownNarrowWide size={12} />
         {sortLabel}
       </Menu.Trigger>
       <Menu.Content>

@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { FileDiff } from "lucide-react";
+import { Check, ChevronRight, FileDiff, X } from "lucide-react";
 import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
@@ -27,18 +27,7 @@ function StatusIcon({ status }: { status: TaskItem["status"] }) {
     case "completed":
       return (
         <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded bg-accent-dim text-accent">
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <Check size={10} strokeWidth={3} />
         </div>
       );
     case "in_progress":
@@ -155,19 +144,11 @@ const TasksPanel = memo(function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
 /** Chevron icon that rotates when open. */
 function ChevronIcon({ open }: { open: boolean }) {
   return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
+    <ChevronRight
+      size={12}
       strokeWidth={2.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
       className={`shrink-0 text-muted transition-transform duration-150 ${open ? "rotate-90" : ""}`}
-    >
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
+    />
   );
 }
 
@@ -954,19 +935,7 @@ export const Sidecar = memo(
             )}
             {isMobileOverlay && onClose && (
               <Button variant="icon" size="icon-sm" onClick={onClose} className="mr-2 shrink-0">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+                <X size={14} />
               </Button>
             )}
           </div>

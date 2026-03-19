@@ -255,7 +255,7 @@ export function SidebarProjectGroup({
                     onClick={(e: React.MouseEvent) => {
                       e.stopPropagation();
                       navigate({
-                        to: "/projects/$projectId/issues",
+                        to: "/projects/$projectId/tasks",
                         params: { projectId: routeProjectId },
                       });
                     }}

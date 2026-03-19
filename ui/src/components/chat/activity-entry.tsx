@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import type { UserInputAnswer } from "@shared/types";
 import { escapeHtml, getCollapsedDetail } from "../../lib/utils";
 import { MarkdownContent } from "./markdown-content";
@@ -565,21 +566,12 @@ export function ActivityEntry({
           )}
         </div>
         {isExpandable && (
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          <ChevronRight
+            size={10}
             className={`mt-[5px] shrink-0 text-muted/40 transition-transform ${
               expanded ? "rotate-90" : "opacity-0"
             }`}
-          >
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
+          />
         )}
       </div>
       {expanded && hasRichContent && (
