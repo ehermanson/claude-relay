@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { devtools } from "@tanstack/devtools-vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
@@ -51,6 +52,7 @@ function wsProxy(): Plugin {
 
 export default defineConfig({
   plugins: [
+    devtools(),
     tanstackRouter({ target: "react", autoCodeSplitting: true }),
     react({ babel: { plugins: [["babel-plugin-react-compiler", {}]] } }),
     wsProxy(),

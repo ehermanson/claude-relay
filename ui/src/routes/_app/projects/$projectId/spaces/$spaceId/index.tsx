@@ -1,4 +1,5 @@
 import { lazy, useState, useEffect, useMemo, useRef, Suspense } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useParams, Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
@@ -22,10 +23,17 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import { fetchSpaceDetail, fetchSpaceDiff, completeSpace, deleteSpace } from "@/lib/api";
+import {
+  completeSpace,
+  deleteSpace,
+  fetchProjectChats,
+  fetchSpaceDetail,
+  fetchSpaceDiff,
+} from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
 import { formatTimeAgo, formatTokens } from "@/lib/utils";
 import { FilesPanel } from "@/components/chat/files-panel";
+import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ConfirmMergeDialog } from "@/components/spaces/confirm-merge-dialog";
 const DiffDrawer = lazy(() =>
   import("@/components/chat/diff-drawer").then((m) => ({ default: m.DiffDrawer })),
@@ -39,22 +47,32 @@ import type { SpaceInfo, InstanceInfo, SessionStats, FileChange } from "@shared/
 type SidebarTab = "files" | "context";
 
 export function SpaceView() {
-  const { projectId, spaceId, chatId } = useParams({ strict: false }) as {
+  const {
+    projectId: routeProjectId,
+    spaceId,
+    chatId,
+  } = useParams({ strict: false }) as {
     projectId: string;
     spaceId: string;
     chatId?: string;
   };
   const { artifacts } = useProjectContext();
   const { instances } = useWSState();
-  const { send } = useWSMethods();
+  const { addMessageHandler, send } = useWSMethods();
   const navigate = useNavigate();
-  const [space, setSpace] = useState<SpaceInfo | null>(null);
+  const queryClient = useQueryClient();
+  const projectId = artifacts.projectId || routeProjectId;
+  const spaceQueryKey = ["space", spaceId] as const;
+  const chatsQueryKey = ["projectChats", projectId] as const;
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("files");
   const [showSidebar, setShowSidebar] = useState(true);
   const [spaceDiff, setSpaceDiff] = useState<string | null>(null);
   const [diffInitialLoad, setDiffInitialLoad] = useState(true);
   const [showDiffDrawer, setShowDiffDrawer] = useState(false);
   const [diffScrollToFile, setDiffScrollToFile] = useState<string | undefined>();
+
+  const [closeTabId, setCloseTabId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Merge dialog state
   const [mergeDialog, setMergeDialog] = useState<
@@ -65,15 +83,67 @@ export function SpaceView() {
     | null
   >(null);
 
-  // Fetch space details
-  useEffect(() => {
-    fetchSpaceDetail(spaceId)
-      .then(setSpace)
-      .catch(() => {});
-  }, [spaceId]);
+  const { data: space } = useQuery({
+    queryKey: spaceQueryKey,
+    queryFn: () => fetchSpaceDetail(spaceId),
+  });
+  const { data: chatSummaries = [] } = useQuery({
+    queryKey: chatsQueryKey,
+    queryFn: () => fetchProjectChats(projectId),
+    enabled: !!projectId,
+  });
 
-  // Filter instances belonging to this space
-  const spaceInstances = instances.filter((i) => i.spaceId === spaceId);
+  useEffect(() => {
+    return addMessageHandler((message) => {
+      if (message.type === "instance_created" || message.type === "instance_removed") {
+        void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+        return;
+      }
+      if (message.type === "space_list" && message.projectDirectory === artifacts.directory) {
+        const nextSpace = message.spaces.find((entry) => entry.id === spaceId);
+        if (nextSpace) {
+          queryClient.setQueryData(spaceQueryKey, nextSpace);
+        } else {
+          void queryClient.invalidateQueries({ queryKey: spaceQueryKey });
+        }
+        return;
+      }
+      if (
+        (message.type === "space_completed" || message.type === "space_removed") &&
+        message.spaceId === spaceId
+      ) {
+        navigate({
+          to: "/projects/$projectId",
+          params: { projectId },
+          replace: true,
+        });
+      }
+    });
+  }, [
+    addMessageHandler,
+    artifacts.directory,
+    chatsQueryKey,
+    navigate,
+    projectId,
+    queryClient,
+    spaceId,
+    spaceQueryKey,
+  ]);
+
+  const spaceChatMap = new Map<string, InstanceInfo>();
+  for (const chat of chatSummaries) {
+    if (chat.spaceId === spaceId) {
+      spaceChatMap.set(chat.id, chat);
+    }
+  }
+  for (const instance of instances) {
+    if (instance.spaceId === spaceId) {
+      spaceChatMap.set(instance.id, instance);
+    }
+  }
+  const spaceInstances = Array.from(spaceChatMap.values()).sort(
+    (a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0),
+  );
 
   const hasActiveChats = spaceInstances.some(
     (i) => i.status === "idle" || i.status === "processing",
@@ -102,8 +172,10 @@ export function SpaceView() {
     };
   }, [spaceId, hasActiveChats]);
 
-  // The active tab is driven by the URL chatId param
   const activeTab = chatId && spaceInstances.find((i) => i.id === chatId) ? chatId : null;
+  const activeLiveInstance = activeTab
+    ? instances.find((instance) => instance.id === activeTab)
+    : null;
 
   // Auto-redirect to first chat when landing on space without a valid chatId
   useEffect(() => {
@@ -124,7 +196,7 @@ export function SpaceView() {
   };
 
   // Aggregate stats across all space chats
-  const aggregatedStats = useMemo((): SessionStats | null => {
+  const aggregatedStats = (() => {
     let hasAny = false;
     let inputTokens = 0;
     let outputTokens = 0;
@@ -141,7 +213,7 @@ export function SpaceView() {
     }
     if (!hasAny) return null;
     return { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens };
-  }, [spaceInstances]);
+  })();
 
   // Track instance IDs to detect newly created chats and navigate to them
   const prevSpaceInstanceIds = useRef(new Set<string>());
@@ -169,12 +241,14 @@ export function SpaceView() {
   };
 
   const handleCloseTab = (id: string) => {
-    const inst = spaceInstances.find((i) => i.id === id);
-    const name = inst?.name || "this chat";
-    if (!confirm(`Remove "${name}" from this space?`)) return;
-    send({ type: "remove_instance", instanceId: id });
-    if (activeTab === id) {
-      const remaining = spaceInstances.filter((i) => i.id !== id);
+    setCloseTabId(id);
+  };
+
+  const confirmCloseTab = () => {
+    if (!closeTabId) return;
+    send({ type: "remove_instance", instanceId: closeTabId });
+    if (activeTab === closeTabId) {
+      const remaining = spaceInstances.filter((i) => i.id !== closeTabId);
       if (remaining.length > 0) {
         navigateToChat(remaining[0].id);
       } else {
@@ -184,6 +258,7 @@ export function SpaceView() {
         });
       }
     }
+    setCloseTabId(null);
   };
 
   const handleComplete = async () => {
@@ -203,9 +278,12 @@ export function SpaceView() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`Delete space "${space?.name}"? This will remove the worktree without merging.`))
-      return;
+  const handleDelete = () => {
+    setConfirmDelete(true);
+  };
+
+  const confirmDeleteSpace = async () => {
+    setConfirmDelete(false);
     try {
       await deleteSpace(spaceId);
       navigate({ to: "/projects/$projectId", params: { projectId } });
@@ -220,7 +298,6 @@ export function SpaceView() {
     );
   }
 
-  const activeInstance = spaceInstances.find((i) => i.id === activeTab);
   const projectName = getProjectName(artifacts.directory);
 
   const chatTabs = (
@@ -236,7 +313,7 @@ export function SpaceView() {
           }}
           className={`group/tab relative flex cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 text-[0.8125rem] transition-colors ${
             activeTab === inst.id
-              ? "bg-background text-accent"
+              ? "bg-background text-text-bright shadow-[inset_0_-2px_0_0_var(--color-accent)]"
               : "text-muted hover:bg-surface-hover hover:text-text"
           }`}
         >
@@ -338,7 +415,21 @@ export function SpaceView() {
               <Panel defaultSize="70" minSize="40">
                 <div className="flex h-full flex-col">
                   {chatTabs}
-                  <InstanceView key={activeTab} instanceId={activeTab} compact />
+                  {activeLiveInstance ? (
+                    <InstanceView key={activeTab} instanceId={activeTab} compact />
+                  ) : (
+                    <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+                      <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
+                        <Spinner size={18} />
+                        <p className="mt-4 text-[0.875rem] font-medium text-text-bright">
+                          Restoring chat
+                        </p>
+                        <p className="mt-1 text-[0.75rem] text-muted">
+                          Waiting for the live chat state to reconnect.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </Panel>
               <ResizableHandle />
@@ -361,7 +452,21 @@ export function SpaceView() {
           ) : (
             <div className="flex h-full flex-col">
               {chatTabs}
-              <InstanceView key={activeTab} instanceId={activeTab} compact />
+              {activeLiveInstance ? (
+                <InstanceView key={activeTab} instanceId={activeTab} compact />
+              ) : (
+                <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+                  <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
+                    <Spinner size={18} />
+                    <p className="mt-4 text-[0.875rem] font-medium text-text-bright">
+                      Restoring chat
+                    </p>
+                    <p className="mt-1 text-[0.75rem] text-muted">
+                      Waiting for the live chat state to reconnect.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )
         ) : (
@@ -471,6 +576,40 @@ export function SpaceView() {
           )}
         </Dialog.Content>
       </Dialog.Root>
+
+      {/* Close tab confirmation */}
+      <ConfirmActionDialog
+        open={closeTabId !== null}
+        onOpenChange={(open) => {
+          if (!open) setCloseTabId(null);
+        }}
+        title="Remove chat?"
+        description={
+          <>
+            <span className="font-medium text-text">
+              {spaceInstances.find((i) => i.id === closeTabId)?.name || "This chat"}
+            </span>{" "}
+            will be removed from this space.
+          </>
+        }
+        confirmLabel="Remove"
+        onConfirm={confirmCloseTab}
+      />
+
+      {/* Delete space confirmation */}
+      <ConfirmActionDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete space?"
+        description={
+          <>
+            <span className="font-medium text-text">{space?.name}</span> will be deleted and its
+            worktree removed without merging.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={confirmDeleteSpace}
+      />
     </div>
   );
 }
