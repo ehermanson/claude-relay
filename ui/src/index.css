@@ -269,6 +269,24 @@ html.light .hljs-deletion {
   background-color: #ffeef0;
 }
 
+/* ── Interactive Cursors ───────────────────────────────────────────── */
+button,
+select,
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+[role="menuitemradio"],
+[role="menuitemcheckbox"],
+[role="option"],
+[role="switch"],
+[role="checkbox"],
+[role="radio"],
+[type="checkbox"],
+[type="radio"],
+summary {
+  cursor: pointer;
+}
+
 /* ── Base ──────────────────────────────────────────────────────────── */
 html,
 body,
@@ -554,6 +572,14 @@ html.light ::selection {
 }
 html.light .grain-overlay::before {
   opacity: 0.03;
+}
+
+/* ── Hidden Scrollbar (for scroll containers driven by wheel/drag) ── */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 /* ── Reduced Motion ────────────────────────────────────────────────── */
