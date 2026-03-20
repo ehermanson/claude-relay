@@ -190,23 +190,12 @@ function TaskCard({
       }}
       className="w-full cursor-pointer rounded-lg border border-border/70 bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-border-hover hover:bg-surface-hover hover:shadow-sm"
     >
-      <div className="mb-1 flex items-start gap-2">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCycleStatus();
-          }}
-          className="mt-0.5 shrink-0 transition-transform hover:scale-110"
-          title={`Status: ${statusLabels[task.status] ?? task.status}`}
-        >
-          <StatusIcon status={task.status} size={14} />
-        </button>
+      <div className="mb-1">
         <span className="text-[0.8125rem] font-medium leading-snug text-text-bright">
           {task.title}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 pl-[22px]">
+      <div className="flex flex-wrap items-center gap-1.5">
         <span className="shrink-0 font-mono text-[0.5625rem] text-muted/70">{task.id}</span>
         <Badge variant={priorityVariants[task.priority] ?? "default"} size="sm">
           {priorityLabels[task.priority] ?? `P${task.priority}`}
