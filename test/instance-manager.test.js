@@ -31,6 +31,44 @@ function makeConfig(overrides = {}) {
   });
 }
 
+function makeManagedRow(overrides = {}) {
+  return {
+    instance_id: "managed-1",
+    provider_name: "claude",
+    provider_session_id: "session-1",
+    name: "Managed Session",
+    working_directory: "/tmp/test",
+    created_at: 1000,
+    last_activity_at: 2000,
+    archived: 0,
+    custom_title: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    git_branch: null,
+    worktree_path: null,
+    original_directory: null,
+    parent_session_id: null,
+    preferred_model: null,
+    reasoning_budget: null,
+    skip_permissions: 0,
+    runtime_mode: "approval-required",
+    resume_cursor_json: null,
+    runtime_payload_json: "{}",
+    transcript_path: null,
+    last_message_text: null,
+    last_message_from: null,
+    last_message_at: null,
+    git_info_branch: null,
+    git_info_is_worktree: null,
+    space_id: null,
+    project_id: null,
+    model: null,
+    ...overrides,
+  };
+}
+
 describe("InstanceManager", () => {
   let manager;
 
@@ -100,6 +138,39 @@ describe("InstanceManager", () => {
 
     it("returns undefined for unknown id", () => {
       assert.equal(manager.getInstance("nonexistent"), undefined);
+    });
+
+    it("restores managed sessions with missing worktrees into the original directory", () => {
+      const originalDirectory = manager.baseConfig.workingDirectory;
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      const missingWorktree = join(originalDirectory, ".relay", "worktrees", "space-deadbeef");
+
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-stale",
+            working_directory: missingWorktree,
+            worktree_path: missingWorktree,
+            original_directory: originalDirectory,
+            git_branch: "relay-space/deadbeef",
+            space_id: "space-deadbeef",
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(manager.baseConfig);
+      restored.restoreInstances();
+      const info = restored.getInstance("managed-stale");
+      const instance = restored.instances.get("managed-stale");
+
+      assert.ok(info);
+      assert.ok(instance);
+      assert.equal(info.workingDirectory, originalDirectory);
+      assert.equal(instance.worktreePath, undefined);
+      assert.equal(instance.originalDirectory, originalDirectory);
+      assert.equal(instance.actualCwd, undefined);
     });
   });
 

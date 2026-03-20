@@ -1087,6 +1087,25 @@ export class InstanceManager extends EventEmitter {
     return proc.provider === "claude" && "sessionId" in proc;
   }
 
+  private resolveRunnableCwd(instance: Instance): string {
+    const cwd = instance.actualCwd || instance.info.workingDirectory;
+    if (existsSync(cwd)) {
+      return cwd;
+    }
+
+    if (instance.originalDirectory && existsSync(instance.originalDirectory)) {
+      this.baseConfig.logger.warn(
+        `[InstanceManager] Working directory ${cwd} no longer exists, falling back to original directory ${instance.originalDirectory}`,
+      );
+      instance.actualCwd = undefined;
+      instance.worktreePath = undefined;
+      instance.info.workingDirectory = instance.originalDirectory;
+      return instance.originalDirectory;
+    }
+
+    return cwd;
+  }
+
   // ===========================================================================
   // Managed instances (read-write, spawned by relay)
   // ===========================================================================
@@ -1457,7 +1476,7 @@ export class InstanceManager extends EventEmitter {
   getInstanceDiff(id: string, filePath?: string): string | null {
     const instance = this.instances.get(id);
     if (!instance) return null;
-    const cwd = instance.actualCwd || instance.info.workingDirectory;
+    const cwd = this.resolveRunnableCwd(instance);
     const origBranch = instance.originalDirectory
       ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
       : undefined;
@@ -1700,7 +1719,7 @@ export class InstanceManager extends EventEmitter {
     const sessionId = instance.externalState?.sessionId ?? instance.sessionId;
     const jsonlPath = instance.externalState?.jsonlPath ?? instance.jsonlPath;
     if (!sessionId) throw new Error("Instance has no session ID to resume");
-    const cwd = instance.actualCwd || instance.info.workingDirectory;
+    const cwd = this.resolveRunnableCwd(instance);
 
     // SIGINT the external CLI process so it exits cleanly before we take over
     if (instance.externalState?.pid) {
@@ -4961,6 +4980,9 @@ export class InstanceManager extends EventEmitter {
         restoreGitBranch = entry.git_branch ?? undefined;
         restoreOriginalDirectory = entry.original_directory;
       } else {
+        restoreActualCwd = entry.original_directory;
+        restoreOriginalDirectory = entry.original_directory;
+        restoreGitBranch = entry.git_branch ?? undefined;
         this.baseConfig.logger.warn(
           `[InstanceManager] Worktree ${entry.worktree_path} no longer exists, using original directory`,
         );
@@ -5001,7 +5023,7 @@ export class InstanceManager extends EventEmitter {
       id: entry.instance_id,
       provider: entry.provider_name as ProviderKind,
       name: entry.name,
-      workingDirectory: entry.working_directory,
+      workingDirectory: restoreActualCwd,
       status: "stopped",
       createdAt: entry.created_at,
       lastActivityAt: entry.last_activity_at,

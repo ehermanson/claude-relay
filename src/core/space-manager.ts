@@ -70,6 +70,22 @@ export class SpaceManager extends EventEmitter {
     super();
   }
 
+  private getExistingWorktreePath(worktreePath: string | null): string | null {
+    if (!worktreePath) return null;
+    return existsSync(worktreePath) ? worktreePath : null;
+  }
+
+  private toInfo(row: SpaceRow): SpaceInfo {
+    const worktreePath = this.getExistingWorktreePath(row.worktree_path);
+    return rowToInfo(
+      {
+        ...row,
+        worktree_path: worktreePath,
+      },
+      this.db.getSpaceChatCount(row.id),
+    );
+  }
+
   /**
    * Get or lazily create the implicit default space for a project.
    * The default space has no worktree — it represents the main branch.
@@ -94,7 +110,7 @@ export class SpaceManager extends EventEmitter {
     };
     this.db.upsertSpace(row);
     this.logger.info(`[SpaceManager] Created default space for ${projectDirectory}`);
-    return rowToInfo(row, 0);
+    return this.toInfo(row);
   }
 
   /**
@@ -152,7 +168,7 @@ export class SpaceManager extends EventEmitter {
     this.logger.info(
       `[SpaceManager] Created space "${spaceName}" (${id}) with worktree at ${worktreePath}`,
     );
-    const info = rowToInfo(row, 0);
+    const info = this.toInfo(row);
     this.emit("space:created", info);
     return info;
   }
@@ -162,7 +178,7 @@ export class SpaceManager extends EventEmitter {
    */
   listSpaces(projectDirectory: string): SpaceInfo[] {
     const rows = this.db.getSpacesByProject(projectDirectory);
-    return rows.map((row) => rowToInfo(row, this.db.getSpaceChatCount(row.id)));
+    return rows.map((row) => this.toInfo(row));
   }
 
   /**
@@ -171,7 +187,7 @@ export class SpaceManager extends EventEmitter {
   getSpace(id: string): SpaceInfo | undefined {
     const row = this.db.getSpace(id);
     if (!row) return undefined;
-    return rowToInfo(row, this.db.getSpaceChatCount(row.id));
+    return this.toInfo(row);
   }
 
   /**
@@ -265,7 +281,12 @@ export class SpaceManager extends EventEmitter {
    */
   getSpaceDiff(id: string): string | null {
     const row = this.db.getSpace(id);
-    if (!row || !row.git_branch || !row.worktree_path) return null;
+    if (!row || !row.git_branch) return null;
+
+    const worktreePath = this.getExistingWorktreePath(row.worktree_path);
+    if (!worktreePath) {
+      return "";
+    }
 
     const repoRoot = getRepoRoot(row.project_directory);
     if (!repoRoot) return null;
@@ -274,7 +295,7 @@ export class SpaceManager extends EventEmitter {
 
     // Diff from inside the worktree so we capture both committed and
     // uncommitted changes vs the base branch.
-    return getWorktreeDiff(row.worktree_path, defaultBranch);
+    return getWorktreeDiff(worktreePath, defaultBranch);
   }
 
   /**

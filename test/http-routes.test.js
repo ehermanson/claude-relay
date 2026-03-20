@@ -364,6 +364,42 @@ describe("HTTP Routes — Additional Coverage", () => {
     });
   });
 
+  describe("GET /api/spaces/:id/diff", () => {
+    it("returns an empty diff when a space worktree no longer exists", async () => {
+      execSync("git init -q", { cwd: tempDir });
+      execSync('git config user.email "test@example.com"', { cwd: tempDir });
+      execSync('git config user.name "Test User"', { cwd: tempDir });
+      writeFileSync(join(tempDir, "README.md"), "hello\n");
+      execSync("git add README.md", { cwd: tempDir });
+      execSync('git commit -qm "init"', { cwd: tempDir });
+
+      manager.db.upsertSpace({
+        id: "262013e4-17c1-422d-a709-f2cc34c12681",
+        project_directory: tempDir,
+        name: "relay-space/deadbeef",
+        git_branch: "relay-space/deadbeef",
+        worktree_path: join(tempDir, ".relay", "worktrees", "space-deadbeef"),
+        is_default: 0,
+        status: "active",
+        created_at: Date.now(),
+        last_activity_at: Date.now(),
+      });
+
+      const session = auth.createSession();
+      const res = await request(
+        server,
+        "GET",
+        "/api/spaces/262013e4-17c1-422d-a709-f2cc34c12681/diff",
+        {
+          headers: { Cookie: `session=${session.id}` },
+        },
+      );
+
+      assert.equal(res.status, 200);
+      assert.equal(res.body.diff, "");
+    });
+  });
+
   describe("GET /api/file", () => {
     it("requires authentication", async () => {
       const res = await request(server, "GET", "/api/file?path=/tmp/test.png");
