@@ -10,6 +10,7 @@ import type {
   ProviderKind,
   ProviderModelOption,
   ProjectArtifacts,
+  SpaceInfo,
 } from "@shared/types";
 import { getDefaultProviderCapabilities } from "@shared/provider-catalog";
 
@@ -114,6 +115,13 @@ export async function createInstance(
 export async function fetchInstanceHistory(instanceId: string): Promise<HistoryEntry[]> {
   const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/history`);
   if (!res.ok) throw new Error("Failed to fetch instance history");
+  return res.json();
+}
+
+export async function fetchInstanceSummary(instanceId: string): Promise<InstanceInfo | null> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/summary`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error("Failed to fetch instance summary");
   return res.json();
 }
 
@@ -232,6 +240,12 @@ export async function fetchProjectArtifacts(projectId: string): Promise<ProjectA
   return res.json();
 }
 
+export async function fetchProjectChats(projectId: string): Promise<InstanceInfo[]> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/chats`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function openNativePath(target: {
   path: string;
   line?: number;
@@ -326,4 +340,68 @@ export async function removeProject(id: string): Promise<void> {
   }
 }
 
+// =========================================================================
+// Space API
+// =========================================================================
+
+export async function fetchSpaces(projectId: string): Promise<SpaceInfo[]> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/spaces`);
+  if (!res.ok) throw new Error("Failed to fetch spaces");
+  return res.json();
+}
+
+export async function createSpace(
+  projectId: string,
+  opts?: { name?: string; baseBranch?: string },
+): Promise<SpaceInfo> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/spaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to create space" }));
+    throw new Error(data.error || "Failed to create space");
+  }
+  return res.json();
+}
+
+export async function fetchSpaceDetail(spaceId: string): Promise<SpaceInfo> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}`);
+  if (!res.ok) throw new Error("Failed to fetch space");
+  return res.json();
+}
+
+export async function completeSpace(
+  spaceId: string,
+): Promise<{ success: boolean; targetBranch: string; mergeCommit?: string }> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/complete`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to complete space" }));
+    throw new Error(data.error || "Failed to complete space");
+  }
+  return res.json();
+}
+
+export async function deleteSpace(spaceId: string): Promise<void> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to delete space" }));
+    throw new Error(data.error || "Failed to delete space");
+  }
+}
+
+export async function fetchSpaceDiff(spaceId: string): Promise<string> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/diff`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to fetch space diff" }));
+    throw new Error(data.error || "Failed to fetch space diff");
+  }
+  const data = await res.json();
+  return data.diff;
+}
 export type { NativeOpenTarget };

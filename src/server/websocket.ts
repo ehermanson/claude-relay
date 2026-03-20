@@ -53,6 +53,7 @@ export function createWebSocketServer(
 ): WebSocketServerHandle {
   const wss = new WebSocketServer({ server });
   const log = config.logger;
+  const spaceManager = instanceManager.getSpaceManager();
 
   // Per-client subscription sets
   const subscriptions = new Map<WebSocket, Set<string>>();
@@ -89,6 +90,14 @@ export function createWebSocketServer(
         sendMessage(ws, message);
       }
     }
+  }
+
+  function broadcastSpaceList(projectDirectory: string): void {
+    broadcast({
+      type: "space_list",
+      projectDirectory,
+      spaces: spaceManager.listSpaces(projectDirectory),
+    });
   }
 
   // Wire up InstanceManager events
@@ -148,6 +157,21 @@ export function createWebSocketServer(
     broadcast({ type: "tasks_changed", projectId, tasks });
   });
 
+  spaceManager.on("space:created", (space) => {
+    broadcast({ type: "space_created", space });
+    broadcastSpaceList(space.projectDirectory);
+  });
+
+  spaceManager.on("space:completed", (spaceId, projectDirectory, targetBranch) => {
+    broadcast({ type: "space_completed", spaceId, targetBranch });
+    broadcastSpaceList(projectDirectory);
+  });
+
+  spaceManager.on("space:removed", (spaceId, projectDirectory) => {
+    broadcast({ type: "space_removed", spaceId });
+    broadcastSpaceList(projectDirectory);
+  });
+
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
     const cookieHeader = req.headers.cookie;
     const session = auth.getSessionFromCookies(cookieHeader);
@@ -204,6 +228,7 @@ export function createWebSocketServer(
                 dangerouslySkipPermissions: message.dangerouslySkipPermissions ?? false,
                 resumeSessionId: message.resumeSessionId,
                 model: message.model,
+                spaceId: message.spaceId,
               });
               broadcast({ type: "instance_created", instance: info });
             } catch (err) {
@@ -354,6 +379,50 @@ export function createWebSocketServer(
             break;
           }
 
+          case "create_space": {
+            try {
+              instanceManager.getSpaceManager().createSpace(message.projectDirectory, {
+                name: message.name,
+                baseBranch: message.baseBranch,
+              });
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to create space",
+              });
+            }
+            break;
+          }
+
+          case "complete_space": {
+            try {
+              const { targetBranch } = instanceManager
+                .getSpaceManager()
+                .completeSpace(message.spaceId);
+              sendMessage(ws, {
+                type: "notification",
+                message: `Space merged into ${targetBranch} successfully`,
+              });
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to complete space",
+              });
+            }
+            break;
+          }
+
+          case "delete_space": {
+            try {
+              instanceManager.getSpaceManager().deleteSpace(message.spaceId);
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to delete space",
+              });
+            }
+            break;
+          }
           case "merge_instance": {
             try {
               const { targetBranch } = instanceManager.mergeInstance(message.instanceId);

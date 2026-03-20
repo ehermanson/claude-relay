@@ -63,6 +63,52 @@ export class ProjectManager extends EventEmitter {
     super();
     this.db = db;
     this.logger = logger;
+    this.normalizeRegisteredProjects();
+  }
+
+  private normalizeRegisteredProjects(): void {
+    for (const project of this.db.getAllProjects()) {
+      if (!isRelayWorktreePath(project.directory)) {
+        continue;
+      }
+
+      const origin = resolveWorktreeOrigin(project.directory);
+      if (!origin || origin === project.directory) {
+        continue;
+      }
+
+      const canonicalDirectory = getRepoRoot(origin) ?? origin;
+      const existing = this.db.getProjectByDirectory(canonicalDirectory);
+
+      if (existing && existing.id !== project.id) {
+        this.db.assignSessionsToProject(existing.id, project.directory);
+        this.db.reassignSpacesToProjectDirectory(canonicalDirectory, project.directory);
+        this.db.deleteProject(project.id);
+        this.logger.info(
+          `[ProjectManager] Folded relay worktree project ${project.directory} into ${canonicalDirectory}`,
+        );
+        continue;
+      }
+
+      const normalized: ProjectRow = {
+        ...project,
+        name:
+          project.name === basename(project.directory)
+            ? basename(canonicalDirectory)
+            : project.name,
+        directory: canonicalDirectory,
+        repo_root: canonicalDirectory,
+        remote_url: getRemoteUrl(canonicalDirectory),
+        target_branch: project.target_branch ?? getCurrentBranch(canonicalDirectory),
+      };
+
+      this.db.upsertProject(normalized);
+      this.db.assignSessionsToProject(normalized.id, project.directory);
+      this.db.reassignSpacesToProjectDirectory(canonicalDirectory, project.directory);
+      this.logger.info(
+        `[ProjectManager] Normalized relay worktree project ${project.directory} to ${canonicalDirectory}`,
+      );
+    }
   }
 
   /**

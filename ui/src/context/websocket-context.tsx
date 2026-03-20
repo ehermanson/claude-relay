@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { useWebSocket, type MessageHandler } from "../hooks/use-web-socket";
-import type { InstanceInfo, ClientMessage, Project } from "@shared/types";
+import type { InstanceInfo, ClientMessage } from "@shared/types";
 
 // Stable methods that never change — components consuming only this won't re-render
 interface WSMethodsContextValue {
@@ -16,7 +16,6 @@ interface WSStateContextValue {
   isSyncing: boolean;
   connectionId: number;
   instances: InstanceInfo[];
-  projects: Project[];
 }
 
 const WSMethodsContext = createContext<WSMethodsContextValue | null>(null);
@@ -28,7 +27,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     isSyncing,
     connectionId,
     instances,
-    projects,
     send,
     subscribe,
     unsubscribe,
@@ -36,7 +34,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   } = useWebSocket();
 
   const methods = { send, subscribe, unsubscribe, addMessageHandler };
-  const state = { isConnected, isSyncing, connectionId, instances, projects };
+  const state = { isConnected, isSyncing, connectionId, instances };
 
   return (
     <WSMethodsContext.Provider value={methods}>

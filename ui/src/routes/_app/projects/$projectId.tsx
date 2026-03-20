@@ -71,9 +71,10 @@ function NavTab({
 }
 
 function ProjectLayout() {
-  const { chatId, planSlug } = useParams({ strict: false }) as {
+  const { chatId, planSlug, spaceId } = useParams({ strict: false }) as {
     chatId?: string;
     planSlug?: string;
+    spaceId?: string;
   };
   const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -83,7 +84,7 @@ function ProjectLayout() {
   const projectId = artifacts.projectId;
   const dirName = getProjectName(artifacts.directory);
 
-  const isChildView = !!chatId || !!planSlug;
+  const isChildView = !!chatId || !!planSlug || !!spaceId;
 
   // Session stats
   const projectInstances = instances.filter((inst) => instanceMatchesProject(inst, projectId));

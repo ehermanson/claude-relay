@@ -33,6 +33,7 @@ export function createInstanceRoutes(deps: HttpDeps): Route[] {
             dangerouslySkipPermissions?: boolean;
             resumeSessionId?: string;
             model?: string;
+            spaceId?: string;
           }>(ctx.req);
           const info = instanceManager.createInstance({
             provider: body.provider,
@@ -41,6 +42,7 @@ export function createInstanceRoutes(deps: HttpDeps): Route[] {
             dangerouslySkipPermissions: body.dangerouslySkipPermissions,
             resumeSessionId: body.resumeSessionId,
             model: body.model,
+            spaceId: body.spaceId,
           });
           sendJson(ctx.res, 201, info);
         } catch (err) {
@@ -48,6 +50,21 @@ export function createInstanceRoutes(deps: HttpDeps): Route[] {
             error: err instanceof Error ? err.message : "Failed to create instance",
           });
         }
+      },
+    },
+    {
+      method: "GET",
+      pattern: /^\/api\/instances\/([a-f0-9-]+)\/summary$/,
+      handler(ctx, match) {
+        if (!requireAuth(ctx)) {
+          return;
+        }
+        const summary = instanceManager.getChatSummary(match[1]);
+        if (!summary) {
+          sendJson(ctx.res, 404, { error: "Instance not found" });
+          return;
+        }
+        sendJson(ctx.res, 200, summary);
       },
     },
     {

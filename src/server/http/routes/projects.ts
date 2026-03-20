@@ -138,6 +138,21 @@ export function createProjectRoutes(deps: HttpDeps): Route[] {
     },
     {
       method: "GET",
+      pattern: /^\/api\/projects\/([a-f0-9-]+)\/chats$/,
+      handler(ctx, match) {
+        if (!requireAuth(ctx)) {
+          return;
+        }
+        const project = instanceManager.projectManager.getProject(match[1]);
+        if (!project) {
+          sendJson(ctx.res, 404, { error: "Project not found" });
+          return;
+        }
+        sendJson(ctx.res, 200, instanceManager.listProjectChats(project.id));
+      },
+    },
+    {
+      method: "GET",
       pattern: /^\/api\/projects$/,
       handler(ctx) {
         if (!requireAuth(ctx)) {

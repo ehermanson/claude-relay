@@ -41,6 +41,25 @@ describe("convertCodexTranscriptEntry", () => {
       assert.equal(results[0].message.text, "Hello world");
     });
 
+    it("marks injected task-context prompts as internal", () => {
+      const ctx = createContext();
+      const results = convertCodexTranscriptEntry(
+        {
+          type: "event_msg",
+          timestamp: "2026-01-01T00:00:00Z",
+          payload: {
+            type: "user_message",
+            message:
+              "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. Ask if unsure whether a request should map to a task. Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), priority (0-4), type (epic|task|bug), tags (string[]), parent (nullable task ID), blockedBy (task ID[]), createdAt, updatedAt (ISO timestamps). Blocked status is auto-derived from unresolved blockedBy refs. To create: append a new JSON line. To update: append a line with same id and changed fields. When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.jsonl to find it.",
+          },
+        },
+        ctx,
+      );
+      assert.equal(results.length, 1);
+      assert.equal(results[0].message.type, "user");
+      assert.equal(results[0].message.internal, true);
+    });
+
     it("skips empty user messages", () => {
       const ctx = createContext();
       const results = convertCodexTranscriptEntry(
@@ -408,6 +427,41 @@ describe("parseCodexTranscript", () => {
       assert.equal(result.history.length, 2);
       assert.equal(result.history[0].message.type, "user");
       assert.equal(result.history[1].message.type, "output");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("marks injected task-context prompts as internal when parsing a full transcript", () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-codex-"));
+    const filePath = join(dir, "transcript.jsonl");
+    const lines = [
+      JSON.stringify({
+        type: "session_meta",
+        payload: { id: "sess-1", cwd: "/home/user/project" },
+      }),
+      JSON.stringify({
+        type: "event_msg",
+        timestamp: "2026-01-01T00:00:00Z",
+        payload: {
+          type: "user_message",
+          message:
+            "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. Ask if unsure whether a request should map to a task. Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), priority (0-4), type (epic|task|bug), tags (string[]), parent (nullable task ID), blockedBy (task ID[]), createdAt, updatedAt (ISO timestamps). Blocked status is auto-derived from unresolved blockedBy refs. To create: append a new JSON line. To update: append a line with same id and changed fields. When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.jsonl to find it.",
+        },
+      }),
+      JSON.stringify({
+        type: "event_msg",
+        timestamp: "2026-01-01T00:00:01Z",
+        payload: { type: "agent_message", message: "I'll help with that." },
+      }),
+    ];
+    writeFileSync(filePath, lines.join("\n"));
+
+    try {
+      const result = parseCodexTranscript(filePath);
+      assert.equal(result.history.length, 2);
+      assert.equal(result.history[0].message.type, "user");
+      assert.equal(result.history[0].message.internal, true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

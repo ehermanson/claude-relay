@@ -162,7 +162,7 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
     <Menu.Root>
       <Tooltip content="Open this project in another app">
         <div
-          className={`flex h-7 items-center overflow-hidden rounded-md border border-border/70 bg-transparent text-xs text-muted ${className}`}
+          className={`flex h-7 items-center overflow-hidden rounded-md border border-border/50 bg-transparent text-xs text-muted ${className}`}
         >
           <button
             type="button"
@@ -172,8 +172,12 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
             }}
             className="flex h-full min-w-0 items-center gap-2 px-2.5 transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {selectedTarget && <OpenTargetIcon target={selectedTarget} className={iconClassName} />}
-            <span className="max-w-[11rem] truncate">{triggerLabel}</span>
+            {selectedTarget ? (
+              <OpenTargetIcon target={selectedTarget} className={iconClassName} />
+            ) : (
+              <span aria-hidden="true" className="h-3.5 w-3.5 shrink-0 rounded-sm bg-border/50" />
+            )}
+            <span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
           </button>
           <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
           <Menu.Trigger

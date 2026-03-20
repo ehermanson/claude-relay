@@ -35,6 +35,7 @@ import type { ClaudeSdkSession } from "./providers/claude-sdk.js";
 import { convertCodexTranscriptEntry } from "./providers/codex-transcript.js";
 import { SessionDB } from "./db.js";
 import type { SessionRow, ManagedInstanceRow } from "./db.js";
+import { SpaceManager } from "./space-manager.js";
 import { ProjectManager } from "./project-manager.js";
 import type { Project } from "./types.js";
 import { discoverSkills } from "./skills.js";
@@ -76,6 +77,12 @@ import {
   resolveManagedTranscriptPathForProvider,
 } from "./provider-registry.js";
 import {
+  AUTO_CONTINUE_MSG,
+  buildFirstTurnTaskContextPrompt,
+  buildPermissionGrantedRetryMessage,
+  isInternalInjectedUserText,
+} from "./internal-user-messages.js";
+import {
   describeToolUse,
   describeToolDetail,
   extractInputDescription,
@@ -108,10 +115,6 @@ import {
 } from "./git.js";
 import { searchWorkspaceEntries, type WorkspaceEntry } from "./workspace-entries.js";
 import { isPathWithinWorkspace } from "./workspace-paths.js";
-
-/** Message text injected when the relay server auto-continues an instance after restart. */
-const AUTO_CONTINUE_MSG =
-  "The relay server restarted while you were mid-turn. Please continue from where you left off.";
 
 // =============================================================================
 // Re-exports
@@ -891,6 +894,62 @@ function gitInfoFromDb(entry: {
   };
 }
 
+function toChatSummaryInfo(info: InstanceInfo): InstanceInfo {
+  const { lastMessage, ...summary } = info;
+  return { ...summary };
+}
+
+function summaryFromSessionRow(entry: SessionRow): InstanceInfo {
+  return {
+    id: entry.instance_id,
+    provider: (entry.provider_name as ProviderKind) || "claude",
+    name: entry.name,
+    workingDirectory: entry.working_directory,
+    status: "stopped",
+    createdAt: entry.created_at,
+    lastActivityAt: entry.last_activity_at,
+    external: true,
+    sessionId: entry.session_id,
+    customTitle: entry.custom_title === 1,
+    stats: dbStatsToSessionStats(entry),
+    gitBranch: entry.git_branch ?? undefined,
+    originalDirectory: entry.original_directory ?? undefined,
+    gitInfo: gitInfoFromDb(entry),
+    parentSessionId: entry.parent_session_id ?? undefined,
+    preferredModel: entry.preferred_model ?? undefined,
+    reasoningBudget: entry.reasoning_budget ?? undefined,
+    planMode: false,
+    skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+    spaceId: entry.space_id ?? undefined,
+    projectId: entry.project_id ?? undefined,
+  };
+}
+
+function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
+  return {
+    id: entry.instance_id,
+    provider: entry.provider_name as ProviderKind,
+    name: entry.name,
+    workingDirectory: entry.working_directory,
+    status: "stopped",
+    createdAt: entry.created_at,
+    lastActivityAt: entry.last_activity_at,
+    sessionId: entry.provider_session_id ?? undefined,
+    customTitle: entry.custom_title === 1,
+    stats: dbStatsToSessionStats(entry),
+    gitBranch: entry.git_branch ?? undefined,
+    originalDirectory: entry.original_directory ?? undefined,
+    gitInfo: gitInfoFromDb(entry),
+    parentSessionId: entry.parent_session_id ?? undefined,
+    preferredModel: entry.preferred_model ?? undefined,
+    reasoningBudget: entry.reasoning_budget ?? undefined,
+    planMode: entry.runtime_mode === "plan" ? true : undefined,
+    skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+    spaceId: entry.space_id ?? undefined,
+    projectId: entry.project_id ?? undefined,
+  };
+}
+
 function statsChanged(before: SessionStats, after: SessionStats): boolean {
   return (
     before.inputTokens !== after.inputTokens ||
@@ -923,6 +982,8 @@ export class InstanceManager extends EventEmitter {
   scanComplete = false;
   /** Guard to prevent concurrent discovery polls from overlapping */
   private discovering = false;
+  /** Space lifecycle manager */
+  private spaceManager: SpaceManager;
   /** Project manager for explicit project registration */
   private _projectManager: ProjectManager;
 
@@ -936,6 +997,7 @@ export class InstanceManager extends EventEmitter {
       gemini: config.providerDirs?.gemini ?? join(home, ".gemini"),
     };
     this.db = new SessionDB(config.dbPath, config.logger);
+    this.spaceManager = new SpaceManager(this.db, config.logger);
     this._projectManager = new ProjectManager(this.db, config.logger);
     // Keep in-memory instances aligned with project registration changes.
     this._projectManager.on("project:created", (project) => {
@@ -968,7 +1030,11 @@ export class InstanceManager extends EventEmitter {
   private refreshInstanceProjectIds(project: Project): void {
     for (const instance of this.instances.values()) {
       if (instance.info.projectId) continue;
-      if (instance.info.workingDirectory === project.directory) {
+      const instanceProjectDir =
+        instance.originalDirectory ??
+        instance.info.originalDirectory ??
+        instance.info.workingDirectory;
+      if (instanceProjectDir === project.directory) {
         instance.info.projectId = project.id;
       }
     }
@@ -1034,6 +1100,7 @@ export class InstanceManager extends EventEmitter {
     model?: string;
     reasoningBudget?: number;
     planMode?: boolean;
+    spaceId?: string;
   }): InstanceInfo {
     const activeCount = [...this.instances.values()].filter(
       (i) => i.process && !i.info.external,
@@ -1045,8 +1112,29 @@ export class InstanceManager extends EventEmitter {
     const id = randomUUID();
     this.instanceCounter++;
     const provider = options?.provider ?? "claude";
-    const workingDirectory = options?.workingDirectory || this.baseConfig.workingDirectory;
+    let workingDirectory = options?.workingDirectory || this.baseConfig.workingDirectory;
     const now = Date.now();
+
+    // If a space is specified, its worktree path always wins as the CWD
+    const spaceId = options?.spaceId;
+    let spaceOriginalDirectory: string | undefined;
+    let spaceWorktreePath: string | undefined;
+    let spaceGitBranch: string | undefined;
+    if (spaceId) {
+      const space = this.spaceManager.getSpace(spaceId);
+      if (space) {
+        spaceOriginalDirectory = space.projectDirectory;
+        spaceGitBranch = space.gitBranch ?? undefined;
+        if (space.worktreePath) {
+          spaceWorktreePath = space.worktreePath;
+          workingDirectory = space.worktreePath;
+        } else {
+          // Default space — use the project directory
+          workingDirectory = space.projectDirectory;
+        }
+      }
+      this.spaceManager.touchSpace(spaceId);
+    }
     const resumeId = options?.resumeSessionId;
 
     const instanceConfig: CoreConfig = {
@@ -1094,11 +1182,14 @@ export class InstanceManager extends EventEmitter {
       createdAt: now,
       lastActivityAt: now,
       gitInfo: getGitInfo(workingDirectory) ?? undefined,
+      gitBranch: spaceGitBranch,
       preferredModel: model,
       reasoningBudget: options?.reasoningBudget,
       planMode: options?.planMode,
       skipPermissions: skipPerms,
+      originalDirectory: spaceOriginalDirectory,
       projectId: project?.id,
+      spaceId,
     };
 
     const dirBasename = workingDirectory.split("/").pop() || "";
@@ -1109,6 +1200,10 @@ export class InstanceManager extends EventEmitter {
       providerBinding: proc.getRuntimeBinding(),
       history: [],
       autoTitle: !hasCustomName && !resumeId,
+      worktreePath: spaceWorktreePath,
+      gitBranch: spaceGitBranch,
+      originalDirectory: spaceOriginalDirectory,
+      actualCwd: spaceWorktreePath ? workingDirectory : undefined,
       hydrated: true,
     };
     this.instances.set(id, instance);
@@ -1271,6 +1366,13 @@ export class InstanceManager extends EventEmitter {
     return { targetBranch };
   }
 
+  // ===========================================================================
+  // Space management (delegates to SpaceManager)
+  // ===========================================================================
+
+  getSpaceManager(): SpaceManager {
+    return this.spaceManager;
+  }
   listInstances(): InstanceInfo[] {
     return Array.from(this.instances.values())
       .filter((i) => !!i.info.projectId)
@@ -1280,6 +1382,50 @@ export class InstanceManager extends EventEmitter {
   getInstance(id: string): InstanceInfo | undefined {
     const instance = this.instances.get(id);
     return instance ? { ...instance.info } : undefined;
+  }
+
+  getChatSummary(id: string): InstanceInfo | null {
+    const live = this.instances.get(id);
+    if (live) {
+      return toChatSummaryInfo(live.info);
+    }
+
+    const external = this.db.getByInstanceId(id);
+    if (external) {
+      return summaryFromSessionRow(external);
+    }
+
+    const managed = this.db.getManagedByInstanceId(id);
+    if (managed) {
+      return summaryFromManagedRow(managed);
+    }
+
+    return null;
+  }
+
+  listProjectChats(projectId: string): InstanceInfo[] {
+    const chats = new Map<string, InstanceInfo>();
+
+    for (const instance of this.instances.values()) {
+      if (instance.info.projectId !== projectId) {
+        continue;
+      }
+      chats.set(instance.info.id, toChatSummaryInfo(instance.info));
+    }
+
+    for (const row of this.db.getByProjectId(projectId)) {
+      if (!chats.has(row.instance_id)) {
+        chats.set(row.instance_id, summaryFromSessionRow(row));
+      }
+    }
+
+    for (const row of this.db.getManagedByProjectId(projectId)) {
+      if (!chats.has(row.instance_id)) {
+        chats.set(row.instance_id, summaryFromManagedRow(row));
+      }
+    }
+
+    return Array.from(chats.values()).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
 
   getWorkspaceEntries(id: string, query: string): WorkspaceEntry[] | null {
@@ -1352,28 +1498,14 @@ export class InstanceManager extends EventEmitter {
       throw new Error("Instance could not be started");
     }
 
-    // Inject task context on first user message for projects with .relay/tasks.jsonl
+    let shouldInjectTaskContext = false;
+
+    // Inject task context into the first outbound user turn for projects with .relay/tasks.jsonl
     if (!instance.taskContextInjected && !internal && instance.info.projectId) {
       instance.taskContextInjected = true;
       const taskProject = this._projectManager.getProject(instance.info.projectId);
       if (taskProject && hasTasks(taskProject.directory)) {
-        const taskContext =
-          "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). " +
-          "Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. Ask if unsure whether a request should map to a task. " +
-          "Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), " +
-          "priority (0-4), type (epic|task|bug), tags (string[]), parent (nullable task ID), " +
-          "blockedBy (task ID[]), createdAt, updatedAt (ISO timestamps). " +
-          "Blocked status is auto-derived from unresolved blockedBy refs. " +
-          "To create: append a new JSON line. To update: append a line with same id and changed fields. " +
-          "When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.jsonl to find it.";
-        const internalMsg: UserMessage = {
-          type: "user",
-          text: taskContext,
-          instanceId: id,
-          internal: true,
-        };
-        this.pushHistory(instance, internalMsg);
-        instance.process!.send(taskContext);
+        shouldInjectTaskContext = true;
       }
     }
 
@@ -1389,6 +1521,10 @@ export class InstanceManager extends EventEmitter {
       const markers = images.map((p) => `[Image: source: ${p}]`).join("\n");
       messageText = messageText ? `${messageText}\n${markers}` : markers;
     }
+
+    const outboundMessage = shouldInjectTaskContext
+      ? buildFirstTurnTaskContextPrompt(messageText)
+      : messageText;
 
     // Store user message in history so replay works across devices
     const userMessage: UserMessage = {
@@ -1420,7 +1556,7 @@ export class InstanceManager extends EventEmitter {
     instance.planFilePath = undefined;
     this.setStatus(instance, "processing");
 
-    instance.process!.send(messageText);
+    instance.process!.send(outboundMessage);
     return resumed;
   }
 
@@ -1523,7 +1659,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     const toolLabel = isFileWrite ? "file writes" : tool;
-    const retryText = `Permission granted for ${toolLabel}. Please continue.`;
+    const retryText = buildPermissionGrantedRetryMessage(toolLabel);
 
     if (instance.process!.isProcessing) {
       instance.pendingRetry = retryText;
@@ -2341,6 +2477,7 @@ export class InstanceManager extends EventEmitter {
       githubUrl,
       tasks,
       skills,
+      spaces: directory ? this.spaceManager.listSpaces(directory) : [],
     };
   }
 
@@ -3399,7 +3536,7 @@ export class InstanceManager extends EventEmitter {
           });
         }
       } else {
-        const internal = text === AUTO_CONTINUE_MSG ? true : undefined;
+        const internal = isInternalInjectedUserText(text) ? true : undefined;
         results.push({
           timestamp,
           message: { type: "user", text, internal } as UserMessage,
@@ -3934,6 +4071,7 @@ export class InstanceManager extends EventEmitter {
             ? 1
             : 0
           : null,
+      space_id: instance.info.spaceId ?? null,
       project_id: instance.info.projectId ?? null,
       model: stats?.model ?? null,
     };
@@ -3979,6 +4117,7 @@ export class InstanceManager extends EventEmitter {
             ? 1
             : 0
           : null,
+      space_id: instance.info.spaceId ?? null,
       project_id: instance.info.projectId ?? null,
       model: stats?.model ?? null,
     };
@@ -4209,6 +4348,7 @@ export class InstanceManager extends EventEmitter {
           project_id:
             this._projectManager.getProjectByDirectory(entry.workingDirectory)?.id ?? null,
           model: null,
+          space_id: null,
         });
       }
 
@@ -4448,6 +4588,7 @@ export class InstanceManager extends EventEmitter {
             project_id:
               this._projectManager.getProjectByDirectory(scanOriginalDir ?? cwd)?.id ?? null,
             model,
+            space_id: null,
           });
           discovered++;
         }
@@ -4591,6 +4732,7 @@ export class InstanceManager extends EventEmitter {
               git_info_is_worktree: null,
               project_id: this._projectManager.getProjectByDirectory(cwd)?.id ?? null,
               model: meta.model,
+              space_id: null,
             });
           }
         } catch {
@@ -4711,6 +4853,7 @@ export class InstanceManager extends EventEmitter {
           git_info_is_worktree: row.git_info_is_worktree,
           project_id: row.project_id,
           model: row.model ?? null,
+          space_id: row.space_id,
         });
       } catch (err) {
         this.baseConfig.logger.warn(
@@ -4764,6 +4907,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: entry.reasoning_budget ?? undefined,
       planMode: false,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      spaceId: entry.space_id ?? undefined,
       projectId: entry.project_id ?? undefined,
     };
 
@@ -4873,6 +5017,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: entry.reasoning_budget ?? undefined,
       planMode: entry.runtime_mode === "plan" ? true : undefined,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      spaceId: entry.space_id ?? undefined,
       projectId: entry.project_id ?? undefined,
     };
 

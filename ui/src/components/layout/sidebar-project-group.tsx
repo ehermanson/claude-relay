@@ -13,21 +13,24 @@ import {
   ChevronDown,
   ChevronRight,
   FolderMinus,
+  GitBranch,
+  MessageSquarePlus,
   MoreVertical,
   NotebookPen,
   Plus,
   Toolbox,
 } from "lucide-react";
-import { SidebarItem } from "./sidebar-item";
-import { Button } from "../ui/button";
-import { Collapsible } from "../ui/collapsible";
-import { Menu } from "../ui/menu";
-import type { InstanceInfo, Project } from "@shared/types";
+import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 import {
   getInstanceProjectRouteId,
   getProjectName,
   type RemoveProjectTarget,
 } from "../../lib/project-route";
+import { Button } from "../ui/button";
+import { Collapsible } from "../ui/collapsible";
+import { Menu } from "../ui/menu";
+import { SidebarItem } from "./sidebar-item";
+import { SidebarSpaceGroup } from "./sidebar-space-group";
 
 const MAX_SIDEBAR_SESSIONS = 10;
 
@@ -50,19 +53,22 @@ interface SidebarProjectGroupProps {
   isOpen: boolean;
   onToggle: () => void;
   sessionIdMap: Map<string, InstanceInfo>;
-
   onQuickCreate: (dir: string) => void;
   onDelete: (instance: Pick<InstanceInfo, "id" | "name">) => void;
   onRename: (id: string, name: string) => void;
   onMerge: (id: string) => void;
   onRemoveProject?: (project: RemoveProjectTarget) => void;
-  /** Position flags for enabling/disabling reorder menu items */
   isFirst?: boolean;
   isLast?: boolean;
   onMoveToTop?: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   onMoveToBottom?: () => void;
+  spaces?: SpaceInfo[];
+  activeSpaceId?: string;
+  onCreateSpace?: (dir: string) => void;
+  onCompleteSpace?: (spaceId: string) => void;
+  onDeleteSpace?: (spaceId: string) => void;
 }
 
 export function SidebarProjectGroup({
@@ -86,11 +92,18 @@ export function SidebarProjectGroup({
   onMoveUp,
   onMoveDown,
   onMoveToBottom,
+  spaces,
+  activeSpaceId,
+  onCreateSpace,
+  onCompleteSpace,
+  onDeleteSpace,
 }: SidebarProjectGroupProps) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [iconHovered, setIconHovered] = useState(false);
   const [imgError, setImgError] = useState(false);
+
   const dirName = getProjectName(dir);
   const initial = dirName.charAt(0).toUpperCase() || "?";
   const showFavicon = iconPath && !imgError;
@@ -101,11 +114,11 @@ export function SidebarProjectGroup({
     name: project?.name ?? dirName,
     directory: dir,
   };
+  const mainInstances = groupInstances.filter((instance) => !instance.spaceId);
 
-  // Build parent/child ordered list: children appear right after their parent
   const childIds = new Set<string>();
   const parentChildren = new Map<string, InstanceInfo[]>();
-  for (const inst of groupInstances) {
+  for (const inst of mainInstances) {
     if (inst.parentSessionId) {
       const parent = sessionIdMap.get(inst.parentSessionId);
       if (parent && parent.workingDirectory === inst.workingDirectory) {
@@ -117,12 +130,8 @@ export function SidebarProjectGroup({
     }
   }
 
-  const ordered: Array<{
-    inst: InstanceInfo;
-    isChild: boolean;
-    parentInst?: InstanceInfo;
-  }> = [];
-  for (const inst of groupInstances) {
+  const ordered: Array<{ inst: InstanceInfo; isChild: boolean; parentInst?: InstanceInfo }> = [];
+  for (const inst of mainInstances) {
     if (childIds.has(inst.id)) continue;
     ordered.push({ inst, isChild: false });
     const children = parentChildren.get(inst.id);
@@ -133,19 +142,18 @@ export function SidebarProjectGroup({
     }
   }
 
-  // Determine visible sessions: active + recent up to MAX
   let visible = ordered;
   let hiddenCount = 0;
   {
-    const activeSessions = ordered.filter((o) => o.inst.status !== "stopped");
-    const stoppedSessions = ordered.filter((o) => o.inst.status === "stopped");
+    const activeSessions = ordered.filter((entry) => entry.inst.status !== "stopped");
+    const stoppedSessions = ordered.filter((entry) => entry.inst.status === "stopped");
     const slotsForStopped = Math.max(0, MAX_SIDEBAR_SESSIONS - activeSessions.length);
     const visibleIds = new Set([
-      ...activeSessions.map((o) => o.inst.id),
-      ...stoppedSessions.slice(0, slotsForStopped).map((o) => o.inst.id),
+      ...activeSessions.map((entry) => entry.inst.id),
+      ...stoppedSessions.slice(0, slotsForStopped).map((entry) => entry.inst.id),
     ]);
     if (currentId) visibleIds.add(currentId);
-    visible = ordered.filter((o) => visibleIds.has(o.inst.id));
+    visible = ordered.filter((entry) => visibleIds.has(entry.inst.id));
     hiddenCount = ordered.length - visible.length;
   }
 
@@ -180,7 +188,6 @@ export function SidebarProjectGroup({
   return (
     <Collapsible.Root key={dir} open={isOpen} onOpenChange={() => onToggle()}>
       <div className="group/project mb-0.5">
-        {/* Project header -- collapse toggle + quick create as one row */}
         <div className="mx-2 flex items-center rounded-lg transition-colors hover:bg-surface-hover">
           <Collapsible.Trigger
             className="flex min-w-0 flex-1 items-center gap-1.5 py-2 pl-2 text-left"
@@ -207,8 +214,8 @@ export function SidebarProjectGroup({
               className={`min-w-0 flex-1 truncate text-[0.8125rem] font-semibold ${
                 isActiveProject ? "text-accent" : "text-text-bright"
               }`}
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 navigate({
                   to: "/projects/$projectId",
                   params: { projectId: routeProjectId },
@@ -218,24 +225,72 @@ export function SidebarProjectGroup({
               {dirName}
             </span>
           </Collapsible.Trigger>
+
           <div className="flex shrink-0 items-center gap-0.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onQuickCreate(dir);
-              }}
-              className="opacity-0 transition-all group-hover/project:opacity-100 hover:!bg-accent/10 hover:!text-accent"
-            >
-              <Plus size={12} strokeWidth={2.5} />
-              New Chat
-            </Button>
+            {onCreateSpace ? (
+              <Menu.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+                <Menu.Trigger
+                  onClick={(event: React.MouseEvent) => {
+                    event.stopPropagation();
+                  }}
+                  className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
+                >
+                  <Plus size={12} strokeWidth={2.5} />
+                  New
+                </Menu.Trigger>
+                <Menu.Content align="start">
+                  <Menu.Item
+                    className="!items-start"
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
+                      onQuickCreate(dir);
+                    }}
+                  >
+                    <MessageSquarePlus size={13} strokeWidth={2} className="mt-1 text-muted" />
+                    <div>
+                      <div>New Chat</div>
+                      <div className="text-[0.6875rem] text-muted">
+                        Work with an agent on this branch
+                      </div>
+                    </div>
+                  </Menu.Item>
+                  <Menu.Item
+                    className="!items-start"
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
+                      onCreateSpace(dir);
+                    }}
+                  >
+                    <GitBranch size={13} strokeWidth={2} className="mt-1 text-muted" />
+                    <div>
+                      <div>New Space</div>
+                      <div className="text-[0.6875rem] text-muted">
+                        Start an isolated worktree and merge back later
+                      </div>
+                    </div>
+                  </Menu.Item>
+                </Menu.Content>
+              </Menu.Root>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onQuickCreate(dir);
+                }}
+                className="opacity-0 transition-all group-hover/project:opacity-100 hover:!bg-accent/10 hover:!text-accent"
+              >
+                <Plus size={12} strokeWidth={2.5} />
+                New Chat
+              </Button>
+            )}
+
             {menuOpen ? (
               <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
                 <Menu.Trigger
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
+                  onClick={(event: React.MouseEvent) => {
+                    event.stopPropagation();
                   }}
                   className="flex h-5 w-5 items-center justify-center rounded text-muted hover:text-text"
                 >
@@ -243,8 +298,8 @@ export function SidebarProjectGroup({
                 </Menu.Trigger>
                 <Menu.Content>
                   <Menu.Item
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
                       navigate({
                         to: "/projects/$projectId/plans",
                         params: { projectId: routeProjectId },
@@ -255,8 +310,8 @@ export function SidebarProjectGroup({
                     Plans
                   </Menu.Item>
                   <Menu.Item
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
                       navigate({
                         to: "/projects/$projectId/tasks",
                         params: { projectId: routeProjectId },
@@ -267,8 +322,8 @@ export function SidebarProjectGroup({
                     Tasks
                   </Menu.Item>
                   <Menu.Item
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
                       navigate({
                         to: "/projects/$projectId/skills",
                         params: { projectId: routeProjectId },
@@ -282,8 +337,8 @@ export function SidebarProjectGroup({
                   {onMoveToTop && (
                     <Menu.Item
                       disabled={isFirst}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         onMoveToTop();
                       }}
                     >
@@ -294,8 +349,8 @@ export function SidebarProjectGroup({
                   {onMoveUp && (
                     <Menu.Item
                       disabled={isFirst}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         onMoveUp();
                       }}
                     >
@@ -306,8 +361,8 @@ export function SidebarProjectGroup({
                   {onMoveDown && (
                     <Menu.Item
                       disabled={isLast}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         onMoveDown();
                       }}
                     >
@@ -318,8 +373,8 @@ export function SidebarProjectGroup({
                   {onMoveToBottom && (
                     <Menu.Item
                       disabled={isLast}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
+                      onClick={(event: React.MouseEvent) => {
+                        event.stopPropagation();
                         onMoveToBottom();
                       }}
                     >
@@ -344,8 +399,8 @@ export function SidebarProjectGroup({
               <Button
                 variant="icon"
                 size="icon-sm"
-                onClick={(e) => {
-                  e.stopPropagation();
+                onClick={(event) => {
+                  event.stopPropagation();
                   setMenuOpen(true);
                 }}
                 className="!h-5 !w-5 text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100"
@@ -356,13 +411,25 @@ export function SidebarProjectGroup({
           </div>
         </div>
 
-        {/* Content */}
         <Collapsible.Content>
-          {/* Session items */}
           <div className="px-2">
+            {spaces &&
+              spaces.filter((space) => !space.isDefault).length > 0 &&
+              spaces
+                .filter((space) => !space.isDefault)
+                .map((space) => (
+                  <SidebarSpaceGroup
+                    key={space.id}
+                    space={space}
+                    projectId={routeProjectId}
+                    isActive={activeSpaceId === space.id}
+                    onComplete={onCompleteSpace ?? (() => {})}
+                    onDelete={onDeleteSpace ?? (() => {})}
+                  />
+                ))}
+
             {visible.map(renderSessionItem)}
 
-            {/* Show all link */}
             {hiddenCount > 0 && (
               <Link
                 to="/projects/$projectId/chats"

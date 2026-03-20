@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 13;
+const CURRENT_SCHEMA_VERSION = 14;
 
 export interface ProjectRow {
   id: string;
@@ -21,6 +21,18 @@ export interface ProjectRow {
   target_branch: string | null;
   created_at: number;
   last_activity_at: number | null;
+}
+
+export interface SpaceRow {
+  id: string;
+  project_directory: string;
+  name: string;
+  git_branch: string | null;
+  worktree_path: string | null;
+  is_default: number;
+  status: string;
+  created_at: number;
+  last_activity_at: number;
 }
 
 export interface SessionRow {
@@ -55,6 +67,7 @@ export interface SessionRow {
   last_message_at: number | null;
   git_info_branch: string | null;
   git_info_is_worktree: number | null;
+  space_id: string | null;
   project_id: string | null;
   model: string | null;
 }
@@ -89,6 +102,7 @@ export interface ManagedInstanceRow {
   last_message_at: number | null;
   git_info_branch: string | null;
   git_info_is_worktree: number | null;
+  space_id: string | null;
   project_id: string | null;
   model: string | null;
 }
@@ -111,6 +125,8 @@ export class SessionDB {
   private stmtUpsertManaged!: Database.Statement;
   private stmtGetManagedByInstanceId!: Database.Statement;
   private stmtGetAllManagedActive!: Database.Statement;
+  private stmtGetByProjectId!: Database.Statement;
+  private stmtGetManagedByProjectId!: Database.Statement;
   private stmtArchiveManaged!: Database.Statement;
   private stmtArchive!: Database.Statement;
   private stmtUnarchive!: Database.Statement;
@@ -135,8 +151,19 @@ export class SessionDB {
   private stmtUpdateProjectActivity!: Database.Statement;
   private stmtUpdateSessionProjectId!: Database.Statement;
   private stmtUpdateManagedSessionProjectId!: Database.Statement;
+  private stmtUpdateSpaceProjectDirectory!: Database.Statement;
   private stmtGetDistinctSessionDirs!: Database.Statement;
   private stmtGetProjectModelStats!: Database.Statement;
+  private stmtUpsertSpace!: Database.Statement;
+  private stmtGetSpace!: Database.Statement;
+  private stmtGetSpacesByProject!: Database.Statement;
+  private stmtGetDefaultSpace!: Database.Statement;
+  private stmtUpdateSpaceStatus!: Database.Statement;
+  private stmtUpdateSpaceActivity!: Database.Statement;
+  private stmtDeleteSpace!: Database.Statement;
+  private stmtGetSpaceChatCount!: Database.Statement;
+  private stmtUpdateSessionSpaceId!: Database.Statement;
+  private stmtUpdateManagedSpaceId!: Database.Statement;
 
   constructor(dbPath: string, logger: Logger) {
     this.logger = logger;
@@ -387,6 +414,37 @@ export class SessionDB {
       }
     }
 
+    // v14: spaces table + space_id columns on sessions/managed_sessions
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS spaces (
+        id TEXT PRIMARY KEY,
+        project_directory TEXT NOT NULL,
+        name TEXT NOT NULL,
+        git_branch TEXT,
+        worktree_path TEXT,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at INTEGER NOT NULL,
+        last_activity_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_spaces_project_directory ON spaces(project_directory);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_spaces_default_per_project
+        ON spaces(project_directory) WHERE is_default = 1;
+    `);
+    {
+      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
+      if (!sessionCols.some((c) => c.name === "space_id")) {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN space_id TEXT`);
+      }
+      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
+        name: string;
+      }>;
+      if (!managedCols.some((c) => c.name === "space_id")) {
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN space_id TEXT`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -404,7 +462,7 @@ export class SessionDB {
         summary, first_prompt, git_branch, message_count, allowed_tools,
         worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, skip_permissions,
         last_message_text, last_message_from, last_message_at,
-        git_info_branch, git_info_is_worktree, project_id, model
+        git_info_branch, git_info_is_worktree, space_id, project_id, model
       ) VALUES (
         @session_id, @instance_id, @provider_name, @name, @working_directory, @jsonl_path,
         @created_at, @last_activity_at, @type, @archived, @custom_title,
@@ -412,7 +470,7 @@ export class SessionDB {
         @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
         @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @skip_permissions,
         @last_message_text, @last_message_from, @last_message_at,
-        @git_info_branch, @git_info_is_worktree, @project_id, @model
+        @git_info_branch, @git_info_is_worktree, @space_id, @project_id, @model
       )
       ON CONFLICT(session_id) DO UPDATE SET
         instance_id = excluded.instance_id,
@@ -444,6 +502,7 @@ export class SessionDB {
         last_message_at = excluded.last_message_at,
         git_info_branch = excluded.git_info_branch,
         git_info_is_worktree = excluded.git_info_is_worktree,
+        space_id = excluded.space_id,
         project_id = excluded.project_id,
         model = excluded.model
     `);
@@ -457,7 +516,7 @@ export class SessionDB {
         preferred_model, reasoning_budget, skip_permissions, runtime_mode,
         resume_cursor_json, runtime_payload_json, transcript_path,
         last_message_text, last_message_from, last_message_at,
-        git_info_branch, git_info_is_worktree, project_id, model
+        git_info_branch, git_info_is_worktree, space_id, project_id, model
       ) VALUES (
         @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
         @created_at, @last_activity_at, @archived, @custom_title,
@@ -466,7 +525,7 @@ export class SessionDB {
         @preferred_model, @reasoning_budget, @skip_permissions, @runtime_mode,
         @resume_cursor_json, @runtime_payload_json, @transcript_path,
         @last_message_text, @last_message_from, @last_message_at,
-        @git_info_branch, @git_info_is_worktree, @project_id, @model
+        @git_info_branch, @git_info_is_worktree, @space_id, @project_id, @model
       )
       ON CONFLICT(instance_id) DO UPDATE SET
         provider_name = excluded.provider_name,
@@ -496,6 +555,7 @@ export class SessionDB {
         last_message_at = excluded.last_message_at,
         git_info_branch = excluded.git_info_branch,
         git_info_is_worktree = excluded.git_info_is_worktree,
+        space_id = excluded.space_id,
         project_id = excluded.project_id,
         model = excluded.model
     `);
@@ -524,6 +584,14 @@ export class SessionDB {
 
     this.stmtGetAllManagedActive = this.db.prepare(
       "SELECT * FROM managed_sessions WHERE archived = 0 ORDER BY last_activity_at DESC",
+    );
+
+    this.stmtGetByProjectId = this.db.prepare(
+      "SELECT * FROM sessions WHERE project_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+    );
+
+    this.stmtGetManagedByProjectId = this.db.prepare(
+      "SELECT * FROM managed_sessions WHERE project_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
     );
 
     this.stmtArchive = this.db.prepare("UPDATE sessions SET archived = 1 WHERE session_id = ?");
@@ -662,6 +730,9 @@ export class SessionDB {
     this.stmtUpdateManagedSessionProjectId = this.db.prepare(
       "UPDATE managed_sessions SET project_id = ? WHERE working_directory = ?",
     );
+    this.stmtUpdateSpaceProjectDirectory = this.db.prepare(
+      "UPDATE spaces SET project_directory = ? WHERE project_directory = ?",
+    );
     this.stmtGetDistinctSessionDirs = this.db.prepare(`
       SELECT DISTINCT working_directory FROM (
         SELECT working_directory FROM sessions WHERE archived = 0
@@ -694,6 +765,42 @@ export class SessionDB {
       GROUP BY model, provider_name
       ORDER BY (input_tokens + output_tokens) DESC
     `);
+
+    // Space statements
+    this.stmtUpsertSpace = this.db.prepare(`
+      INSERT INTO spaces (id, project_directory, name, git_branch, worktree_path, is_default, status, created_at, last_activity_at)
+      VALUES (@id, @project_directory, @name, @git_branch, @worktree_path, @is_default, @status, @created_at, @last_activity_at)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        git_branch = excluded.git_branch,
+        worktree_path = excluded.worktree_path,
+        status = excluded.status,
+        last_activity_at = excluded.last_activity_at
+    `);
+    this.stmtGetSpace = this.db.prepare("SELECT * FROM spaces WHERE id = ?");
+    this.stmtGetSpacesByProject = this.db.prepare(
+      "SELECT * FROM spaces WHERE project_directory = ? AND status != 'archived' ORDER BY is_default DESC, last_activity_at DESC",
+    );
+    this.stmtGetDefaultSpace = this.db.prepare(
+      "SELECT * FROM spaces WHERE project_directory = ? AND is_default = 1 LIMIT 1",
+    );
+    this.stmtUpdateSpaceStatus = this.db.prepare("UPDATE spaces SET status = ? WHERE id = ?");
+    this.stmtUpdateSpaceActivity = this.db.prepare(
+      "UPDATE spaces SET last_activity_at = ? WHERE id = ?",
+    );
+    this.stmtDeleteSpace = this.db.prepare("DELETE FROM spaces WHERE id = ?");
+    this.stmtGetSpaceChatCount = this.db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM sessions WHERE space_id = ? AND archived = 0) +
+        (SELECT COUNT(*) FROM managed_sessions WHERE space_id = ? AND archived = 0)
+      AS count
+    `);
+    this.stmtUpdateSessionSpaceId = this.db.prepare(
+      "UPDATE sessions SET space_id = ? WHERE session_id = ?",
+    );
+    this.stmtUpdateManagedSpaceId = this.db.prepare(
+      "UPDATE managed_sessions SET space_id = ? WHERE instance_id = ?",
+    );
   }
 
   upsert(row: SessionRow): void {
@@ -746,6 +853,14 @@ export class SessionDB {
 
   getAllManagedActive(): ManagedInstanceRow[] {
     return this.stmtGetAllManagedActive.all() as ManagedInstanceRow[];
+  }
+
+  getByProjectId(projectId: string): SessionRow[] {
+    return this.stmtGetByProjectId.all(projectId) as SessionRow[];
+  }
+
+  getManagedByProjectId(projectId: string): ManagedInstanceRow[] {
+    return this.stmtGetManagedByProjectId.all(projectId) as ManagedInstanceRow[];
   }
 
   archiveManaged(instanceId: string): void {
@@ -901,6 +1016,10 @@ export class SessionDB {
     this.stmtUpdateManagedSessionProjectId.run(projectId, directory);
   }
 
+  reassignSpacesToProjectDirectory(nextDirectory: string, previousDirectory: string): void {
+    this.stmtUpdateSpaceProjectDirectory.run(nextDirectory, previousDirectory);
+  }
+
   /** Get token usage breakdown by model for a project directory */
   getProjectModelStats(workingDirectory: string): Array<{
     model: string;
@@ -937,9 +1056,55 @@ export class SessionDB {
     return rows.map((r) => r.working_directory);
   }
 
+  // =========================================================================
+  // Space methods
+  // =========================================================================
+
+  upsertSpace(row: SpaceRow): void {
+    this.stmtUpsertSpace.run(row);
+  }
+
+  getSpace(id: string): SpaceRow | undefined {
+    return this.stmtGetSpace.get(id) as SpaceRow | undefined;
+  }
+
+  getSpacesByProject(projectDirectory: string): SpaceRow[] {
+    return this.stmtGetSpacesByProject.all(projectDirectory) as SpaceRow[];
+  }
+
+  getDefaultSpace(projectDirectory: string): SpaceRow | undefined {
+    return this.stmtGetDefaultSpace.get(projectDirectory) as SpaceRow | undefined;
+  }
+
+  updateSpaceStatus(id: string, status: string): void {
+    this.stmtUpdateSpaceStatus.run(status, id);
+  }
+
+  updateSpaceActivity(id: string, timestamp: number): void {
+    this.stmtUpdateSpaceActivity.run(timestamp, id);
+  }
+
+  deleteSpace(id: string): void {
+    this.stmtDeleteSpace.run(id);
+  }
+
+  getSpaceChatCount(spaceId: string): number {
+    const row = this.stmtGetSpaceChatCount.get(spaceId, spaceId) as { count: number };
+    return row.count;
+  }
+
+  updateSessionSpaceId(sessionId: string, spaceId: string | null): void {
+    this.stmtUpdateSessionSpaceId.run(spaceId, sessionId);
+  }
+
+  updateManagedSpaceId(instanceId: string, spaceId: string | null): void {
+    this.stmtUpdateManagedSpaceId.run(spaceId, instanceId);
+  }
+
   clear(): void {
     this.db.exec("DELETE FROM sessions");
     this.db.exec("DELETE FROM managed_sessions");
+    this.db.exec("DELETE FROM spaces");
   }
 
   close(): void {

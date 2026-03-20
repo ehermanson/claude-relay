@@ -75,6 +75,18 @@ Always `npm run build:server` before `npm test` — tests import from `dist/`.
 
 Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a chat triggers lazy hydration: transcript replay, task/file/team state restore, git info refresh, watcher start, and provider session boot when resumable state exists.
 
+### Spaces
+
+Spaces group multiple concurrent agent chats within a shared git worktree/branch (`Project → Space[] → Chat[]`). Every project has an implicit "main" space (no worktree, default branch). Additional spaces create dedicated worktrees in `~/.relay/worktrees/space-<id>/`.
+
+- `SpaceManager` (`src/core/space-manager.ts`) owns space lifecycle: create, list, complete (merge + cleanup), delete (archive + cleanup)
+- `spaces` table in SQLite with `space_id` FK on `sessions` and `managed_sessions`
+- Space completion auto-commits dirty worktrees, merges into the default branch, and removes the worktree
+- REST API: `GET/POST /api/projects/:dir/spaces`, `GET/DELETE /api/spaces/:id`, `POST /api/spaces/:id/complete`, `GET /api/spaces/:id/diff`
+- WS messages: `create_space`, `complete_space`, `delete_space` (client); `space_created`, `space_completed`, `space_removed`, `space_list` (server)
+- Non-default spaces render as clickable items in the sidebar; selecting one opens a tab-based view with horizontal tabs per chat
+- Non-git projects fall back to flat Chat[] model (spaces require git)
+
 ### Plan Review Abstraction
 
 - Provider-specific plan output should normalize onto Relay's shared `ExitPlanMode` / `pendingPlan` / `planContent` flow instead of inventing a separate UI path

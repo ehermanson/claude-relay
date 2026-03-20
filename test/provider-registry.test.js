@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   getProviderDriver,
@@ -64,5 +66,24 @@ describe("provider registry", () => {
       workingDirectory: "/tmp/project",
     });
     assert.equal(claudePath, join("/tmp/.claude", "projects", "-tmp-project", "session-123.jsonl"));
+  });
+
+  it("finds Claude transcript paths for dotted relay worktree directories", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "relay-provider-registry-"));
+    const claudeDir = join(tempDir, ".claude");
+    const encodedProjectDir = "-Users-test--relay-worktrees-space-262013e4";
+    mkdirSync(join(claudeDir, "projects", encodedProjectDir), { recursive: true });
+
+    const claudePath = getProviderDriver("claude").resolveManagedTranscriptPath({
+      providerDirs: {
+        claude: claudeDir,
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
+      sessionId: "session-123",
+      workingDirectory: "/Users/test/.relay/worktrees/space-262013e4",
+    });
+
+    assert.equal(claudePath, join(claudeDir, "projects", encodedProjectDir, "session-123.jsonl"));
   });
 });

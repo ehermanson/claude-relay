@@ -380,6 +380,32 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this.emit("stats", { ...this._stats });
   }
 
+  /**
+   * Extract context window budget from Claude's inline system tags.
+   * `<budget:token_budget>N</budget:token_budget>` at session start, or
+   * `<system_warning>Token usage: X/Y; Z remaining</system_warning>` after tool calls.
+   */
+  private extractContextBudget(text: string): void {
+    const budgetMatch = text.match(/<budget:token_budget>([\d,]+)<\/budget:token_budget>/);
+    if (budgetMatch) {
+      this._stats.contextWindow = parseInt(budgetMatch[1].replace(/,/g, ""), 10);
+      this.emit("stats", { ...this._stats });
+      return;
+    }
+    const warningMatch = text.match(/<system_warning>Token usage:\s*([\d,]+)\s*\/\s*([\d,]+)/);
+    if (warningMatch) {
+      const used = parseInt(warningMatch[1].replace(/,/g, ""), 10);
+      const total = parseInt(warningMatch[2].replace(/,/g, ""), 10);
+      if (total > 0) {
+        this._stats.contextWindow = total;
+        if (used > 0) {
+          this._stats.contextTokens = used;
+        }
+        this.emit("stats", { ...this._stats });
+      }
+    }
+  }
+
   private findClaudeBinary(): string {
     const commonPaths = [
       `${process.env.HOME}/.local/bin/claude`,
@@ -525,6 +551,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
                   this.emitToolUseActivity(toolName, input, block.id as string | undefined);
                 }
               } else if (block.type === "text" && block.text) {
+                this.extractContextBudget(block.text);
                 const outputMessage: OutputMessage = {
                   type: "output",
                   text: block.text,
@@ -648,6 +675,9 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
             }
           } else if (event.type === "result") {
             this.config.logger.debug(`[Claude] result: success=${!event.is_error}`);
+            if (event.result) {
+              this.extractContextBudget(event.result);
+            }
             if (!hasEmittedContent && event.result) {
               const outputMessage: OutputMessage = {
                 type: "output",

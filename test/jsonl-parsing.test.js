@@ -265,6 +265,7 @@ function seedDB(tempDir, entries) {
       git_info_branch: entry.gitInfoBranch || null,
       git_info_is_worktree:
         entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
+      space_id: null,
       project_id: "proj-" + dir.replace(/\//g, "-"),
       model: null,
     });
@@ -401,6 +402,7 @@ describe("DB Persistence", () => {
       last_message_at: null,
       git_info_branch: null,
       git_info_is_worktree: null,
+      space_id: null,
       project_id: null,
       model: null,
     });
@@ -522,6 +524,7 @@ describe("DB Persistence", () => {
       last_message_at: null,
       git_info_branch: null,
       git_info_is_worktree: null,
+      space_id: null,
       project_id: null,
       model: null,
     });
@@ -654,6 +657,7 @@ describe("DB Persistence", () => {
       last_message_at: null,
       git_info_branch: null,
       git_info_is_worktree: null,
+      space_id: null,
       project_id: projectId,
       model: null,
     });
@@ -689,6 +693,7 @@ describe("DB Persistence", () => {
       last_message_at: null,
       git_info_branch: null,
       git_info_is_worktree: null,
+      space_id: null,
       project_id: projectId,
       model: null,
     });

@@ -9,6 +9,7 @@ import type {
   TaskItem,
   UserMessage,
 } from "../types.js";
+import { isInternalInjectedUserText } from "../internal-user-messages.js";
 import { convertProposedPlanText } from "../proposed-plan.js";
 import { buildTaskListActivityFromPlan } from "../tools.js";
 import { isPathWithinWorkspace } from "../workspace-paths.js";
@@ -346,6 +347,7 @@ export function convertCodexTranscriptEntry(
             message: {
               type: "user",
               text: payload.message,
+              internal: isInternalInjectedUserText(payload.message) || undefined,
             } as UserMessage,
           });
         }

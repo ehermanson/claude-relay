@@ -16,8 +16,8 @@ import type { FileChange } from "./types.js";
 const WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
 const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-/** Pattern matching ~/.relay/worktrees/<id> paths */
-const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][a-f0-9]+\/?$/;
+/** Pattern matching ~/.relay/worktrees/<name> paths (instance and space worktrees) */
+const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][^/\\]+\/?$/;
 
 /**
  * Check if a directory path is a relay-managed worktree.
@@ -137,6 +137,98 @@ function hasHeadCommit(dir: string): boolean {
 }
 
 /**
+ * Get the default branch for a repository (main/master).
+ * Tries symbolic-ref first, falls back to main/master heuristic.
+ */
+export function getDefaultBranch(dir: string): string | null {
+  // Try symbolic-ref for remote HEAD
+  try {
+    const ref = execSync("git symbolic-ref refs/remotes/origin/HEAD", {
+      cwd: dir,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5000,
+    })
+      .toString()
+      .trim();
+    // refs/remotes/origin/main → main
+    const branch = ref.replace(/^refs\/remotes\/origin\//, "");
+    if (branch) return branch;
+  } catch {
+    // No remote HEAD configured — fall through
+  }
+
+  // Heuristic: check if main or master exists
+  for (const candidate of ["main", "master"]) {
+    try {
+      execSync(`git rev-parse --verify ${candidate}`, {
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 3000,
+      });
+      return candidate;
+    } catch {
+      // branch doesn't exist
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the unified diff of a branch vs the default branch (committed changes only).
+ */
+export function getBranchDiff(
+  repoRoot: string,
+  branchName: string,
+  defaultBranch: string,
+): string | null {
+  try {
+    const mergeBase = execFileSync("git", ["merge-base", defaultBranch, branchName], {
+      cwd: repoRoot,
+      timeout: 5000,
+      encoding: "utf8" as const,
+    }).trim();
+    return execFileSync("git", ["diff", mergeBase, branchName], {
+      cwd: repoRoot,
+      timeout: 10000,
+      encoding: "utf8" as const,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the unified diff of a worktree's full state (committed + uncommitted)
+ * vs the merge-base with the default branch.
+ *
+ * This captures everything the agent has done in the worktree, whether
+ * committed or still in the working tree.
+ */
+export function getWorktreeDiff(worktreePath: string, defaultBranch: string): string | null {
+  try {
+    // Find the merge-base between the default branch and the worktree's HEAD
+    const mergeBase = execFileSync("git", ["merge-base", defaultBranch, "HEAD"], {
+      cwd: worktreePath,
+      timeout: 5000,
+      encoding: "utf8" as const,
+    }).trim();
+
+    // Diff the merge-base against the working tree (includes uncommitted changes).
+    // We combine committed-on-branch diffs + staged + unstaged.
+    return execFileSync("git", ["diff", mergeBase], {
+      cwd: worktreePath,
+      timeout: 10000,
+      encoding: "utf8" as const,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Create a git worktree for an isolated instance.
  *
  * Creates a new branch `relay/<shortId>` at HEAD and checks it out
@@ -230,7 +322,6 @@ export function mergeWorktreeBranch(
     return { success: true };
   } catch (err) {
     // Merge failed (conflict or other error) — abort to leave repo clean
-    const errorMessage = err instanceof Error ? err.message : "Unknown merge error";
     try {
       execSync("git merge --abort", {
         cwd: repoRoot,
@@ -240,7 +331,21 @@ export function mergeWorktreeBranch(
     } catch {
       // abort may fail if merge didn't start — ignore
     }
-    return { success: false, error: errorMessage };
+
+    // Extract a human-readable message from the git output
+    const stderr =
+      (err as { stderr?: Buffer })?.stderr?.toString().trim() ||
+      (err as { stdout?: Buffer })?.stdout?.toString().trim() ||
+      "";
+    let message: string;
+    if (stderr.includes("CONFLICT")) {
+      message = "CONFLICT";
+    } else if (stderr) {
+      message = stderr;
+    } else {
+      message = err instanceof Error ? err.message : "Unknown merge error";
+    }
+    return { success: false, error: message };
   }
 }
 

@@ -1,42 +1,65 @@
-import { useState, useRef, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams, useLocation, Link } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Sun } from "lucide-react";
 import { toast } from "sonner";
-import { useWSMethods, useWSState } from "../../context/websocket-context";
+import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 import { useAuthContext } from "../../context/auth-context";
 import { useTheme } from "../../context/theme-context";
+import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useActionToasts } from "../../hooks/use-action-toasts";
-import { RelayLogo } from "../ui/relay-logo";
-import { Popover } from "../ui/popover";
-import { Button } from "../ui/button";
-import { ConfirmActionDialog } from "../ui/confirm-action-dialog";
-import { SidebarProjectGroup } from "./sidebar-project-group";
-
-import { AddProjectForm } from "../forms/add-project-form";
+import { useProjectNavigationModel } from "../../hooks/use-project-navigation-model";
 import {
   addProject as apiAddProject,
-  removeProject as apiRemoveProject,
+  completeSpace,
+  createSpace,
+  deleteSpace,
   fetchProjectIcons,
+  removeProject as apiRemoveProject,
 } from "../../lib/api";
 import { getInstanceProjectRouteId, type RemoveProjectTarget } from "../../lib/project-route";
-import { useProjectOrder } from "../../hooks/use-project-order";
-import type { InstanceInfo, Project } from "@shared/types";
+import { AddProjectForm } from "../forms/add-project-form";
+import { ConfirmMergeDialog } from "../spaces/confirm-merge-dialog";
+import { Button } from "../ui/button";
+import { ConfirmActionDialog } from "../ui/confirm-action-dialog";
+import { Dialog } from "../ui/dialog";
+import { Input } from "../ui/input";
+import { Popover } from "../ui/popover";
+import { RelayLogo } from "../ui/relay-logo";
+import { SidebarProjectGroup } from "./sidebar-project-group";
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
+  const queryClient = useQueryClient();
   const { send } = useWSMethods();
-  const { isConnected, isSyncing, instances, projects } = useWSState();
-  const { trackInstanceCreate, trackInstanceRemove, trackInstanceMerge } = useActionToasts();
+  const { isConnected, isSyncing, instances } = useWSState();
+  const { trackInstanceCreate, trackInstanceMerge, trackInstanceRemove } = useActionToasts();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
+  const {
+    groups,
+    moveDown,
+    moveToBottom,
+    moveToTop,
+    moveUp,
+    projectByDir,
+    projectSpaces,
+    projects,
+    registeredDirs,
+    collapsed: collapsedDirs,
+    toggleCollapsed: toggleDir,
+  } = useProjectNavigationModel();
   const navigate = useNavigate();
-  const { chatId: currentId, projectId: currentProjectId } = useParams({
-    strict: false,
-  }) as {
+  const location = useLocation();
+  const {
+    chatId: currentId,
+    projectId: currentProjectId,
+    spaceId: currentSpaceId,
+  } = useParams({ strict: false }) as {
     chatId?: string;
     projectId?: string;
+    spaceId?: string;
   };
-  const location = useLocation();
+
   const [showAddProject, setShowAddProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const [confirmRemoveInstance, setConfirmRemoveInstance] = useState<Pick<
@@ -46,37 +69,27 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const [confirmRemoveProject, setConfirmRemoveProject] = useState<RemoveProjectTarget | null>(
     null,
   );
+  const [createSpaceDir, setCreateSpaceDir] = useState<string | null>(null);
+  const [newSpaceName, setNewSpaceName] = useState("");
+  const [confirmCompleteSpaceId, setConfirmCompleteSpaceId] = useState<string | null>(null);
+
   const prevInstanceIds = useRef(new Set<string>());
   const pendingCreate = useRef(false);
 
-  // Project ordering
-  const {
-    sortEntries,
-    moveToTop,
-    moveUp,
-    moveDown,
-    moveToBottom,
-    syncVisibleDirs,
-    collapsed: collapsedDirs,
-    toggleCollapsed: toggleDir,
-  } = useProjectOrder();
-
-  // Project icons
   const { data: projectIcons = {} } = useQuery({
     queryKey: ["projectIcons"],
     queryFn: fetchProjectIcons,
   });
 
-  // Navigate to newly created instance
   useEffect(() => {
-    const currentIds = new Set(instances.map((i) => i.id));
+    const currentIds = new Set(instances.map((instance) => instance.id));
     if (pendingCreate.current && prevInstanceIds.current.size > 0) {
-      for (const inst of instances) {
-        if (!prevInstanceIds.current.has(inst.id) && !inst.external) {
+      for (const instance of instances) {
+        if (!prevInstanceIds.current.has(instance.id) && !instance.external) {
           pendingCreate.current = false;
           navigate({
             to: "/projects/$projectId/chats/$chatId",
-            params: { projectId: getInstanceProjectRouteId(inst), chatId: inst.id },
+            params: { projectId: getInstanceProjectRouteId(instance), chatId: instance.id },
           });
           break;
         }
@@ -85,43 +98,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     prevInstanceIds.current = currentIds;
   }, [instances, navigate]);
 
-  // Build project lookup by directory
-  const projectByDir = new Map<string, Project>();
-  for (const proj of projects) {
-    projectByDir.set(proj.directory, proj);
-  }
-
-  // Group instances by working directory, but only for still-registered projects.
-  const registeredDirs = new Set(projects.map((p) => p.directory));
-  const groupMap = new Map<string, InstanceInfo[]>();
-  for (const inst of instances) {
-    const dir = inst.workingDirectory;
-    if (registeredDirs.size > 0 && !registeredDirs.has(dir)) continue;
-    if (!groupMap.has(dir)) groupMap.set(dir, []);
-    groupMap.get(dir)!.push(inst);
-  }
-  for (const group of groupMap.values()) {
-    group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
-  }
-
-  // Include empty project groups (registered but no sessions yet)
-  for (const proj of projects) {
-    if (!groupMap.has(proj.directory)) {
-      groupMap.set(proj.directory, []);
-    }
-  }
-
-  // Sort projects by custom order
-  const groups = sortEntries([...groupMap.entries()]);
-
-  useEffect(() => {
-    syncVisibleDirs([...groupMap.keys()]);
-  }, [instances, projects, syncVisibleDirs]);
-
-  // Build a sessionId->instance lookup for parent linking
   const sessionIdMap = new Map<string, InstanceInfo>();
-  for (const inst of instances) {
-    if (inst.sessionId) sessionIdMap.set(inst.sessionId, inst);
+  for (const instance of instances) {
+    if (instance.sessionId) sessionIdMap.set(instance.sessionId, instance);
   }
 
   const handleQuickCreate = (workingDirectory: string) => {
@@ -148,6 +127,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     setAddProjectError(null);
     try {
       const project = await apiAddProject(directory);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
       setShowAddProject(false);
       toast.success(`Added "${project.name}"`);
     } catch (err) {
@@ -156,14 +136,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   };
 
   const handleRemoveProject = (target: RemoveProjectTarget) => {
-    // Resolve the project from WS state first — no async, no flicker
     const project = projectByDir.get(target.directory);
     if (project) {
       setConfirmRemoveProject(project);
       return;
     }
-
-    // Fall back to what we already know from the target
     setConfirmRemoveProject({
       id: target.id,
       name: target.name,
@@ -178,6 +155,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
 
     try {
       await apiRemoveProject(projectId);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
       if (currentProjectId === projectId) {
         navigate({ to: "/" });
       }
@@ -196,11 +174,66 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     setConfirmRemoveInstance(null);
   };
 
+  const handleCreateSpace = (dir: string) => {
+    setCreateSpaceDir(dir);
+    setNewSpaceName("");
+  };
+
+  const confirmCreateSpace = async () => {
+    if (!createSpaceDir) return;
+    const project = projectByDir.get(createSpaceDir);
+    if (!project) {
+      toast.error("Project not found");
+      return;
+    }
+
+    try {
+      const space = await createSpace(project.id, {
+        name: newSpaceName.trim() || undefined,
+      });
+      setCreateSpaceDir(null);
+      await queryClient.invalidateQueries({ queryKey: ["spaces", project.id] });
+      navigate({
+        to: "/projects/$projectId/spaces/$spaceId",
+        params: { projectId: project.id, spaceId: space.id },
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create space");
+    }
+  };
+
+  const handleCompleteSpace = (spaceId: string) => {
+    setConfirmCompleteSpaceId(spaceId);
+  };
+
+  const confirmCompleteSpaceAction = async () => {
+    if (!confirmCompleteSpaceId) return;
+    const spaceId = confirmCompleteSpaceId;
+    setConfirmCompleteSpaceId(null);
+    try {
+      await completeSpace(spaceId);
+      toast.success("Space merged");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to complete space");
+    }
+  };
+
+  const handleDeleteSpace = async (spaceId: string) => {
+    try {
+      await deleteSpace(spaceId);
+      if (currentSpaceId === spaceId && currentProjectId) {
+        navigate({ to: "/projects/$projectId", params: { projectId: currentProjectId } });
+      }
+      toast.success("Space deleted");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete space");
+    }
+  };
+
   const hasProjects = projects.length > 0;
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-border/70 bg-surface">
-      {/* Header */}
       <div className="flex shrink-0 items-center justify-between px-4 py-3">
         <Link
           to="/"
@@ -226,11 +259,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               if (!open) setAddProjectError(null);
             }}
           >
-            <Popover.Trigger>
-              <Button variant="ghost" size="sm">
-                <FolderPlus size={14} strokeWidth={2} />
-                Add Project
-              </Button>
+            <Popover.Trigger render={<Button variant="ghost" size="sm" />}>
+              <FolderPlus size={14} strokeWidth={2} />
+              Add Project
             </Popover.Trigger>
             <Popover.Content className="w-96" align="end">
               <AddProjectForm
@@ -249,7 +280,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         </div>
       </div>
 
-      {/* Instance list */}
       <div className="flex-1 overflow-y-auto pb-2">
         {!hasProjects && isSyncing ? (
           <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
@@ -288,10 +318,14 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 onMoveUp={() => moveUp(dir)}
                 onMoveDown={() => moveDown(dir)}
                 onMoveToBottom={() => moveToBottom(dir)}
+                spaces={projectSpaces[dir]}
+                activeSpaceId={currentSpaceId}
+                onCreateSpace={handleCreateSpace}
+                onCompleteSpace={handleCompleteSpace}
+                onDeleteSpace={handleDeleteSpace}
               />
             ))}
 
-            {/* Subtle syncing indicator */}
             {isSyncing && (
               <div className="flex items-center justify-center gap-1.5 py-3 text-muted/60">
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -302,7 +336,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         )}
       </div>
 
-      {/* Footer */}
       <div className="shrink-0 border-t border-border">
         <div className="flex items-center justify-between px-4 py-2">
           <Button variant="ghost" size="sm" onClick={toggleTheme}>
@@ -349,6 +382,59 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         confirmLabel="Remove"
         onConfirm={confirmRemoveAction}
       />
+
+      <ConfirmMergeDialog
+        open={!!confirmCompleteSpaceId}
+        onConfirm={confirmCompleteSpaceAction}
+        onCancel={() => setConfirmCompleteSpaceId(null)}
+      />
+
+      <Dialog.Root
+        open={!!createSpaceDir}
+        onOpenChange={(open) => !open && setCreateSpaceDir(null)}
+      >
+        <Dialog.Content maxWidth="max-w-md">
+          <Dialog.Header>
+            <Dialog.Title>Create Space</Dialog.Title>
+            <Dialog.Close />
+          </Dialog.Header>
+          <div className="space-y-3">
+            <p className="text-[0.8125rem] text-muted">
+              Create an isolated branch and working copy of{" "}
+              <span className="font-medium text-text">
+                {createSpaceDir ? (projectByDir.get(createSpaceDir)?.name ?? createSpaceDir) : ""}
+              </span>
+              . Changes in a space won't affect your main project directory — to run a dev server
+              against the space, you'll need to open a terminal at its path.
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-[0.75rem] font-medium text-muted" htmlFor="space-name">
+                Name
+              </label>
+              <Input
+                id="space-name"
+                autoFocus
+                value={newSpaceName}
+                onChange={(event) => setNewSpaceName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    void confirmCreateSpace();
+                  }
+                }}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setCreateSpaceDir(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => void confirmCreateSpace()}>
+                Create Space
+              </Button>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Root>
     </aside>
   );
 }

@@ -8,8 +8,10 @@ import { Tooltip } from "../components/ui/tooltip";
 import { formatTimeAgo, formatTokens, formatModel, getDisplayTokenBreakdown } from "../lib/utils";
 import { ProviderLogo } from "../components/chat/input-area/shared";
 import { useProjectOrder } from "../hooks/use-project-order";
+import { useProjectsQuery } from "../hooks/use-projects-query";
 import { useActionToasts } from "../hooks/use-action-toasts";
 import { fetchProjectIcons, fetchProjectArtifacts } from "../lib/api";
+import { groupInstancesByProject } from "../lib/project-groups";
 import type { InstanceInfo, ProjectArtifacts, ProviderKind } from "@shared/types";
 
 // ─── Project Card ────────────────────────────────────────────────────────────
@@ -33,7 +35,8 @@ function ProjectCard({
   const activeCount = instances.filter(
     (i) => i.status === "processing" || i.status === "idle",
   ).length;
-  const lastActivity = Math.max(...instances.map((i) => i.lastActivityAt));
+  const lastActivity =
+    instances.length > 0 ? Math.max(...instances.map((i) => i.lastActivityAt)) : null;
   const [imgError, setImgError] = useState(false);
   const showIcon = iconPath && !imgError;
 
@@ -80,7 +83,7 @@ function ProjectCard({
         <div className="min-w-0 flex-1">
           <div className="truncate text-[0.875rem] font-semibold text-text-bright">{dirName}</div>
           <div className="text-[0.6875rem] text-muted">
-            last active: {formatTimeAgo(lastActivity)}
+            {lastActivity ? `last active: ${formatTimeAgo(lastActivity)}` : "No chats yet"}
           </div>
         </div>
 
@@ -169,10 +172,11 @@ function ProjectCard({
 // ─── Dashboard ──────────────────────────────────────────────────────────────
 
 export function Dashboard() {
-  const { instances, projects } = useWSState();
+  const { instances } = useWSState();
   const { send } = useWSMethods();
   const { trackInstanceCreate } = useActionToasts();
   const { sortEntries, syncVisibleDirs } = useProjectOrder();
+  const { data: projects = [] } = useProjectsQuery();
   const navigate = useNavigate();
   const pendingCreate = useRef(false);
   const prevInstanceIds = useRef(new Set<string>());
@@ -207,18 +211,10 @@ export function Dashboard() {
     send({ type: "create_instance", workingDirectory });
   };
 
-  // Group instances by working directory
-  const projectMap = new Map<string, InstanceInfo[]>();
-  for (const inst of instances) {
-    const dir = inst.workingDirectory;
-    if (!projectMap.has(dir)) projectMap.set(dir, []);
-    projectMap.get(dir)!.push(inst);
-  }
-
-  const projectGroups = sortEntries(Array.from(projectMap.entries()));
+  const projectGroups = sortEntries(groupInstancesByProject(instances, projects));
   useEffect(() => {
-    syncVisibleDirs([...projectMap.keys()]);
-  }, [instances, syncVisibleDirs]);
+    syncVisibleDirs(projectGroups.map(([dir]) => dir));
+  }, [instances, projects, syncVisibleDirs]);
   const projectByDir = new Map(projects.map((project) => [project.directory, project]));
 
   // Fetch artifacts for each project (for stats)
@@ -226,7 +222,9 @@ export function Dashboard() {
     () =>
       projectGroups.map(([dir, groupInstances]) => ({
         dir,
-        id: projectByDir.get(dir)?.id ?? getInstanceProjectRouteId(groupInstances[0]),
+        id:
+          projectByDir.get(dir)?.id ??
+          (groupInstances[0] ? getInstanceProjectRouteId(groupInstances[0]) : dir),
       })),
     [projectGroups, projectByDir],
   );
@@ -280,7 +278,9 @@ export function Dashboard() {
         {projectGroups.length > 0 && (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {projectGroups.map(([dir, groupInstances]) => {
-              const pid = projectByDir.get(dir)?.id ?? getInstanceProjectRouteId(groupInstances[0]);
+              const pid =
+                projectByDir.get(dir)?.id ??
+                (groupInstances[0] ? getInstanceProjectRouteId(groupInstances[0]) : dir);
               return (
                 <ProjectCard
                   key={dir}
