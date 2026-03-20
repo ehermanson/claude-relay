@@ -197,20 +197,21 @@ export function SpaceView() {
   }, [spaceId, hasActiveChats]);
 
   const activeTab = chatId && spaceInstances.find((i) => i.id === chatId) ? chatId : null;
+  const firstSpaceChatId = spaceInstances[0]?.id ?? null;
   const activeLiveInstance = activeTab
     ? instances.find((instance) => instance.id === activeTab)
     : null;
 
   // Auto-redirect to first chat when landing on space without a valid chatId
   useEffect(() => {
-    if (spaceInstances.length > 0 && !activeTab) {
+    if (!chatSummariesLoading && firstSpaceChatId && !activeTab && chatId !== firstSpaceChatId) {
       navigate({
         to: "/projects/$projectId/spaces/$spaceId/$chatId",
-        params: { projectId, spaceId, chatId: spaceInstances[0].id },
+        params: { projectId, spaceId, chatId: firstSpaceChatId },
         replace: true,
       });
     }
-  }, [spaceInstances, activeTab, navigate, projectId, spaceId]);
+  }, [activeTab, chatId, chatSummariesLoading, firstSpaceChatId, navigate, projectId, spaceId]);
 
   const navigateToChat = (id: string) => {
     navigate({
