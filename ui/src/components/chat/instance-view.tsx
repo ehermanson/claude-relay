@@ -12,6 +12,7 @@ import { PermissionBanner } from "@/components/chat/permission-banner";
 import { Sidecar } from "@/components/chat/sidecar";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
 import { RelayLogo } from "@/components/ui/relay-logo";
+import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useInstanceMessages } from "@/hooks/use-instance-messages";
@@ -19,7 +20,7 @@ import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSidecarPanels } from "@/hooks/use-sidecar-panels";
 import { createInstance, fetchInstanceHistory } from "@/lib/api";
-import { getInstanceChatRoute } from "@/lib/project-route";
+import { getInstanceChatRoute, getInstanceProjectRouteId } from "@/lib/project-route";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
 import type { ServerMessage, ProviderKind, UserInputAnswer } from "@shared/types";
 
@@ -162,6 +163,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [showDebugPaste, setShowDebugPaste] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const hasStats =
     !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
@@ -305,6 +307,26 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
           onClose={() => setShowDebugPaste(false)}
         />
       )}
+      <ConfirmActionDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete chat?"
+        description={
+          <>
+            <span className="font-medium text-text">{instance.name}</span> will be permanently
+            removed.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={() => {
+          send({ type: "remove_instance", instanceId: instance.id });
+          setConfirmDelete(false);
+          navigate({
+            to: "/projects/$projectId/chats",
+            params: { projectId: getInstanceProjectRouteId(instance) },
+          });
+        }}
+      />
 
       {isPendingApproval &&
         pendingPermissionTool &&
@@ -384,8 +406,10 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         hasPlanContent={hasPlanContent}
         hasStats={hasStats}
         sidecarContentCount={sidecarContentCount}
+        loadingSidecarActions={isLoadingSession}
         onTogglePanel={togglePanel}
         onOpenDebug={() => setShowDebugPaste(true)}
+        onDelete={() => setConfirmDelete(true)}
         onOpenMobileSidecar={() => setSidecarMobileOpen(true)}
         onSplit={() => navigate({ search: { split: "pick" } })}
       />

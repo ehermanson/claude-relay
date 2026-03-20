@@ -8,16 +8,19 @@ import {
   Bug,
   ChevronLeft,
   Columns2,
+  EllipsisVertical,
   FileText,
   GitBranch,
   LayoutGrid,
   ListChecks,
   ScrollText,
+  Trash2,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
+import { Menu } from "../ui/menu";
 import { OpenInMenu } from "../project/open-in-menu";
-import { ContextRing } from "./input-area/shared";
+import { HeaderActionDivider, HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
 import { formatTokens } from "../../lib/utils";
 import type { InstanceInfo, SessionStats } from "@shared/types";
@@ -26,6 +29,7 @@ import type { SidecarTab } from "./sidecar";
 // ── Sidecar toggle buttons ───────────────────────────────────────────
 
 interface SidecarTogglesProps {
+  loading?: boolean;
   isMobile: boolean;
   activePanels: Set<SidecarTab>;
   hasTasksContent: boolean;
@@ -39,6 +43,7 @@ interface SidecarTogglesProps {
 }
 
 function SidecarToggles({
+  loading = false,
   isMobile,
   activePanels,
   hasTasksContent,
@@ -51,70 +56,84 @@ function SidecarToggles({
   onOpenMobileSidecar,
 }: SidecarTogglesProps) {
   const hasAny = hasTasksContent || hasFilesContent || hasPlanContent || hasStats;
-  if (!hasAny) return null;
+  if (!loading && !hasAny) return null;
 
   return (
     <>
-      <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
+      <HeaderActionDivider />
       {/* Desktop: per-panel toggle buttons */}
-      {!isMobile && (
-        <>
-          {hasTasksContent && (
-            <Tooltip content={activePanels.has("tasks") ? "Hide tasks" : "Show tasks"}>
-              <Button
-                variant="icon"
-                toggled={activePanels.has("tasks")}
-                onClick={() => onTogglePanel("tasks")}
-                className="shrink-0"
-              >
-                <ListChecks size={15} strokeWidth={2} />
-              </Button>
-            </Tooltip>
-          )}
-          {hasFilesContent && (
-            <Tooltip content={activePanels.has("files") ? "Hide files" : "Show files"}>
-              <Button
-                variant="icon"
-                toggled={activePanels.has("files")}
-                onClick={() => onTogglePanel("files")}
-                className="shrink-0"
-              >
-                <FileText size={15} strokeWidth={2} />
-              </Button>
-            </Tooltip>
-          )}
-          {hasPlanContent && (
-            <Tooltip content={activePanels.has("plan") ? "Hide plan" : "Show plan"}>
-              <Button
-                variant="icon"
-                toggled={activePanels.has("plan")}
-                onClick={() => onTogglePanel("plan")}
-                className="shrink-0"
-              >
-                <ScrollText size={15} strokeWidth={2} />
-              </Button>
-            </Tooltip>
-          )}
-          {hasStats && stats && (
-            <ContextRing
-              stats={stats}
-              active={activePanels.has("context")}
-              onClick={() => onTogglePanel("context")}
-            />
-          )}
-        </>
-      )}
+      {!isMobile &&
+        (loading ? (
+          <>
+            <HeaderIconSkeleton />
+            <HeaderIconSkeleton />
+            <HeaderIconSkeleton />
+            <HeaderIconSkeleton />
+          </>
+        ) : (
+          <>
+            {hasTasksContent && (
+              <Tooltip content={activePanels.has("tasks") ? "Hide tasks" : "Show tasks"}>
+                <Button
+                  variant="icon"
+                  toggled={activePanels.has("tasks")}
+                  onClick={() => onTogglePanel("tasks")}
+                  className="shrink-0"
+                >
+                  <ListChecks size={15} strokeWidth={2} />
+                </Button>
+              </Tooltip>
+            )}
+            {hasFilesContent && (
+              <Tooltip content={activePanels.has("files") ? "Hide files" : "Show files"}>
+                <Button
+                  variant="icon"
+                  toggled={activePanels.has("files")}
+                  onClick={() => onTogglePanel("files")}
+                  className="shrink-0"
+                >
+                  <FileText size={15} strokeWidth={2} />
+                </Button>
+              </Tooltip>
+            )}
+            {hasPlanContent && (
+              <Tooltip content={activePanels.has("plan") ? "Hide plan" : "Show plan"}>
+                <Button
+                  variant="icon"
+                  toggled={activePanels.has("plan")}
+                  onClick={() => onTogglePanel("plan")}
+                  className="shrink-0"
+                >
+                  <ScrollText size={15} strokeWidth={2} />
+                </Button>
+              </Tooltip>
+            )}
+            {hasStats && (
+              <HeaderContextToggle
+                stats={stats}
+                active={activePanels.has("context")}
+                tooltip={activePanels.has("context") ? "Hide context" : "Show context"}
+                onClick={() => onTogglePanel("context")}
+              />
+            )}
+          </>
+        ))}
       {/* Mobile: single sidecar button */}
-      {isMobile && sidecarContentCount > 0 && (
-        <Tooltip content="Sidecar">
-          <Button variant="icon" onClick={onOpenMobileSidecar} className="relative shrink-0">
-            <LayoutGrid size={15} strokeWidth={2} />
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
-              {sidecarContentCount}
-            </span>
-          </Button>
-        </Tooltip>
-      )}
+      {isMobile &&
+        (loading ? (
+          <HeaderIconSkeleton />
+        ) : (
+          sidecarContentCount > 0 && (
+            <Tooltip content="Sidecar">
+              <Button variant="icon" onClick={onOpenMobileSidecar} className="relative shrink-0">
+                <LayoutGrid size={15} strokeWidth={2} />
+                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
+                  {sidecarContentCount}
+                </span>
+              </Button>
+            </Tooltip>
+          )
+        ))}
     </>
   );
 }
@@ -130,8 +149,10 @@ interface InstanceHeaderProps {
   hasPlanContent: boolean;
   hasStats: boolean;
   sidecarContentCount: number;
+  loadingSidecarActions?: boolean;
   onTogglePanel: (panel: SidecarTab) => void;
   onOpenDebug: () => void;
+  onDelete?: () => void;
   onOpenMobileSidecar: () => void;
   onSplit?: () => void;
 }
@@ -145,8 +166,10 @@ export function InstanceHeader({
   hasPlanContent,
   hasStats,
   sidecarContentCount,
+  loadingSidecarActions = false,
   onTogglePanel,
   onOpenDebug,
+  onDelete,
   onOpenMobileSidecar,
   onSplit,
 }: InstanceHeaderProps) {
@@ -244,7 +267,7 @@ export function InstanceHeader({
           )}
         </div>
       </div>
-      {/* Action buttons: [Open in X] | [Debug] | [Sidecar Controls] */}
+      {/* Action buttons: [Open in X] [Split] [Debug] | [Sidecar Controls] */}
       <div className="flex items-center gap-1">
         <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
         {onSplit && !isMobile && (
@@ -254,12 +277,28 @@ export function InstanceHeader({
             </Button>
           </Tooltip>
         )}
-        <Tooltip content="Debug chat data">
-          <Button variant="icon" onClick={onOpenDebug} className="shrink-0">
-            <Bug size={15} strokeWidth={2} />
-          </Button>
-        </Tooltip>
+        <Menu.Root>
+          <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
+            <EllipsisVertical size={14} />
+          </Menu.Trigger>
+          <Menu.Content>
+            <Menu.Item onClick={onOpenDebug}>
+              <Bug size={13} strokeWidth={2} className="text-muted" />
+              Debug
+            </Menu.Item>
+            {onDelete && (
+              <>
+                <Menu.Separator />
+                <Menu.Item danger onClick={onDelete}>
+                  <Trash2 size={13} />
+                  Delete chat
+                </Menu.Item>
+              </>
+            )}
+          </Menu.Content>
+        </Menu.Root>
         <SidecarToggles
+          loading={loadingSidecarActions}
           isMobile={isMobile}
           activePanels={activePanels}
           hasTasksContent={hasTasksContent}

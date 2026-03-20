@@ -1,15 +1,18 @@
-import { lazy, useState, useEffect, useMemo, useRef, Suspense } from "react";
+import { lazy, useState, useEffect, useRef, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useParams, Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
+  Bug,
   Check,
   ChevronLeft,
+  EllipsisVertical,
   FileCode2,
   FileText,
   GitBranch,
   GitMerge,
-  Info,
+  MoreVertical,
+  Pencil,
   Plus,
   Trash2,
   X,
@@ -20,6 +23,7 @@ import { useProjectContext } from "@/context/project-context";
 import { InstanceView } from "@/components/chat/instance-view";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { Tooltip } from "@/components/ui/tooltip";
+import { Menu } from "@/components/ui/menu";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
@@ -31,8 +35,14 @@ import {
   fetchSpaceDiff,
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
-import { formatTimeAgo, formatTokens } from "@/lib/utils";
+import { formatTimeAgo, formatTimestamp, formatTokens } from "@/lib/utils";
+import {
+  HeaderActionDivider,
+  HeaderContextToggle,
+  HeaderIconSkeleton,
+} from "@/components/chat/header-actions";
 import { FilesPanel } from "@/components/chat/files-panel";
+import { OpenInMenu } from "@/components/project/open-in-menu";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ConfirmMergeDialog } from "@/components/spaces/confirm-merge-dialog";
 const DiffDrawer = lazy(() =>
@@ -66,6 +76,14 @@ export function SpaceView() {
   const chatsQueryKey = ["projectChats", projectId] as const;
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("files");
   const [showSidebar, setShowSidebar] = useState(true);
+  const toggleSidebarTab = (tab: SidebarTab) => {
+    if (showSidebar && sidebarTab === tab) {
+      setShowSidebar(false);
+    } else {
+      setSidebarTab(tab);
+      setShowSidebar(true);
+    }
+  };
   const [spaceDiff, setSpaceDiff] = useState<string | null>(null);
   const [diffInitialLoad, setDiffInitialLoad] = useState(true);
   const [showDiffDrawer, setShowDiffDrawer] = useState(false);
@@ -73,6 +91,7 @@ export function SpaceView() {
 
   const [closeTabId, setCloseTabId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   // Merge dialog state
   const [mergeDialog, setMergeDialog] = useState<
@@ -87,7 +106,7 @@ export function SpaceView() {
     queryKey: spaceQueryKey,
     queryFn: () => fetchSpaceDetail(spaceId),
   });
-  const { data: chatSummaries = [] } = useQuery({
+  const { data: chatSummaries = [], isLoading: chatSummariesLoading } = useQuery({
     queryKey: chatsQueryKey,
     queryFn: () => fetchProjectChats(projectId),
     enabled: !!projectId,
@@ -215,6 +234,32 @@ export function SpaceView() {
     return { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens };
   })();
 
+  // Parse diff for file changes (used by header badge + sidebar)
+  const fileChanges = (() => {
+    if (!spaceDiff) return [] as FileChange[];
+    const files: FileChange[] = [];
+    const chunks = spaceDiff.split(/^diff --git /m).filter(Boolean);
+    for (const chunk of chunks) {
+      const pathMatch = chunk.match(/^a\/(.+?) b\//);
+      if (!pathMatch) continue;
+      let additions = 0;
+      let deletions = 0;
+      for (const line of chunk.split("\n")) {
+        if (line.startsWith("+") && !line.startsWith("+++")) additions++;
+        if (line.startsWith("-") && !line.startsWith("---")) deletions++;
+      }
+      const isNew = chunk.includes("new file mode");
+      files.push({
+        path: pathMatch[1],
+        editCount: 1,
+        type: isNew ? "added" : "edited",
+        additions,
+        deletions,
+      });
+    }
+    return files;
+  })();
+
   // Track instance IDs to detect newly created chats and navigate to them
   const prevSpaceInstanceIds = useRef(new Set<string>());
   const pendingNewChat = useRef(false);
@@ -261,6 +306,10 @@ export function SpaceView() {
     setCloseTabId(null);
   };
 
+  const handleRenameTab = (instanceId: string, name: string) => {
+    send({ type: "rename_instance", instanceId, name });
+  };
+
   const handleComplete = async () => {
     setMergeDialog({ phase: "merging" });
     try {
@@ -303,32 +352,14 @@ export function SpaceView() {
   const chatTabs = (
     <div className="flex shrink-0 items-center border-b border-border bg-surface pl-1">
       {spaceInstances.map((inst) => (
-        <div
+        <SpaceChatTab
           key={inst.id}
-          role="tab"
-          tabIndex={0}
+          instance={inst}
+          isActive={activeTab === inst.id}
           onClick={() => navigateToChat(inst.id)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") navigateToChat(inst.id);
-          }}
-          className={`group/tab relative flex cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 text-[0.8125rem] transition-colors ${
-            activeTab === inst.id
-              ? "bg-background text-text-bright shadow-[inset_0_-2px_0_0_var(--color-accent)]"
-              : "text-muted hover:bg-surface-hover hover:text-text"
-          }`}
-        >
-          <StatusDot status={inst.status} />
-          <span className="max-w-[140px] truncate font-medium">{inst.name}</span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleCloseTab(inst.id);
-            }}
-            className="ml-1 flex h-4 w-4 items-center justify-center rounded opacity-0 transition-opacity group-hover/tab:opacity-100 hover:bg-surface-hover"
-          >
-            <X size={10} strokeWidth={2.5} />
-          </button>
-        </div>
+          onRename={(name) => handleRenameTab(inst.id, name)}
+          onDelete={() => handleCloseTab(inst.id)}
+        />
       ))}
       <button
         onClick={handleNewChat}
@@ -363,47 +394,79 @@ export function SpaceView() {
         </div>
 
         {/* Right actions */}
-        <div className="flex items-center gap-1">
-          <Tooltip content="View diff">
-            <button
-              onClick={() => {
-                setDiffScrollToFile(undefined);
-                setShowDiffDrawer(true);
-              }}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
-            >
-              <FileCode2 size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip content="Toggle sidebar">
-            <button
-              onClick={() => setShowSidebar((v) => !v)}
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                showSidebar
-                  ? "bg-accent-dim text-accent"
-                  : "text-muted hover:bg-surface-hover hover:text-text"
-              }`}
-            >
-              <Info size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip content="Complete & merge">
-            <button
+        <div className="flex items-center gap-1.5">
+          <OpenInMenu path={space.worktreePath || artifacts.directory} className="hidden sm:flex" />
+          <Tooltip
+            content={spaceInstances.length === 0 ? "Start a chat first" : "Complete & merge"}
+          >
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => setMergeDialog({ phase: "confirm" })}
-              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              disabled={spaceInstances.length === 0}
+              className="h-7"
             >
               <GitMerge size={13} />
               Complete
-            </button>
+            </Button>
           </Tooltip>
-          <Tooltip content="Delete space">
-            <button
-              onClick={handleDelete}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-error"
-            >
-              <Trash2 size={13} />
-            </button>
-          </Tooltip>
+
+          <Menu.Root>
+            <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
+              <EllipsisVertical size={14} />
+            </Menu.Trigger>
+            <Menu.Content>
+              <Menu.Item onClick={() => setShowDebug(true)}>
+                <Bug size={13} strokeWidth={2} className="text-muted" />
+                Debug
+              </Menu.Item>
+              <Menu.Separator />
+              <Menu.Item danger onClick={handleDelete}>
+                <Trash2 size={13} />
+                Delete space
+              </Menu.Item>
+            </Menu.Content>
+          </Menu.Root>
+
+          {(spaceInstances.length > 0 || chatSummariesLoading) && (
+            <>
+              <HeaderActionDivider />
+              {chatSummariesLoading && spaceInstances.length === 0 ? (
+                <>
+                  <HeaderIconSkeleton />
+                  <HeaderIconSkeleton />
+                </>
+              ) : (
+                <>
+                  <Tooltip
+                    content={showSidebar && sidebarTab === "files" ? "Hide files" : "Show files"}
+                  >
+                    <Button
+                      variant="icon"
+                      toggled={showSidebar && sidebarTab === "files"}
+                      onClick={() => toggleSidebarTab("files")}
+                      className="relative shrink-0"
+                    >
+                      <FileText size={15} strokeWidth={2} />
+                      {fileChanges.length > 0 && (
+                        <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
+                          {fileChanges.length}
+                        </span>
+                      )}
+                    </Button>
+                  </Tooltip>
+                  <HeaderContextToggle
+                    stats={activeLiveInstance?.stats}
+                    active={showSidebar && sidebarTab === "context"}
+                    tooltip={
+                      showSidebar && sidebarTab === "context" ? "Hide context" : "Show context"
+                    }
+                    onClick={() => toggleSidebarTab("context")}
+                  />
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -440,7 +503,7 @@ export function SpaceView() {
                   activeTab={sidebarTab}
                   onChangeTab={setSidebarTab}
                   stats={aggregatedStats}
-                  diff={spaceDiff}
+                  fileChanges={fileChanges}
                   diffLoading={diffInitialLoad}
                   onOpenDiff={(scrollTo) => {
                     setDiffScrollToFile(scrollTo);
@@ -450,7 +513,7 @@ export function SpaceView() {
               </Panel>
             </Group>
           ) : (
-            <div className="flex h-full flex-col">
+            <div className="flex h-full flex-1 flex-col">
               {chatTabs}
               {activeLiveInstance ? (
                 <InstanceView key={activeTab} instanceId={activeTab} compact />
@@ -610,7 +673,211 @@ export function SpaceView() {
         confirmLabel="Delete"
         onConfirm={confirmDeleteSpace}
       />
+
+      {/* Debug modal */}
+      {showDebug && space && (
+        <SpaceDebugModal
+          space={space}
+          instances={spaceInstances}
+          defaultInstanceId={activeTab ?? undefined}
+          onClose={() => setShowDebug(false)}
+        />
+      )}
     </div>
+  );
+}
+
+// =============================================================================
+// Space chat tab — with inline rename + 3-dot menu
+// =============================================================================
+
+function SpaceChatTab({
+  instance,
+  isActive,
+  onClick,
+  onRename,
+  onDelete,
+}: {
+  instance: InstanceInfo;
+  isActive: boolean;
+  onClick: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const startEditing = () => {
+    setEditValue(instance.name);
+    setEditing(true);
+  };
+
+  const commitEdit = () => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== instance.name) {
+      onRename(trimmed);
+    }
+    setEditing(false);
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === "Enter") commitEdit();
+    if (e.key === "Escape") setEditing(false);
+  };
+
+  return (
+    <div
+      role="tab"
+      tabIndex={0}
+      onClick={() => {
+        if (!editing) onClick();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !editing) onClick();
+      }}
+      className={`group/tab relative flex cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 text-[0.8125rem] transition-colors ${
+        isActive
+          ? "bg-background text-text-bright shadow-[inset_0_-2px_0_0_var(--color-accent)]"
+          : "text-muted hover:bg-surface-hover hover:text-text"
+      }`}
+    >
+      <StatusDot status={instance.status} />
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={handleEditKeyDown}
+          className="w-[120px] rounded bg-bg px-1 py-0.5 text-[0.8125rem] font-medium text-text-bright outline-none ring-1 ring-accent"
+        />
+      ) : (
+        <span className="max-w-[140px] truncate font-medium">{instance.name}</span>
+      )}
+      <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+        <Menu.Trigger
+          onClick={(e: React.MouseEvent) => {
+            e.stopPropagation();
+          }}
+          className={`ml-0.5 flex h-4 w-4 items-center justify-center rounded transition-opacity hover:bg-surface-hover ${
+            editing
+              ? "hidden"
+              : "opacity-0 group-hover/tab:opacity-100 data-[popup-open]:opacity-100"
+          }`}
+        >
+          <MoreVertical size={11} />
+        </Menu.Trigger>
+        <Menu.Content>
+          <Menu.Item
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              startEditing();
+            }}
+          >
+            <Pencil size={13} strokeWidth={2} className="text-muted" />
+            Rename
+          </Menu.Item>
+          <Menu.Item
+            danger
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 size={13} strokeWidth={2} />
+            Remove
+          </Menu.Item>
+        </Menu.Content>
+      </Menu.Root>
+    </div>
+  );
+}
+
+// =============================================================================
+// Space debug modal
+// =============================================================================
+
+function SpaceDebugModal({
+  space,
+  instances,
+  defaultInstanceId,
+  onClose,
+}: {
+  space: SpaceInfo;
+  instances: InstanceInfo[];
+  defaultInstanceId?: string;
+  onClose: () => void;
+}) {
+  const [selectedId, setSelectedId] = useState(defaultInstanceId ?? instances[0]?.id ?? "");
+  const [copied, setCopied] = useState(false);
+
+  const selectedInstance = instances.find((i) => i.id === selectedId);
+  const debugDump = JSON.stringify({ space, instance: selectedInstance ?? null }, null, 2);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(debugDump).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <Dialog.Content maxWidth="max-w-3xl">
+        <Dialog.Header>
+          <Dialog.Title>Debug — {space.name}</Dialog.Title>
+          <Dialog.Close />
+        </Dialog.Header>
+        {instances.length > 1 && (
+          <div className="flex gap-1 rounded-lg bg-bg p-1">
+            {instances.map((inst) => (
+              <button
+                key={inst.id}
+                onClick={() => setSelectedId(inst.id)}
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[0.75rem] font-medium transition-colors ${
+                  selectedId === inst.id
+                    ? "bg-surface-hover text-text-bright"
+                    : "text-muted hover:text-text"
+                }`}
+              >
+                <StatusDot status={inst.status} />
+                <span className="max-w-[120px] truncate">{inst.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <pre
+          className="flex-1 overflow-auto rounded-lg border border-border bg-bg p-3.5 font-mono text-[0.75rem] leading-relaxed text-text"
+          style={{ maxHeight: "55vh" }}
+        >
+          {debugDump}
+        </pre>
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            onClick={handleCopy}
+            className={copied ? "bg-accent/15 text-accent hover:bg-accent/25" : ""}
+          >
+            {copied ? "Copied!" : "Copy to Clipboard"}
+          </Button>
+        </div>
+      </Dialog.Content>
+    </Dialog.Root>
   );
 }
 
@@ -624,7 +891,7 @@ function SpaceSidebar({
   activeTab,
   onChangeTab,
   stats,
-  diff,
+  fileChanges,
   diffLoading,
   onOpenDiff,
 }: {
@@ -633,36 +900,10 @@ function SpaceSidebar({
   activeTab: SidebarTab;
   onChangeTab: (tab: SidebarTab) => void;
   stats: SessionStats | null;
-  diff: string | null;
+  fileChanges: FileChange[];
   diffLoading: boolean;
   onOpenDiff: (scrollToFile?: string) => void;
 }) {
-  // Parse diff to extract per-file stats as FileChange[]
-  const fileChanges = useMemo((): FileChange[] => {
-    if (!diff) return [];
-    const files: FileChange[] = [];
-    const chunks = diff.split(/^diff --git /m).filter(Boolean);
-    for (const chunk of chunks) {
-      const pathMatch = chunk.match(/^a\/(.+?) b\//);
-      if (!pathMatch) continue;
-      let additions = 0;
-      let deletions = 0;
-      for (const line of chunk.split("\n")) {
-        if (line.startsWith("+") && !line.startsWith("+++")) additions++;
-        if (line.startsWith("-") && !line.startsWith("---")) deletions++;
-      }
-      const isNew = chunk.includes("new file mode");
-      files.push({
-        path: pathMatch[1],
-        editCount: 1,
-        type: isNew ? "added" : "edited",
-        additions,
-        deletions,
-      });
-    }
-    return files;
-  }, [diff]);
-
   const activeCount = instances.filter(
     (i) => i.status === "idle" || i.status === "processing",
   ).length;
@@ -675,14 +916,12 @@ function SpaceSidebar({
         <TabButton
           active={activeTab === "files"}
           onClick={() => onChangeTab("files")}
-          icon={<FileText size={13} />}
           label="Files"
           badge={fileChanges.length > 0 ? fileChanges.length : undefined}
         />
         <TabButton
           active={activeTab === "context"}
           onClick={() => onChangeTab("context")}
-          icon={<Info size={13} />}
           label="Context"
         />
       </div>
@@ -727,13 +966,11 @@ function SpaceSidebar({
 function TabButton({
   active,
   onClick,
-  icon,
   label,
   badge,
 }: {
   active: boolean;
   onClick: () => void;
-  icon: React.ReactNode;
   label: string;
   badge?: number;
 }) {
@@ -746,7 +983,6 @@ function TabButton({
           : "border-b-2 border-transparent text-muted hover:text-text"
       }`}
     >
-      {icon}
       {label}
       {badge !== undefined && (
         <span className="ml-0.5 rounded-full bg-accent-dim px-1.5 py-px text-[0.625rem] font-semibold text-accent">
@@ -774,56 +1010,94 @@ function ContextTab({
   activeCount: number;
   stoppedCount: number;
 }) {
+  const totalTokens = stats ? stats.inputTokens + stats.outputTokens : 0;
+  const cacheRead = stats?.cacheReadTokens ?? 0;
+  const cacheWrite = stats?.cacheCreationTokens ?? 0;
+  const pureInput = stats?.inputTokens ?? 0;
+  const output = stats?.outputTokens ?? 0;
+  const breakdownTotal = pureInput + cacheRead + cacheWrite + output;
+
+  const segments =
+    breakdownTotal > 0
+      ? [
+          { label: "Input", pct: (pureInput / breakdownTotal) * 100, color: "bg-blue-400" },
+          { label: "Cache read", pct: (cacheRead / breakdownTotal) * 100, color: "bg-emerald-400" },
+          { label: "Cache write", pct: (cacheWrite / breakdownTotal) * 100, color: "bg-amber-400" },
+          { label: "Output", pct: (output / breakdownTotal) * 100, color: "bg-purple-400" },
+        ].filter((s) => s.pct > 0)
+      : [];
+
   return (
-    <div className="flex flex-col gap-4 p-3.5">
-      {/* Space metadata */}
-      <Section title="Space">
-        <Row label="Name" value={space.name} />
-        {space.gitBranch && <Row label="Branch" value={space.gitBranch} />}
-        {space.worktreePath && <Row label="Worktree" value={space.worktreePath} truncate />}
-        <Row label="Created" value={formatTimeAgo(space.createdAt)} />
-        <Row label="Status" value={space.status} />
-      </Section>
-
-      {/* Chat summary */}
-      <Section title="Chats">
-        <Row label="Total" value={String(instances.length)} />
-        {activeCount > 0 && <Row label="Active" value={String(activeCount)} />}
-        {stoppedCount > 0 && <Row label="Ended" value={String(stoppedCount)} />}
-      </Section>
-
-      {/* Aggregated tokens */}
-      {stats && (
-        <Section title="Tokens">
-          <Row label="Input" value={formatTokens(stats.inputTokens)} />
-          <Row label="Output" value={formatTokens(stats.outputTokens)} />
-          {stats.cacheCreationTokens > 0 && (
-            <Row label="Cache write" value={formatTokens(stats.cacheCreationTokens)} />
+    <div className="flex-1 overflow-y-auto">
+      <div className="px-3.5 py-2.5">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <StatRow label="Branch" value={space.gitBranch ?? "—"} />
+          <StatRow label="Status" value={space.status} />
+          <StatRow label="Chats" value={instances.length} />
+          {activeCount > 0 && <StatRow label="Active" value={activeCount} />}
+          {stoppedCount > 0 && <StatRow label="Ended" value={stoppedCount} />}
+          {stats && (
+            <>
+              <div className="col-span-2 border-t border-border/30" />
+              <StatRow label="Total Tokens" value={formatTokens(totalTokens)} />
+              <StatRow label="Input Tokens" value={formatTokens(pureInput)} />
+              <StatRow label="Output Tokens" value={formatTokens(output)} />
+              <StatRow
+                label="Cache Tokens (read/write)"
+                value={`${formatTokens(cacheRead)} / ${formatTokens(cacheWrite)}`}
+              />
+            </>
           )}
-          {stats.cacheReadTokens > 0 && (
-            <Row label="Cache read" value={formatTokens(stats.cacheReadTokens)} />
-          )}
-          <Row label="Total" value={formatTokens(stats.inputTokens + stats.outputTokens)} bold />
-        </Section>
-      )}
+          <div className="col-span-2 border-t border-border/30" />
+          <StatRow label="Created" value={formatTimestamp(space.createdAt)} />
+        </div>
+
+        {/* Token breakdown bar */}
+        {segments.length > 0 && (
+          <div className="mt-4">
+            <div className="mb-1.5 text-[0.6875rem] text-muted">Token Breakdown</div>
+            <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-hover">
+              {segments.map((seg) => (
+                <Tooltip key={seg.label} content={`${seg.label} ${seg.pct.toFixed(1)}%`}>
+                  <div className={`h-full ${seg.color}`} style={{ width: `${seg.pct}%` }} />
+                </Tooltip>
+              ))}
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
+              {segments.map((seg) => (
+                <span
+                  key={seg.label}
+                  className="flex items-center gap-1 text-[0.625rem] text-muted"
+                >
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${seg.color}`} />
+                  {seg.label} {seg.pct.toFixed(1)}%
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Per-chat breakdown */}
       {instances.length > 0 && (
-        <Section title="Per-chat">
-          {instances.map((inst) => (
-            <div key={inst.id} className="flex items-center gap-2 py-1">
-              <StatusDot status={inst.status} />
-              <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-text">
-                {inst.name}
-              </span>
-              {inst.stats && (
-                <span className="shrink-0 text-[0.6875rem] text-muted/50">
-                  {formatTokens(inst.stats.inputTokens + inst.stats.outputTokens)}
+        <div className="border-t border-border/30">
+          <div className="px-3.5 py-2.5 text-[0.6875rem] text-muted">Per-chat</div>
+          <div className="flex flex-col gap-0.5 px-3.5 pb-3">
+            {instances.map((inst) => (
+              <div key={inst.id} className="flex items-center gap-2 py-1">
+                <StatusDot status={inst.status} />
+                <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-text">
+                  {inst.name}
                 </span>
-              )}
-            </div>
-          ))}
-        </Section>
+                {inst.stats && (
+                  <span className="shrink-0 text-[0.6875rem] text-muted/50">
+                    {formatTokens(inst.stats.inputTokens + inst.stats.outputTokens)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -833,36 +1107,11 @@ function ContextTab({
 // Shared primitives
 // =============================================================================
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div>
-      <h3 className="mb-1.5 text-[0.6875rem] font-semibold tracking-wide text-muted/60 uppercase">
-        {title}
-      </h3>
-      <div className="flex flex-col gap-0.5">{children}</div>
-    </div>
-  );
-}
-
-function Row({
-  label,
-  value,
-  truncate,
-  bold,
-}: {
-  label: string;
-  value: string;
-  truncate?: boolean;
-  bold?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2 text-[0.8125rem]">
-      <span className="shrink-0 text-muted">{label}</span>
-      <span
-        className={`min-w-0 text-right ${truncate ? "truncate" : ""} ${bold ? "font-semibold text-text-bright" : "text-text"}`}
-      >
-        {value}
-      </span>
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[0.6875rem] text-muted">{label}</span>
+      <span className="text-[0.8125rem] font-medium text-text-bright">{value}</span>
     </div>
   );
 }

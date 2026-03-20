@@ -16,11 +16,11 @@ function PopoverRoot({ children, open, onOpenChange }: PopoverProps) {
   );
 }
 
-function PopoverTrigger({
-  children,
-  className = "",
-  ...props
-}: ComponentPropsWithoutRef<"button"> & { children: ReactNode }) {
+type PopoverTriggerProps = ComponentPropsWithoutRef<typeof BasePopover.Trigger> & {
+  children?: ReactNode;
+};
+
+function PopoverTrigger({ children, className = "", ...props }: PopoverTriggerProps) {
   return (
     <BasePopover.Trigger className={className} {...props}>
       {children}

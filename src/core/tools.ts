@@ -22,9 +22,9 @@ export const FILE_WRITE_GROUP = ["Edit", "Write", "NotebookEdit"];
 
 /** Known context window sizes by model prefix. */
 const CONTEXT_WINDOWS: { prefix: string; tokens: number }[] = [
-  { prefix: "claude-opus-4", tokens: 200_000 },
-  { prefix: "claude-sonnet-4", tokens: 200_000 },
-  { prefix: "claude-haiku-4", tokens: 200_000 },
+  { prefix: "claude-opus-4", tokens: 1_000_000 },
+  { prefix: "claude-sonnet-4", tokens: 1_000_000 },
+  { prefix: "claude-haiku-4", tokens: 1_000_000 },
 ];
 
 /**

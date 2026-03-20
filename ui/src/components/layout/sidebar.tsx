@@ -259,11 +259,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               if (!open) setAddProjectError(null);
             }}
           >
-            <Popover.Trigger>
-              <Button variant="ghost" size="sm">
-                <FolderPlus size={14} strokeWidth={2} />
-                Add Project
-              </Button>
+            <Popover.Trigger render={<Button variant="ghost" size="sm" />}>
+              <FolderPlus size={14} strokeWidth={2} />
+              Add Project
             </Popover.Trigger>
             <Popover.Content className="w-96" align="end">
               <AddProjectForm
