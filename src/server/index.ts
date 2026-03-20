@@ -67,6 +67,8 @@ export class Relay {
       this.config,
     );
     this.wss = wsHandle.wss;
+    // Prevent WSS from crashing on HTTP server errors (e.g. EADDRINUSE during restart)
+    this.wss.on("error", () => {});
     wsGetConnectionCount = wsHandle.getConnectionCount;
   }
 
@@ -83,12 +85,7 @@ export class Relay {
     await this.instanceManager.initSdkProvider();
     this.instanceManager.restoreInstances(); // DB-only, fast
 
-    await new Promise<void>((resolve) => {
-      this.server.listen(this.config.port, () => {
-        this.config.logger.info(`Relay listening on http://localhost:${this.config.port}`);
-        resolve();
-      });
-    });
+    await this.listenWithRetry();
 
     // Background: scan filesystem for new sessions, then start discovery polling.
     // Not awaited — server is already listening.
@@ -101,26 +98,75 @@ export class Relay {
    * Gracefully stop the server and kill any running Claude processes.
    */
   stop(): Promise<void> {
-    this.instanceManager.stopAll();
-
-    // Close all WebSocket connections
-    for (const client of this.wss.clients) {
-      client.close(1001, "Server shutting down");
-    }
-
-    // Destroy all open HTTP connections so server.close() doesn't hang
-    for (const socket of this.sockets) {
-      socket.destroy();
-    }
-    this.sockets.clear();
-
     return new Promise((resolve, reject) => {
+      // Release the listening socket first so dev restarts can rebind promptly,
+      // then tear down managed sessions and the rest of the process state.
+      for (const client of this.wss.clients) {
+        client.close(1001, "Server shutting down");
+      }
+      for (const socket of this.sockets) {
+        socket.destroy();
+      }
+      this.sockets.clear();
+
       this.wss.close(() => {
         this.server.close((err) => {
-          if (err) reject(err);
-          else resolve();
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          try {
+            this.instanceManager.stopAll();
+            resolve();
+          } catch (stopErr) {
+            reject(stopErr);
+          }
         });
       });
+    });
+  }
+
+  private async listenWithRetry(): Promise<void> {
+    const maxAttempts = process.env.DEV ? 12 : 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.listenOnce();
+        return;
+      } catch (err) {
+        const error = err as NodeJS.ErrnoException;
+        const shouldRetry = error.code === "EADDRINUSE" && attempt < maxAttempts;
+        if (!shouldRetry) throw err;
+
+        this.config.logger.warn(
+          `[Relay] Port ${this.config.port} still busy during dev restart; retrying (${attempt}/${maxAttempts - 1})`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+  }
+
+  private listenOnce(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const onError = (err: Error) => {
+        this.server.removeListener("listening", onListening);
+        reject(err);
+      };
+      const onListening = () => {
+        this.server.removeListener("error", onError);
+        this.config.logger.info(`Relay listening on http://localhost:${this.config.port}`);
+        resolve();
+      };
+      this.server.once("error", onError);
+      this.server.once("listening", onListening);
+      try {
+        this.server.listen(this.config.port);
+      } catch (err) {
+        this.server.removeListener("error", onError);
+        this.server.removeListener("listening", onListening);
+        reject(err as Error);
+      }
     });
   }
 }

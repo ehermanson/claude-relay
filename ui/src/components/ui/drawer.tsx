@@ -1,6 +1,6 @@
-import { DrawerPreview as BaseDrawer } from "@base-ui/react/drawer";
+import { Drawer as BaseDrawer } from "@base-ui/react/drawer";
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 interface DrawerProps {
   open: boolean;
@@ -22,7 +22,7 @@ interface DrawerContentProps {
   /** Width class. Default: "w-[420px] max-w-[85vw]" */
   width?: string;
   /** Inline styles forwarded to the popup element (used for stacking transforms) */
-  style?: React.CSSProperties;
+  style?: CSSProperties;
   /** Show dark backdrop overlay. Default: true. When false, backdrop is invisible but still captures clicks. */
   showBackdrop?: boolean;
 }

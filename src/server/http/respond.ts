@@ -80,6 +80,6 @@ export function serveIndex(res: http.ServerResponse, indexHtmlPath: string): voi
     const html = fs.readFileSync(indexHtmlPath, "utf-8");
     sendHtml(res, 200, html);
   } catch {
-    sendHtml(res, 500, "<h1>UI not built. Run: npm run build:ui</h1>");
+    sendHtml(res, 500, "<h1>UI not built. Run: pnpm build:ui</h1>");
   }
 }

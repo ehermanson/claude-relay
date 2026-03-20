@@ -38,15 +38,15 @@ In the backend, Relay manages providers through a provider-driver registry (`pro
 ## Build & Test
 
 ```bash
-npm run build          # tsc + vite build
-npm run build:server   # tsc only
-npm run build:ui       # UI typecheck + vite build
-npm run typecheck      # server + UI TypeScript checks
-npm test               # node --test test/*.test.js
-npm run dev            # concurrent: node --watch, tsc --watch, vite dev
+pnpm build          # tsc + vite build
+pnpm build:server   # tsc only
+pnpm build:ui       # UI typecheck + vite build
+pnpm typecheck      # server + UI TypeScript checks
+pnpm test           # node --test test/*.test.js
+pnpm dev            # concurrent: node --watch, tsc --watch, vite dev
 ```
 
-Always `npm run build:server` before `npm test` — tests import from `dist/`.
+Always `pnpm build:server` before `pnpm test` — tests import from `dist/`.
 
 ## Key Conventions
 

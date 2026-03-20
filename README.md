@@ -236,9 +236,9 @@ Sessions still carry a working directory, and that directory remains the agent's
 ## Quick Start
 
 ```bash
-npm install
-npm run build
-RELAY_PASSWORD="your-secret" npm start
+pnpm install
+pnpm build
+RELAY_PASSWORD="your-secret" pnpm start
 ```
 
 Open `http://localhost:7777`. That's it.
@@ -249,15 +249,15 @@ The `RELAY_PASSWORD` environment variable is required:
 
 ```bash
 # Inline
-RELAY_PASSWORD="your-secret" npm start
+RELAY_PASSWORD="your-secret" pnpm start
 
 # Export for current shell
 export RELAY_PASSWORD="your-secret"
-npm start
+pnpm start
 
 # Or use a .env file (not committed to git)
 echo 'RELAY_PASSWORD=your-secret' > .env
-source .env && npm start
+source .env && pnpm start
 ```
 
 The password protects the web UI — you'll enter it once on the login page, then a session cookie keeps you authenticated for 7 days.
@@ -269,7 +269,7 @@ The password protects the web UI — you'll enter it once on the login page, the
 If you run [Tailscale](https://tailscale.com) on your devices, the relay is already accessible — no tunnel needed:
 
 ```bash
-RELAY_PASSWORD="your-secret" npm start
+RELAY_PASSWORD="your-secret" pnpm start
 # → http://your-machine:7777 from any tailnet device
 ```
 
@@ -277,7 +277,7 @@ RELAY_PASSWORD="your-secret" npm start
 
 ```bash
 # Built-in tunnel (requires cloudflared)
-TUNNEL=true RELAY_PASSWORD="your-secret" npm start
+TUNNEL=true RELAY_PASSWORD="your-secret" pnpm start
 
 # Or manually
 cloudflared tunnel --url http://localhost:7777
@@ -299,10 +299,10 @@ relay export-tgz ~/relay-export.tgz
 relay import-tgz ~/relay-export.tgz
 
 # Or from this repo without installing globally
-npm run relay:export -- ~/relay-export
-npm run relay:import -- ~/relay-export
-npm run relay:export-tgz -- ~/relay-export.tgz
-npm run relay:import-tgz -- ~/relay-export.tgz
+pnpm relay:export -- ~/relay-export
+pnpm relay:import -- ~/relay-export
+pnpm relay:export-tgz -- ~/relay-export.tgz
+pnpm relay:import-tgz -- ~/relay-export.tgz
 ```
 
 Notes:
@@ -399,10 +399,10 @@ manager.sendMessage(instance.id, "Hello!");
 ## Development
 
 ```bash
-npm run dev    # Watch mode — rebuilds server + UI on changes
-npm test       # Run tests (build first: npm run build:server)
-npm run typecheck  # Run server + UI TypeScript checks
-npm run build  # Build everything
+pnpm dev    # Watch mode — rebuilds server + UI on changes
+pnpm test   # Run tests (build first: pnpm build:server)
+pnpm typecheck  # Run server + UI TypeScript checks
+pnpm build  # Build everything
 ```
 
 ## Prerequisites

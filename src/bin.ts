@@ -143,7 +143,7 @@ function startServer(): void {
   if (!password) {
     console.error(
       "Error: RELAY_PASSWORD environment variable is required.\n" +
-        "  Set it with: RELAY_PASSWORD=your-secret npm start",
+        "  Set it with: RELAY_PASSWORD=your-secret pnpm start",
     );
     process.exit(1);
   }
@@ -195,15 +195,16 @@ function startServer(): void {
       } else if (enableTunnel) {
         startTunnel(port);
       } else {
-        console.log(`  Expose with: TUNNEL=true RELAY_PASSWORD=... npm start\n`);
+        console.log(`  Expose with: TUNNEL=true RELAY_PASSWORD=... pnpm start\n`);
       }
     })
     .catch((err: Error) => {
       console.error(`\n  Failed to start Relay: ${err.message}`);
       if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
         console.error(
-          `  Port ${port} is already in use. Try a different port with: PORT=8888 npm start`,
+          `  Port ${port} is already in use. Try a different port with: PORT=8888 pnpm start`,
         );
+        console.error(`  To inspect the current listener: lsof -nP -iTCP:${port} -sTCP:LISTEN`);
       }
       process.exit(1);
     });
@@ -216,7 +217,14 @@ function startServer(): void {
 
     stopTunnel();
 
-    relay.stop().then(() => process.exit(0));
+    // Force exit after 3s if graceful shutdown hangs
+    const forceExit = setTimeout(() => process.exit(1), 3000);
+    forceExit.unref();
+
+    relay.stop().then(
+      () => process.exit(0),
+      () => process.exit(1),
+    );
   }
 
   process.on("SIGINT", shutdown);
