@@ -8,9 +8,7 @@ import { useAuthContext } from "../../context/auth-context";
 import { useTheme } from "../../context/theme-context";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useActionToasts } from "../../hooks/use-action-toasts";
-import { useProjectsQuery } from "../../hooks/use-projects-query";
-import { useProjectSpaces } from "../../hooks/use-project-spaces";
-import { useProjectOrder } from "../../hooks/use-project-order";
+import { useProjectNavigationModel } from "../../hooks/use-project-navigation-model";
 import {
   addProject as apiAddProject,
   completeSpace,
@@ -19,7 +17,6 @@ import {
   fetchProjectIcons,
   removeProject as apiRemoveProject,
 } from "../../lib/api";
-import { groupInstancesByProject } from "../../lib/project-groups";
 import { getInstanceProjectRouteId, type RemoveProjectTarget } from "../../lib/project-route";
 import { AddProjectForm } from "../forms/add-project-form";
 import { ConfirmMergeDialog } from "../spaces/confirm-merge-dialog";
@@ -38,7 +35,19 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { trackInstanceCreate, trackInstanceMerge, trackInstanceRemove } = useActionToasts();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
-  const { data: projects = [] } = useProjectsQuery();
+  const {
+    groups,
+    moveDown,
+    moveToBottom,
+    moveToTop,
+    moveUp,
+    projectByDir,
+    projectSpaces,
+    projects,
+    registeredDirs,
+    collapsed: collapsedDirs,
+    toggleCollapsed: toggleDir,
+  } = useProjectNavigationModel();
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -67,28 +76,10 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const prevInstanceIds = useRef(new Set<string>());
   const pendingCreate = useRef(false);
 
-  const {
-    sortEntries,
-    moveToTop,
-    moveUp,
-    moveDown,
-    moveToBottom,
-    syncVisibleDirs,
-    collapsed: collapsedDirs,
-    toggleCollapsed: toggleDir,
-  } = useProjectOrder();
-
   const { data: projectIcons = {} } = useQuery({
     queryKey: ["projectIcons"],
     queryFn: fetchProjectIcons,
   });
-  const projectSpaces = useProjectSpaces(projects);
-
-  const projectByDir = new Map<string, Project>();
-  for (const project of projects) {
-    projectByDir.set(project.directory, project);
-  }
-  const registeredDirs = new Set(projects.map((project) => project.directory));
 
   useEffect(() => {
     const currentIds = new Set(instances.map((instance) => instance.id));
@@ -106,12 +97,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     }
     prevInstanceIds.current = currentIds;
   }, [instances, navigate]);
-
-  const groups = sortEntries(groupInstancesByProject(instances, projects));
-
-  useEffect(() => {
-    syncVisibleDirs(groups.map(([dir]) => dir));
-  }, [instances, projects, syncVisibleDirs]);
 
   const sessionIdMap = new Map<string, InstanceInfo>();
   for (const instance of instances) {

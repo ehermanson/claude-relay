@@ -9,25 +9,10 @@ import { useAuthContext } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useActionToasts } from "@/hooks/use-action-toasts";
-import { useProjectsQuery } from "@/hooks/use-projects-query";
-import { useProjectSpaces } from "@/hooks/use-project-spaces";
-import { useProjectOrder } from "@/hooks/use-project-order";
+import { useProjectNavigationModel } from "@/hooks/use-project-navigation-model";
 import { fetchProjectIcons } from "@/lib/api";
-import { groupInstancesByProject } from "@/lib/project-groups";
 import { getInstanceProjectRouteId, getProjectName } from "@/lib/project-route";
 import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
-
-/** Extract project groups sorted by custom project order, sessions within are MRU. */
-function useProjectGroups(projects: Project[]) {
-  const { instances } = useWSState();
-  const { sortEntries, syncVisibleDirs } = useProjectOrder();
-  const groups = groupInstancesByProject(instances, projects);
-  useEffect(() => {
-    syncVisibleDirs(groups.map(([dir]) => dir));
-  }, [instances, projects, syncVisibleDirs]);
-  // Sort projects by custom order (falls back to alphabetical for new projects)
-  return sortEntries(groups);
-}
 
 // ── Project flyout (sessions for one project) ────────────────────────
 
@@ -197,7 +182,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   const { trackInstanceCreate } = useActionToasts();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
-  const { data: projects = [] } = useProjectsQuery();
+  const { groups, projectByDir, projectSpaces } = useProjectNavigationModel();
   const {
     chatId: currentId,
     projectId: currentProjectId,
@@ -208,12 +193,6 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
     spaceId?: string;
   };
   const location = useLocation();
-  const groups = useProjectGroups(projects);
-  const projectByDir = new Map<string, Project>();
-  for (const project of projects) {
-    projectByDir.set(project.directory, project);
-  }
-  const projectSpaces = useProjectSpaces(projects);
 
   // Fetch project icons once on mount
   const [projectIcons, setProjectIcons] = useState<Record<string, string>>({});
