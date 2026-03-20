@@ -85,6 +85,23 @@ export interface ProviderDriver {
 
 const NO_SESSION_MESSAGE = "Gemini provider support is not implemented in this relay build yet.";
 
+function getClaudeProjectDirCandidates(workingDirectory: string): string[] {
+  const modern = workingDirectory.replace(/[^A-Za-z0-9_-]/g, "-");
+  const legacy = workingDirectory.replace(/\//g, "-");
+  return modern === legacy ? [modern] : [modern, legacy];
+}
+
+function resolveClaudeProjectDir(providerRoot: string, workingDirectory: string): string {
+  const projectsDir = join(providerRoot, "projects");
+  for (const encoded of getClaudeProjectDirCandidates(workingDirectory)) {
+    const projectDir = join(projectsDir, encoded);
+    if (existsSync(projectDir)) {
+      return projectDir;
+    }
+  }
+  return join(projectsDir, getClaudeProjectDirCandidates(workingDirectory)[0]);
+}
+
 function createClaudeSession(
   config: CoreConfig,
   options: ProviderSessionOptions | undefined,
@@ -197,16 +214,18 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       if (!options.sessionId || !options.workingDirectory) {
         return options.transcriptPath;
       }
-      const encoded = options.workingDirectory.replace(/\//g, "-");
-      return join(options.providerDirs.claude, "projects", encoded, `${options.sessionId}.jsonl`);
+      const projectDir = resolveClaudeProjectDir(
+        options.providerDirs.claude,
+        options.workingDirectory,
+      );
+      return join(projectDir, `${options.sessionId}.jsonl`);
     },
     captureManagedSession(context) {
       const binding = context.binding ?? context.proc.getRuntimeBinding();
       const runtimeSessionId = binding.providerSessionId ?? context.fallbackSessionId;
-      const projectDir = join(
+      const projectDir = resolveClaudeProjectDir(
         context.providerDirs.claude,
-        "projects",
-        context.workingDirectory.replace(/\//g, "-"),
+        context.workingDirectory,
       );
       if (!existsSync(projectDir)) {
         return runtimeSessionId ? { sessionId: runtimeSessionId } : null;

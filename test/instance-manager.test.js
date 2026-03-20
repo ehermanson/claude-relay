@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -165,6 +165,55 @@ describe("InstanceManager", () => {
   describe("sendMessage guards", () => {
     it("throws for unknown instance", () => {
       assert.throws(() => manager.sendMessage("nope", "hi"), /not found/);
+    });
+
+    it("folds task guidance into the first real user turn instead of sending a separate hidden turn", () => {
+      const relayDir = join(manager.baseConfig.workingDirectory, ".relay");
+      mkdirSync(relayDir, { recursive: true });
+      writeFileSync(
+        join(relayDir, "tasks.jsonl"),
+        '{"id":"task1234","title":"Test","status":"open"}\n',
+      );
+
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      const sentMessages = [];
+      instance.process = {
+        ...instance.process,
+        isProcessing: false,
+        provider: "codex",
+        pid: undefined,
+        stats: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+        send(text) {
+          sentMessages.push(text);
+        },
+        interrupt() {},
+        close() {},
+        setModel() {},
+        setReasoningBudget() {},
+        addAllowedTool() {},
+        setBypassPermissions() {},
+        getRuntimeBinding() {
+          return { provider: "codex" };
+        },
+        respondToRequest() {
+          return false;
+        },
+      };
+
+      manager.sendMessage(info.id, "tell me how to run this locally");
+
+      assert.equal(sentMessages.length, 1);
+      assert.match(sentMessages[0], /This project tracks tasks in \.relay\/tasks\.jsonl/);
+      assert.match(sentMessages[0], /Do not mention, restate, or acknowledge/);
+      assert.match(sentMessages[0], /User request:\ntell me how to run this locally/);
+
+      const history = manager.getHistory(info.id).filter((entry) => entry.message.type === "user");
+      assert.equal(history.length, 1);
+      assert.equal(history[0].message.text, "tell me how to run this locally");
+      assert.equal(history[0].message.internal, undefined);
     });
   });
 

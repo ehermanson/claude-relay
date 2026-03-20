@@ -77,6 +77,12 @@ import {
   resolveManagedTranscriptPathForProvider,
 } from "./provider-registry.js";
 import {
+  AUTO_CONTINUE_MSG,
+  buildFirstTurnTaskContextPrompt,
+  buildPermissionGrantedRetryMessage,
+  isInternalInjectedUserText,
+} from "./internal-user-messages.js";
+import {
   describeToolUse,
   describeToolDetail,
   extractInputDescription,
@@ -109,10 +115,6 @@ import {
 } from "./git.js";
 import { searchWorkspaceEntries, type WorkspaceEntry } from "./workspace-entries.js";
 import { isPathWithinWorkspace } from "./workspace-paths.js";
-
-/** Message text injected when the relay server auto-continues an instance after restart. */
-const AUTO_CONTINUE_MSG =
-  "The relay server restarted while you were mid-turn. Please continue from where you left off.";
 
 // =============================================================================
 // Re-exports
@@ -1496,28 +1498,14 @@ export class InstanceManager extends EventEmitter {
       throw new Error("Instance could not be started");
     }
 
-    // Inject task context on first user message for projects with .relay/tasks.jsonl
+    let shouldInjectTaskContext = false;
+
+    // Inject task context into the first outbound user turn for projects with .relay/tasks.jsonl
     if (!instance.taskContextInjected && !internal && instance.info.projectId) {
       instance.taskContextInjected = true;
       const taskProject = this._projectManager.getProject(instance.info.projectId);
       if (taskProject && hasTasks(taskProject.directory)) {
-        const taskContext =
-          "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). " +
-          "Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. Ask if unsure whether a request should map to a task. " +
-          "Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), " +
-          "priority (0-4), type (epic|task|bug), tags (string[]), parent (nullable task ID), " +
-          "blockedBy (task ID[]), createdAt, updatedAt (ISO timestamps). " +
-          "Blocked status is auto-derived from unresolved blockedBy refs. " +
-          "To create: append a new JSON line. To update: append a line with same id and changed fields. " +
-          "When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.jsonl to find it.";
-        const internalMsg: UserMessage = {
-          type: "user",
-          text: taskContext,
-          instanceId: id,
-          internal: true,
-        };
-        this.pushHistory(instance, internalMsg);
-        instance.process!.send(taskContext);
+        shouldInjectTaskContext = true;
       }
     }
 
@@ -1533,6 +1521,10 @@ export class InstanceManager extends EventEmitter {
       const markers = images.map((p) => `[Image: source: ${p}]`).join("\n");
       messageText = messageText ? `${messageText}\n${markers}` : markers;
     }
+
+    const outboundMessage = shouldInjectTaskContext
+      ? buildFirstTurnTaskContextPrompt(messageText)
+      : messageText;
 
     // Store user message in history so replay works across devices
     const userMessage: UserMessage = {
@@ -1564,7 +1556,7 @@ export class InstanceManager extends EventEmitter {
     instance.planFilePath = undefined;
     this.setStatus(instance, "processing");
 
-    instance.process!.send(messageText);
+    instance.process!.send(outboundMessage);
     return resumed;
   }
 
@@ -1667,7 +1659,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     const toolLabel = isFileWrite ? "file writes" : tool;
-    const retryText = `Permission granted for ${toolLabel}. Please continue.`;
+    const retryText = buildPermissionGrantedRetryMessage(toolLabel);
 
     if (instance.process!.isProcessing) {
       instance.pendingRetry = retryText;
@@ -3544,7 +3536,7 @@ export class InstanceManager extends EventEmitter {
           });
         }
       } else {
-        const internal = text === AUTO_CONTINUE_MSG ? true : undefined;
+        const internal = isInternalInjectedUserText(text) ? true : undefined;
         results.push({
           timestamp,
           message: { type: "user", text, internal } as UserMessage,

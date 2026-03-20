@@ -181,6 +181,54 @@ describe("History Parsing via DB Restore", () => {
       manager.stopAll();
     });
 
+    it("marks injected task-context prompts as internal during transcript replay", () => {
+      const jsonlPath = join(tempDir, "internal-task-context.jsonl");
+      writeFileSync(
+        jsonlPath,
+        [
+          JSON.stringify({
+            type: "system",
+            subtype: "init",
+            cwd: "/Users/test/.relay/worktrees/space-262013e4",
+            timestamp: "2026-03-19T23:10:30.700Z",
+          }),
+          JSON.stringify({
+            type: "user",
+            timestamp: "2026-03-19T23:10:30.791Z",
+            message: {
+              role: "user",
+              content:
+                "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. Ask if unsure whether a request should map to a task. Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), priority (0-4), type (epic|task|bug), tags (string[]), parent (nullable task ID), blockedBy (task ID[]), createdAt, updatedAt (ISO timestamps). Blocked status is auto-derived from unresolved blockedBy refs. To create: append a new JSON line. To update: append a line with same id and changed fields. When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.jsonl to find it.",
+            },
+          }),
+          JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-03-19T23:10:36.872Z",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "Ready to help! What would you like to work on?" }],
+            },
+          }),
+        ].join("\n"),
+      );
+
+      seedDB(tempDir, [makeExternalEntry({ jsonlPath })]);
+      const manager = makeManager(tempDir);
+      manager.restoreAndScan();
+
+      const history = manager.getHistory("test-id");
+      const injected = history.find(
+        (entry) =>
+          entry.message.type === "user" &&
+          entry.message.text.startsWith("This project tracks tasks in .relay/tasks.jsonl"),
+      );
+
+      assert.ok(injected, "Expected injected task-context prompt to be present in history");
+      assert.equal(injected?.message.internal, true);
+
+      manager.stopAll();
+    });
+
     it("extracts timestamps from JSONL entries", () => {
       seedDB(tempDir, [makeExternalEntry({ jsonlPath: join(fixturesDir, "basic-session.jsonl") })]);
       const manager = makeManager(tempDir);
