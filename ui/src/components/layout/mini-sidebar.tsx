@@ -9,8 +9,11 @@ import { useAuthContext } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useActionToasts } from "@/hooks/use-action-toasts";
+import { useProjectsQuery } from "@/hooks/use-projects-query";
+import { useProjectSpaces } from "@/hooks/use-project-spaces";
 import { useProjectOrder } from "@/hooks/use-project-order";
-import { fetchProjectIcons, fetchSpaces } from "@/lib/api";
+import { fetchProjectIcons } from "@/lib/api";
+import { groupInstancesByProject } from "@/lib/project-groups";
 import { getInstanceProjectRouteId, getProjectName } from "@/lib/project-route";
 import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 
@@ -18,31 +21,12 @@ import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 function useProjectGroups(projects: Project[]) {
   const { instances } = useWSState();
   const { sortEntries, syncVisibleDirs } = useProjectOrder();
-  const projectById = new Map(projects.map((project) => [project.id, project]));
-  const registeredDirs = new Set(projects.map((project) => project.directory));
-  const groupMap = new Map<string, InstanceInfo[]>();
-  for (const inst of instances) {
-    const dir =
-      (inst.projectId ? projectById.get(inst.projectId)?.directory : undefined) ??
-      inst.originalDirectory ??
-      inst.workingDirectory;
-    if (registeredDirs.size > 0 && !registeredDirs.has(dir)) continue;
-    if (!groupMap.has(dir)) groupMap.set(dir, []);
-    groupMap.get(dir)!.push(inst);
-  }
-  for (const project of projects) {
-    if (!groupMap.has(project.directory)) {
-      groupMap.set(project.directory, []);
-    }
-  }
-  for (const group of groupMap.values()) {
-    group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
-  }
+  const groups = groupInstancesByProject(instances, projects);
   useEffect(() => {
-    syncVisibleDirs([...groupMap.keys()]);
+    syncVisibleDirs(groups.map(([dir]) => dir));
   }, [instances, projects, syncVisibleDirs]);
   // Sort projects by custom order (falls back to alphabetical for new projects)
-  return sortEntries([...groupMap.entries()]);
+  return sortEntries(groups);
 }
 
 // ── Project flyout (sessions for one project) ────────────────────────
@@ -208,11 +192,12 @@ function ProjectIcon({
 // ── Main component ───────────────────────────────────────────────────
 
 export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
-  const { isConnected, projects } = useWSState();
-  const { send, addMessageHandler } = useWSMethods();
+  const { isConnected } = useWSState();
+  const { send } = useWSMethods();
   const { trackInstanceCreate } = useActionToasts();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
+  const { data: projects = [] } = useProjectsQuery();
   const {
     chatId: currentId,
     projectId: currentProjectId,
@@ -228,7 +213,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   for (const project of projects) {
     projectByDir.set(project.directory, project);
   }
-  const [projectSpaces, setProjectSpaces] = useState<Record<string, SpaceInfo[]>>({});
+  const projectSpaces = useProjectSpaces(projects);
 
   // Fetch project icons once on mount
   const [projectIcons, setProjectIcons] = useState<Record<string, string>>({});
@@ -237,39 +222,6 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
       .then(setProjectIcons)
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void Promise.all(
-      projects.map(async (project) => {
-        try {
-          return [project.directory, await fetchSpaces(project.id)] as const;
-        } catch {
-          return [project.directory, []] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (!cancelled) {
-        setProjectSpaces(Object.fromEntries(entries));
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [projects]);
-
-  useEffect(() => {
-    return addMessageHandler((message) => {
-      if (message.type !== "space_list") {
-        return;
-      }
-      setProjectSpaces((current) => ({
-        ...current,
-        [message.projectDirectory]: message.spaces,
-      }));
-    });
-  }, [addMessageHandler]);
 
   // Which project flyout is open (by dir path), null = none
   const [flyoutDir, setFlyoutDir] = useState<string | null>(null);

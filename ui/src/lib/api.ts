@@ -118,6 +118,13 @@ export async function fetchInstanceHistory(instanceId: string): Promise<HistoryE
   return res.json();
 }
 
+export async function fetchInstanceSummary(instanceId: string): Promise<InstanceInfo | null> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/summary`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error("Failed to fetch instance summary");
+  return res.json();
+}
+
 export async function uploadImage(file: File): Promise<string> {
   const res = await fetch("/api/upload", {
     method: "POST",
@@ -230,6 +237,12 @@ export async function fetchProjectIcons(): Promise<Record<string, string>> {
 export async function fetchProjectArtifacts(projectId: string): Promise<ProjectArtifacts> {
   const res = await fetch(`/api/project-artifacts/${encodeURIComponent(projectId)}`);
   if (!res.ok) throw new Error("Failed to fetch project");
+  return res.json();
+}
+
+export async function fetchProjectChats(projectId: string): Promise<InstanceInfo[]> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/chats`);
+  if (!res.ok) return [];
   return res.json();
 }
 

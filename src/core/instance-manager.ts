@@ -892,6 +892,62 @@ function gitInfoFromDb(entry: {
   };
 }
 
+function toChatSummaryInfo(info: InstanceInfo): InstanceInfo {
+  const { lastMessage, ...summary } = info;
+  return { ...summary };
+}
+
+function summaryFromSessionRow(entry: SessionRow): InstanceInfo {
+  return {
+    id: entry.instance_id,
+    provider: (entry.provider_name as ProviderKind) || "claude",
+    name: entry.name,
+    workingDirectory: entry.working_directory,
+    status: "stopped",
+    createdAt: entry.created_at,
+    lastActivityAt: entry.last_activity_at,
+    external: true,
+    sessionId: entry.session_id,
+    customTitle: entry.custom_title === 1,
+    stats: dbStatsToSessionStats(entry),
+    gitBranch: entry.git_branch ?? undefined,
+    originalDirectory: entry.original_directory ?? undefined,
+    gitInfo: gitInfoFromDb(entry),
+    parentSessionId: entry.parent_session_id ?? undefined,
+    preferredModel: entry.preferred_model ?? undefined,
+    reasoningBudget: entry.reasoning_budget ?? undefined,
+    planMode: false,
+    skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+    spaceId: entry.space_id ?? undefined,
+    projectId: entry.project_id ?? undefined,
+  };
+}
+
+function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
+  return {
+    id: entry.instance_id,
+    provider: entry.provider_name as ProviderKind,
+    name: entry.name,
+    workingDirectory: entry.working_directory,
+    status: "stopped",
+    createdAt: entry.created_at,
+    lastActivityAt: entry.last_activity_at,
+    sessionId: entry.provider_session_id ?? undefined,
+    customTitle: entry.custom_title === 1,
+    stats: dbStatsToSessionStats(entry),
+    gitBranch: entry.git_branch ?? undefined,
+    originalDirectory: entry.original_directory ?? undefined,
+    gitInfo: gitInfoFromDb(entry),
+    parentSessionId: entry.parent_session_id ?? undefined,
+    preferredModel: entry.preferred_model ?? undefined,
+    reasoningBudget: entry.reasoning_budget ?? undefined,
+    planMode: entry.runtime_mode === "plan" ? true : undefined,
+    skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+    spaceId: entry.space_id ?? undefined,
+    projectId: entry.project_id ?? undefined,
+  };
+}
+
 function statsChanged(before: SessionStats, after: SessionStats): boolean {
   return (
     before.inputTokens !== after.inputTokens ||
@@ -1324,6 +1380,52 @@ export class InstanceManager extends EventEmitter {
   getInstance(id: string): InstanceInfo | undefined {
     const instance = this.instances.get(id);
     return instance ? { ...instance.info } : undefined;
+  }
+
+  getChatSummary(id: string): InstanceInfo | null {
+    const live = this.instances.get(id);
+    if (live?.info.projectId) {
+      return toChatSummaryInfo(live.info);
+    }
+
+    const external = this.db.getByInstanceId(id);
+    if (external?.project_id) {
+      return summaryFromSessionRow(external);
+    }
+
+    const managed = this.db.getManagedByInstanceId(id);
+    if (managed?.project_id) {
+      return summaryFromManagedRow(managed);
+    }
+
+    return null;
+  }
+
+  listProjectChats(projectId: string): InstanceInfo[] {
+    const chats = new Map<string, InstanceInfo>();
+
+    for (const instance of this.instances.values()) {
+      if (instance.info.projectId !== projectId) {
+        continue;
+      }
+      chats.set(instance.info.id, toChatSummaryInfo(instance.info));
+    }
+
+    for (const row of this.db.getAll()) {
+      if (row.project_id !== projectId || chats.has(row.instance_id)) {
+        continue;
+      }
+      chats.set(row.instance_id, summaryFromSessionRow(row));
+    }
+
+    for (const row of this.db.getAllManagedActive()) {
+      if (row.project_id !== projectId || chats.has(row.instance_id)) {
+        continue;
+      }
+      chats.set(row.instance_id, summaryFromManagedRow(row));
+    }
+
+    return Array.from(chats.values()).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }
 
   getWorkspaceEntries(id: string, query: string): WorkspaceEntry[] | null {

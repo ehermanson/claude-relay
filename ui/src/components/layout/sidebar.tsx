@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Sun } from "lucide-react";
 import { toast } from "sonner";
@@ -8,6 +8,8 @@ import { useAuthContext } from "../../context/auth-context";
 import { useTheme } from "../../context/theme-context";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useActionToasts } from "../../hooks/use-action-toasts";
+import { useProjectsQuery } from "../../hooks/use-projects-query";
+import { useProjectSpaces } from "../../hooks/use-project-spaces";
 import { useProjectOrder } from "../../hooks/use-project-order";
 import {
   addProject as apiAddProject,
@@ -15,9 +17,9 @@ import {
   createSpace,
   deleteSpace,
   fetchProjectIcons,
-  fetchSpaces,
   removeProject as apiRemoveProject,
 } from "../../lib/api";
+import { groupInstancesByProject } from "../../lib/project-groups";
 import { getInstanceProjectRouteId, type RemoveProjectTarget } from "../../lib/project-route";
 import { AddProjectForm } from "../forms/add-project-form";
 import { ConfirmMergeDialog } from "../spaces/confirm-merge-dialog";
@@ -30,11 +32,13 @@ import { RelayLogo } from "../ui/relay-logo";
 import { SidebarProjectGroup } from "./sidebar-project-group";
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
-  const { send, addMessageHandler } = useWSMethods();
-  const { isConnected, isSyncing, instances, projects } = useWSState();
+  const queryClient = useQueryClient();
+  const { send } = useWSMethods();
+  const { isConnected, isSyncing, instances } = useWSState();
   const { trackInstanceCreate, trackInstanceMerge, trackInstanceRemove } = useActionToasts();
   const { logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
+  const { data: projects = [] } = useProjectsQuery();
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -56,7 +60,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const [confirmRemoveProject, setConfirmRemoveProject] = useState<RemoveProjectTarget | null>(
     null,
   );
-  const [projectSpaces, setProjectSpaces] = useState<Record<string, SpaceInfo[]>>({});
   const [createSpaceDir, setCreateSpaceDir] = useState<string | null>(null);
   const [newSpaceName, setNewSpaceName] = useState("");
   const [confirmCompleteSpaceId, setConfirmCompleteSpaceId] = useState<string | null>(null);
@@ -79,42 +82,13 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     queryKey: ["projectIcons"],
     queryFn: fetchProjectIcons,
   });
+  const projectSpaces = useProjectSpaces(projects);
 
   const projectByDir = new Map<string, Project>();
   for (const project of projects) {
     projectByDir.set(project.directory, project);
   }
-
-  const refreshSpaces = async () => {
-    const nextEntries = await Promise.all(
-      projects.map(async (project) => {
-        try {
-          const spaces = await fetchSpaces(project.id);
-          return [project.directory, spaces] as const;
-        } catch {
-          return [project.directory, []] as const;
-        }
-      }),
-    );
-    setProjectSpaces(Object.fromEntries(nextEntries));
-  };
-
-  useEffect(() => {
-    void refreshSpaces();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects]);
-
-  useEffect(() => {
-    return addMessageHandler((message) => {
-      if (message.type !== "space_list") {
-        return;
-      }
-      setProjectSpaces((current) => ({
-        ...current,
-        [message.projectDirectory]: message.spaces,
-      }));
-    });
-  }, [addMessageHandler]);
+  const registeredDirs = new Set(projects.map((project) => project.directory));
 
   useEffect(() => {
     const currentIds = new Set(instances.map((instance) => instance.id));
@@ -133,27 +107,10 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     prevInstanceIds.current = currentIds;
   }, [instances, navigate]);
 
-  const registeredDirs = new Set(projects.map((project) => project.directory));
-  const groupMap = new Map<string, InstanceInfo[]>();
-  for (const instance of instances) {
-    const dir = instance.workingDirectory;
-    if (registeredDirs.size > 0 && !registeredDirs.has(dir)) continue;
-    if (!groupMap.has(dir)) groupMap.set(dir, []);
-    groupMap.get(dir)!.push(instance);
-  }
-  for (const group of groupMap.values()) {
-    group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
-  }
-  for (const project of projects) {
-    if (!groupMap.has(project.directory)) {
-      groupMap.set(project.directory, []);
-    }
-  }
-
-  const groups = sortEntries([...groupMap.entries()]);
+  const groups = sortEntries(groupInstancesByProject(instances, projects));
 
   useEffect(() => {
-    syncVisibleDirs([...groupMap.keys()]);
+    syncVisibleDirs(groups.map(([dir]) => dir));
   }, [instances, projects, syncVisibleDirs]);
 
   const sessionIdMap = new Map<string, InstanceInfo>();
@@ -185,6 +142,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     setAddProjectError(null);
     try {
       const project = await apiAddProject(directory);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
       setShowAddProject(false);
       toast.success(`Added "${project.name}"`);
     } catch (err) {
@@ -212,6 +170,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
 
     try {
       await apiRemoveProject(projectId);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
       if (currentProjectId === projectId) {
         navigate({ to: "/" });
       }
@@ -248,7 +207,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         name: newSpaceName.trim() || undefined,
       });
       setCreateSpaceDir(null);
-      await refreshSpaces();
+      await queryClient.invalidateQueries({ queryKey: ["spaces", project.id] });
       navigate({
         to: "/projects/$projectId/spaces/$spaceId",
         params: { projectId: project.id, spaceId: space.id },
@@ -268,7 +227,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     setConfirmCompleteSpaceId(null);
     try {
       await completeSpace(spaceId);
-      await refreshSpaces();
       toast.success("Space merged");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to complete space");
@@ -278,7 +236,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const handleDeleteSpace = async (spaceId: string) => {
     try {
       await deleteSpace(spaceId);
-      await refreshSpaces();
       if (currentSpaceId === spaceId && currentProjectId) {
         navigate({ to: "/projects/$projectId", params: { projectId: currentProjectId } });
       }

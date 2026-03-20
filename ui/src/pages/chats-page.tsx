@@ -7,7 +7,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useProjectContext } from "@/context/project-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { fetchSpaces } from "@/lib/api";
+import { fetchProjectChats, fetchSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
 import { formatModel, formatTimeAgo, formatTokens } from "@/lib/utils";
 import type { InstanceInfo, SpaceInfo } from "@shared/types";
@@ -225,33 +225,56 @@ export function ChatsPage() {
   const { artifacts } = useProjectContext();
   const projectId = artifacts.projectId || routeProjectId;
   const spacesQueryKey = ["spaces", projectId] as const;
+  const chatsQueryKey = ["projectChats", projectId] as const;
 
   const { data: spaces = [] } = useQuery({
     queryKey: spacesQueryKey,
     queryFn: () => fetchSpaces(projectId),
     enabled: !!projectId,
   });
+  const { data: chatSummaries = [] } = useQuery({
+    queryKey: chatsQueryKey,
+    queryFn: () => fetchProjectChats(projectId),
+    enabled: !!projectId,
+  });
 
   useEffect(() => {
     return addMessageHandler((message) => {
-      if (message.type !== "space_list" || message.projectDirectory !== artifacts.directory) {
+      if (message.type === "space_list" && message.projectDirectory === artifacts.directory) {
+        queryClient.setQueryData(spacesQueryKey, message.spaces);
         return;
       }
-      queryClient.setQueryData(spacesQueryKey, message.spaces);
+      if (message.type === "instance_created" || message.type === "instance_removed") {
+        void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+        return;
+      }
     });
-  }, [addMessageHandler, artifacts.directory, queryClient, spacesQueryKey]);
+  }, [addMessageHandler, artifacts.directory, chatsQueryKey, queryClient, spacesQueryKey]);
 
-  // Filter instances for this project (same matching logic as sidebar)
-  const projectInstances = instances
-    .filter((inst) => instanceMatchesProject(inst, projectId))
-    .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
+  const projectInstancesMap = new Map<string, InstanceInfo>();
+  for (const chat of chatSummaries) {
+    projectInstancesMap.set(chat.id, chat);
+  }
+  for (const inst of instances) {
+    if (!instanceMatchesProject(inst, projectId)) continue;
+    projectInstancesMap.set(inst.id, inst);
+  }
+  const projectInstances = Array.from(projectInstancesMap.values()).sort(
+    (a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0),
+  );
   const standaloneInstances = projectInstances.filter((inst) => !inst.spaceId);
 
   // Build a lookup for parent session names
   const parentNames = new Map<string, string>();
+  const instancesBySessionId = new Map<string, InstanceInfo>();
+  for (const inst of projectInstances) {
+    if (inst.sessionId) {
+      instancesBySessionId.set(inst.sessionId, inst);
+    }
+  }
   for (const inst of projectInstances) {
     if (inst.parentSessionId) {
-      const parent = instances.find((i) => i.sessionId === inst.parentSessionId);
+      const parent = instancesBySessionId.get(inst.parentSessionId);
       if (parent) parentNames.set(inst.id, parent.name);
     }
   }

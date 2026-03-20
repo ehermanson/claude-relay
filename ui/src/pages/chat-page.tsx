@@ -8,8 +8,10 @@ import { Tooltip } from "../components/ui/tooltip";
 import { formatTimeAgo, formatTokens, formatModel, getDisplayTokenBreakdown } from "../lib/utils";
 import { ProviderLogo } from "../components/chat/input-area/shared";
 import { useProjectOrder } from "../hooks/use-project-order";
+import { useProjectsQuery } from "../hooks/use-projects-query";
 import { useActionToasts } from "../hooks/use-action-toasts";
 import { fetchProjectIcons, fetchProjectArtifacts } from "../lib/api";
+import { groupInstancesByProject } from "../lib/project-groups";
 import type { InstanceInfo, ProjectArtifacts, ProviderKind } from "@shared/types";
 
 // ─── Project Card ────────────────────────────────────────────────────────────
@@ -170,10 +172,11 @@ function ProjectCard({
 // ─── Dashboard ──────────────────────────────────────────────────────────────
 
 export function Dashboard() {
-  const { instances, projects } = useWSState();
+  const { instances } = useWSState();
   const { send } = useWSMethods();
   const { trackInstanceCreate } = useActionToasts();
   const { sortEntries, syncVisibleDirs } = useProjectOrder();
+  const { data: projects = [] } = useProjectsQuery();
   const navigate = useNavigate();
   const pendingCreate = useRef(false);
   const prevInstanceIds = useRef(new Set<string>());
@@ -208,29 +211,9 @@ export function Dashboard() {
     send({ type: "create_instance", workingDirectory });
   };
 
-  const projectById = new Map(projects.map((project) => [project.id, project]));
-  const registeredDirs = new Set(projects.map((project) => project.directory));
-
-  // Group instances by registered project directory, not worktree path
-  const projectMap = new Map<string, InstanceInfo[]>();
-  for (const inst of instances) {
-    const dir =
-      (inst.projectId ? projectById.get(inst.projectId)?.directory : undefined) ??
-      inst.originalDirectory ??
-      inst.workingDirectory;
-    if (registeredDirs.size > 0 && !registeredDirs.has(dir)) continue;
-    if (!projectMap.has(dir)) projectMap.set(dir, []);
-    projectMap.get(dir)!.push(inst);
-  }
-  for (const project of projects) {
-    if (!projectMap.has(project.directory)) {
-      projectMap.set(project.directory, []);
-    }
-  }
-
-  const projectGroups = sortEntries(Array.from(projectMap.entries()));
+  const projectGroups = sortEntries(groupInstancesByProject(instances, projects));
   useEffect(() => {
-    syncVisibleDirs([...projectMap.keys()]);
+    syncVisibleDirs(projectGroups.map(([dir]) => dir));
   }, [instances, projects, syncVisibleDirs]);
   const projectByDir = new Map(projects.map((project) => [project.directory, project]));
 
