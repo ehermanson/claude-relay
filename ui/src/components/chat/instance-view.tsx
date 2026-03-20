@@ -6,7 +6,6 @@ import { DebugModal } from "@/components/chat/debug-modal";
 import { ExternalSessionBar } from "@/components/chat/external-session-bar";
 import { InputArea } from "@/components/chat/input-area";
 import { InstanceHeader } from "@/components/chat/instance-header";
-import { MergeBanner } from "@/components/chat/merge-banner";
 import { MessageList } from "@/components/chat/message-list";
 import { PermissionBanner } from "@/components/chat/permission-banner";
 import { Sidecar } from "@/components/chat/sidecar";
@@ -16,7 +15,6 @@ import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useInstanceMessages } from "@/hooks/use-instance-messages";
-import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSidecarPanels } from "@/hooks/use-sidecar-panels";
 import { createInstance, fetchInstanceHistory } from "@/lib/api";
@@ -41,8 +39,6 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
   const { isConnected, connectionId, instances } = useWSState();
-  const { trackInstanceMerge } = useActionToasts();
-
   const {
     items,
     hasLoadedHistory,
@@ -187,12 +183,6 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     hasPlanContent,
     hasStats,
   });
-
-  const handleMerge = () => {
-    if (!id || !instance) return;
-    trackInstanceMerge(instance);
-    send({ type: "merge_instance", instanceId: id });
-  };
 
   const handleRespondToRequest = (requestId: string, tool: string) => {
     if (!id) return;
@@ -345,12 +335,6 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       {pendingTerminalTool && !pendingUserInput && (
         <TerminalPermissionBar provider={instance.provider} pendingTool={pendingTerminalTool} />
       )}
-
-      {instance.gitBranch &&
-        instance.hasChanges &&
-        instance.status === "idle" &&
-        !instance.external &&
-        items.length > 0 && <MergeBanner onMerge={handleMerge} />}
 
       {!isLoadingSession &&
         (instance.external ? (

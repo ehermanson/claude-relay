@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { BarChart3, CheckCircle2, MessageSquare, Plus } from "lucide-react";
+import { BarChart3, CheckCircle2, FolderPlus, MessageSquare, Plus } from "lucide-react";
 import { useWSState, useWSMethods } from "../context/websocket-context";
 import { getInstanceProjectRouteId } from "../lib/project-route";
 import { Tooltip } from "../components/ui/tooltip";
+import { EmptyProjectActions } from "../components/empty-project-actions";
+import { CreateSpaceDialog, useCreateSpaceDialog } from "../components/spaces/create-space-dialog";
 import { formatTimeAgo, formatTokens, formatModel, getDisplayTokenBreakdown } from "../lib/utils";
 import { ProviderLogo } from "../components/chat/input-area/shared";
 import { useProjectOrder } from "../hooks/use-project-order";
@@ -23,6 +25,7 @@ function ProjectCard({
   iconPath,
   artifacts,
   onNewSession,
+  onCreateSpace,
 }: {
   directory: string;
   instances: InstanceInfo[];
@@ -30,6 +33,7 @@ function ProjectCard({
   iconPath?: string;
   artifacts?: ProjectArtifacts;
   onNewSession: (dir: string) => void;
+  onCreateSpace: (dir: string) => void;
 }) {
   const dirName = directory.split("/").pop() || directory;
   const activeCount = instances.filter(
@@ -103,46 +107,64 @@ function ProjectCard({
         </Tooltip>
       </div>
 
+      {/* Getting started actions (no chats or history) */}
+      {instances.length === 0 && sessionCount === 0 && (
+        <div
+          className="border-t border-border/50 px-4 py-3"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <EmptyProjectActions
+            onNewChat={() => onNewSession(directory)}
+            onNewSpace={() => onCreateSpace(directory)}
+          />
+        </div>
+      )}
+
       {/* Stats row */}
-      <div className="flex items-center gap-3 overflow-hidden border-t border-border/50 px-4 py-2.5 text-[0.6875rem]">
-        {/* Chats */}
-        <Tooltip content={`${sessionCount} session${sessionCount !== 1 ? "s" : ""}`}>
-          <span className="flex shrink-0 items-center gap-1 text-muted">
-            <MessageSquare size={11} />
-            {sessionCount}
-          </span>
-        </Tooltip>
-
-        {/* Active indicator */}
-        {activeCount > 0 && (
-          <span className="flex shrink-0 items-center gap-1 text-accent">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
-            {activeCount} active
-          </span>
-        )}
-
-        {/* Tokens */}
-        {totalTokens > 0 && (
-          <Tooltip content={`${formatTokens(totalTokens)} tokens`}>
+      {(instances.length > 0 || sessionCount > 0) && (
+        <div className="flex items-center gap-3 overflow-hidden border-t border-border/50 px-4 py-2.5 text-[0.6875rem]">
+          {/* Chats */}
+          <Tooltip content={`${sessionCount} session${sessionCount !== 1 ? "s" : ""}`}>
             <span className="flex shrink-0 items-center gap-1 text-muted">
-              <BarChart3 size={11} />
-              {formatTokens(totalTokens)}
+              <MessageSquare size={11} />
+              {sessionCount}
             </span>
           </Tooltip>
-        )}
 
-        {/* Tasks */}
-        {taskCount > 0 && (
-          <Tooltip
-            content={`${taskCount} task${taskCount !== 1 ? "s" : ""}${openTasks > 0 ? `, ${openTasks} open` : ""}`}
-          >
-            <span className="flex shrink-0 items-center gap-1 text-muted">
-              <CheckCircle2 size={11} />
-              {openTasks > 0 ? `${openTasks} open` : `${taskCount}`}
+          {/* Active indicator */}
+          {activeCount > 0 && (
+            <span className="flex shrink-0 items-center gap-1 text-accent">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+              {activeCount} active
             </span>
-          </Tooltip>
-        )}
-      </div>
+          )}
+
+          {/* Tokens */}
+          {totalTokens > 0 && (
+            <Tooltip content={`${formatTokens(totalTokens)} tokens`}>
+              <span className="flex shrink-0 items-center gap-1 text-muted">
+                <BarChart3 size={11} />
+                {formatTokens(totalTokens)}
+              </span>
+            </Tooltip>
+          )}
+
+          {/* Tasks */}
+          {taskCount > 0 && (
+            <Tooltip
+              content={`${taskCount} task${taskCount !== 1 ? "s" : ""}${openTasks > 0 ? `, ${openTasks} open` : ""}`}
+            >
+              <span className="flex shrink-0 items-center gap-1 text-muted">
+                <CheckCircle2 size={11} />
+                {openTasks > 0 ? `${openTasks} open` : `${taskCount}`}
+              </span>
+            </Tooltip>
+          )}
+        </div>
+      )}
 
       {/* Model chips */}
       {topModels.length > 0 && (
@@ -180,6 +202,7 @@ export function Dashboard() {
   const navigate = useNavigate();
   const pendingCreate = useRef(false);
   const prevInstanceIds = useRef(new Set<string>());
+  const spaceDialog = useCreateSpaceDialog();
 
   // Fetch project icons
   const { data: projectIcons = {} } = useQuery({
@@ -211,11 +234,16 @@ export function Dashboard() {
     send({ type: "create_instance", workingDirectory });
   };
 
+  const projectByDir = new Map(projects.map((project) => [project.directory, project]));
+
+  const handleCreateSpace = (dir: string) => {
+    spaceDialog.open(dir);
+  };
+
   const projectGroups = sortEntries(groupInstancesByProject(instances, projects));
   useEffect(() => {
     syncVisibleDirs(projectGroups.map(([dir]) => dir));
   }, [instances, projects, syncVisibleDirs]);
-  const projectByDir = new Map(projects.map((project) => [project.directory, project]));
 
   // Fetch artifacts for each project (for stats)
   const projectEntries = useMemo(
@@ -290,6 +318,7 @@ export function Dashboard() {
                   iconPath={projectIcons[dir]}
                   artifacts={artifactsByDir.get(dir)}
                   onNewSession={handleNewSession}
+                  onCreateSpace={handleCreateSpace}
                 />
               );
             })}
@@ -297,18 +326,39 @@ export function Dashboard() {
         )}
 
         {/* Empty state */}
-        {instances.length === 0 && (
+        {projectGroups.length === 0 && (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-center">
-            <MessageSquare size={32} strokeWidth={1.5} className="mb-3 text-muted/40" />
-            <p className="mb-1 text-[0.8125rem] font-medium text-text">
-              Create an instance to get started
-            </p>
-            <span className="text-[0.75rem] text-muted">
-              Use the + button in the sidebar to create a new chat
-            </span>
+            {projects.length === 0 ? (
+              <>
+                <FolderPlus size={32} strokeWidth={1.5} className="mb-3 text-muted/40" />
+                <p className="mb-1 text-[0.8125rem] font-medium text-text">
+                  Add a project to get started
+                </p>
+                <span className="text-[0.75rem] text-muted">
+                  Use the Add Project button above to register a git repo
+                </span>
+              </>
+            ) : (
+              <>
+                <MessageSquare size={32} strokeWidth={1.5} className="mb-3 text-muted/40" />
+                <p className="mb-1 text-[0.8125rem] font-medium text-text">No active chats</p>
+                <span className="text-[0.75rem] text-muted">
+                  Select a project to start a new chat
+                </span>
+              </>
+            )}
           </div>
         )}
       </div>
+
+      <CreateSpaceDialog
+        dir={spaceDialog.dir}
+        projectName={
+          spaceDialog.dir ? (projectByDir.get(spaceDialog.dir)?.name ?? spaceDialog.dir) : ""
+        }
+        projectId={spaceDialog.dir ? projectByDir.get(spaceDialog.dir)?.id : undefined}
+        onOpenChange={(open) => !open && spaceDialog.close()}
+      />
     </div>
   );
 }

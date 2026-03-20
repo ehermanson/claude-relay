@@ -435,6 +435,7 @@ html.light ::selection {
   color: var(--color-text);
   white-space: pre-wrap;
   word-break: break-word;
+  border: 0;
 }
 
 .markdown-content blockquote {

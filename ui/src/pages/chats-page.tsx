@@ -1,11 +1,15 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "@tanstack/react-router";
-import { GitBranch } from "lucide-react";
+import { GitBranch, MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { EmptyProjectActions } from "@/components/empty-project-actions";
+import { EmptyState } from "@/components/empty-state";
+import { CreateSpaceDialog, useCreateSpaceDialog } from "@/components/spaces/create-space-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useProjectContext } from "@/context/project-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
+import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { fetchProjectChats, fetchSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
@@ -220,9 +224,11 @@ export function ChatsPage() {
   const { projectId: routeProjectId } = useParams({ strict: false }) as { projectId: string };
   const isMobile = useMediaQuery("(max-width: 768px)");
   const queryClient = useQueryClient();
-  const { addMessageHandler } = useWSMethods();
+  const { addMessageHandler, send } = useWSMethods();
   const { instances } = useWSState();
   const { artifacts } = useProjectContext();
+  const { trackInstanceCreate } = useActionToasts();
+  const spaceDialog = useCreateSpaceDialog();
   const projectId = artifacts.projectId || routeProjectId;
   const spacesQueryKey = ["spaces", projectId] as const;
   const chatsQueryKey = ["projectChats", projectId] as const;
@@ -305,27 +311,31 @@ export function ChatsPage() {
   const hasMainChats = standaloneInstances.length > 0;
   const hasSpaces = visibleSpaces.length > 0;
 
+  const handleNewChat = () => {
+    if (artifacts.directory) {
+      trackInstanceCreate(artifacts.directory);
+      send({ type: "create_instance", workingDirectory: artifacts.directory });
+    }
+  };
+
+  const handleNewSpace = () => {
+    if (artifacts.directory) {
+      spaceDialog.open(artifacts.directory);
+    }
+  };
+
   return (
     <div className="flex-1 overflow-y-auto">
       {!hasMainChats && !hasSpaces ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-surface-hover text-muted">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
+        <EmptyState
+          icon={<MessageSquare size={24} strokeWidth={1.5} />}
+          title="No chats yet"
+          description="Start a chat or create a space to get going"
+        >
+          <div className="mt-5">
+            <EmptyProjectActions onNewChat={handleNewChat} onNewSpace={handleNewSpace} />
           </div>
-          <p className="mb-1 text-sm font-medium text-text">No chats yet</p>
-          <span className="text-xs text-muted">Chats for this project will appear here</span>
-        </div>
+        </EmptyState>
       ) : (
         <div className="mx-auto px-6 py-4">
           <div className="flex flex-col gap-3">
@@ -352,6 +362,13 @@ export function ChatsPage() {
           </div>
         </div>
       )}
+
+      <CreateSpaceDialog
+        dir={spaceDialog.dir}
+        projectName={artifacts.directory?.split("/").pop() || artifacts.directory || ""}
+        projectId={projectId}
+        onOpenChange={(open) => !open && spaceDialog.close()}
+      />
     </div>
   );
 }

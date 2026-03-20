@@ -2,7 +2,8 @@ import { useProjectContext } from "../context/project-context";
 import { MarkdownContent } from "../components/chat/markdown-content";
 import { Tabs } from "../components/ui/tabs";
 import { Tooltip } from "../components/ui/tooltip";
-import { HelpCircle } from "lucide-react";
+import { FolderOpen, HelpCircle } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { formatTokens, formatModel, getDisplayTokenBreakdown } from "../lib/utils";
 import { ProviderLogo } from "../components/chat/input-area/shared";
 import type { ModelUsageStats, ProviderKind } from "@shared/types";
@@ -209,12 +210,11 @@ export function ProjectPage() {
 
   if (!hasContent) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <p className="mb-1 text-sm text-muted">No artifacts found for this project</p>
-        <span className="text-xs text-muted opacity-60">
-          Memory, instructions, and plans will appear here
-        </span>
-      </div>
+      <EmptyState
+        icon={<FolderOpen size={24} strokeWidth={1.5} />}
+        title="No project data yet"
+        description="Usage stats and documentation will appear here as you chat"
+      />
     );
   }
 

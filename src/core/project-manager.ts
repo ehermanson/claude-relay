@@ -7,8 +7,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { existsSync, realpathSync } from "fs";
-import { basename } from "path";
+import { existsSync, mkdirSync, realpathSync } from "fs";
+import { basename, join } from "path";
 import { EventEmitter } from "events";
 
 import { SessionDB } from "./db.js";
@@ -16,6 +16,7 @@ import type { ProjectRow } from "./db.js";
 import type { Project } from "./types.js";
 import type { Logger } from "./logger.js";
 import {
+  gitInit,
   isGitRepo,
   getRepoRoot,
   getRemoteUrl,
@@ -164,6 +165,30 @@ export class ProjectManager extends EventEmitter {
     );
     this.emit("project:created", project);
     return project;
+  }
+
+  /**
+   * Create a new project directory, initialize a git repo, and register it.
+   */
+  initProject(parentDirectory: string, name: string): Project {
+    if (!existsSync(parentDirectory)) {
+      throw new Error(`Parent directory does not exist: ${parentDirectory}`);
+    }
+
+    // Sanitize name
+    if (!name || /[/\\]/.test(name) || name === "." || name === "..") {
+      throw new Error(`Invalid project name: ${name}`);
+    }
+
+    const targetDir = join(parentDirectory, name);
+    if (existsSync(targetDir)) {
+      throw new Error(`Directory already exists: ${targetDir}`);
+    }
+
+    mkdirSync(targetDir, { recursive: true });
+    gitInit(targetDir);
+
+    return this.addProject(targetDir, { name });
   }
 
   /** Remove a project and dissociate its sessions. */

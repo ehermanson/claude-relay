@@ -1,4 +1,6 @@
+import { Toolbox } from "lucide-react";
 import { getProviderDisplayName } from "@shared/provider-catalog";
+import { EmptyState } from "../components/empty-state";
 import { useProjectContext } from "../context/project-context";
 import { Badge } from "../components/ui/badge";
 
@@ -14,13 +16,11 @@ export function SkillsPage() {
 
   if (skills.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <p className="mb-1 text-sm text-muted">No skills installed</p>
-        <span className="text-xs text-muted opacity-60">
-          Add skills to <code className="text-[0.6875rem]">.claude/skills/</code> or{" "}
-          <code className="text-[0.6875rem]">~/.claude/skills/</code>
-        </span>
-      </div>
+      <EmptyState
+        icon={<Toolbox size={24} strokeWidth={1.5} />}
+        title="No skills installed"
+        description="Skills extend what agents can do — install them via your provider's skill directory"
+      />
     );
   }
 

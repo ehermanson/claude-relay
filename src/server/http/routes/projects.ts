@@ -192,6 +192,39 @@ export function createProjectRoutes(deps: HttpDeps): Route[] {
       },
     },
     {
+      method: "POST",
+      pattern: /^\/api\/projects\/init$/,
+      async handler(ctx) {
+        if (!requireAuth(ctx)) {
+          return;
+        }
+        try {
+          const body = await readJsonBody<{
+            parentDirectory?: string;
+            name?: string;
+          }>(ctx.req);
+          if (!body.parentDirectory || typeof body.parentDirectory !== "string") {
+            sendJson(ctx.res, 400, { error: "Missing parentDirectory" });
+            return;
+          }
+          if (!body.name || typeof body.name !== "string") {
+            sendJson(ctx.res, 400, { error: "Missing name" });
+            return;
+          }
+          const project = instanceManager.projectManager.initProject(
+            body.parentDirectory,
+            body.name.trim(),
+          );
+          instanceManager.rescanAll();
+          sendJson(ctx.res, 201, project);
+        } catch (err) {
+          sendJson(ctx.res, 400, {
+            error: err instanceof Error ? err.message : "Failed to create project",
+          });
+        }
+      },
+    },
+    {
       method: "GET",
       pattern: /^\/api\/projects\/([a-f0-9-]+)$/,
       handler(ctx, match) {

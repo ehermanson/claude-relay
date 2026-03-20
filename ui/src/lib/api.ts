@@ -314,6 +314,19 @@ export async function addProject(
   return res.json();
 }
 
+export async function createProject(parentDirectory: string, name: string): Promise<Project> {
+  const res = await fetch("/api/projects/init", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parentDirectory, name }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to create project" }));
+    throw new Error(data.error || "Failed to create project");
+  }
+  return res.json();
+}
+
 export async function updateProject(
   id: string,
   updates: { name?: string; targetBranch?: string | null },

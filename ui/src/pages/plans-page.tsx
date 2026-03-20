@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearch, Link } from "@tanstack/react-router";
-import { ArrowDownNarrowWide, Check, ChevronRight, ExternalLink, Search } from "lucide-react";
+import {
+  ArrowDownNarrowWide,
+  Check,
+  ChevronRight,
+  ExternalLink,
+  NotebookPen,
+  Search,
+} from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Collapsible } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
@@ -147,12 +155,11 @@ export function PlansPage() {
 
   if (artifacts.plans.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
-        <p className="mb-1 text-sm text-muted">No plans found</p>
-        <span className="text-xs text-muted opacity-60">
-          Implementation plans generated during chats will appear here
-        </span>
-      </div>
+      <EmptyState
+        icon={<NotebookPen size={24} strokeWidth={1.5} />}
+        title="No plans yet"
+        description="Implementation plans generated during chats will appear here"
+      />
     );
   }
 

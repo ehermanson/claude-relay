@@ -26,6 +26,7 @@ import {
   getProjectName,
   type RemoveProjectTarget,
 } from "../../lib/project-route";
+import { EmptyProjectActions } from "../empty-project-actions";
 import { Button } from "../ui/button";
 import { Collapsible } from "../ui/collapsible";
 import { Menu } from "../ui/menu";
@@ -440,6 +441,18 @@ export function SidebarProjectGroup({
                 <ChevronRight size={10} strokeWidth={2.5} />
               </Link>
             )}
+
+            {visible.length === 0 &&
+              (!spaces || spaces.filter((s) => !s.isDefault).length === 0) &&
+              onCreateSpace && (
+                <div className="px-2 py-1">
+                  <EmptyProjectActions
+                    size="compact"
+                    onNewChat={() => onQuickCreate(dir)}
+                    onNewSpace={() => onCreateSpace(dir)}
+                  />
+                </div>
+              )}
           </div>
         </Collapsible.Content>
       </div>

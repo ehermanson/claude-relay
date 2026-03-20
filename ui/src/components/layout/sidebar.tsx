@@ -11,21 +11,22 @@ import { useActionToasts } from "../../hooks/use-action-toasts";
 import { useProjectNavigationModel } from "../../hooks/use-project-navigation-model";
 import {
   addProject as apiAddProject,
+  createProject as apiCreateProject,
   completeSpace,
-  createSpace,
   deleteSpace,
   fetchProjectIcons,
   removeProject as apiRemoveProject,
 } from "../../lib/api";
 import { getInstanceProjectRouteId, type RemoveProjectTarget } from "../../lib/project-route";
 import { AddProjectForm } from "../forms/add-project-form";
+import { CreateProjectForm } from "../forms/create-project-form";
 import { ConfirmMergeDialog } from "../spaces/confirm-merge-dialog";
+import { CreateSpaceDialog, useCreateSpaceDialog } from "../spaces/create-space-dialog";
 import { Button } from "../ui/button";
 import { ConfirmActionDialog } from "../ui/confirm-action-dialog";
-import { Dialog } from "../ui/dialog";
-import { Input } from "../ui/input";
 import { Popover } from "../ui/popover";
 import { RelayLogo } from "../ui/relay-logo";
+import { Tabs } from "../ui/tabs";
 import { SidebarProjectGroup } from "./sidebar-project-group";
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
@@ -61,7 +62,10 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   };
 
   const [showAddProject, setShowAddProject] = useState(false);
+  const [projectTab, setProjectTab] = useState<"add" | "create">("add");
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
+  const [createProjectError, setCreateProjectError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [confirmRemoveInstance, setConfirmRemoveInstance] = useState<Pick<
     InstanceInfo,
     "id" | "name"
@@ -69,8 +73,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const [confirmRemoveProject, setConfirmRemoveProject] = useState<RemoveProjectTarget | null>(
     null,
   );
-  const [createSpaceDir, setCreateSpaceDir] = useState<string | null>(null);
-  const [newSpaceName, setNewSpaceName] = useState("");
+  const spaceDialog = useCreateSpaceDialog();
   const [confirmCompleteSpaceId, setConfirmCompleteSpaceId] = useState<string | null>(null);
 
   const prevInstanceIds = useRef(new Set<string>());
@@ -135,6 +138,21 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     }
   };
 
+  const handleCreateProject = async (parentDirectory: string, name: string) => {
+    setCreateProjectError(null);
+    setIsCreating(true);
+    try {
+      const project = await apiCreateProject(parentDirectory, name);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setShowAddProject(false);
+      toast.success(`Created "${project.name}"`);
+    } catch (err) {
+      setCreateProjectError(err instanceof Error ? err.message : "Failed to create project");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const handleRemoveProject = (target: RemoveProjectTarget) => {
     const project = projectByDir.get(target.directory);
     if (project) {
@@ -175,31 +193,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   };
 
   const handleCreateSpace = (dir: string) => {
-    setCreateSpaceDir(dir);
-    setNewSpaceName("");
-  };
-
-  const confirmCreateSpace = async () => {
-    if (!createSpaceDir) return;
-    const project = projectByDir.get(createSpaceDir);
-    if (!project) {
-      toast.error("Project not found");
-      return;
-    }
-
-    try {
-      const space = await createSpace(project.id, {
-        name: newSpaceName.trim() || undefined,
-      });
-      setCreateSpaceDir(null);
-      await queryClient.invalidateQueries({ queryKey: ["spaces", project.id] });
-      navigate({
-        to: "/projects/$projectId/spaces/$spaceId",
-        params: { projectId: project.id, spaceId: space.id },
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create space");
-    }
+    spaceDialog.open(dir);
   };
 
   const handleCompleteSpace = (spaceId: string) => {
@@ -256,7 +250,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
             open={showAddProject}
             onOpenChange={(open) => {
               setShowAddProject(open);
-              if (!open) setAddProjectError(null);
+              if (!open) {
+                setAddProjectError(null);
+                setCreateProjectError(null);
+                setProjectTab("add");
+              }
             }}
           >
             <Popover.Trigger render={<Button variant="ghost" size="sm" />}>
@@ -264,12 +262,35 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               Add Project
             </Popover.Trigger>
             <Popover.Content className="w-96" align="end">
-              <AddProjectForm
-                onSubmit={handleAddProject}
-                onCancel={() => setShowAddProject(false)}
-                error={addProjectError}
-                registeredDirs={registeredDirs}
-              />
+              <Tabs.Root
+                value={projectTab}
+                onValueChange={(v) => setProjectTab(v as "add" | "create")}
+              >
+                <Tabs.List className="mb-3">
+                  <Tabs.Tab value="add" className="flex-1 text-center">
+                    Add Existing
+                  </Tabs.Tab>
+                  <Tabs.Tab value="create" className="flex-1 text-center">
+                    Create New
+                  </Tabs.Tab>
+                </Tabs.List>
+                <Tabs.Panel value="add">
+                  <AddProjectForm
+                    onSubmit={handleAddProject}
+                    onCancel={() => setShowAddProject(false)}
+                    error={addProjectError}
+                    registeredDirs={registeredDirs}
+                  />
+                </Tabs.Panel>
+                <Tabs.Panel value="create">
+                  <CreateProjectForm
+                    onSubmit={handleCreateProject}
+                    onCancel={() => setShowAddProject(false)}
+                    error={createProjectError}
+                    isSubmitting={isCreating}
+                  />
+                </Tabs.Panel>
+              </Tabs.Root>
             </Popover.Content>
           </Popover.Root>
           {onCollapse && (
@@ -389,52 +410,14 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         onCancel={() => setConfirmCompleteSpaceId(null)}
       />
 
-      <Dialog.Root
-        open={!!createSpaceDir}
-        onOpenChange={(open) => !open && setCreateSpaceDir(null)}
-      >
-        <Dialog.Content maxWidth="max-w-md">
-          <Dialog.Header>
-            <Dialog.Title>Create Space</Dialog.Title>
-            <Dialog.Close />
-          </Dialog.Header>
-          <div className="space-y-3">
-            <p className="text-[0.8125rem] text-muted">
-              Create an isolated branch and working copy of{" "}
-              <span className="font-medium text-text">
-                {createSpaceDir ? (projectByDir.get(createSpaceDir)?.name ?? createSpaceDir) : ""}
-              </span>
-              . Changes in a space won't affect your main project directory — to run a dev server
-              against the space, you'll need to open a terminal at its path.
-            </p>
-            <div className="space-y-1.5">
-              <label className="text-[0.75rem] font-medium text-muted" htmlFor="space-name">
-                Name
-              </label>
-              <Input
-                id="space-name"
-                autoFocus
-                value={newSpaceName}
-                onChange={(event) => setNewSpaceName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    void confirmCreateSpace();
-                  }
-                }}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setCreateSpaceDir(null)}>
-                Cancel
-              </Button>
-              <Button variant="primary" size="sm" onClick={() => void confirmCreateSpace()}>
-                Create Space
-              </Button>
-            </div>
-          </div>
-        </Dialog.Content>
-      </Dialog.Root>
+      <CreateSpaceDialog
+        dir={spaceDialog.dir}
+        projectName={
+          spaceDialog.dir ? (projectByDir.get(spaceDialog.dir)?.name ?? spaceDialog.dir) : ""
+        }
+        projectId={spaceDialog.dir ? projectByDir.get(spaceDialog.dir)?.id : undefined}
+        onOpenChange={(open) => !open && spaceDialog.close()}
+      />
     </aside>
   );
 }

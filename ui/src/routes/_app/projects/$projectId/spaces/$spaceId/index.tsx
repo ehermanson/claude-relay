@@ -1,6 +1,7 @@
 import { lazy, useState, useEffect, useRef, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useParams, Link } from "@tanstack/react-router";
+import { toast } from "sonner";
 import {
   AlertTriangle,
   Bug,
@@ -485,6 +486,7 @@ export function SpaceView() {
                 navigator.clipboard.writeText(space.worktreePath!).then(() => {
                   setPathCopied(true);
                   setTimeout(() => setPathCopied(false), 1500);
+                  toast.success("Copied to clipboard");
                 });
               }}
               className="min-w-0 truncate font-mono text-[0.6875rem] text-muted transition-colors hover:text-text"
@@ -589,6 +591,7 @@ export function SpaceView() {
                     navigator.clipboard.writeText(space.worktreePath!).then(() => {
                       setPathCopied(true);
                       setTimeout(() => setPathCopied(false), 1500);
+                      toast.success("Copied to clipboard");
                     });
                   }}
                   className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"

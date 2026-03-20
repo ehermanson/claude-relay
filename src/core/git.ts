@@ -15,6 +15,8 @@ import type { FileChange } from "./types.js";
 
 const WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
 const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const RELAY_GIT_FALLBACK_NAME = "Relay";
+const RELAY_GIT_FALLBACK_EMAIL = "relay@local";
 
 /** Pattern matching ~/.relay/worktrees/<name> paths (instance and space worktrees) */
 const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][^/\\]+\/?$/;
@@ -45,6 +47,52 @@ export function resolveWorktreeOrigin(worktreePath: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Initialize a new git repository with an initial empty commit.
+ * The commit ensures HEAD is valid for worktree creation and other git operations.
+ */
+export function gitInit(dir: string): void {
+  const opts = { cwd: dir, timeout: 10000, stdio: "pipe" as const };
+  execFileSync("git", ["init"], opts);
+
+  try {
+    execFileSync("git", ["commit", "--allow-empty", "-m", "Initial commit"], opts);
+  } catch (error) {
+    if (!isMissingGitIdentityError(error)) {
+      throw error;
+    }
+
+    execFileSync(
+      "git",
+      [
+        "-c",
+        `user.name=${RELAY_GIT_FALLBACK_NAME}`,
+        "-c",
+        `user.email=${RELAY_GIT_FALLBACK_EMAIL}`,
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Initial commit",
+      ],
+      opts,
+    );
+  }
+}
+
+function isMissingGitIdentityError(error: unknown): boolean {
+  const stderr =
+    (error as { stderr?: Buffer })?.stderr?.toString("utf8") ??
+    (error as { stdout?: Buffer })?.stdout?.toString("utf8") ??
+    "";
+
+  return (
+    stderr.includes("Author identity unknown") ||
+    stderr.includes("Committer identity unknown") ||
+    stderr.includes("unable to auto-detect email address") ||
+    stderr.includes("no email was given and auto-detection is disabled")
+  );
 }
 
 /**
