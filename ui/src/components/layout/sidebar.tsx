@@ -393,18 +393,19 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         open={!!createSpaceDir}
         onOpenChange={(open) => !open && setCreateSpaceDir(null)}
       >
-        <Dialog.Content maxWidth="max-w-sm">
+        <Dialog.Content maxWidth="max-w-md">
           <Dialog.Header>
             <Dialog.Title>Create Space</Dialog.Title>
             <Dialog.Close />
           </Dialog.Header>
           <div className="space-y-3">
             <p className="text-[0.8125rem] text-muted">
-              Create an isolated worktree for{" "}
+              Create an isolated branch and working copy of{" "}
               <span className="font-medium text-text">
                 {createSpaceDir ? (projectByDir.get(createSpaceDir)?.name ?? createSpaceDir) : ""}
               </span>
-              .
+              . Changes in a space won't affect your main project directory — to run a dev server
+              against the space, you'll need to open a terminal at its path.
             </p>
             <div className="space-y-1.5">
               <label className="text-[0.75rem] font-medium text-muted" htmlFor="space-name">

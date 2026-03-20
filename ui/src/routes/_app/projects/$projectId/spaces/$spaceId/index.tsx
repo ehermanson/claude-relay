@@ -6,11 +6,14 @@ import {
   Bug,
   Check,
   ChevronLeft,
+  Copy,
   EllipsisVertical,
   FileCode2,
   FileText,
+  FolderOpen,
   GitBranch,
   GitMerge,
+  Info,
   MoreVertical,
   Pencil,
   Plus,
@@ -92,6 +95,7 @@ export function SpaceView() {
   const [closeTabId, setCloseTabId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [pathCopied, setPathCopied] = useState(false);
 
   // Merge dialog state
   const [mergeDialog, setMergeDialog] = useState<
@@ -470,6 +474,35 @@ export function SpaceView() {
         </div>
       </div>
 
+      {/* ── Worktree info bar ── */}
+      {!space.isDefault && space.worktreePath && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-hover/40 px-4 py-1.5 text-xs text-muted">
+          <FolderOpen size={13} className="shrink-0 text-muted/70" />
+          <Tooltip content={pathCopied ? "Copied!" : "Click to copy path"}>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(space.worktreePath!).then(() => {
+                  setPathCopied(true);
+                  setTimeout(() => setPathCopied(false), 1500);
+                });
+              }}
+              className="min-w-0 truncate font-mono text-[0.6875rem] text-muted transition-colors hover:text-text"
+            >
+              {space.worktreePath}
+            </button>
+          </Tooltip>
+          <Tooltip content="This space uses a separate working copy (git worktree). Changes here won't appear in your main project directory. Open a terminal at this path to run your dev server against this copy.">
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center rounded px-1 py-0.5 text-muted/70 transition-colors hover:text-text"
+            >
+              <Info size={12} />
+            </button>
+          </Tooltip>
+        </div>
+      )}
+
       {/* ── Main content: tabs + chat | sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {activeTab ? (
@@ -533,9 +566,38 @@ export function SpaceView() {
             </div>
           )
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
             <GitBranch size={32} className="text-muted/30" />
-            <p className="text-sm text-muted">No chats in this space yet</p>
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-text-bright">Space ready</p>
+              <p className="max-w-xs text-[0.8125rem] text-muted">
+                This space has its own branch and working copy. Start a chat to begin working.
+              </p>
+            </div>
+            {space.worktreePath && (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-hover/50 px-3 py-2 text-xs">
+                <FolderOpen size={13} className="shrink-0 text-muted/70" />
+                <code
+                  className="max-w-[20rem] truncate font-mono text-[0.6875rem] text-muted"
+                  title={space.worktreePath}
+                >
+                  {space.worktreePath}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(space.worktreePath!).then(() => {
+                      setPathCopied(true);
+                      setTimeout(() => setPathCopied(false), 1500);
+                    });
+                  }}
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                >
+                  {pathCopied ? <Check size={11} /> : <Copy size={11} />}
+                  {pathCopied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            )}
             <Button variant="primary" size="sm" onClick={handleNewChat} className="gap-1.5">
               <Plus size={14} />
               New Chat
