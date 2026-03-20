@@ -125,6 +125,8 @@ export class SessionDB {
   private stmtUpsertManaged!: Database.Statement;
   private stmtGetManagedByInstanceId!: Database.Statement;
   private stmtGetAllManagedActive!: Database.Statement;
+  private stmtGetByProjectId!: Database.Statement;
+  private stmtGetManagedByProjectId!: Database.Statement;
   private stmtArchiveManaged!: Database.Statement;
   private stmtArchive!: Database.Statement;
   private stmtUnarchive!: Database.Statement;
@@ -584,6 +586,14 @@ export class SessionDB {
       "SELECT * FROM managed_sessions WHERE archived = 0 ORDER BY last_activity_at DESC",
     );
 
+    this.stmtGetByProjectId = this.db.prepare(
+      "SELECT * FROM sessions WHERE project_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+    );
+
+    this.stmtGetManagedByProjectId = this.db.prepare(
+      "SELECT * FROM managed_sessions WHERE project_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+    );
+
     this.stmtArchive = this.db.prepare("UPDATE sessions SET archived = 1 WHERE session_id = ?");
 
     this.stmtArchiveManaged = this.db.prepare(
@@ -843,6 +853,14 @@ export class SessionDB {
 
   getAllManagedActive(): ManagedInstanceRow[] {
     return this.stmtGetAllManagedActive.all() as ManagedInstanceRow[];
+  }
+
+  getByProjectId(projectId: string): SessionRow[] {
+    return this.stmtGetByProjectId.all(projectId) as SessionRow[];
+  }
+
+  getManagedByProjectId(projectId: string): ManagedInstanceRow[] {
+    return this.stmtGetManagedByProjectId.all(projectId) as ManagedInstanceRow[];
   }
 
   archiveManaged(instanceId: string): void {

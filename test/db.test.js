@@ -293,6 +293,131 @@ describe("SessionDB", () => {
     });
   });
 
+  describe("getByProjectId", () => {
+    it("returns only rows matching the given project_id", () => {
+      db.upsert(
+        makeRow({
+          session_id: "s1",
+          instance_id: "i1",
+          jsonl_path: "/a.jsonl",
+          project_id: "proj-1",
+        }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "s2",
+          instance_id: "i2",
+          jsonl_path: "/b.jsonl",
+          project_id: "proj-2",
+        }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "s3",
+          instance_id: "i3",
+          jsonl_path: "/c.jsonl",
+          project_id: "proj-1",
+        }),
+      );
+      const rows = db.getByProjectId("proj-1");
+      assert.equal(rows.length, 2);
+      const ids = rows.map((r) => r.instance_id).sort();
+      assert.deepEqual(ids, ["i1", "i3"]);
+    });
+
+    it("excludes archived rows", () => {
+      db.upsert(
+        makeRow({
+          session_id: "s1",
+          instance_id: "i1",
+          jsonl_path: "/a.jsonl",
+          project_id: "proj-1",
+        }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "s2",
+          instance_id: "i2",
+          jsonl_path: "/b.jsonl",
+          project_id: "proj-1",
+          archived: 1,
+        }),
+      );
+      assert.equal(db.getByProjectId("proj-1").length, 1);
+    });
+
+    it("returns empty array for unknown project", () => {
+      assert.equal(db.getByProjectId("nonexistent").length, 0);
+    });
+
+    it("excludes rows with null project_id", () => {
+      db.upsert(
+        makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl", project_id: null }),
+      );
+      assert.equal(db.getByProjectId("proj-1").length, 0);
+    });
+  });
+
+  describe("getManagedByProjectId", () => {
+    function makeManagedRow(overrides = {}) {
+      return {
+        instance_id: "m-1",
+        provider_name: "codex",
+        provider_session_id: null,
+        name: "Managed Session",
+        working_directory: "/tmp/test",
+        created_at: 1000,
+        last_activity_at: 2000,
+        archived: 0,
+        custom_title: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        git_branch: null,
+        worktree_path: null,
+        original_directory: null,
+        parent_session_id: null,
+        preferred_model: null,
+        reasoning_budget: null,
+        skip_permissions: 0,
+        runtime_mode: "approval-required",
+        resume_cursor_json: null,
+        runtime_payload_json: "{}",
+        transcript_path: null,
+        last_message_text: null,
+        last_message_from: null,
+        last_message_at: null,
+        git_info_branch: null,
+        git_info_is_worktree: null,
+        space_id: null,
+        project_id: null,
+        model: null,
+        ...overrides,
+      };
+    }
+
+    it("returns only managed rows matching the given project_id", () => {
+      db.upsertManaged(makeManagedRow({ instance_id: "m-1", project_id: "proj-1" }));
+      db.upsertManaged(makeManagedRow({ instance_id: "m-2", project_id: "proj-2" }));
+      db.upsertManaged(makeManagedRow({ instance_id: "m-3", project_id: "proj-1" }));
+      const rows = db.getManagedByProjectId("proj-1");
+      assert.equal(rows.length, 2);
+      const ids = rows.map((r) => r.instance_id).sort();
+      assert.deepEqual(ids, ["m-1", "m-3"]);
+    });
+
+    it("excludes archived managed rows", () => {
+      db.upsertManaged(makeManagedRow({ instance_id: "m-1", project_id: "proj-1" }));
+      db.upsertManaged(makeManagedRow({ instance_id: "m-2", project_id: "proj-1", archived: 1 }));
+      assert.equal(db.getManagedByProjectId("proj-1").length, 1);
+    });
+
+    it("returns empty array for unknown project", () => {
+      assert.equal(db.getManagedByProjectId("nonexistent").length, 0);
+    });
+  });
+
   describe("getAll", () => {
     it("excludes archived by default", () => {
       db.upsert(makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl" }));

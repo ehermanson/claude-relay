@@ -88,6 +88,73 @@ describe("ClaudeProcess state management", () => {
   });
 });
 
+describe("ClaudeProcess extractContextBudget", () => {
+  it("extracts context window from budget:token_budget tag", () => {
+    const proc = new ClaudeProcess(makeConfig());
+    const emitted = [];
+    proc.on("stats", (stats) => emitted.push(stats));
+
+    proc.extractContextBudget("<budget:token_budget>200000</budget:token_budget>");
+    assert.equal(emitted.length, 1);
+    assert.equal(emitted[0].contextWindow, 200000);
+  });
+
+  it("handles comma-formatted numbers in budget tag", () => {
+    const proc = new ClaudeProcess(makeConfig());
+    const emitted = [];
+    proc.on("stats", (stats) => emitted.push(stats));
+
+    proc.extractContextBudget("<budget:token_budget>200,000</budget:token_budget>");
+    assert.equal(emitted.length, 1);
+    assert.equal(emitted[0].contextWindow, 200000);
+  });
+
+  it("extracts context window from system_warning tag", () => {
+    const proc = new ClaudeProcess(makeConfig());
+    const emitted = [];
+    proc.on("stats", (stats) => emitted.push(stats));
+
+    proc.extractContextBudget(
+      "<system_warning>Token usage: 80,000 / 200,000; 120,000 remaining</system_warning>",
+    );
+    assert.equal(emitted.length, 1);
+    assert.equal(emitted[0].contextWindow, 200000);
+    assert.equal(emitted[0].contextTokens, 80000);
+  });
+
+  it("prefers budget tag over system_warning when both present", () => {
+    const proc = new ClaudeProcess(makeConfig());
+    const emitted = [];
+    proc.on("stats", (stats) => emitted.push(stats));
+
+    proc.extractContextBudget(
+      "<budget:token_budget>200000</budget:token_budget> " +
+        "<system_warning>Token usage: 50,000 / 100,000; 50,000 remaining</system_warning>",
+    );
+    // budget tag matched first → returns early, system_warning not processed
+    assert.equal(emitted.length, 1);
+    assert.equal(emitted[0].contextWindow, 200000);
+  });
+
+  it("does nothing for text without budget tags", () => {
+    const proc = new ClaudeProcess(makeConfig());
+    const emitted = [];
+    proc.on("stats", (stats) => emitted.push(stats));
+
+    proc.extractContextBudget("Here is some regular assistant text.");
+    assert.equal(emitted.length, 0);
+  });
+
+  it("ignores system_warning with zero total", () => {
+    const proc = new ClaudeProcess(makeConfig());
+    const emitted = [];
+    proc.on("stats", (stats) => emitted.push(stats));
+
+    proc.extractContextBudget("<system_warning>Token usage: 0 / 0; 0 remaining</system_warning>");
+    assert.equal(emitted.length, 0);
+  });
+});
+
 describe("ClaudeProcess session targeting", () => {
   it("setSessionId stores the session ID for resume", () => {
     const proc = new ClaudeProcess(makeConfig());

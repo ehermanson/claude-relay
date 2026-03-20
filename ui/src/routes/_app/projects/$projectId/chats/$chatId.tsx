@@ -1,4 +1,4 @@
-import { createFileRoute, redirect, useSearch } from "@tanstack/react-router";
+import { createFileRoute, isRedirect, redirect, useSearch } from "@tanstack/react-router";
 import { InstanceView } from "@/components/chat/instance-view";
 import { SplitChatView } from "@/components/chat/split-chat-view";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -19,13 +19,17 @@ function ChatRoute() {
 
 export const Route = createFileRoute("/_app/projects/$projectId/chats/$chatId")({
   loader: async ({ params }) => {
-    const chat = await fetchInstanceSummary(params.chatId);
-    if (chat?.spaceId) {
-      throw redirect({
-        ...getInstanceChatRoute(chat),
-      });
+    try {
+      const chat = await fetchInstanceSummary(params.chatId);
+      if (chat?.spaceId) {
+        throw redirect({
+          ...getInstanceChatRoute(chat),
+        });
+      }
+    } catch (err) {
+      if (isRedirect(err)) throw err;
+      // Fetch failed — don't block navigation, let the component handle it
     }
-    return chat;
   },
   component: ChatRoute,
   validateSearch: validateChatSearch,

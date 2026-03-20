@@ -31,7 +31,9 @@ export function useProjectNavigationModel() {
 
   useEffect(() => {
     projectOrder.syncVisibleDirs(groups.map(([dir]) => dir));
-  }, [groups, projectOrder, projects, instances]);
+    // deps: instances/projects drive the group list; avoid `groups` (new ref every render)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instances, projects]);
 
   const projectByDir = new Map<string, Project>();
   for (const project of projects) {

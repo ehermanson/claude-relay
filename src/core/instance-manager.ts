@@ -1384,17 +1384,17 @@ export class InstanceManager extends EventEmitter {
 
   getChatSummary(id: string): InstanceInfo | null {
     const live = this.instances.get(id);
-    if (live?.info.projectId) {
+    if (live) {
       return toChatSummaryInfo(live.info);
     }
 
     const external = this.db.getByInstanceId(id);
-    if (external?.project_id) {
+    if (external) {
       return summaryFromSessionRow(external);
     }
 
     const managed = this.db.getManagedByInstanceId(id);
-    if (managed?.project_id) {
+    if (managed) {
       return summaryFromManagedRow(managed);
     }
 
@@ -1411,18 +1411,16 @@ export class InstanceManager extends EventEmitter {
       chats.set(instance.info.id, toChatSummaryInfo(instance.info));
     }
 
-    for (const row of this.db.getAll()) {
-      if (row.project_id !== projectId || chats.has(row.instance_id)) {
-        continue;
+    for (const row of this.db.getByProjectId(projectId)) {
+      if (!chats.has(row.instance_id)) {
+        chats.set(row.instance_id, summaryFromSessionRow(row));
       }
-      chats.set(row.instance_id, summaryFromSessionRow(row));
     }
 
-    for (const row of this.db.getAllManagedActive()) {
-      if (row.project_id !== projectId || chats.has(row.instance_id)) {
-        continue;
+    for (const row of this.db.getManagedByProjectId(projectId)) {
+      if (!chats.has(row.instance_id)) {
+        chats.set(row.instance_id, summaryFromManagedRow(row));
       }
-      chats.set(row.instance_id, summaryFromManagedRow(row));
     }
 
     return Array.from(chats.values()).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
