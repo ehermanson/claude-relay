@@ -283,6 +283,36 @@ TUNNEL=true RELAY_PASSWORD="your-secret" npm start
 cloudflared tunnel --url http://localhost:7777
 ```
 
+### Export / Import
+
+Relay still does not have true multi-device sync, but it can now export a local migration bundle and import it on another machine.
+
+```bash
+# Create a directory bundle with a DB snapshot + Claude/Codex JSONL transcripts
+relay export ~/relay-export
+
+# Merge that bundle into another install
+relay import ~/relay-export
+
+# Or create/import a single tarball
+relay export-tgz ~/relay-export.tgz
+relay import-tgz ~/relay-export.tgz
+
+# Or from this repo without installing globally
+npm run relay:export -- ~/relay-export
+npm run relay:import -- ~/relay-export
+npm run relay:export-tgz -- ~/relay-export.tgz
+npm run relay:import-tgz -- ~/relay-export.tgz
+```
+
+Notes:
+
+- `export` / `import` use a directory bundle
+- `export-tgz` / `import-tgz` wrap the same bundle format in a single `.tgz` archive
+- `import` merges transcript trees into local `~/.claude/projects` and `~/.codex/sessions`
+- Relay rewrites transcript paths in imported DB rows to the new machine's local provider dirs
+- Project/worktree paths are best-effort; if your repos live in different places, you may need to re-register or clean up a few entries after import
+
 ## Library Usage
 
 ### Full Server
@@ -324,16 +354,20 @@ manager.sendMessage(instance.id, "Hello!");
 
 ### Environment Variables
 
-| Variable                     | Default        | Description                          |
-| ---------------------------- | -------------- | ------------------------------------ |
-| `RELAY_PASSWORD`             | **(required)** | Authentication password              |
-| `PORT`                       | `7777`         | Server port                          |
-| `WORKING_DIR`                | `$HOME`        | Default working directory            |
-| `MAX_PROCESSES`              | `15`           | Maximum concurrent managed processes |
-| `TUNNEL`                     | `false`        | Start a Cloudflare Tunnel            |
-| `DANGEROUS_SKIP_PERMISSIONS` | `false`        | Skip agent permission prompts        |
-| `PROCESS_TIMEOUT`            | `300000`       | Process timeout in ms (5 min)        |
-| `SESSION_MAX_AGE`            | `604800000`    | Auth session lifetime in ms (7 days) |
+| Variable                     | Default                  | Description                          |
+| ---------------------------- | ------------------------ | ------------------------------------ |
+| `RELAY_PASSWORD`             | **(required)**           | Authentication password              |
+| `PORT`                       | `7777`                   | Server port                          |
+| `WORKING_DIR`                | `$HOME`                  | Default working directory            |
+| `MAX_PROCESSES`              | `15`                     | Maximum concurrent managed processes |
+| `TUNNEL`                     | `false`                  | Start a Cloudflare Tunnel            |
+| `DANGEROUS_SKIP_PERMISSIONS` | `false`                  | Skip agent permission prompts        |
+| `PROCESS_TIMEOUT`            | `300000`                 | Process timeout in ms (5 min)        |
+| `SESSION_MAX_AGE`            | `604800000`              | Auth session lifetime in ms (7 days) |
+| `SESSION_FILE`               | `~/.relay/sessions.json` | Auth session persistence file        |
+| `DB_PATH`                    | `~/.relay/sessions.db`   | Relay SQLite database path           |
+| `CLAUDE_DIR`                 | `~/.claude`              | Claude data directory                |
+| `CODEX_DIR`                  | `~/.codex`               | Codex data directory                 |
 
 ### Programmatic Options
 

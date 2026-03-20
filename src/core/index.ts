@@ -94,6 +94,21 @@ export {
 } from "./git.js";
 
 export { discoverSkills } from "./skills.js";
+export {
+  exportRelayData,
+  exportRelayArchive,
+  importRelayData,
+  importRelayArchive,
+  createMigrationConfigFromCore,
+  countJsonlFiles,
+} from "./migration.js";
+export type {
+  MigrationConfig,
+  RelayArchiveExportSummary,
+  RelayExportManifest,
+  RelayExportSummary,
+  RelayImportSummary,
+} from "./migration.js";
 
 export type {
   SpaceStatus,
