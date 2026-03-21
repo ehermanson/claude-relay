@@ -249,7 +249,11 @@ export function InputArea({
   };
 
   const setReasoningBudget = (budget: number | null) => {
-    send({ type: "set_reasoning_budget", instanceId, budget });
+    send({
+      type: "set_model_options",
+      instanceId,
+      modelOptions: { reasoningBudgetTokens: budget },
+    });
   };
 
   const setPlanMode = (nextPlanMode: boolean) => {

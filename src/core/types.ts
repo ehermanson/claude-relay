@@ -306,13 +306,6 @@ export interface SetModelPayload {
   model: string | null;
 }
 
-export interface SetReasoningBudgetPayload {
-  type: "set_reasoning_budget";
-  instanceId: string;
-  /** Budget tokens for extended thinking, or null to clear */
-  budget: number | null;
-}
-
 export interface SetPermissionsPayload {
   type: "set_permissions";
   instanceId: string;
@@ -375,7 +368,6 @@ export type ClientMessage =
   | RenameInstancePayload
   | MergeInstancePayload
   | SetModelPayload
-  | SetReasoningBudgetPayload
   | SetPermissionsPayload
   | SetPlanModePayload
   | SetModelOptionsPayload
