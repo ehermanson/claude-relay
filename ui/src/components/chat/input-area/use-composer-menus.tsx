@@ -181,9 +181,8 @@ export function useComposerMenus({
     if (!slashContext.hasArgument) {
       const commandItems: SlashMenuItem[] = SLASH_COMMANDS.filter((command) => {
         if (command.id === "model" && !supportsModelSelection) return false;
-        if (command.id === "reasoning" && !supportsReasoningSelection) {
-          return false;
-        }
+        if (command.id === "reasoning" && !supportsReasoningSelection) return false;
+        if (command.id === "effort" && !supportsReasoningEffort) return false;
         return matchesQuery(slashContext.commandQuery, [command.id, command.title.slice(1)]);
       }).map((command) => ({
         key: command.id,

@@ -92,6 +92,17 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - Provider-specific plan output should normalize onto Relay's shared `ExitPlanMode` / `pendingPlan` / `planContent` flow instead of inventing a separate UI path
 - Codex `<proposed_plan>...</proposed_plan>` blocks are treated as plan-review events, not plain assistant markdown, in both live app-server streaming and transcript replay
 
+### Model Options
+
+`ProviderModelOptions` (`reasoningBudgetTokens`, `reasoningEffort`, `fastMode`) is the canonical contract for provider-agnostic model tuning. Provider drivers map these to provider-specific session args.
+
+- `InstanceInfo.modelOptions` is canonical; `InstanceInfo.reasoningBudget` is a derived compat field
+- `model_options_json` column on `managed_sessions` (v15) is canonical storage; `reasoning_budget` column is a compat write
+- Restore order: `model_options_json` first, fall back to legacy `reasoning_budget`
+- `set_model_options` WS message does sparse merge (omitted = untouched, `null` = clear); `set_reasoning_budget` is a compat shim that delegates
+- `ProviderCapabilities` includes control metadata (`reasoningBudgetLevels`, `reasoningEffortLevels`, `permissionModes`, `planModes`, `fastModes`) — UI renders labels/descriptions from these, never hardcodes provider-specific text
+- `ReasoningEffort` uses `"max"` as the Relay-canonical highest effort; provider drivers map to native values (e.g. Codex `"xhigh"`); unknown strings pass through
+
 ### Task Tracking
 
 - Tasks stored in `.relay/tasks.jsonl` (append-only JSONL, one JSON object per line)
