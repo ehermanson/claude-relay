@@ -301,7 +301,7 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   line-height: 1.6;
-  font-size: 15px;
+  font-size: clamp(15px, 0.85vw + 6px, 16px);
   letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
