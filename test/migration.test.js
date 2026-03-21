@@ -88,6 +88,7 @@ function makeManagedRow(overrides = {}) {
     runtime_mode: "default",
     resume_cursor_json: JSON.stringify({ sessionId: "codex-session-1" }),
     runtime_payload_json: JSON.stringify({ cwd: "/tmp/project-a", transcript: "/tmp/codex.jsonl" }),
+    model_options_json: null,
     transcript_path: "/tmp/codex.jsonl",
     last_message_text: null,
     last_message_from: null,

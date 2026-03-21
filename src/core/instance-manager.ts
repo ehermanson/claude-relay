@@ -60,6 +60,7 @@ import type {
   ProjectPlan,
   ProviderKind,
   ProviderDescriptor,
+  ProviderModelOptions,
   ProviderRequest,
   ProviderRuntimeBinding,
   ProviderRuntimeMode,
@@ -1074,6 +1075,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget?: number;
       planMode?: boolean;
       allowedTools?: string[];
+      modelOptions?: ProviderModelOptions;
     },
   ): ProviderSession {
     const provider = options?.provider ?? "claude";
@@ -1120,6 +1122,7 @@ export class InstanceManager extends EventEmitter {
     reasoningBudget?: number;
     planMode?: boolean;
     spaceId?: string;
+    modelOptions?: ProviderModelOptions;
   }): InstanceInfo {
     const activeCount = [...this.instances.values()].filter(
       (i) => i.process && !i.info.external,
@@ -1164,12 +1167,19 @@ export class InstanceManager extends EventEmitter {
     };
 
     const model = options?.model ?? this.baseConfig.defaultModel;
+    // Build canonical modelOptions: explicit modelOptions wins, fall back to legacy reasoningBudget
+    const modelOptions: ProviderModelOptions | undefined =
+      options?.modelOptions ??
+      (options?.reasoningBudget != null
+        ? { reasoningBudgetTokens: options.reasoningBudget }
+        : undefined);
     const proc = this.createProviderSession(instanceConfig, {
       provider,
       resumeSessionId: resumeId,
       model,
       reasoningBudget: options?.reasoningBudget,
       planMode: options?.planMode,
+      modelOptions,
     });
 
     // Resolve name: explicit > session summary > auto-title from first message
@@ -1203,7 +1213,8 @@ export class InstanceManager extends EventEmitter {
       gitInfo: getGitInfo(workingDirectory) ?? undefined,
       gitBranch: spaceGitBranch,
       preferredModel: model,
-      reasoningBudget: options?.reasoningBudget,
+      reasoningBudget: modelOptions?.reasoningBudgetTokens ?? options?.reasoningBudget,
+      modelOptions,
       planMode: options?.planMode,
       skipPermissions: skipPerms,
       originalDirectory: spaceOriginalDirectory,
@@ -1755,7 +1766,10 @@ export class InstanceManager extends EventEmitter {
       proc = this.createProviderSession(instanceConfig, {
         provider: instance.info.provider,
         resumeSessionId: sessionId,
+        model: instance.info.preferredModel,
+        reasoningBudget: instance.info.reasoningBudget,
         planMode: instance.info.planMode,
+        modelOptions: instance.info.modelOptions,
       });
     } catch (err) {
       this.baseConfig.logger.error(`[InstanceManager] Failed to create process for resume: ${err}`);
@@ -1824,7 +1838,10 @@ export class InstanceManager extends EventEmitter {
       proc = this.createProviderSession(instanceConfig, {
         provider: instance.info.provider,
         resumeSessionId: sessionId,
+        model: instance.info.preferredModel,
+        reasoningBudget: instance.info.reasoningBudget,
         planMode: instance.info.planMode,
+        modelOptions: instance.info.modelOptions,
       });
     } catch (err) {
       this.baseConfig.logger.error(`[InstanceManager] Failed to create process for revive: ${err}`);
@@ -2135,6 +2152,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: instance.info.reasoningBudget,
       planMode: instance.info.planMode,
       allowedTools: this.getPersistedAllowedTools(resumeSessionId),
+      modelOptions: instance.info.modelOptions,
     });
 
     instance.process = proc;
@@ -4120,7 +4138,8 @@ export class InstanceManager extends EventEmitter {
       original_directory: instance.originalDirectory ?? null,
       parent_session_id: instance.info.parentSessionId ?? null,
       preferred_model: instance.info.preferredModel ?? null,
-      reasoning_budget: instance.info.reasoningBudget ?? null,
+      reasoning_budget:
+        instance.info.modelOptions?.reasoningBudgetTokens ?? instance.info.reasoningBudget ?? null,
       skip_permissions: instance.info.skipPermissions ? 1 : 0,
       runtime_mode: normalizeRuntimeMode(instance.info.skipPermissions, instance.info.planMode),
       resume_cursor_json: binding?.resumeCursor ? JSON.stringify(binding.resumeCursor) : null,
@@ -4139,6 +4158,9 @@ export class InstanceManager extends EventEmitter {
       space_id: instance.info.spaceId ?? null,
       project_id: instance.info.projectId ?? null,
       model: stats?.model ?? null,
+      model_options_json: instance.info.modelOptions
+        ? JSON.stringify(instance.info.modelOptions)
+        : null,
     };
   }
 
@@ -4873,6 +4895,10 @@ export class InstanceManager extends EventEmitter {
           project_id: row.project_id,
           model: row.model ?? null,
           space_id: row.space_id,
+          model_options_json:
+            row.reasoning_budget != null
+              ? JSON.stringify({ reasoningBudgetTokens: row.reasoning_budget })
+              : null,
         });
       } catch (err) {
         this.baseConfig.logger.warn(
@@ -5019,6 +5045,19 @@ export class InstanceManager extends EventEmitter {
       return false;
     }
 
+    // Restore canonical modelOptions: prefer model_options_json, fall back to legacy reasoning_budget
+    let restoredModelOptions: ProviderModelOptions | undefined;
+    if (entry.model_options_json) {
+      try {
+        restoredModelOptions = JSON.parse(entry.model_options_json) as ProviderModelOptions;
+      } catch {
+        restoredModelOptions = undefined;
+      }
+    }
+    if (!restoredModelOptions && entry.reasoning_budget != null) {
+      restoredModelOptions = { reasoningBudgetTokens: entry.reasoning_budget };
+    }
+
     const info: InstanceInfo = {
       id: entry.instance_id,
       provider: entry.provider_name as ProviderKind,
@@ -5036,7 +5075,9 @@ export class InstanceManager extends EventEmitter {
       gitInfo: gitInfoFromDb(entry),
       parentSessionId: entry.parent_session_id ?? undefined,
       preferredModel: entry.preferred_model ?? undefined,
-      reasoningBudget: entry.reasoning_budget ?? undefined,
+      reasoningBudget:
+        restoredModelOptions?.reasoningBudgetTokens ?? entry.reasoning_budget ?? undefined,
+      modelOptions: restoredModelOptions,
       planMode: entry.runtime_mode === "plan" ? true : undefined,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
       spaceId: entry.space_id ?? undefined,
@@ -5648,19 +5689,63 @@ export class InstanceManager extends EventEmitter {
 
   /**
    * Set the reasoning budget for a managed instance.
-   * The budget is applied on the next turn (CLI) or immediately (SDK).
-   * Pass null to clear the preference.
+   * Delegates to setModelOptions for canonical storage.
    */
   setReasoningBudget(id: string, budget: number | null): boolean {
+    return this.setModelOptions(id, { reasoningBudgetTokens: budget });
+  }
+
+  /**
+   * Sparse-merge model options on a managed instance.
+   * Omitted keys are left unchanged; null clears/resets a field.
+   */
+  setModelOptions(
+    id: string,
+    patch: {
+      reasoningBudgetTokens?: number | null;
+      reasoningEffort?: string | null;
+      fastMode?: boolean | null;
+    },
+  ): boolean {
     const instance = this.instances.get(id);
     if (!instance || instance.info.external) return false;
 
-    instance.info.reasoningBudget = budget ?? undefined;
-    instance.process?.setReasoningBudget(budget);
+    const current = instance.info.modelOptions ?? {};
+    const next: ProviderModelOptions = { ...current };
+
+    if ("reasoningBudgetTokens" in patch) {
+      next.reasoningBudgetTokens = patch.reasoningBudgetTokens ?? undefined;
+    }
+    if ("reasoningEffort" in patch) {
+      next.reasoningEffort = patch.reasoningEffort ?? undefined;
+    }
+    if ("fastMode" in patch) {
+      next.fastMode = patch.fastMode ?? undefined;
+    }
+
+    // Clean up empty bag
+    const isEmpty =
+      next.reasoningBudgetTokens == null && next.reasoningEffort == null && next.fastMode == null;
+    instance.info.modelOptions = isEmpty ? undefined : next;
+
+    // Keep legacy reasoningBudget in sync
+    instance.info.reasoningBudget = next.reasoningBudgetTokens;
+
+    // Apply to live process if running
+    if ("reasoningBudgetTokens" in patch) {
+      instance.process?.setReasoningBudget(next.reasoningBudgetTokens ?? null);
+    }
+    // Push the full canonical bag to providers that support runtime model option updates
+    if (instance.process?.setModelOptions) {
+      instance.process.setModelOptions(isEmpty ? {} : next);
+    }
+
     this.emit("instance:status", instance.info.id, { ...instance.info });
     this.dbSave(instance);
     const sid = instance.sessionId || instance.info.sessionId;
-    if (sid) this.db.updateReasoningBudget(sid, budget);
+    if (sid && "reasoningBudgetTokens" in patch) {
+      this.db.updateReasoningBudget(sid, next.reasoningBudgetTokens ?? null);
+    }
     return true;
   }
 
@@ -5719,6 +5804,7 @@ export class InstanceManager extends EventEmitter {
     // Clear model preference — may not be valid for the new provider
     instance.info.preferredModel = undefined;
     instance.info.reasoningBudget = undefined;
+    instance.info.modelOptions = undefined;
     instance.info.planMode = undefined;
     instance.info.provider = provider;
 

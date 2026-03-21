@@ -22,6 +22,7 @@ import type {
   ActivityMessage,
   FileChange,
   SessionStats,
+  ProviderModelOptions,
   ProviderRequest,
   ProviderRequestResponse,
   ProviderRuntimeBinding,
@@ -179,6 +180,7 @@ export interface CodexAppServerSessionOptions {
   processTimeout?: number;
   spawnProcess?: SpawnFn;
   codexPath?: string;
+  modelOptions?: ProviderModelOptions;
 }
 
 // =============================================================================
@@ -221,6 +223,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private _preferredModel: string | null;
   private _planMode: boolean;
   private _bypassPermissions: boolean;
+  private _modelOptions: ProviderModelOptions;
   private _stats: SessionStats = {
     inputTokens: 0,
     outputTokens: 0,
@@ -276,6 +279,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this._preferredModel = options.model ?? null;
     this._planMode = options.planMode ?? false;
     this._bypassPermissions = options.dangerouslySkipPermissions ?? false;
+    this._modelOptions = options.modelOptions ?? {};
     if (this._preferredModel) {
       this._stats.model = this._preferredModel;
     }
@@ -386,6 +390,10 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     // Codex doesn't expose a reasoning budget parameter directly.
   }
 
+  setModelOptions(modelOptions: ProviderModelOptions): void {
+    this._modelOptions = { ...this._modelOptions, ...modelOptions };
+  }
+
   setBypassPermissions(bypass: boolean): void {
     this._bypassPermissions = bypass;
     if (bypass) this._planMode = false;
@@ -475,6 +483,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         approvalPolicy: this.resolveApprovalPolicy(),
         sandbox: this.resolveSandboxMode(),
         persistExtendedHistory: true,
+        ...this.resolveCodexModelParams(),
       })) as { thread?: ThreadInfo };
       if (result?.thread?.id) {
         this._sessionId = result.thread.id;
@@ -487,6 +496,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         sandbox: this.resolveSandboxMode(),
         experimentalRawEvents: false,
         persistExtendedHistory: true,
+        ...this.resolveCodexModelParams(),
       })) as { thread?: ThreadInfo };
       if (result?.thread?.id) {
         this._sessionId = result.thread.id;
@@ -515,6 +525,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           model: this.resolveCollaborationModel(),
         },
       },
+      ...this.resolveCodexModelParams(),
     }).catch((err) => {
       this.logger.error(`[CodexAppServer] turn/start failed: ${err}`);
       this.finishTurn();
@@ -528,6 +539,32 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       getBuiltinProviderModels("codex")[0]?.id ??
       "gpt-5.4"
     );
+  }
+
+  /** Map canonical ReasoningEffort to Codex-native effort string. */
+  private resolveCodexEffort(): string | undefined {
+    const effort = this._modelOptions.reasoningEffort;
+    if (!effort) return undefined;
+    // Canonical Relay values → Codex-native
+    const mapping: Record<string, string> = {
+      low: "low",
+      medium: "medium",
+      high: "high",
+      max: "xhigh",
+    };
+    // Known canonical mapping first, then pass through as-is (handles restored
+    // Codex-native values like "xhigh" that survived round-trip via persistence).
+    return mapping[effort] ?? effort;
+  }
+
+  /** Build Codex-specific model option params for thread/start and turn/start RPC. */
+  private resolveCodexModelParams(): Record<string, unknown> {
+    const params: Record<string, unknown> = {};
+    const effort = this.resolveCodexEffort();
+    if (effort) params.reasoning_effort = effort;
+    if (this._modelOptions.fastMode != null)
+      params.service_tier = this._modelOptions.fastMode ? "flex" : "default";
+    return params;
   }
 
   // ===========================================================================

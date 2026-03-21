@@ -14,6 +14,7 @@ import type {
   ActivityMessage,
   SessionStats,
   ProviderKind,
+  ProviderModelOptions,
   ProviderRequest,
   ProviderRequestResponse,
   ProviderRuntimeBinding,
@@ -78,6 +79,9 @@ export interface ProviderSession extends EventEmitter {
 
   /** Add a tool to the auto-allowed list (CLI: --allowedTools, SDK: updatedPermissions). */
   addAllowedTool(tool: string): void;
+
+  /** Update canonical model options (effort, fast mode, etc.) at runtime. */
+  setModelOptions?(modelOptions: ProviderModelOptions): void;
 
   /** Toggle bypass-all-permissions mode at runtime. */
   setBypassPermissions(bypass: boolean): void;

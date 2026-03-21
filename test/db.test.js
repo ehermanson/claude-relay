@@ -384,6 +384,7 @@ describe("SessionDB", () => {
         runtime_mode: "approval-required",
         resume_cursor_json: null,
         runtime_payload_json: "{}",
+        model_options_json: null,
         transcript_path: null,
         last_message_text: null,
         last_message_from: null,

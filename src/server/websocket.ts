@@ -229,6 +229,7 @@ export function createWebSocketServer(
                 resumeSessionId: message.resumeSessionId,
                 model: message.model,
                 spaceId: message.spaceId,
+                modelOptions: message.modelOptions,
               });
               broadcast({ type: "instance_created", instance: info });
             } catch (err) {
@@ -361,6 +362,11 @@ export function createWebSocketServer(
 
           case "set_reasoning_budget": {
             instanceManager.setReasoningBudget(message.instanceId, message.budget);
+            break;
+          }
+
+          case "set_model_options": {
+            instanceManager.setModelOptions(message.instanceId, message.modelOptions);
             break;
           }
 

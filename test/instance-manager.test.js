@@ -56,6 +56,7 @@ function makeManagedRow(overrides = {}) {
     runtime_mode: "approval-required",
     resume_cursor_json: null,
     runtime_payload_json: "{}",
+    model_options_json: null,
     transcript_path: null,
     last_message_text: null,
     last_message_from: null,
@@ -681,6 +682,191 @@ describe("InstanceManager", () => {
       );
       assert.ok(promptHistory);
       assert.equal(promptHistory.message.input.requestId, "watch-ask-1");
+    });
+  });
+
+  describe("modelOptions", () => {
+    it("restores modelOptions from model_options_json on managed session restore", () => {
+      const config = makeConfig();
+      const db = new SessionDB(config.dbPath, noopLogger);
+      const modelOptions = { reasoningBudgetTokens: 8192, reasoningEffort: "high", fastMode: true };
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "opts-1",
+            working_directory: config.workingDirectory,
+            provider_session_id: "session-opts-1",
+            resume_cursor_json: JSON.stringify({ sessionId: "session-opts-1" }),
+            preferred_model: "claude-opus-4-6",
+            reasoning_budget: 8192,
+            model_options_json: JSON.stringify(modelOptions),
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(config);
+      restored.restoreInstances();
+      const info = restored.getInstance("opts-1");
+
+      assert.ok(info);
+      assert.deepEqual(info.modelOptions, modelOptions);
+      assert.equal(info.reasoningBudget, 8192);
+      assert.equal(info.preferredModel, "claude-opus-4-6");
+    });
+
+    it("synthesizes modelOptions from legacy reasoning_budget when model_options_json is absent", () => {
+      const config = makeConfig();
+      const db = new SessionDB(config.dbPath, noopLogger);
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "legacy-1",
+            working_directory: config.workingDirectory,
+            provider_session_id: "session-legacy-1",
+            resume_cursor_json: JSON.stringify({ sessionId: "session-legacy-1" }),
+            reasoning_budget: 4096,
+            model_options_json: null,
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(config);
+      restored.restoreInstances();
+      const info = restored.getInstance("legacy-1");
+
+      assert.ok(info);
+      assert.deepEqual(info.modelOptions, { reasoningBudgetTokens: 4096 });
+      assert.equal(info.reasoningBudget, 4096);
+    });
+
+    it("prefers model_options_json over legacy reasoning_budget on restore", () => {
+      const config = makeConfig();
+      const db = new SessionDB(config.dbPath, noopLogger);
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "pref-1",
+            working_directory: config.workingDirectory,
+            provider_session_id: "session-pref-1",
+            resume_cursor_json: JSON.stringify({ sessionId: "session-pref-1" }),
+            reasoning_budget: 1000,
+            model_options_json: JSON.stringify({ reasoningBudgetTokens: 9999 }),
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(config);
+      restored.restoreInstances();
+      const info = restored.getInstance("pref-1");
+
+      assert.ok(info);
+      assert.equal(info.modelOptions.reasoningBudgetTokens, 9999);
+      assert.equal(info.reasoningBudget, 9999);
+    });
+
+    it("setModelOptions sparse-merges and null clears individual fields", () => {
+      const mgr = new InstanceManager(makeConfig());
+      const info = mgr.createInstance();
+
+      // Set all three fields
+      mgr.setModelOptions(info.id, {
+        reasoningBudgetTokens: 5000,
+        reasoningEffort: "high",
+        fastMode: true,
+      });
+      let updated = mgr.getInstance(info.id);
+      assert.deepEqual(updated.modelOptions, {
+        reasoningBudgetTokens: 5000,
+        reasoningEffort: "high",
+        fastMode: true,
+      });
+      assert.equal(updated.reasoningBudget, 5000);
+
+      // Sparse update: only change effort, leave others untouched
+      mgr.setModelOptions(info.id, { reasoningEffort: "max" });
+      updated = mgr.getInstance(info.id);
+      assert.equal(updated.modelOptions.reasoningEffort, "max");
+      assert.equal(updated.modelOptions.reasoningBudgetTokens, 5000);
+      assert.equal(updated.modelOptions.fastMode, true);
+
+      // Null clears a single field
+      mgr.setModelOptions(info.id, { fastMode: null });
+      updated = mgr.getInstance(info.id);
+      assert.equal(updated.modelOptions.fastMode, undefined);
+      assert.equal(updated.modelOptions.reasoningBudgetTokens, 5000);
+      assert.equal(updated.modelOptions.reasoningEffort, "max");
+
+      // Null-clearing all fields removes the bag entirely
+      mgr.setModelOptions(info.id, { reasoningBudgetTokens: null, reasoningEffort: null });
+      updated = mgr.getInstance(info.id);
+      assert.equal(updated.modelOptions, undefined);
+      assert.equal(updated.reasoningBudget, undefined);
+    });
+
+    it("setReasoningBudget delegates to setModelOptions", () => {
+      const mgr = new InstanceManager(makeConfig());
+      const info = mgr.createInstance();
+
+      mgr.setReasoningBudget(info.id, 10000);
+      let updated = mgr.getInstance(info.id);
+      assert.equal(updated.modelOptions.reasoningBudgetTokens, 10000);
+      assert.equal(updated.reasoningBudget, 10000);
+
+      mgr.setReasoningBudget(info.id, null);
+      updated = mgr.getInstance(info.id);
+      assert.equal(updated.modelOptions, undefined);
+      assert.equal(updated.reasoningBudget, undefined);
+    });
+
+    it("setModelOptions pushes to live process via setModelOptions", () => {
+      const mgr = new InstanceManager(makeConfig());
+      const info = mgr.createInstance();
+      const instance = mgr.instances.get(info.id);
+      assert.ok(instance);
+
+      const captured = [];
+      instance.process = {
+        ...instance.process,
+        isProcessing: false,
+        provider: "codex",
+        pid: undefined,
+        stats: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+        send() {},
+        interrupt() {},
+        close() {},
+        setModel() {},
+        setReasoningBudget() {},
+        addAllowedTool() {},
+        setBypassPermissions() {},
+        setModelOptions(opts) {
+          captured.push(opts);
+        },
+        getRuntimeBinding() {
+          return { provider: "codex" };
+        },
+      };
+
+      mgr.setModelOptions(info.id, { reasoningEffort: "high", fastMode: true });
+      assert.equal(captured.length, 1);
+      assert.equal(captured[0].reasoningEffort, "high");
+      assert.equal(captured[0].fastMode, true);
+    });
+
+    it("persists modelOptions to model_options_json in DB on create with options", () => {
+      const config = makeConfig();
+      const mgr = new InstanceManager(config);
+      const info = mgr.createInstance({
+        modelOptions: { reasoningBudgetTokens: 7777, fastMode: true },
+      });
+
+      assert.deepEqual(info.modelOptions, { reasoningBudgetTokens: 7777, fastMode: true });
+      assert.equal(info.reasoningBudget, 7777);
     });
   });
 

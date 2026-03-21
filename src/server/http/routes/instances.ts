@@ -2,7 +2,7 @@ import type { Route, HttpDeps } from "../types.js";
 import { readJsonBody } from "../body.js";
 import { requireAuth } from "../guards.js";
 import { sendJson } from "../respond.js";
-import type { ProviderKind } from "../../../core/types.js";
+import type { ProviderKind, ProviderModelOptions } from "../../../core/types.js";
 
 export function createInstanceRoutes(deps: HttpDeps): Route[] {
   const { instanceManager } = deps;
@@ -34,6 +34,7 @@ export function createInstanceRoutes(deps: HttpDeps): Route[] {
             resumeSessionId?: string;
             model?: string;
             spaceId?: string;
+            modelOptions?: ProviderModelOptions;
           }>(ctx.req);
           const info = instanceManager.createInstance({
             provider: body.provider,
@@ -43,6 +44,7 @@ export function createInstanceRoutes(deps: HttpDeps): Route[] {
             resumeSessionId: body.resumeSessionId,
             model: body.model,
             spaceId: body.spaceId,
+            modelOptions: body.modelOptions,
           });
           sendJson(ctx.res, 201, info);
         } catch (err) {

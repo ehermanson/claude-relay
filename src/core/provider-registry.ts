@@ -16,6 +16,7 @@ import type {
   ProviderDescriptor,
   ProviderKind,
   ProviderModelOption,
+  ProviderModelOptions,
   ProviderRuntimeBinding,
   SessionStats,
   TaskItem,
@@ -48,6 +49,7 @@ export interface ProviderSessionOptions {
   reasoningBudget?: number;
   planMode?: boolean;
   allowedTools?: string[];
+  modelOptions?: ProviderModelOptions;
 }
 
 interface ProviderCaptureContext {
@@ -107,12 +109,15 @@ function createClaudeSession(
   options: ProviderSessionOptions | undefined,
   context: ProviderDriverContext,
 ): ProviderSession {
+  // Canonical budget: prefer modelOptions.reasoningBudgetTokens, fall back to legacy reasoningBudget
+  const budget = options?.modelOptions?.reasoningBudgetTokens ?? options?.reasoningBudget;
+
   if (context.sdkQueryFn) {
     return createSdkSessionSync(
       {
         cwd: config.workingDirectory,
         model: options?.model,
-        maxThinkingTokens: options?.reasoningBudget,
+        maxThinkingTokens: budget,
         planMode: options?.planMode,
         resumeSessionId: options?.resumeSessionId,
         dangerouslySkipPermissions: config.dangerouslySkipPermissions,
@@ -128,12 +133,12 @@ function createClaudeSession(
     ? new ClaudeProcess(config, {
         resumeSessionId: options.resumeSessionId,
         model: options?.model,
-        reasoningBudget: options?.reasoningBudget,
+        reasoningBudget: budget,
         planMode: options?.planMode,
       })
     : new ClaudeProcess(config, {
         model: options?.model,
-        reasoningBudget: options?.reasoningBudget,
+        reasoningBudget: budget,
         planMode: options?.planMode,
       });
 
@@ -278,6 +283,7 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
         dangerouslySkipPermissions: config.dangerouslySkipPermissions,
         logger: config.logger,
         processTimeout: config.processTimeout,
+        modelOptions: options?.modelOptions,
       });
     },
     async getModels(context) {

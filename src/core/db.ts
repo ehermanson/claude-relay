@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 14;
+const CURRENT_SCHEMA_VERSION = 15;
 
 export interface ProjectRow {
   id: string;
@@ -105,6 +105,7 @@ export interface ManagedInstanceRow {
   space_id: string | null;
   project_id: string | null;
   model: string | null;
+  model_options_json: string | null;
 }
 
 export class SessionDB {
@@ -445,6 +446,16 @@ export class SessionDB {
       }
     }
 
+    // v15: canonical model options (reasoning budget, effort, fast mode)
+    {
+      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
+        name: string;
+      }>;
+      if (!managedCols.some((c) => c.name === "model_options_json")) {
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN model_options_json TEXT`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -516,7 +527,8 @@ export class SessionDB {
         preferred_model, reasoning_budget, skip_permissions, runtime_mode,
         resume_cursor_json, runtime_payload_json, transcript_path,
         last_message_text, last_message_from, last_message_at,
-        git_info_branch, git_info_is_worktree, space_id, project_id, model
+        git_info_branch, git_info_is_worktree, space_id, project_id, model,
+        model_options_json
       ) VALUES (
         @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
         @created_at, @last_activity_at, @archived, @custom_title,
@@ -525,7 +537,8 @@ export class SessionDB {
         @preferred_model, @reasoning_budget, @skip_permissions, @runtime_mode,
         @resume_cursor_json, @runtime_payload_json, @transcript_path,
         @last_message_text, @last_message_from, @last_message_at,
-        @git_info_branch, @git_info_is_worktree, @space_id, @project_id, @model
+        @git_info_branch, @git_info_is_worktree, @space_id, @project_id, @model,
+        @model_options_json
       )
       ON CONFLICT(instance_id) DO UPDATE SET
         provider_name = excluded.provider_name,
@@ -557,7 +570,8 @@ export class SessionDB {
         git_info_is_worktree = excluded.git_info_is_worktree,
         space_id = excluded.space_id,
         project_id = excluded.project_id,
-        model = excluded.model
+        model = excluded.model,
+        model_options_json = excluded.model_options_json
     `);
 
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");

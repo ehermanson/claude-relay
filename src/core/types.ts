@@ -32,6 +32,23 @@ export type InstanceStatus = "idle" | "processing" | "error" | "stopped";
 export type ProviderKind = "claude" | "codex" | "gemini";
 export type ProviderRuntimeMode = "approval-required" | "full-access" | "plan";
 
+/**
+ * Canonical cross-provider reasoning effort level.
+ * `max` is the Relay-canonical way to request the highest available effort.
+ * Provider-native values (e.g. Codex `xhigh`) may appear via passthrough/restore.
+ */
+export type ReasoningEffort = "low" | "medium" | "high" | "max" | (string & {});
+
+/**
+ * Canonical provider-agnostic model options.
+ * Provider drivers map these to provider-specific session args.
+ */
+export interface ProviderModelOptions {
+  reasoningBudgetTokens?: number;
+  reasoningEffort?: ReasoningEffort;
+  fastMode?: boolean;
+}
+
 export interface UserInputOption {
   label: string;
   description: string;
@@ -77,6 +94,8 @@ export interface ProviderCapabilities {
   supportsApprovals: boolean;
   supportsUserInputRequests: boolean;
   supportsReasoningBudget: boolean;
+  supportsReasoningEffort: boolean;
+  supportsFastMode: boolean;
   supportsPlanMode: boolean;
   supportsModelSelection: boolean;
   supportsTitleUpdates: boolean;
@@ -162,6 +181,8 @@ export interface InstanceInfo {
   preferredModel?: string;
   /** Budget tokens for extended thinking, or null to use default */
   reasoningBudget?: number;
+  /** Canonical provider-agnostic model options */
+  modelOptions?: ProviderModelOptions;
   /** Whether provider plan mode is active for this instance */
   planMode?: boolean;
   /** Whether this instance bypasses permission prompts (full access mode) */
@@ -212,6 +233,8 @@ export interface CreateInstancePayload {
   model?: string;
   /** Space to create this instance in */
   spaceId?: string;
+  /** Canonical model options (reasoning budget, effort, fast mode) */
+  modelOptions?: ProviderModelOptions;
 }
 
 export interface RemoveInstancePayload {
@@ -289,6 +312,17 @@ export interface SetPlanModePayload {
   planMode: boolean;
 }
 
+export interface SetModelOptionsPayload {
+  type: "set_model_options";
+  instanceId: string;
+  /** Sparse merge: omitted key = leave unchanged, null = clear/reset to default */
+  modelOptions: {
+    reasoningBudgetTokens?: number | null;
+    reasoningEffort?: ReasoningEffort | null;
+    fastMode?: boolean | null;
+  };
+}
+
 export interface SetProviderPayload {
   type: "set_provider";
   instanceId: string;
@@ -329,6 +363,7 @@ export type ClientMessage =
   | SetReasoningBudgetPayload
   | SetPermissionsPayload
   | SetPlanModePayload
+  | SetModelOptionsPayload
   | SetProviderPayload
   | CreateSpacePayload
   | CompleteSpacePayload
