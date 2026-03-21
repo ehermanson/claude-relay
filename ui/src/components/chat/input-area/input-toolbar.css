@@ -1,0 +1,57 @@
+/* ── Toolbar Container Query Responsive ───────────────────────────── */
+
+/* Default (narrow <480px): inline controls hidden, overflow panel + trigger shown */
+.toolbar-overflow-controls {
+  display: none;
+}
+.toolbar-overflow-panel {
+  display: none;
+}
+.toolbar-overflow-panel[data-open] {
+  display: block;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 0.25rem;
+  padding: 0.25rem 0;
+  border-radius: 0.75rem;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-raised);
+  z-index: 10;
+  animation: fade-in 0.15s ease-out forwards;
+}
+.toolbar-overflow-trigger {
+  display: flex;
+}
+.toolbar-overflow-separator {
+  display: none;
+}
+.toolbar-control-label {
+  display: none;
+}
+
+/* Medium (≥480px): all inline controls visible, structured panel always hidden */
+@container toolbar (min-width: 480px) {
+  .toolbar-overflow-controls {
+    display: flex;
+  }
+  .toolbar-overflow-panel,
+  .toolbar-overflow-panel[data-open] {
+    display: none;
+  }
+  .toolbar-overflow-trigger {
+    display: none;
+  }
+  .toolbar-overflow-separator {
+    display: block;
+  }
+}
+
+/* Wide (≥640px): controls show icon + label */
+@container toolbar (min-width: 640px) {
+  .toolbar-control-label {
+    display: inline;
+  }
+}

@@ -145,7 +145,7 @@ export function ReasoningPicker({
           } ${reasoningBudget != null ? "text-accent" : "text-muted"}`}
         >
           <BrainIcon size={11} strokeWidth={2} />
-          <span>{label}</span>
+          <span className="toolbar-control-label">{label}</span>
         </Menu.Trigger>
       </Tooltip>
       <Menu.Content side="top" align="start">
@@ -200,7 +200,7 @@ export function PermissionsToggle({
           ) : (
             <LockIcon size={11} strokeWidth={2} />
           )}
-          <span>{label}</span>
+          <span className="toolbar-control-label">{label}</span>
         </Menu.Trigger>
       </Tooltip>
       <Menu.Content side="top" align="start">
@@ -259,7 +259,7 @@ export function ReasoningEffortPicker({
           } ${reasoningEffort ? "text-accent" : "text-muted"}`}
         >
           <GaugeIcon size={11} strokeWidth={2} />
-          <span>{label}</span>
+          <span className="toolbar-control-label">{label}</span>
         </Menu.Trigger>
       </Tooltip>
       <Menu.Content side="top" align="start">
@@ -305,7 +305,7 @@ export function FastModeToggle({ isProcessing, fastMode, modes, onToggle }: Fast
           } ${fastMode ? "text-accent" : "text-muted"}`}
         >
           <ZapIcon size={11} strokeWidth={2} />
-          <span>{label}</span>
+          <span className="toolbar-control-label">{label}</span>
         </Menu.Trigger>
       </Tooltip>
       <Menu.Content side="top" align="start">
@@ -361,7 +361,7 @@ export function PlanModePicker({
           ) : (
             <HammerIcon size={11} strokeWidth={2} />
           )}
-          <span>{label}</span>
+          <span className="toolbar-control-label">{label}</span>
         </Menu.Trigger>
       </Tooltip>
       <Menu.Content side="top" align="start">

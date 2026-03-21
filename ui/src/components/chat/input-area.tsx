@@ -13,7 +13,7 @@ import { getProviderDisplayName } from "@shared/provider-catalog";
 import { AskUserQuestionPanel } from "@/components/chat/input-area/ask-user-question-panel";
 import { ComposerPanel } from "@/components/chat/input-area/composer-panel";
 import { ImageAttachmentStrip } from "@/components/chat/input-area/image-attachment-strip";
-import { InputToolbar } from "@/components/chat/input-area/input-toolbar";
+import { InputToolbar, type OverflowSection } from "@/components/chat/input-area/input-toolbar";
 import { ProviderSwitchDialog } from "@/components/chat/input-area/provider-switch-dialog";
 import { buildModelLabelLookup } from "@/components/chat/input-area/shared";
 import { useAttachmentState } from "@/components/chat/input-area/use-attachment-state";
@@ -557,6 +557,108 @@ export function InputArea({
     ) : null,
   ];
 
+  const overflowSections: OverflowSection[] = [
+    ...(supportsReasoningSelection && capabilities.reasoningBudgetLevels
+      ? [
+          {
+            label: "Reasoning",
+            options: [
+              {
+                label: "Default",
+                selected: reasoningBudget == null,
+                onSelect: () => setReasoningBudget(null),
+              },
+              ...capabilities.reasoningBudgetLevels.map((level) => ({
+                label: level.label,
+                selected: reasoningBudget === level.budget,
+                onSelect: () => setReasoningBudget(level.budget),
+              })),
+            ],
+          },
+        ]
+      : []),
+    ...(supportsReasoningEffort && capabilities.reasoningEffortLevels
+      ? [
+          {
+            label: "Effort",
+            options: [
+              {
+                label: "Default",
+                selected: !modelOptions?.reasoningEffort,
+                onSelect: () => setReasoningEffort(null),
+              },
+              ...capabilities.reasoningEffortLevels.map((level) => ({
+                label: level.label,
+                selected: modelOptions?.reasoningEffort === level.effort,
+                onSelect: () => setReasoningEffort(level.effort),
+              })),
+            ],
+          },
+        ]
+      : []),
+    ...(supportsFastMode && capabilities.fastModes
+      ? [
+          {
+            label: "Fast Mode",
+            options: [
+              {
+                label: capabilities.fastModes.off.label,
+                selected: !modelOptions?.fastMode,
+                onSelect: () => setFastMode(false),
+              },
+              {
+                label: capabilities.fastModes.on.label,
+                selected: !!modelOptions?.fastMode,
+                onSelect: () => setFastMode(true),
+              },
+            ],
+          },
+        ]
+      : []),
+    ...(supportsPlanMode && capabilities.planModes
+      ? [
+          {
+            label: "Mode",
+            options: [
+              {
+                label: capabilities.planModes.off.label,
+                selected: !planMode,
+                onSelect: () => setPlanMode(false),
+              },
+              {
+                label: capabilities.planModes.on.label,
+                selected: !!planMode,
+                onSelect: () => setPlanMode(true),
+              },
+            ],
+          },
+        ]
+      : []),
+    ...(capabilities.permissionModes
+      ? [
+          {
+            label: "Access",
+            options: [
+              {
+                label: capabilities.permissionModes.restricted.label,
+                selected: !skipPermissions,
+                onSelect: () => {
+                  if (skipPermissions) togglePermissions();
+                },
+              },
+              {
+                label: capabilities.permissionModes.fullAccess.label,
+                selected: !!skipPermissions,
+                onSelect: () => {
+                  if (!skipPermissions) togglePermissions();
+                },
+              },
+            ],
+          },
+        ]
+      : []),
+  ];
+
   return (
     <>
       <ProviderSwitchDialog
@@ -596,7 +698,7 @@ export function InputArea({
 
           <div
             ref={composerContainerRef}
-            className="relative rounded-2xl border border-border bg-surface"
+            className="@container/toolbar relative rounded-2xl border border-border bg-surface"
           >
             {!isInSpecialMode ? (
               <ImageAttachmentStrip images={images} onRemove={removeImage} />
@@ -656,6 +758,7 @@ export function InputArea({
                   disabled={disabled}
                   showAttachButton={!isInSpecialMode}
                   controls={isInSpecialMode ? [] : toolbarControls}
+                  overflowSections={isInSpecialMode ? [] : overflowSections}
                   isProcessing={isProcessing}
                   onCancel={onCancel}
                   onAttachImage={() => fileInputRef.current?.click()}

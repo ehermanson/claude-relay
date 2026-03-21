@@ -1,7 +1,13 @@
-import { Children, type ReactNode } from "react";
-import { ImagePlus, Square } from "lucide-react";
+import { Children, type ReactNode, useEffect, useRef, useState } from "react";
+import { Check, Ellipsis, ImagePlus, Square } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Tooltip } from "../../ui/tooltip";
+import "./input-toolbar.css";
+
+export interface OverflowSection {
+  label: string;
+  options: { label: string; selected: boolean; onSelect: () => void }[];
+}
 
 interface InputToolbarProps {
   isMobile: boolean;
@@ -9,6 +15,7 @@ interface InputToolbarProps {
   controls: ReactNode[];
   isProcessing: boolean;
   showAttachButton?: boolean;
+  overflowSections?: OverflowSection[];
   onCancel: () => void;
   onAttachImage: () => void;
   onSend: () => void;
@@ -30,6 +37,7 @@ export function InputToolbar({
   controls,
   isProcessing,
   showAttachButton = true,
+  overflowSections,
   onCancel,
   onAttachImage,
   onSend,
@@ -41,44 +49,125 @@ export function InputToolbar({
   onSecondaryAction,
   isSecondaryActionDisabled,
 }: InputToolbarProps) {
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
+  const overflowTriggerRef = useRef<HTMLButtonElement>(null);
   const populatedControls = Children.toArray(controls);
   const hasSecondaryAction = !!secondaryActionLabel && !!onSecondaryAction;
 
+  // First control (typically model picker) stays always visible; rest can overflow
+  const primaryControl = populatedControls[0] ?? null;
+  const overflowControls = populatedControls.slice(1);
+  const hasOverflow = overflowControls.length > 0;
+
+  // Close overflow when clicking outside
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (overflowRef.current?.contains(target) || overflowTriggerRef.current?.contains(target))
+        return;
+      setOverflowOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [overflowOpen]);
+
   return (
-    <div
-      className={
-        isMobile
-          ? "flex items-center justify-between px-2 pb-2"
-          : "flex items-center gap-0.5 px-2 pb-2"
-      }
-    >
-      <div className="flex items-center gap-2">
+    <div className="relative flex items-center gap-0.5 px-2 pb-2">
+      {/* Left section: attach + controls */}
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         {showAttachButton ? (
           <Tooltip content="Attach image">
             <Button
               variant="icon"
               onClick={onAttachImage}
               disabled={disabled}
-              className={roundIcon}
+              className="h-7 w-7 shrink-0 !rounded-full"
             >
-              <ImagePlus size={18} />
+              <ImagePlus size={15} />
             </Button>
           </Tooltip>
         ) : null}
-        {showAttachButton && populatedControls.length > 0 ? (
+
+        {showAttachButton && primaryControl ? (
           <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
         ) : null}
-        {populatedControls.map((control, index) => (
-          <div key={index} className="flex items-center gap-2">
-            {index > 0 ? (
-              <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
-            ) : null}
-            {control}
+
+        {/* Primary control — always inline */}
+        {primaryControl}
+
+        {/* Separator before overflow section — hidden at narrow, shown inline at ≥480px */}
+        {primaryControl && hasOverflow ? (
+          <span
+            aria-hidden="true"
+            className="toolbar-overflow-separator h-4 w-px shrink-0 bg-border/60"
+          />
+        ) : null}
+
+        {/* Overflow controls — inline icon buttons at ≥480px */}
+        {hasOverflow ? (
+          <div className="toolbar-overflow-controls items-center gap-2">
+            {overflowControls.map((control, index) => (
+              <div key={index} className="flex items-center gap-2">
+                {index > 0 ? (
+                  <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
+                ) : null}
+                {control}
+              </div>
+            ))}
           </div>
-        ))}
+        ) : null}
+
+        {/* Overflow panel — structured list at <480px */}
+        {hasOverflow && overflowSections && overflowSections.length > 0 ? (
+          <div
+            ref={overflowRef}
+            className="toolbar-overflow-panel"
+            data-open={overflowOpen || undefined}
+          >
+            {overflowSections.map((section, sectionIndex) => (
+              <div key={section.label}>
+                {sectionIndex > 0 ? <div className="mx-1 my-1 h-px bg-border/60" /> : null}
+                <div className="px-3 pt-1.5 pb-0.5 text-[0.6875rem] font-medium text-muted">
+                  {section.label}
+                </div>
+                {section.options.map((option) => (
+                  <button
+                    key={option.label}
+                    onClick={() => {
+                      option.onSelect();
+                    }}
+                    className="flex w-full items-center gap-2.5 px-3 py-1 text-left text-[0.8125rem] text-text transition-colors hover:bg-surface-hover"
+                  >
+                    <span className="w-4 shrink-0">
+                      {option.selected ? (
+                        <Check size={13} strokeWidth={2.5} className="text-text" />
+                      ) : null}
+                    </span>
+                    <span>{option.label}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {/* Overflow trigger — shown at narrow, hidden at ≥480px */}
+        {hasOverflow ? (
+          <Tooltip content={overflowOpen ? "Hide options" : "More options"}>
+            <button
+              ref={overflowTriggerRef}
+              onClick={() => setOverflowOpen(!overflowOpen)}
+              className="toolbar-overflow-trigger h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <Ellipsis size={16} />
+            </button>
+          </Tooltip>
+        ) : null}
       </div>
 
-      {!isMobile ? <div className="flex-1" /> : null}
+      {/* Right section: cancel + send */}
       <div className="flex items-center gap-2">
         {isProcessing ? (
           <Tooltip content={isMobile ? "Cancel" : "Cancel (Esc)"}>
