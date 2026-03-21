@@ -12,7 +12,6 @@
  *   SESSION_MAX_AGE          (optional) Session lifetime in ms, default 7 days
  *   PROCESS_TIMEOUT          (optional) Claude process timeout in ms, default 5 min
  *   WORKING_DIR              (optional) Working directory for Claude, default $HOME
- *   DANGEROUS_SKIP_PERMISSIONS (optional) Set to "true" to skip Claude permission prompts
  *   MAX_PROCESSES             (optional) Maximum concurrent managed processes, default 15
  *   MAX_INSTANCES             (deprecated) Alias for MAX_PROCESSES
  *   TUNNEL                   (optional) Set to "true" to start a cloudflared tunnel
@@ -158,7 +157,6 @@ function startServer(): void {
     sessionMaxAge: parseInt(process.env.SESSION_MAX_AGE || String(7 * 24 * 60 * 60 * 1000)),
     processTimeout: parseInt(process.env.PROCESS_TIMEOUT || String(5 * 60 * 1000)),
     workingDirectory: process.env.WORKING_DIR || process.env.HOME || process.cwd(),
-    dangerouslySkipPermissions: process.env.DANGEROUS_SKIP_PERMISSIONS === "true",
     maxProcesses: parseInt(
       process.env.MAX_PROCESSES ||
         (() => {

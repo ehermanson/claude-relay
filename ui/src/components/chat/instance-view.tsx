@@ -124,7 +124,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       name: instance.customTitle ? instance.name : undefined,
       workingDirectory: instance.workingDirectory,
       spaceId: instance.spaceId,
-      dangerouslySkipPermissions: instance.skipPermissions ?? false,
+      dangerouslySkipPermissions: instance.skipPermissions,
       model: model ?? undefined,
     });
 

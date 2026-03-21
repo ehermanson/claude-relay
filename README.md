@@ -6,7 +6,13 @@ Relay also automatically discovers agent sessions running on your machine and le
 
 > **Fair warning:** This project is held together with duct tape and optimism. It relies on undocumented transcript formats (Claude Code's JSONL, Codex's session files), CLI flags, and directory layouts (`~/.claude/`, `~/.codex/`) that could change without notice. Any provider CLI update could break things in spectacular and unexpected ways. There is no stable API contract here — just a guy reading transcript files and hoping for the best. If it works today, celebrate. If it breaks tomorrow, that's expected.
 
-![Relay](claude-relay.png)
+### Chats
+
+<img src="relay.png" alt="Relay" width="800" />
+
+### Spaces (git worktrees)
+
+<img src="relay-space.png" alt="Relay Spaces" width="800" />
 
 ## How It Works
 
@@ -354,20 +360,19 @@ manager.sendMessage(instance.id, "Hello!");
 
 ### Environment Variables
 
-| Variable                     | Default                  | Description                          |
-| ---------------------------- | ------------------------ | ------------------------------------ |
-| `RELAY_PASSWORD`             | **(required)**           | Authentication password              |
-| `PORT`                       | `7777`                   | Server port                          |
-| `WORKING_DIR`                | `$HOME`                  | Default working directory            |
-| `MAX_PROCESSES`              | `15`                     | Maximum concurrent managed processes |
-| `TUNNEL`                     | `false`                  | Start a Cloudflare Tunnel            |
-| `DANGEROUS_SKIP_PERMISSIONS` | `false`                  | Skip agent permission prompts        |
-| `PROCESS_TIMEOUT`            | `300000`                 | Process timeout in ms (5 min)        |
-| `SESSION_MAX_AGE`            | `604800000`              | Auth session lifetime in ms (7 days) |
-| `SESSION_FILE`               | `~/.relay/sessions.json` | Auth session persistence file        |
-| `DB_PATH`                    | `~/.relay/sessions.db`   | Relay SQLite database path           |
-| `CLAUDE_DIR`                 | `~/.claude`              | Claude data directory                |
-| `CODEX_DIR`                  | `~/.codex`               | Codex data directory                 |
+| Variable          | Default                  | Description                          |
+| ----------------- | ------------------------ | ------------------------------------ |
+| `RELAY_PASSWORD`  | **(required)**           | Authentication password              |
+| `PORT`            | `7777`                   | Server port                          |
+| `WORKING_DIR`     | `$HOME`                  | Default working directory            |
+| `MAX_PROCESSES`   | `15`                     | Maximum concurrent managed processes |
+| `TUNNEL`          | `false`                  | Start a Cloudflare Tunnel            |
+| `PROCESS_TIMEOUT` | `300000`                 | Process timeout in ms (5 min)        |
+| `SESSION_MAX_AGE` | `604800000`              | Auth session lifetime in ms (7 days) |
+| `SESSION_FILE`    | `~/.relay/sessions.json` | Auth session persistence file        |
+| `DB_PATH`         | `~/.relay/sessions.db`   | Relay SQLite database path           |
+| `CLAUDE_DIR`      | `~/.claude`              | Claude data directory                |
+| `CODEX_DIR`       | `~/.codex`               | Codex data directory                 |
 
 ### Programmatic Options
 
@@ -377,7 +382,7 @@ manager.sendMessage(instance.id, "Hello!");
 | `port`                       | `number`  | `7777`          | Server port                      |
 | `workingDirectory`           | `string`  | `process.cwd()` | Default working directory        |
 | `maxProcesses`               | `number`  | `15`            | Max concurrent managed processes |
-| `dangerouslySkipPermissions` | `boolean` | `false`         | Skip agent permission prompts    |
+| `dangerouslySkipPermissions` | `boolean` | `true`          | Skip agent permission prompts    |
 | `processTimeout`             | `number`  | `300000`        | Process timeout in ms            |
 | `serveUI`                    | `boolean` | `true`          | Serve the built-in web UI        |
 | `sessionMaxAge`              | `number`  | `604800000`     | Auth session lifetime in ms      |
@@ -391,7 +396,7 @@ manager.sendMessage(instance.id, "Hello!");
 
 - **No default password** — the server refuses to start without `RELAY_PASSWORD`
 - **Rate limiting** — login attempts are throttled per IP (5/min default)
-- **Safe by default** — `dangerouslySkipPermissions` is off unless you opt in
+- **Full access by default** — agents run with full permissions; use the UI toggle to restrict per-session
 - **HttpOnly cookies** — session tokens are not accessible to JavaScript
 - **SameSite=strict** — cookies are not sent on cross-origin requests
 - Designed to run behind Cloudflare Tunnel (HTTPS) for remote access
