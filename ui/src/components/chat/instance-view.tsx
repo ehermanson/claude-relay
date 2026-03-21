@@ -360,6 +360,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
             provider={instance.provider}
             preferredModel={instance.preferredModel}
             reasoningBudget={instance.reasoningBudget}
+            modelOptions={instance.modelOptions}
             planMode={instance.planMode}
             activeModel={instance.stats?.model}
             skipPermissions={instance.skipPermissions}

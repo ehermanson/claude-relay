@@ -3,9 +3,8 @@ import type { SkillInfo } from "@shared/types";
 import { fetchWorkspaceEntries } from "../../../lib/api";
 import { detectMentionTrigger, replacePromptRange } from "../../../lib/composer-mentions";
 import { MentionMenu, SlashMenu } from "./overlay-menus";
+import type { ReasoningEffort } from "@shared/types";
 import {
-  REASONING_COMMAND_OPTIONS,
-  REASONING_LEVELS,
   SLASH_COMMANDS,
   getSlashContext,
   matchesQuery,
@@ -33,9 +32,12 @@ interface UseComposerMenusParams {
   preferredModel?: string;
   reasoningBudget?: number;
   modelLabel: string;
-  reasoningLabel: string;
+  reasoningBudgetLevels?: { budget: number; label: string; description: string }[];
+  reasoningEffortLevels?: { effort: ReasoningEffort; label: string; description: string }[];
   supportsModelSelection: boolean;
   supportsReasoningSelection: boolean;
+  supportsReasoningEffort: boolean;
+  currentReasoningEffort?: ReasoningEffort;
   modelOptions: readonly ModelOption[];
   composerContainerRef: RefObject<HTMLDivElement | null>;
   mentionListRef: RefObject<HTMLDivElement | null>;
@@ -50,6 +52,7 @@ interface UseComposerMenusParams {
   applySlashAction: (action: () => void) => void;
   setModel: (model: string | null) => void;
   setReasoningBudget: (budget: number | null) => void;
+  setReasoningEffort: (effort: ReasoningEffort | null) => void;
   onCancel: () => void;
   onSend: () => void;
 }
@@ -88,9 +91,12 @@ export function useComposerMenus({
   preferredModel,
   reasoningBudget,
   modelLabel,
-  reasoningLabel,
+  reasoningBudgetLevels,
+  reasoningEffortLevels,
   supportsModelSelection,
   supportsReasoningSelection,
+  supportsReasoningEffort,
+  currentReasoningEffort,
   modelOptions,
   composerContainerRef,
   mentionListRef,
@@ -105,6 +111,7 @@ export function useComposerMenus({
   applySlashAction,
   setModel,
   setReasoningBudget,
+  setReasoningEffort,
   onCancel,
   onSend,
 }: UseComposerMenusParams) {
@@ -183,7 +190,16 @@ export function useComposerMenus({
         category: command.category,
         title: command.title,
         description: command.description,
-        hint: command.id === "model" ? modelLabel : reasoningLabel,
+        hint:
+          command.id === "model"
+            ? modelLabel
+            : command.id === "reasoning"
+              ? (reasoningBudgetLevels?.find((l) => l.budget === reasoningBudget)?.label ??
+                "Default")
+              : command.id === "effort"
+                ? (reasoningEffortLevels?.find((l) => l.effort === currentReasoningEffort)?.label ??
+                  "Default")
+                : undefined,
         actionHint: "Tab",
         onSelect: () => setComposerValue(`${command.title} `),
       }));
@@ -222,22 +238,76 @@ export function useComposerMenus({
         }));
     }
 
-    if (slashContext.commandQuery === "reasoning" && supportsReasoningSelection) {
-      return REASONING_COMMAND_OPTIONS.filter((option) =>
-        matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
-      ).map((option) => ({
-        key: `reasoning-${option.commandValue}`,
-        category: "Reasoning",
-        title: option.label,
-        description: option.value
-          ? (REASONING_LEVELS.find((level) => level.budget === option.value)?.description ??
-            "Custom reasoning effort")
-          : "Uses the model default reasoning effort",
-        hint: reasoningBudget === option.value ? "Current" : undefined,
-        actionHint: "Enter",
-        accent: reasoningBudget === option.value,
-        onSelect: () => applySlashAction(() => setReasoningBudget(option.value)),
-      }));
+    if (
+      slashContext.commandQuery === "reasoning" &&
+      supportsReasoningSelection &&
+      reasoningBudgetLevels
+    ) {
+      const items: SlashMenuItem[] = [];
+      if (matchesQuery(slashContext.argQuery, ["default", "auto"])) {
+        items.push({
+          key: "reasoning-default",
+          category: "Reasoning",
+          title: "Default",
+          description: "Uses the model default reasoning effort",
+          hint: reasoningBudget == null ? "Current" : undefined,
+          actionHint: "Enter",
+          accent: reasoningBudget == null,
+          onSelect: () => applySlashAction(() => setReasoningBudget(null)),
+        });
+      }
+      for (const level of reasoningBudgetLevels) {
+        if (
+          matchesQuery(slashContext.argQuery, [level.label.toLowerCase(), String(level.budget)])
+        ) {
+          items.push({
+            key: `reasoning-${level.budget}`,
+            category: "Reasoning",
+            title: level.label,
+            description: level.description,
+            hint: reasoningBudget === level.budget ? "Current" : undefined,
+            actionHint: "Enter",
+            accent: reasoningBudget === level.budget,
+            onSelect: () => applySlashAction(() => setReasoningBudget(level.budget)),
+          });
+        }
+      }
+      return items;
+    }
+
+    if (
+      slashContext.commandQuery === "effort" &&
+      supportsReasoningEffort &&
+      reasoningEffortLevels
+    ) {
+      const items: SlashMenuItem[] = [];
+      if (matchesQuery(slashContext.argQuery, ["default", "auto"])) {
+        items.push({
+          key: "effort-default",
+          category: "Effort",
+          title: "Default",
+          description: "Uses the model default effort",
+          hint: !currentReasoningEffort ? "Current" : undefined,
+          actionHint: "Enter",
+          accent: !currentReasoningEffort,
+          onSelect: () => applySlashAction(() => setReasoningEffort(null)),
+        });
+      }
+      for (const level of reasoningEffortLevels) {
+        if (matchesQuery(slashContext.argQuery, [level.effort, level.label.toLowerCase()])) {
+          items.push({
+            key: `effort-${level.effort}`,
+            category: "Effort",
+            title: level.label,
+            description: level.description,
+            hint: currentReasoningEffort === level.effort ? "Current" : undefined,
+            actionHint: "Enter",
+            accent: currentReasoningEffort === level.effort,
+            onSelect: () => applySlashAction(() => setReasoningEffort(level.effort)),
+          });
+        }
+      }
+      return items;
     }
 
     return [];

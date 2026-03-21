@@ -88,6 +88,11 @@ export interface ProviderRuntimeBinding {
   runtimeMode?: ProviderRuntimeMode;
 }
 
+export interface ControlOption {
+  label: string;
+  description: string;
+}
+
 export interface ProviderCapabilities {
   supportsResume: boolean;
   supportsTranscriptReplay: boolean;
@@ -99,6 +104,16 @@ export interface ProviderCapabilities {
   supportsPlanMode: boolean;
   supportsModelSelection: boolean;
   supportsTitleUpdates: boolean;
+  /** Labels/descriptions for reasoning budget levels, rendered by the UI as-is */
+  reasoningBudgetLevels?: { budget: number; label: string; description: string }[];
+  /** Labels/descriptions for reasoning effort levels, rendered by the UI as-is */
+  reasoningEffortLevels?: { effort: ReasoningEffort; label: string; description: string }[];
+  /** Labels/descriptions for the permission mode toggle */
+  permissionModes?: { restricted: ControlOption; fullAccess: ControlOption };
+  /** Labels/descriptions for the plan mode toggle */
+  planModes?: { off: ControlOption; on: ControlOption };
+  /** Labels/descriptions for the fast mode toggle */
+  fastModes?: { off: ControlOption; on: ControlOption };
 }
 
 export interface ProviderDescriptor {

@@ -3,7 +3,9 @@ import { ArrowUp, Loader2 } from "lucide-react";
 import type {
   ProviderKind,
   ProviderModelOption,
+  ProviderModelOptions,
   ProviderRequest,
+  ReasoningEffort,
   UserInputAnswer,
   UserInputQuestion,
 } from "@shared/types";
@@ -13,7 +15,7 @@ import { ComposerPanel } from "@/components/chat/input-area/composer-panel";
 import { ImageAttachmentStrip } from "@/components/chat/input-area/image-attachment-strip";
 import { InputToolbar } from "@/components/chat/input-area/input-toolbar";
 import { ProviderSwitchDialog } from "@/components/chat/input-area/provider-switch-dialog";
-import { buildModelLabelLookup, REASONING_LEVELS } from "@/components/chat/input-area/shared";
+import { buildModelLabelLookup } from "@/components/chat/input-area/shared";
 import { useAttachmentState } from "@/components/chat/input-area/use-attachment-state";
 import { useAvailableProviders } from "@/components/chat/input-area/use-available-providers";
 import { useComposerMenus } from "@/components/chat/input-area/use-composer-menus";
@@ -27,9 +29,11 @@ import { useWSMethods } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { formatModel } from "@/lib/utils";
 import {
+  FastModeToggle,
   PlanModePicker,
   PermissionsToggle,
   ProviderModelPicker,
+  ReasoningEffortPicker,
   ReasoningPicker,
 } from "@/components/chat/input-area/provider-model-picker";
 
@@ -52,6 +56,7 @@ interface InputAreaProps {
   provider: ProviderKind;
   preferredModel?: string;
   reasoningBudget?: number;
+  modelOptions?: ProviderModelOptions;
   planMode?: boolean;
   activeModel?: string;
   skipPermissions?: boolean;
@@ -86,6 +91,7 @@ export function InputArea({
   provider,
   preferredModel,
   reasoningBudget,
+  modelOptions,
   planMode,
   activeModel,
   skipPermissions,
@@ -207,10 +213,10 @@ export function InputArea({
   const modelLabel = preferredModel
     ? (currentProviderModelLabels.get(preferredModel) ?? preferredModel)
     : resolvedDefaultLabel;
-  const activeReasoningLevel = REASONING_LEVELS.find((level) => level.budget === reasoningBudget);
-  const reasoningLabel = activeReasoningLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
   const supportsModelSelection = capabilities.supportsModelSelection;
   const supportsReasoningSelection = capabilities.supportsReasoningBudget;
+  const supportsReasoningEffort = capabilities.supportsReasoningEffort;
+  const supportsFastMode = capabilities.supportsFastMode;
   const supportsPlanMode = capabilities.supportsPlanMode;
   const visibleProviders =
     availableProviders.length > 0
@@ -248,6 +254,14 @@ export function InputArea({
 
   const setPlanMode = (nextPlanMode: boolean) => {
     send({ type: "set_plan_mode", instanceId, planMode: nextPlanMode });
+  };
+
+  const setReasoningEffort = (effort: ReasoningEffort | null) => {
+    send({ type: "set_model_options", instanceId, modelOptions: { reasoningEffort: effort } });
+  };
+
+  const setFastMode = (enabled: boolean) => {
+    send({ type: "set_model_options", instanceId, modelOptions: { fastMode: enabled || null } });
   };
 
   const togglePermissions = () => {
@@ -370,9 +384,12 @@ export function InputArea({
     preferredModel,
     reasoningBudget,
     modelLabel,
-    reasoningLabel,
+    reasoningBudgetLevels: capabilities.reasoningBudgetLevels,
+    reasoningEffortLevels: capabilities.reasoningEffortLevels,
     supportsModelSelection,
     supportsReasoningSelection,
+    supportsReasoningEffort,
+    currentReasoningEffort: modelOptions?.reasoningEffort,
     modelOptions: currentModelOptions,
     composerContainerRef,
     mentionListRef,
@@ -387,6 +404,7 @@ export function InputArea({
     applySlashAction,
     setModel,
     setReasoningBudget,
+    setReasoningEffort,
     onCancel,
     onSend: hasPendingPrompt ? handleSubmitPrompt : hasPendingPlan ? handleApprovePlan : handleSend,
   });
@@ -488,30 +506,51 @@ export function InputArea({
         }}
       />
     ) : null,
-    supportsReasoningSelection ? (
+    supportsReasoningSelection && capabilities.reasoningBudgetLevels ? (
       <ReasoningPicker
         key="reasoning-picker"
         isProcessing={isProcessing}
         reasoningBudget={reasoningBudget}
-        reasoningLabel={reasoningLabel}
+        levels={capabilities.reasoningBudgetLevels}
         onSelectReasoningBudget={setReasoningBudget}
       />
     ) : null,
-    supportsPlanMode ? (
+    supportsReasoningEffort && capabilities.reasoningEffortLevels ? (
+      <ReasoningEffortPicker
+        key="effort-picker"
+        isProcessing={isProcessing}
+        reasoningEffort={modelOptions?.reasoningEffort}
+        levels={capabilities.reasoningEffortLevels}
+        onSelectEffort={setReasoningEffort}
+      />
+    ) : null,
+    supportsFastMode && capabilities.fastModes ? (
+      <FastModeToggle
+        key="fast-mode-toggle"
+        isProcessing={isProcessing}
+        fastMode={modelOptions?.fastMode}
+        modes={capabilities.fastModes}
+        onToggle={setFastMode}
+      />
+    ) : null,
+    supportsPlanMode && capabilities.planModes ? (
       <PlanModePicker
         key="plan-mode-toggle"
         isProcessing={isProcessing}
         planMode={planMode}
+        modes={capabilities.planModes}
         onTogglePlanMode={setPlanMode}
       />
     ) : null,
-    <PermissionsToggle
-      key="permissions-toggle"
-      provider={provider}
-      isProcessing={isProcessing}
-      skipPermissions={skipPermissions}
-      onToggle={togglePermissions}
-    />,
+    capabilities.permissionModes ? (
+      <PermissionsToggle
+        key="permissions-toggle"
+        isProcessing={isProcessing}
+        skipPermissions={skipPermissions}
+        modes={capabilities.permissionModes}
+        onToggle={togglePermissions}
+      />
+    ) : null,
   ];
 
   return (

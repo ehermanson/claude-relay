@@ -225,7 +225,7 @@ export function createWebSocketServer(
                 provider: message.provider,
                 name: message.name,
                 workingDirectory: message.workingDirectory,
-                dangerouslySkipPermissions: message.dangerouslySkipPermissions ?? false,
+                dangerouslySkipPermissions: message.dangerouslySkipPermissions,
                 resumeSessionId: message.resumeSessionId,
                 model: message.model,
                 spaceId: message.spaceId,

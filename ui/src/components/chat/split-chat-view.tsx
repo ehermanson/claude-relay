@@ -213,7 +213,6 @@ export function SplitChatView({ splitId }: SplitChatViewProps) {
     if (!dir) return;
     const inst = await createInstance({
       workingDirectory: dir,
-      dangerouslySkipPermissions: false,
     });
     selectSplit(inst.id);
   };

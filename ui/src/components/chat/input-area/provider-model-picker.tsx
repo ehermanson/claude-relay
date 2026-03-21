@@ -2,16 +2,25 @@ import {
   BrainIcon,
   Check,
   ChevronRight,
+  GaugeIcon,
   HammerIcon,
   LockIcon,
   LockOpenIcon,
   MapIcon,
+  ZapIcon,
 } from "lucide-react";
-import type { ProviderDescriptor, ProviderKind, ProviderModelOption } from "@shared/types";
+import type {
+  ControlOption,
+  ProviderCapabilities,
+  ProviderDescriptor,
+  ProviderKind,
+  ProviderModelOption,
+  ReasoningEffort,
+} from "@shared/types";
 import { BUILTIN_PROVIDER_MODELS, getProviderDisplayName } from "@shared/provider-catalog";
 import { Menu } from "../../ui/menu";
 import { Tooltip } from "../../ui/tooltip";
-import { ProviderLogo, REASONING_LEVELS } from "./shared";
+import { ProviderLogo } from "./shared";
 
 interface ProviderModelPickerProps {
   open: boolean;
@@ -113,16 +122,19 @@ export function ProviderModelPicker({
 interface ReasoningPickerProps {
   isProcessing: boolean;
   reasoningBudget?: number;
-  reasoningLabel: string;
+  levels: { budget: number; label: string; description: string }[];
   onSelectReasoningBudget: (budget: number | null) => void;
 }
 
 export function ReasoningPicker({
   isProcessing,
   reasoningBudget,
-  reasoningLabel,
+  levels,
   onSelectReasoningBudget,
 }: ReasoningPickerProps) {
+  const activeLevel = levels.find((l) => l.budget === reasoningBudget);
+  const label = activeLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
+
   return (
     <Menu.Root>
       <Tooltip content="Set reasoning effort">
@@ -133,7 +145,7 @@ export function ReasoningPicker({
           } ${reasoningBudget != null ? "text-accent" : "text-muted"}`}
         >
           <BrainIcon size={11} strokeWidth={2} />
-          <span>{reasoningLabel}</span>
+          <span>{label}</span>
         </Menu.Trigger>
       </Tooltip>
       <Menu.Content side="top" align="start">
@@ -145,7 +157,7 @@ export function ReasoningPicker({
           {reasoningBudget == null && <Check size={13} strokeWidth={2.5} />}
         </Menu.Item>
         <Menu.Separator />
-        {REASONING_LEVELS.map((level) => (
+        {levels.map((level) => (
           <Menu.Item key={level.budget} onClick={() => onSelectReasoningBudget(level.budget)}>
             <span className="flex flex-1 flex-col">
               <span>{level.label}</span>
@@ -160,64 +172,176 @@ export function ReasoningPicker({
 }
 
 interface PermissionsToggleProps {
-  provider: ProviderKind;
   isProcessing: boolean;
   skipPermissions?: boolean;
+  modes: { restricted: ControlOption; fullAccess: ControlOption };
   onToggle: () => void;
 }
 
 export function PermissionsToggle({
-  provider,
   isProcessing,
   skipPermissions,
+  modes,
   onToggle,
 }: PermissionsToggleProps) {
+  const label = skipPermissions ? modes.fullAccess.label : modes.restricted.label;
+
   return (
-    <Tooltip
-      content={
-        provider === "codex"
-          ? skipPermissions
-            ? "Full access — click to use the workspace sandbox"
-            : "Workspace sandbox — click for full access"
-          : skipPermissions
-            ? "Full access — click to ask permission"
-            : "Ask permission — click for full access"
-      }
-    >
-      <button
-        onClick={onToggle}
-        disabled={isProcessing}
-        className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
-          isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
-        } ${skipPermissions ? "text-accent" : "text-muted"}`}
-      >
-        {skipPermissions ? (
-          <LockOpenIcon size={11} strokeWidth={2} />
-        ) : (
-          <LockIcon size={11} strokeWidth={2} />
-        )}
-        <span>
-          {provider === "codex"
-            ? skipPermissions
-              ? "Full access"
-              : "Sandboxed"
-            : skipPermissions
-              ? "Full access"
-              : "Ask Permission"}
-        </span>
-      </button>
-    </Tooltip>
+    <Menu.Root>
+      <Tooltip content="Set permission mode">
+        <Menu.Trigger
+          disabled={isProcessing}
+          className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
+            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
+          } ${skipPermissions ? "text-accent" : "text-muted"}`}
+        >
+          {skipPermissions ? (
+            <LockOpenIcon size={11} strokeWidth={2} />
+          ) : (
+            <LockIcon size={11} strokeWidth={2} />
+          )}
+          <span>{label}</span>
+        </Menu.Trigger>
+      </Tooltip>
+      <Menu.Content side="top" align="start">
+        <Menu.Item
+          onClick={() => {
+            if (skipPermissions) onToggle();
+          }}
+        >
+          <LockIcon size={13} strokeWidth={2} className="shrink-0" />
+          <span className="flex flex-1 flex-col">
+            <span>{modes.restricted.label}</span>
+            <span className="text-[0.6875rem] text-muted">{modes.restricted.description}</span>
+          </span>
+          {!skipPermissions && <Check size={13} strokeWidth={2.5} />}
+        </Menu.Item>
+        <Menu.Item
+          onClick={() => {
+            if (!skipPermissions) onToggle();
+          }}
+        >
+          <LockOpenIcon size={13} strokeWidth={2} className="shrink-0" />
+          <span className="flex flex-1 flex-col">
+            <span>{modes.fullAccess.label}</span>
+            <span className="text-[0.6875rem] text-muted">{modes.fullAccess.description}</span>
+          </span>
+          {skipPermissions && <Check size={13} strokeWidth={2.5} />}
+        </Menu.Item>
+      </Menu.Content>
+    </Menu.Root>
+  );
+}
+
+interface ReasoningEffortPickerProps {
+  isProcessing: boolean;
+  reasoningEffort?: ReasoningEffort;
+  levels: { effort: ReasoningEffort; label: string; description: string }[];
+  onSelectEffort: (effort: ReasoningEffort | null) => void;
+}
+
+export function ReasoningEffortPicker({
+  isProcessing,
+  reasoningEffort,
+  levels,
+  onSelectEffort,
+}: ReasoningEffortPickerProps) {
+  const activeLevel = levels.find((l) => l.effort === reasoningEffort);
+  const label = activeLevel?.label ?? "Default";
+
+  return (
+    <Menu.Root>
+      <Tooltip content="Set reasoning effort">
+        <Menu.Trigger
+          disabled={isProcessing}
+          className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
+            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
+          } ${reasoningEffort ? "text-accent" : "text-muted"}`}
+        >
+          <GaugeIcon size={11} strokeWidth={2} />
+          <span>{label}</span>
+        </Menu.Trigger>
+      </Tooltip>
+      <Menu.Content side="top" align="start">
+        <Menu.Item onClick={() => onSelectEffort(null)}>
+          <span className="flex flex-1 flex-col">
+            <span>Default</span>
+            <span className="text-[0.6875rem] text-muted">Uses the model default effort</span>
+          </span>
+          {!reasoningEffort && <Check size={13} strokeWidth={2.5} />}
+        </Menu.Item>
+        <Menu.Separator />
+        {levels.map((level) => (
+          <Menu.Item key={level.effort} onClick={() => onSelectEffort(level.effort)}>
+            <span className="flex flex-1 flex-col">
+              <span>{level.label}</span>
+              <span className="text-[0.6875rem] text-muted">{level.description}</span>
+            </span>
+            {reasoningEffort === level.effort && <Check size={13} strokeWidth={2.5} />}
+          </Menu.Item>
+        ))}
+      </Menu.Content>
+    </Menu.Root>
+  );
+}
+
+interface FastModeToggleProps {
+  isProcessing: boolean;
+  fastMode?: boolean;
+  modes: { off: ControlOption; on: ControlOption };
+  onToggle: (enabled: boolean) => void;
+}
+
+export function FastModeToggle({ isProcessing, fastMode, modes, onToggle }: FastModeToggleProps) {
+  const label = fastMode ? modes.on.label : modes.off.label;
+
+  return (
+    <Menu.Root>
+      <Tooltip content="Set response speed">
+        <Menu.Trigger
+          disabled={isProcessing}
+          className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
+            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
+          } ${fastMode ? "text-accent" : "text-muted"}`}
+        >
+          <ZapIcon size={11} strokeWidth={2} />
+          <span>{label}</span>
+        </Menu.Trigger>
+      </Tooltip>
+      <Menu.Content side="top" align="start">
+        <Menu.Item onClick={() => onToggle(false)}>
+          <span className="flex flex-1 flex-col">
+            <span>{modes.off.label}</span>
+            <span className="text-[0.6875rem] text-muted">{modes.off.description}</span>
+          </span>
+          {!fastMode && <Check size={13} strokeWidth={2.5} />}
+        </Menu.Item>
+        <Menu.Item onClick={() => onToggle(true)}>
+          <span className="flex flex-1 flex-col">
+            <span>{modes.on.label}</span>
+            <span className="text-[0.6875rem] text-muted">{modes.on.description}</span>
+          </span>
+          {fastMode && <Check size={13} strokeWidth={2.5} />}
+        </Menu.Item>
+      </Menu.Content>
+    </Menu.Root>
   );
 }
 
 interface PlanModePickerProps {
   isProcessing: boolean;
   planMode?: boolean;
+  modes: { off: ControlOption; on: ControlOption };
   onTogglePlanMode: (planMode: boolean) => void;
 }
 
-export function PlanModePicker({ isProcessing, planMode, onTogglePlanMode }: PlanModePickerProps) {
-  const label = planMode ? "Plan" : "Build";
+export function PlanModePicker({
+  isProcessing,
+  planMode,
+  modes,
+  onTogglePlanMode,
+}: PlanModePickerProps) {
+  const label = planMode ? modes.on.label : modes.off.label;
 
   return (
     <Menu.Root>
@@ -244,16 +368,16 @@ export function PlanModePicker({ isProcessing, planMode, onTogglePlanMode }: Pla
         <Menu.Item onClick={() => onTogglePlanMode(false)}>
           <HammerIcon size={13} strokeWidth={2} className="shrink-0" />
           <span className="flex flex-1 flex-col">
-            <span>Build</span>
-            <span className="text-[0.6875rem] text-muted">Standard working mode</span>
+            <span>{modes.off.label}</span>
+            <span className="text-[0.6875rem] text-muted">{modes.off.description}</span>
           </span>
           {!planMode && <Check size={13} strokeWidth={2.5} />}
         </Menu.Item>
         <Menu.Item onClick={() => onTogglePlanMode(true)}>
           <MapIcon size={13} strokeWidth={2} className="shrink-0" />
           <span className="flex flex-1 flex-col">
-            <span>Plan</span>
-            <span className="text-[0.6875rem] text-muted">Stay in planning mode for this chat</span>
+            <span>{modes.on.label}</span>
+            <span className="text-[0.6875rem] text-muted">{modes.on.description}</span>
           </span>
           {planMode && <Check size={13} strokeWidth={2.5} />}
         </Menu.Item>

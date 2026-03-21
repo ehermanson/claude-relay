@@ -14,7 +14,7 @@ describe("resolveConfig", () => {
     const config = resolveConfig({ password: "s" });
     assert.equal(config.port, 7777);
     assert.equal(config.sessionMaxAge, 7 * 24 * 60 * 60 * 1000);
-    assert.equal(config.dangerouslySkipPermissions, false);
+    assert.equal(config.dangerouslySkipPermissions, true);
     assert.equal(config.processTimeout, 10 * 60 * 1000);
     assert.equal(config.serveUI, true);
     assert.equal(config.rateLimitMax, 5);

@@ -67,6 +67,26 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsPlanMode: true,
     supportsModelSelection: true,
     supportsTitleUpdates: false,
+    reasoningBudgetLevels: [
+      { budget: 5000, label: "Low", description: "Fastest responses with light reasoning" },
+      { budget: 10000, label: "Medium", description: "Balanced depth and speed" },
+      { budget: 30000, label: "High", description: "More reasoning for harder tasks" },
+      { budget: 100000, label: "Max", description: "Deepest reasoning, usually slower" },
+    ],
+    permissionModes: {
+      restricted: {
+        label: "Ask Permission",
+        description: "Ask before running commands or editing files",
+      },
+      fullAccess: {
+        label: "Full access",
+        description: "Run commands and edit files without asking",
+      },
+    },
+    planModes: {
+      off: { label: "Build", description: "Standard working mode" },
+      on: { label: "Plan", description: "Stay in planning mode for this chat" },
+    },
   },
   codex: {
     supportsResume: true,
@@ -79,6 +99,24 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsPlanMode: true,
     supportsModelSelection: true,
     supportsTitleUpdates: true,
+    reasoningEffortLevels: [
+      { effort: "low", label: "Low", description: "Fastest responses, minimal reasoning" },
+      { effort: "medium", label: "Medium", description: "Balanced depth and speed" },
+      { effort: "high", label: "High", description: "More reasoning for harder tasks" },
+      { effort: "max", label: "Max", description: "Deepest reasoning, usually slower" },
+    ],
+    fastModes: {
+      off: { label: "Standard", description: "Default speed with normal credit usage" },
+      on: { label: "Fast", description: "About 1.5x faster, with credits used at 2x" },
+    },
+    permissionModes: {
+      restricted: { label: "Sandboxed", description: "Run commands in a workspace sandbox" },
+      fullAccess: { label: "Full access", description: "Run commands directly without sandboxing" },
+    },
+    planModes: {
+      off: { label: "Build", description: "Standard working mode" },
+      on: { label: "Plan", description: "Stay in planning mode for this chat" },
+    },
   },
   gemini: {
     supportsResume: false,
@@ -91,6 +129,16 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsPlanMode: false,
     supportsModelSelection: true,
     supportsTitleUpdates: false,
+    permissionModes: {
+      restricted: {
+        label: "Ask Permission",
+        description: "Ask before running commands or editing files",
+      },
+      fullAccess: {
+        label: "Full access",
+        description: "Run commands and edit files without asking",
+      },
+    },
   },
 };
 
