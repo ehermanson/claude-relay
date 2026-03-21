@@ -1,0 +1,37 @@
+/* ── Sidecar Container Query Responsive ──────────────────────────── */
+
+/* Default (narrow): single-column stats, hide file stats & labels */
+.sidecar-stats-grid {
+  grid-template-columns: 1fr;
+}
+.sidecar-stats-divider {
+  grid-column: span 1;
+}
+.sidecar-file-stats {
+  display: none;
+}
+.sidecar-header-stats {
+  display: none;
+}
+.sidecar-control-label {
+  display: none;
+}
+
+/* Wide (≥280px): two-column stats grid, show file stats & labels */
+@container sidecar (min-width: 280px) {
+  .sidecar-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .sidecar-stats-divider {
+    grid-column: span 2;
+  }
+  .sidecar-file-stats {
+    display: inline;
+  }
+  .sidecar-header-stats {
+    display: inline;
+  }
+  .sidecar-control-label {
+    display: inline;
+  }
+}

@@ -46,7 +46,7 @@ function DiffStats({ additions, deletions }: { additions?: number; deletions?: n
   const add = additions ?? 0;
   const del = deletions ?? 0;
   return (
-    <span className="shrink-0 text-[0.6875rem] font-medium tabular-nums">
+    <span className="sidecar-file-stats shrink-0 text-[0.6875rem] font-medium tabular-nums">
       <span className="text-green-400">+{add}</span>
       <span className="text-muted/40"> / </span>
       <span className="text-red-400">-{del}</span>
@@ -151,21 +151,23 @@ export const FilesPanel = memo(function FilesPanel({
             {files.length} file{files.length !== 1 ? "s" : ""} changed
           </span>
           {hasDiffStats && (
-            <span className="text-[0.6875rem] font-medium tabular-nums">
+            <span className="sidecar-header-stats text-[0.6875rem] font-medium tabular-nums">
               <span className="text-green-400">+{totalAdditions}</span>
               <span className="text-muted/40"> / </span>
               <span className="text-red-400">-{totalDeletions}</span>
             </span>
           )}
           {onViewChanges && (
-            <button
-              type="button"
-              onClick={onViewChanges}
-              className="ml-auto flex items-center gap-1 rounded-md border border-accent/30 bg-accent/8 px-2 py-0.5 text-[0.6875rem] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/15"
-            >
-              <FileDiff size={12} className="shrink-0" />
-              Full Diff
-            </button>
+            <Tooltip content="View full diff">
+              <button
+                type="button"
+                onClick={onViewChanges}
+                className="ml-auto flex items-center gap-1 rounded-md border border-accent/30 bg-accent/8 px-2 py-0.5 text-[0.6875rem] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/15"
+              >
+                <FileDiff size={12} className="shrink-0" />
+                <span className="sidecar-control-label">Full Diff</span>
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -193,7 +195,7 @@ export const FilesPanel = memo(function FilesPanel({
                     {group.hasDiffStats ? (
                       <DiffStats additions={group.additions} deletions={group.deletions} />
                     ) : (
-                      <span className="shrink-0 text-[0.6875rem] font-medium text-muted/60">
+                      <span className="sidecar-file-stats shrink-0 text-[0.6875rem] font-medium text-muted/60">
                         {group.totalEdits > group.files.length
                           ? `${group.files.length} · ×${group.totalEdits}`
                           : `${group.files.length}`}
@@ -218,7 +220,7 @@ export const FilesPanel = memo(function FilesPanel({
                           {file.additions != null || file.deletions != null ? (
                             <DiffStats additions={file.additions} deletions={file.deletions} />
                           ) : file.editCount > 1 ? (
-                            <span className="shrink-0 text-[0.6875rem] font-medium text-muted/60">
+                            <span className="sidecar-file-stats shrink-0 text-[0.6875rem] font-medium text-muted/60">
                               ×{file.editCount}
                             </span>
                           ) : null}

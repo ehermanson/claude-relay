@@ -11,6 +11,7 @@ import { escapeHtml, formatTokens, formatModel, formatTimestamp } from "../../li
 import type { TaskItem, FileChange, SessionStats, HistoryEntry } from "@shared/types";
 import { MarkdownContent } from "./markdown-content";
 import { ChevronIcon, FilesPanel, relativePath } from "./files-panel";
+import "./sidecar.css";
 
 const DiffDrawer = lazy(() => import("./diff-drawer").then((m) => ({ default: m.DiffDrawer })));
 
@@ -462,7 +463,7 @@ const ContextPanel = memo(function ContextPanel({
     <div className="flex-1 overflow-y-auto">
       {/* Stats grid */}
       <div className="px-3.5 py-2.5">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+        <div className="sidecar-stats-grid grid gap-x-4 gap-y-3">
           <StatRow
             label="Provider"
             value={provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "—"}
@@ -516,7 +517,7 @@ const ContextPanel = memo(function ContextPanel({
           />
           <StatRow label="User Messages" value={userCount} />
           <StatRow label="Assistant Messages" value={assistantCount} />
-          <div className="col-span-2 border-t border-border/30" />
+          <div className="sidecar-stats-divider border-t border-border/30" />
           <StatRow label="Chat Created" value={formatTimestamp(createdAt)} />
           <StatRow label="Last Activity" value={formatTimestamp(lastActivityAt)} />
         </div>
@@ -686,8 +687,8 @@ export const Sidecar = memo(
       <div
         className={
           isMobileOverlay
-            ? "animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col overflow-hidden rounded-l-2xl border-l border-border bg-surface shadow-2xl"
-            : "flex h-full w-full flex-col overflow-hidden border-l border-border/50 bg-surface"
+            ? "@container/sidecar animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col overflow-hidden rounded-l-2xl border-l border-border bg-surface shadow-2xl"
+            : "@container/sidecar flex h-full w-full flex-col overflow-hidden border-l border-border/50 bg-surface"
         }
       >
         {/* Header */}

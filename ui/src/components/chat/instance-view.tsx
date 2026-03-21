@@ -425,7 +425,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
             <div className="flex h-full min-w-0 flex-col overflow-hidden">{chatContent}</div>
           </Panel>
           <ResizableHandle />
-          <Panel defaultSize="30" minSize="15" maxSize="45">
+          <Panel defaultSize="30" minSize="20" maxSize="45">
             <Sidecar
               tasks={currentTasks}
               files={currentFiles}
