@@ -140,6 +140,11 @@ describe("getCurrentBranch", () => {
       rmSync(plain, { recursive: true, force: true });
     }
   });
+
+  it("returns null for detached HEAD instead of the literal HEAD ref", () => {
+    execSync("git checkout --detach", { cwd: repoDir, stdio: "pipe" });
+    assert.equal(getCurrentBranch(repoDir), null);
+  });
 });
 
 describe("getRemoteUrl", () => {

@@ -18,6 +18,12 @@ const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const RELAY_GIT_FALLBACK_NAME = "Relay";
 const RELAY_GIT_FALLBACK_EMAIL = "relay@local";
 
+function normalizeBranchName(branch: string): string | null {
+  const trimmed = branch.trim();
+  if (!trimmed || trimmed === "HEAD") return null;
+  return trimmed;
+}
+
 /** Pattern matching ~/.relay/worktrees/<name> paths (instance and space worktrees) */
 const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][^/\\]+\/?$/;
 
@@ -159,13 +165,12 @@ export function getRepoRoot(dir: string): string | null {
  */
 export function getCurrentBranch(dir: string): string | null {
   try {
-    return execSync("git rev-parse --abbrev-ref HEAD", {
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", {
       cwd: dir,
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
-    })
-      .toString()
-      .trim();
+    }).toString();
+    return normalizeBranchName(branch);
   } catch {
     return null;
   }
@@ -550,7 +555,7 @@ export async function getCurrentBranchAsync(dir: string): Promise<string | null>
       cwd: dir,
       timeout: 5000,
     });
-    return stdout.trim();
+    return normalizeBranchName(stdout);
   } catch {
     return null;
   }
@@ -566,7 +571,8 @@ export async function getGitInfoAsync(
       execFileAsync("git", ["rev-parse", "--git-dir"], opts),
       execFileAsync("git", ["rev-parse", "--git-common-dir"], opts),
     ]);
-    const branch = branchResult.stdout.trim();
+    const branch = normalizeBranchName(branchResult.stdout);
+    if (!branch) return null;
     const gitDir = resolve(dir, gitDirResult.stdout.trim());
     const gitCommonDir = resolve(dir, commonDirResult.stdout.trim());
     return { branch, isWorktree: gitDir !== gitCommonDir };

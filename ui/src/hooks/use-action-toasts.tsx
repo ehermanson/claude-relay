@@ -7,8 +7,8 @@ import { useWSMethods, useWSState } from "../context/websocket-context";
 // reject locally. These websocket mutations are fire-and-forget: the caller
 // only knows it sent a message, while the real success/error arrives later via
 // instance_created / instance_removed / notification / error events. This
-// provider lets call sites register "we started a create/remove/merge" and
-// shows the toast only when the matching websocket confirmation arrives.
+// provider lets call sites register "we started a create/remove/merge" so the
+// matching websocket confirmation can drive navigation and toast state.
 interface ActionToastContextValue {
   trackInstanceCreate: (workingDirectory: string) => void;
   trackInstanceRemove: (instance: Pick<InstanceInfo, "id" | "name">) => void;
@@ -36,8 +36,6 @@ export function ActionToastProvider({ children }: { children: ReactNode }) {
 
       if (pendingCount === 1) pendingCreatesRef.current.delete(instance.workingDirectory);
       else pendingCreatesRef.current.set(instance.workingDirectory, pendingCount - 1);
-
-      toast.success(`Created "${instance.name}"`);
     }
 
     for (const [instanceId, name] of pendingRemovalsRef.current) {

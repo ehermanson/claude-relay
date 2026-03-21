@@ -759,6 +759,10 @@ function getGitInfo(dir: string): { branch: string; isWorktree: boolean } | null
   try {
     const opts = { cwd: dir, timeout: 2000, encoding: "utf8" as const, stdio: "pipe" as const };
     const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts).trim();
+    if (!branch || branch === "HEAD") {
+      gitInfoCache.set(dir, { info: null, cachedAt: Date.now() });
+      return null;
+    }
     // Detect worktrees: in a worktree, --git-dir points to main-repo/.git/worktrees/<name>
     // while --git-common-dir points to main-repo/.git. In the main repo they are equal.
     // (--show-toplevel returns the worktree's own root, so it can't distinguish worktrees.)
