@@ -174,6 +174,9 @@ export function InstanceHeader({
   onSplit,
 }: InstanceHeaderProps) {
   const isStopped = instance.status === "stopped";
+  const displayBranch = instance.gitInfo?.branch || instance.gitBranch;
+  const displayBranchIsWorktree =
+    instance.gitInfo?.isWorktree ?? Boolean(instance.originalDirectory && displayBranch);
 
   // Status dot + label
   let dotClass: string;
@@ -228,19 +231,19 @@ export function InstanceHeader({
               {getProjectName(instance.workingDirectory)}
             </Link>
           </Tooltip>
-          {(instance.gitBranch || instance.gitInfo?.branch) && (
+          {displayBranch && (
             <>
               <span className="text-border">&middot;</span>
               <Tooltip
                 content={
-                  instance.gitBranch
-                    ? `Working in worktree on branch ${instance.gitBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
-                    : `On branch ${instance.gitInfo!.branch}`
+                  displayBranchIsWorktree
+                    ? `Working in worktree on branch ${displayBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
+                    : `On branch ${displayBranch}`
                 }
               >
                 <span className="flex shrink-0 items-center gap-1 text-accent/70">
                   <GitBranch size={10} strokeWidth={2.5} />
-                  {instance.gitBranch || instance.gitInfo!.branch}
+                  {displayBranch}
                 </span>
               </Tooltip>
             </>

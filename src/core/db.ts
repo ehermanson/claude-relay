@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 15;
+const CURRENT_SCHEMA_VERSION = 16;
 
 export interface ProjectRow {
   id: string;
@@ -106,6 +106,7 @@ export interface ManagedInstanceRow {
   project_id: string | null;
   model: string | null;
   model_options_json: string | null;
+  original_git_branch: string | null;
 }
 
 export class SessionDB {
@@ -456,6 +457,16 @@ export class SessionDB {
       }
     }
 
+    // v16: add original_git_branch for branch-switch detection
+    {
+      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
+        name: string;
+      }>;
+      if (!managedCols.some((c) => c.name === "original_git_branch")) {
+        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN original_git_branch TEXT`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -528,7 +539,7 @@ export class SessionDB {
         resume_cursor_json, runtime_payload_json, transcript_path,
         last_message_text, last_message_from, last_message_at,
         git_info_branch, git_info_is_worktree, space_id, project_id, model,
-        model_options_json
+        model_options_json, original_git_branch
       ) VALUES (
         @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
         @created_at, @last_activity_at, @archived, @custom_title,
@@ -538,7 +549,7 @@ export class SessionDB {
         @resume_cursor_json, @runtime_payload_json, @transcript_path,
         @last_message_text, @last_message_from, @last_message_at,
         @git_info_branch, @git_info_is_worktree, @space_id, @project_id, @model,
-        @model_options_json
+        @model_options_json, @original_git_branch
       )
       ON CONFLICT(instance_id) DO UPDATE SET
         provider_name = excluded.provider_name,
@@ -571,7 +582,8 @@ export class SessionDB {
         space_id = excluded.space_id,
         project_id = excluded.project_id,
         model = excluded.model,
-        model_options_json = excluded.model_options_json
+        model_options_json = excluded.model_options_json,
+        original_git_branch = excluded.original_git_branch
     `);
 
     this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");

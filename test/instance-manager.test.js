@@ -57,6 +57,7 @@ function makeManagedRow(overrides = {}) {
     resume_cursor_json: null,
     runtime_payload_json: "{}",
     model_options_json: null,
+    original_git_branch: null,
     transcript_path: null,
     last_message_text: null,
     last_message_from: null,
@@ -173,6 +174,53 @@ describe("InstanceManager", () => {
       assert.equal(instance.originalDirectory, originalDirectory);
       assert.equal(instance.actualCwd, undefined);
     });
+
+    it("falls back to persisted git metadata for originalGitBranch on restored managed sessions", () => {
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-legacy-branch",
+            working_directory: manager.baseConfig.workingDirectory,
+            git_branch: "relay-space/deadbeef",
+            git_info_branch: "relay-space/deadbeef",
+            original_git_branch: null,
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(manager.baseConfig);
+      restored.restoreInstances();
+      const info = restored.getInstance("managed-legacy-branch");
+
+      assert.ok(info);
+      assert.equal(info.originalGitBranch, "relay-space/deadbeef");
+    });
+
+    it("refreshes the live git branch without waiting for a new message", async () => {
+      const repoDir = mkdtempSync(join(tmpdir(), "relay-branch-refresh-"));
+      execSync("git init -q -b main", { cwd: repoDir, stdio: "pipe" });
+      execSync('git config user.email "relay@example.com"', { cwd: repoDir, stdio: "pipe" });
+      execSync('git config user.name "Relay Tests"', { cwd: repoDir, stdio: "pipe" });
+      writeFileSync(join(repoDir, "README.md"), "hello\n");
+      execSync("git add README.md", { cwd: repoDir, stdio: "pipe" });
+      execSync('git commit -q -m "init"', { cwd: repoDir, stdio: "pipe" });
+
+      const info = manager.createInstance({ workingDirectory: repoDir });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+      assert.equal(instance.info.gitInfo?.branch, "main");
+
+      execSync("git checkout -q -b feature-branch", { cwd: repoDir, stdio: "pipe" });
+
+      await manager.refreshGitBranchStateAsync(info.id, instance);
+
+      assert.equal(instance.info.gitInfo?.branch, "feature-branch");
+      assert.equal(instance.info.originalGitBranch, "main");
+    });
   });
 
   describe("provider registry", () => {
@@ -286,6 +334,56 @@ describe("InstanceManager", () => {
       assert.equal(history.length, 1);
       assert.equal(history[0].message.text, "tell me how to run this locally");
       assert.equal(history[0].message.internal, undefined);
+    });
+
+    it("still sends messages after a branch change while surfacing branch drift", async () => {
+      const repoDir = mkdtempSync(join(tmpdir(), "relay-branch-check-"));
+      execSync("git init -q -b main", { cwd: repoDir, stdio: "pipe" });
+      execSync('git config user.email "relay@example.com"', { cwd: repoDir, stdio: "pipe" });
+      execSync('git config user.name "Relay Tests"', { cwd: repoDir, stdio: "pipe" });
+      writeFileSync(join(repoDir, "README.md"), "hello\n");
+      execSync("git add README.md", { cwd: repoDir, stdio: "pipe" });
+      execSync('git commit -q -m "init"', { cwd: repoDir, stdio: "pipe" });
+
+      const info = manager.createInstance({ workingDirectory: repoDir });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      const sentMessages = [];
+      instance.process = {
+        ...instance.process,
+        isProcessing: false,
+        provider: "codex",
+        pid: undefined,
+        stats: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+        send(text) {
+          sentMessages.push(text);
+        },
+        interrupt() {},
+        close() {},
+        setModel() {},
+        setReasoningBudget() {},
+        addAllowedTool() {},
+        setBypassPermissions() {},
+        getRuntimeBinding() {
+          return { provider: "codex" };
+        },
+        respondToRequest() {
+          return false;
+        },
+      };
+
+      execSync("git checkout -q -b feature-branch", { cwd: repoDir, stdio: "pipe" });
+
+      await manager.refreshGitBranchStateAsync(info.id, instance);
+      manager.sendMessage(info.id, "hello on the new branch");
+
+      assert.deepEqual(instance.info.branchChanged, {
+        originalBranch: "main",
+        currentBranch: "feature-branch",
+      });
+      assert.equal(instance.info.gitInfo?.branch, "feature-branch");
+      assert.deepEqual(sentMessages, ["hello on the new branch"]);
     });
   });
 

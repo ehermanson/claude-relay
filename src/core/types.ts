@@ -190,6 +190,10 @@ export interface InstanceInfo {
   originalDirectory?: string;
   /** Git metadata for the working directory (directory-level, independent of worktrees) */
   gitInfo?: { branch: string; isWorktree: boolean };
+  /** Git branch at session creation time — used to detect mid-chat branch switches */
+  originalGitBranch?: string;
+  /** Set when the current branch differs from the branch this chat started on */
+  branchChanged?: { originalBranch: string; currentBranch: string };
   /** Claude session ID of the plan-mode parent (UI-only link, no state merging) */
   parentSessionId?: string;
   /** Preferred model override for this instance (e.g. "claude-opus-4-6") */
@@ -354,6 +358,7 @@ export interface DeleteSpacePayload {
   type: "delete_space";
   spaceId: string;
 }
+
 export type ClientMessage =
   | MessagePayload
   | CancelPayload

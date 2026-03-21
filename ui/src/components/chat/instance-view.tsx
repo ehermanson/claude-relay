@@ -8,6 +8,7 @@ import { InputArea } from "@/components/chat/input-area";
 import { InstanceHeader } from "@/components/chat/instance-header";
 import { MessageList } from "@/components/chat/message-list";
 import { PermissionBanner } from "@/components/chat/permission-banner";
+import { BranchChangeBanner } from "@/components/chat/branch-change-banner";
 import { Sidecar } from "@/components/chat/sidecar";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
 import { RelayLogo } from "@/components/ui/relay-logo";
@@ -160,12 +161,23 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [showDebugPaste, setShowDebugPaste] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dismissedBranchChangeKey, setDismissedBranchChangeKey] = useState<string | null>(null);
 
   const hasStats =
     !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
   const hasTasksContent = (currentTasks?.length ?? 0) > 0;
   const hasFilesContent = (currentFiles?.length ?? 0) > 0;
   const hasPlanContent = !!instance?.planContent;
+  const branchChangeKey = instance?.branchChanged
+    ? `${instance.branchChanged.originalBranch}->${instance.branchChanged.currentBranch}`
+    : null;
+  const showBranchChangeBanner = !!branchChangeKey && dismissedBranchChangeKey !== branchChangeKey;
+
+  useEffect(() => {
+    if (!branchChangeKey) {
+      setDismissedBranchChangeKey(null);
+    }
+  }, [branchChangeKey]);
 
   const {
     activePanels,
@@ -334,6 +346,14 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
 
       {pendingTerminalTool && !pendingUserInput && (
         <TerminalPermissionBar provider={instance.provider} pendingTool={pendingTerminalTool} />
+      )}
+
+      {!isLoadingSession && showBranchChangeBanner && instance.branchChanged && (
+        <BranchChangeBanner
+          originalBranch={instance.branchChanged.originalBranch}
+          currentBranch={instance.branchChanged.currentBranch}
+          onDismiss={() => setDismissedBranchChangeKey(branchChangeKey)}
+        />
       )}
 
       {!isLoadingSession &&

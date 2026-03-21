@@ -180,6 +180,8 @@ interface Instance {
   hydrated: boolean;
   /** True after task context has been injected into this session */
   taskContextInjected?: boolean;
+  /** True while an async git-branch refresh is in flight */
+  refreshingGitBranch?: boolean;
 }
 
 export interface InstanceManagerEvents {
@@ -941,6 +943,8 @@ function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
     gitBranch: entry.git_branch ?? undefined,
     originalDirectory: entry.original_directory ?? undefined,
     gitInfo: gitInfoFromDb(entry),
+    originalGitBranch:
+      entry.original_git_branch ?? entry.git_branch ?? entry.git_info_branch ?? undefined,
     parentSessionId: entry.parent_session_id ?? undefined,
     preferredModel: entry.preferred_model ?? undefined,
     reasoningBudget: entry.reasoning_budget ?? undefined,
@@ -1202,6 +1206,7 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
+    const initialGitInfo = getGitInfo(workingDirectory) ?? undefined;
     const info: InstanceInfo = {
       id,
       provider,
@@ -1210,8 +1215,9 @@ export class InstanceManager extends EventEmitter {
       status: "idle",
       createdAt: now,
       lastActivityAt: now,
-      gitInfo: getGitInfo(workingDirectory) ?? undefined,
+      gitInfo: initialGitInfo,
       gitBranch: spaceGitBranch,
+      originalGitBranch: initialGitInfo?.branch ?? getCurrentBranch(workingDirectory) ?? undefined,
       preferredModel: model,
       reasoningBudget: modelOptions?.reasoningBudgetTokens ?? options?.reasoningBudget,
       modelOptions,
@@ -2111,6 +2117,15 @@ export class InstanceManager extends EventEmitter {
       if (instance.info.gitInfo) changed = true;
     }
 
+    // Backfill originalGitBranch for sessions created before this feature
+    if (!instance.info.originalGitBranch) {
+      const fallbackOriginalBranch = instance.gitBranch ?? instance.info.gitBranch;
+      if (fallbackOriginalBranch || instance.info.gitInfo?.branch) {
+        instance.info.originalGitBranch = fallbackOriginalBranch ?? instance.info.gitInfo?.branch;
+        changed = true;
+      }
+    }
+
     // Worktree changes check
     if (instance.worktreePath && instance.originalDirectory) {
       instance.info.hasChanges = await hasWorktreeChangesAsync(
@@ -2123,6 +2138,63 @@ export class InstanceManager extends EventEmitter {
     if (changed) {
       this.dbSave(instance);
       this.emit("instance:status", id, { ...instance.info });
+    }
+  }
+
+  private async refreshGitBranchStateAsync(id: string, instance: Instance): Promise<void> {
+    if (instance.refreshingGitBranch || !this.instances.has(id)) return;
+
+    instance.refreshingGitBranch = true;
+    try {
+      const cwd = this.resolveRunnableCwd(instance);
+      const currentBranch = await getCurrentBranchAsync(cwd);
+      const currentIsWorktree = instance.info.gitInfo?.isWorktree ?? Boolean(instance.worktreePath);
+      let changed = false;
+
+      if (currentBranch) {
+        if (
+          !instance.info.gitInfo ||
+          instance.info.gitInfo.branch !== currentBranch ||
+          instance.info.gitInfo.isWorktree !== currentIsWorktree
+        ) {
+          instance.info.gitInfo = {
+            branch: currentBranch,
+            isWorktree: currentIsWorktree,
+          };
+          changed = true;
+        }
+
+        if (!instance.info.originalGitBranch) {
+          instance.info.originalGitBranch =
+            instance.gitBranch ?? instance.info.gitBranch ?? currentBranch;
+          changed = true;
+        }
+
+        if (instance.info.originalGitBranch !== currentBranch) {
+          const nextBranchChanged = {
+            originalBranch: instance.info.originalGitBranch,
+            currentBranch,
+          };
+          if (
+            !instance.info.branchChanged ||
+            instance.info.branchChanged.originalBranch !== nextBranchChanged.originalBranch ||
+            instance.info.branchChanged.currentBranch !== nextBranchChanged.currentBranch
+          ) {
+            instance.info.branchChanged = nextBranchChanged;
+            changed = true;
+          }
+        } else if (instance.info.branchChanged) {
+          instance.info.branchChanged = undefined;
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        this.dbSave(instance);
+        this.emit("instance:status", id, { ...instance.info });
+      }
+    } finally {
+      instance.refreshingGitBranch = false;
     }
   }
 
@@ -2750,6 +2822,16 @@ export class InstanceManager extends EventEmitter {
     const t0 = performance.now();
     try {
       await this.discoverExistingInner();
+      await Promise.all(
+        Array.from(this.instances.entries()).map(([instanceId, instance]) =>
+          this.refreshGitBranchStateAsync(instanceId, instance).catch((err) => {
+            this.baseConfig.logger.debug(
+              `[Discover] Git branch refresh failed for ${instanceId}:`,
+              err instanceof Error ? err.message : err,
+            );
+          }),
+        ),
+      );
     } catch (err) {
       this.baseConfig.logger.debug(
         "[Discovery] Error during discovery poll:",
@@ -3893,6 +3975,13 @@ export class InstanceManager extends EventEmitter {
     const interval = setInterval(() => {
       if (!instance.watchState || !this.instances.has(instanceId)) return;
 
+      this.refreshGitBranchStateAsync(instanceId, instance).catch((err) => {
+        this.baseConfig.logger.debug(
+          `[Watcher] Git branch refresh failed for ${instanceId}:`,
+          err instanceof Error ? err.message : err,
+        );
+      });
+
       try {
         const stat = statSync(instance.watchState.jsonlPath);
 
@@ -4161,6 +4250,7 @@ export class InstanceManager extends EventEmitter {
       model_options_json: instance.info.modelOptions
         ? JSON.stringify(instance.info.modelOptions)
         : null,
+      original_git_branch: instance.info.originalGitBranch ?? null,
     };
   }
 
@@ -4899,6 +4989,7 @@ export class InstanceManager extends EventEmitter {
             row.reasoning_budget != null
               ? JSON.stringify({ reasoningBudgetTokens: row.reasoning_budget })
               : null,
+          original_git_branch: null,
         });
       } catch (err) {
         this.baseConfig.logger.warn(
@@ -5073,6 +5164,8 @@ export class InstanceManager extends EventEmitter {
       gitBranch: restoreGitBranch,
       originalDirectory: restoreOriginalDirectory,
       gitInfo: gitInfoFromDb(entry),
+      originalGitBranch:
+        entry.original_git_branch ?? entry.git_branch ?? entry.git_info_branch ?? undefined,
       parentSessionId: entry.parent_session_id ?? undefined,
       preferredModel: entry.preferred_model ?? undefined,
       reasoningBudget:

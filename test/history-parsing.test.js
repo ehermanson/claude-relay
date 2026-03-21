@@ -126,6 +126,7 @@ function seedManagedDB(tempDir, entries) {
         entry.runtimePayloadJson ||
         JSON.stringify({ cwd: entry.workingDirectory || "/Users/test/projects/my-app" }),
       model_options_json: null,
+      original_git_branch: null,
       transcript_path: entry.transcriptPath || null,
       last_message_text: entry.lastMessageText || null,
       last_message_from: entry.lastMessageFrom || null,

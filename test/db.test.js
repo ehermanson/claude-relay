@@ -385,6 +385,7 @@ describe("SessionDB", () => {
         resume_cursor_json: null,
         runtime_payload_json: "{}",
         model_options_json: null,
+        original_git_branch: null,
         transcript_path: null,
         last_message_text: null,
         last_message_from: null,
