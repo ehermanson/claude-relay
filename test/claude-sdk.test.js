@@ -728,6 +728,60 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
+    it("suppresses stale stream-closed permission errors after auto-approving via bypass", async () => {
+      const fakeQuery = new FakeQuery();
+      let canUseToolFn;
+      const session = await createSdkSession({
+        cwd: "/test",
+        logger: noopLogger,
+        queryFn: ({ prompt, options }) => {
+          canUseToolFn = options.canUseTool;
+          return fakeQuery;
+        },
+      });
+      const activities = collectEvents(session, "activity");
+
+      const resultPromise = canUseToolFn(
+        "Bash",
+        { command: "rm -rf /" },
+        {
+          signal: new AbortController().signal,
+          toolUseID: "tu-stale-1",
+        },
+      );
+
+      await tick();
+
+      session.setBypassPermissions(true);
+      const result = await resultPromise;
+      assert.equal(result.behavior, "allow");
+
+      fakeQuery.emit({
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tu-stale-1",
+              is_error: true,
+              content: "Tool permission request failed: Error: Stream closed",
+            },
+          ],
+        },
+      });
+
+      await tick();
+
+      assert.equal(
+        activities.some(
+          ([activity]) =>
+            activity.activity === "tool_result" && activity.description === "Tool error",
+        ),
+        false,
+      );
+      session.close();
+    });
+
     it("denies permission when signal is aborted", async () => {
       const fakeQuery = new FakeQuery();
       let canUseToolFn;

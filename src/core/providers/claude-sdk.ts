@@ -291,6 +291,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private _planMode = false;
   private pendingStreamMessage: PendingStreamMessage | null = null;
   private _autoContinueCount = 0;
+  /** Late SDK tool_result errors for permission streams we already auto-approved. */
+  private ignoredPermissionErrorToolUseIds = new Set<string>();
 
   // State tracking (mirrors ClaudeProcess)
   private taskMap = new Map<string, TaskItem>();
@@ -503,6 +505,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       this.logger.info(
         `[SdkSession] Auto-approving pending permission for ${this.pendingPermission.toolName}`,
       );
+      this.ignoredPermissionErrorToolUseIds.add(this.pendingPermission.toolUseId);
       this.pendingPermission.resolve({
         behavior: "allow",
         updatedInput: this.pendingPermission.input,
@@ -1125,10 +1128,21 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     const toolUseId = block.tool_use_id as string;
     const toolName = this.pendingTools.get(toolUseId);
     const isError = block.is_error as boolean | undefined;
+    const content = typeof block.content === "string" ? block.content : "";
+
+    if (
+      isError &&
+      this.ignoredPermissionErrorToolUseIds.has(toolUseId) &&
+      content.includes("Tool permission request failed") &&
+      content.includes("Stream closed")
+    ) {
+      this.ignoredPermissionErrorToolUseIds.delete(toolUseId);
+      return;
+    }
+    this.ignoredPermissionErrorToolUseIds.delete(toolUseId);
 
     if (TASK_TOOLS.has(toolName || "")) {
       if (toolName === "TaskCreate") {
-        const content = (block.content as string) || "";
         const idMatch = content.match(/Task #(\d+)/);
         const pending = this.pendingTaskCreates.get(toolUseId);
         if (idMatch && pending) {
@@ -1146,7 +1160,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     }
 
     // For non-task tools, emit a tool_result activity
-    const content = typeof block.content === "string" ? block.content : "";
     const activity: ActivityMessage = {
       type: "activity",
       activity: "tool_result",
