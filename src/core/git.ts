@@ -772,3 +772,176 @@ export async function enrichDiffStatsAsync(
     // git not available or not a repo — silently skip
   }
 }
+
+// ─── Branch Management ────────────────────────────────────────────────────
+
+/**
+ * Detect the primary remote name for a repo directory.
+ * Prefers "origin" if it exists, otherwise uses the first remote.
+ */
+export function getPrimaryRemote(dir: string): string {
+  try {
+    const output = execFileSync("git", ["remote"], {
+      cwd: dir,
+      timeout: 3000,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const remotes = output.trim().split("\n").filter(Boolean);
+    if (remotes.includes("origin")) return "origin";
+    return remotes[0] || "origin";
+  } catch {
+    return "origin";
+  }
+}
+
+/**
+ * List local and remote branches, marking the current branch.
+ */
+export function listBranches(dir: string): {
+  local: string[];
+  remote: string[];
+  current: string | null;
+} {
+  let current: string | null = null;
+  const local: string[] = [];
+  const remote: string[] = [];
+
+  try {
+    const localOutput = execFileSync("git", ["branch", "--no-color"], {
+      cwd: dir,
+      timeout: 5000,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    for (const line of localOutput.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (line.startsWith("* ") || line.startsWith("+ ")) {
+        const branch = trimmed.slice(2);
+        current = branch.startsWith("(") ? null : branch;
+        if (current) local.push(current);
+      } else {
+        local.push(trimmed);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const remoteOutput = execFileSync("git", ["branch", "-r", "--no-color"], {
+      cwd: dir,
+      timeout: 5000,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    for (const line of remoteOutput.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.includes("->")) continue;
+      // Strip remote prefix for cleaner display
+      const remote_name = getPrimaryRemote(dir);
+      const name = trimmed.replace(new RegExp(`^${remote_name}/`), "");
+      if (name && !remote.includes(name)) {
+        remote.push(name);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return { local, remote, current };
+}
+
+/**
+ * Get the number of commits ahead/behind relative to upstream tracking branch.
+ * Returns { ahead: 0, behind: 0 } if no upstream is configured.
+ */
+export function getAheadBehind(dir: string): { ahead: number; behind: number } {
+  try {
+    const output = execFileSync(
+      "git",
+      ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"],
+      {
+        cwd: dir,
+        timeout: 5000,
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const [behind, ahead] = output.trim().split(/\s+/).map(Number);
+    return { ahead: ahead || 0, behind: behind || 0 };
+  } catch {
+    return { ahead: 0, behind: 0 };
+  }
+}
+
+/**
+ * Switch branch. Throws on dirty working tree or invalid branch.
+ */
+export function checkoutBranch(dir: string, branch: string): void {
+  execFileSync("git", ["checkout", branch], {
+    cwd: dir,
+    timeout: 10000,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
+// ─── Remote Operations ────────────────────────────────────────────────────
+
+/**
+ * Fetch from remote with pruning.
+ */
+export async function gitFetch(dir: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    await execFileAsync("git", ["fetch", "--prune"], {
+      cwd: dir,
+      timeout: 30000,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Pull with fast-forward only (safe default).
+ */
+export async function gitPull(dir: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    await execFileAsync("git", ["pull", "--ff-only"], {
+      cwd: dir,
+      timeout: 30000,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Push to remote. Optionally set upstream tracking.
+ */
+export async function gitPush(
+  dir: string,
+  branch?: string,
+  setUpstream?: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const args = ["push"];
+    const remote = getPrimaryRemote(dir);
+    if (setUpstream && branch) {
+      args.push("-u", remote, branch);
+    } else if (branch) {
+      args.push(remote, branch);
+    }
+    await execFileAsync("git", args, {
+      cwd: dir,
+      timeout: 30000,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

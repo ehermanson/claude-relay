@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, useParams, useLocation, Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { ChevronLeft } from "lucide-react";
+import { GitStatusBar } from "@/components/project/git-status-bar";
 import { OpenInMenu } from "@/components/project/open-in-menu";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -100,7 +101,8 @@ function ProjectLayout() {
   const isTasksTab = pathname.includes("/tasks");
   const isSkillsTab = pathname.includes("/skills");
   const isChatsTab = pathname.includes("/chats");
-  const isOverviewTab = !isPlansTab && !isTasksTab && !isSkillsTab && !isChatsTab;
+  const isSettingsTab = pathname.includes("/settings");
+  const isOverviewTab = !isPlansTab && !isTasksTab && !isSkillsTab && !isChatsTab && !isSettingsTab;
 
   const planCount = artifacts.plans.length;
   const taskCount = artifacts.tasks?.length ?? 0;
@@ -189,6 +191,9 @@ function ProjectLayout() {
           </div>
         </div>
 
+        {/* Git status bar */}
+        <GitStatusBar projectId={projectId} />
+
         {/* Sub-nav */}
         <nav className="flex shrink-0 items-center gap-1 border-b border-border/70 px-6">
           <NavTab
@@ -229,6 +234,12 @@ function ProjectLayout() {
             label="Chats"
             count={sessionStats.total}
             badge={chatBadge}
+          />
+          <NavTab
+            to="/projects/$projectId/settings"
+            params={{ projectId }}
+            active={isSettingsTab}
+            label="Settings"
           />
         </nav>
 

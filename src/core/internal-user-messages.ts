@@ -24,10 +24,23 @@ export function buildFirstTurnTaskContextPrompt(userMessage: string): string {
   );
 }
 
+const CUSTOM_INSTRUCTIONS_PREFIX = "Codebase and user instructions are shown below.";
+
+export function buildCustomInstructionsPrompt(userMessage: string, instructions: string): string {
+  return (
+    `${CUSTOM_INSTRUCTIONS_PREFIX} Be sure to adhere to these instructions. ` +
+    `IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.\n\n` +
+    `${instructions}\n\n` +
+    `      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n\n` +
+    `User request:\n${userMessage}`
+  );
+}
+
 export function isInternalInjectedUserText(text: string): boolean {
   return (
     text === AUTO_CONTINUE_MSG ||
     text === TASK_CONTEXT_MSG ||
+    text.startsWith(CUSTOM_INSTRUCTIONS_PREFIX) ||
     /^Permission granted for .+\. Please continue\.$/.test(text)
   );
 }

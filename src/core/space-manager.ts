@@ -8,7 +8,7 @@
 
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import { join } from "path";
 import { homedir } from "os";
 import { EventEmitter } from "events";
@@ -27,6 +27,7 @@ import {
   commitAll,
   mergeWorktreeBranch,
   getWorktreeDiff,
+  gitPush,
 } from "./git.js";
 
 function rowToInfo(row: SpaceRow, chatCount: number): SpaceInfo {
@@ -296,6 +297,82 @@ export class SpaceManager extends EventEmitter {
     // Diff from inside the worktree so we capture both committed and
     // uncommitted changes vs the base branch.
     return getWorktreeDiff(worktreePath, defaultBranch);
+  }
+
+  /**
+   * Push a space's branch to the remote. Optionally create a PR via gh CLI.
+   */
+  async pushSpace(
+    id: string,
+    opts?: { createPR?: boolean },
+  ): Promise<{ pushed: boolean; prUrl?: string; error?: string }> {
+    const row = this.db.getSpace(id);
+    if (!row) throw new Error(`Space ${id} not found`);
+    if (row.is_default) throw new Error("Cannot push the default space");
+    if (!row.git_branch || !row.worktree_path) {
+      throw new Error("Space has no worktree to push");
+    }
+
+    // Auto-commit if dirty
+    if (existsSync(row.worktree_path) && isWorktreeDirty(row.worktree_path)) {
+      const commitResult = commitAll(row.worktree_path, row.name || "Space work");
+      if (!commitResult.success) {
+        throw new Error(`Auto-commit failed: ${commitResult.error}`);
+      }
+    }
+
+    // Push with upstream tracking
+    const pushResult = await gitPush(row.worktree_path, row.git_branch, true);
+    if (!pushResult.success) {
+      return { pushed: false, error: pushResult.error || "Push failed" };
+    }
+
+    this.logger.info(`[SpaceManager] Pushed space "${row.name}" branch ${row.git_branch}`);
+
+    // Optionally create PR via gh CLI
+    if (opts?.createPR) {
+      try {
+        // Check if gh is available
+        execFileSync("which", ["gh"], { stdio: "pipe", timeout: 3000 });
+
+        const repoRoot = getRepoRoot(row.project_directory);
+        const defaultBranch = (repoRoot ? getDefaultBranch(repoRoot) : null) || "main";
+        const title = row.name || `Space ${row.id.slice(0, 8)}`;
+
+        const prOutput = execFileSync(
+          "gh",
+          [
+            "pr",
+            "create",
+            "--head",
+            row.git_branch,
+            "--base",
+            defaultBranch,
+            "--title",
+            title,
+            "--fill",
+          ],
+          {
+            cwd: row.worktree_path,
+            encoding: "utf8",
+            timeout: 30000,
+            stdio: ["pipe", "pipe", "pipe"],
+          },
+        ).trim();
+
+        // gh pr create outputs the PR URL on success
+        const prUrl = prOutput.match(/https?:\/\/\S+/)?.[0];
+        return { pushed: true, prUrl };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("which gh") || msg.includes("not found")) {
+          return { pushed: true, error: "gh CLI not found — branch pushed but PR not created" };
+        }
+        return { pushed: true, error: `PR creation failed: ${msg}` };
+      }
+    }
+
+    return { pushed: true };
   }
 
   /**

@@ -22,14 +22,17 @@ export function CreateSpaceDialog({
   dir,
   projectName,
   projectId,
+  defaultBaseBranch,
   onOpenChange,
 }: {
   dir: string | null;
   projectName: string;
   projectId: string | undefined;
+  defaultBaseBranch?: string;
   onOpenChange: (open: boolean) => void;
 }) {
   const [name, setName] = useState("");
+  const [baseBranch, setBaseBranch] = useState("");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -39,8 +42,10 @@ export function CreateSpaceDialog({
       return;
     }
     try {
+      const effectiveBranch = baseBranch.trim() || defaultBaseBranch || undefined;
       const space = await createSpace(projectId, {
         name: name.trim() || undefined,
+        baseBranch: effectiveBranch,
       });
       onOpenChange(false);
       await queryClient.invalidateQueries({ queryKey: ["spaces", projectId] });
@@ -57,7 +62,10 @@ export function CreateSpaceDialog({
     <Dialog.Root
       open={!!dir}
       onOpenChange={(open) => {
-        if (!open) setName("");
+        if (!open) {
+          setName("");
+          setBaseBranch("");
+        }
         onOpenChange(open);
       }}
     >
@@ -88,6 +96,22 @@ export function CreateSpaceDialog({
                 }
               }}
               placeholder="Optional"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[0.75rem] font-medium text-muted" htmlFor="create-space-branch">
+              Base Branch
+            </label>
+            <Input
+              id="create-space-branch"
+              value={baseBranch}
+              onChange={(event) => setBaseBranch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  void handleCreate();
+                }
+              }}
+              placeholder={defaultBaseBranch || "Current branch"}
             />
           </div>
           <div className="flex justify-end gap-2">

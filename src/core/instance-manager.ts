@@ -79,6 +79,7 @@ import {
 } from "./provider-registry.js";
 import {
   AUTO_CONTINUE_MSG,
+  buildCustomInstructionsPrompt,
   buildFirstTurnTaskContextPrompt,
   buildPermissionGrantedRetryMessage,
   isInternalInjectedUserText,
@@ -180,6 +181,8 @@ interface Instance {
   hydrated: boolean;
   /** True after task context has been injected into this session */
   taskContextInjected?: boolean;
+  /** True after custom instructions have been injected into this session */
+  customInstructionsInjected?: boolean;
   /** True while an async git-branch refresh is in flight */
   refreshingGitBranch?: boolean;
 }
@@ -1141,7 +1144,6 @@ export class InstanceManager extends EventEmitter {
 
     const id = randomUUID();
     this.instanceCounter++;
-    const provider = options?.provider ?? "claude";
     let workingDirectory = options?.workingDirectory || this.baseConfig.workingDirectory;
     const now = Date.now();
 
@@ -1167,6 +1169,22 @@ export class InstanceManager extends EventEmitter {
     }
     const resumeId = options?.resumeSessionId;
 
+    // Auto-register project early so we can apply project-level defaults
+    let project = this._projectManager.getProjectByDirectory(workingDirectory);
+    if (!project) {
+      try {
+        project = this._projectManager.addProject(workingDirectory);
+      } catch {
+        // Directory may not exist (e.g. remote sessions) — skip project registration
+      }
+    }
+
+    // Resolve provider and model: explicit options > project defaults > system defaults
+    const provider: ProviderKind = options?.provider
+      ? options.provider
+      : ((project?.defaultProvider as ProviderKind) ?? "claude");
+    const model = options?.model ?? project?.defaultModel ?? this.baseConfig.defaultModel;
+
     const instanceConfig: CoreConfig = {
       ...this.baseConfig,
       workingDirectory,
@@ -1174,7 +1192,6 @@ export class InstanceManager extends EventEmitter {
         options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
     };
 
-    const model = options?.model ?? this.baseConfig.defaultModel;
     // Build canonical modelOptions: explicit modelOptions wins, fall back to legacy reasoningBudget
     const modelOptions: ProviderModelOptions | undefined =
       options?.modelOptions ??
@@ -1199,16 +1216,6 @@ export class InstanceManager extends EventEmitter {
 
     const skipPerms =
       options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions;
-
-    // Auto-register project if not already registered
-    let project = this._projectManager.getProjectByDirectory(workingDirectory);
-    if (!project) {
-      try {
-        project = this._projectManager.addProject(workingDirectory);
-      } catch {
-        // Directory may not exist (e.g. remote sessions) — skip project registration
-      }
-    }
 
     const initialGitInfo = getGitInfo(workingDirectory) ?? undefined;
     const info: InstanceInfo = {
@@ -1539,6 +1546,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     let shouldInjectTaskContext = false;
+    let customInstructions: string | null = null;
 
     // Inject task context into the first outbound user turn for projects with .relay/tasks.jsonl
     if (!instance.taskContextInjected && !internal && instance.info.projectId) {
@@ -1546,6 +1554,37 @@ export class InstanceManager extends EventEmitter {
       const taskProject = this._projectManager.getProject(instance.info.projectId);
       if (taskProject && hasTasks(taskProject.directory)) {
         shouldInjectTaskContext = true;
+      }
+    }
+
+    // Collect custom instructions for the first outbound user turn
+    if (!instance.customInstructionsInjected && !internal && instance.info.projectId) {
+      instance.customInstructionsInjected = true;
+      const project = this._projectManager.getProject(instance.info.projectId);
+      if (project) {
+        const parts: string[] = [];
+
+        // DB-stored custom instructions
+        if (project.customInstructions?.trim()) {
+          parts.push(project.customInstructions.trim());
+        }
+
+        // File-based instructions (.relay/instructions.md)
+        const instructionsPath = join(project.directory, ".relay", "instructions.md");
+        try {
+          if (existsSync(instructionsPath)) {
+            const fileInstructions = readFileSync(instructionsPath, "utf8").trim();
+            if (fileInstructions) {
+              parts.push(fileInstructions);
+            }
+          }
+        } catch {
+          // Non-critical — skip if file can't be read
+        }
+
+        if (parts.length > 0) {
+          customInstructions = parts.join("\n\n");
+        }
       }
     }
 
@@ -1562,9 +1601,14 @@ export class InstanceManager extends EventEmitter {
       messageText = messageText ? `${messageText}\n${markers}` : markers;
     }
 
-    const outboundMessage = shouldInjectTaskContext
-      ? buildFirstTurnTaskContextPrompt(messageText)
-      : messageText;
+    // Apply context injections to the outbound message
+    let outboundMessage = messageText;
+    if (shouldInjectTaskContext) {
+      outboundMessage = buildFirstTurnTaskContextPrompt(outboundMessage);
+    }
+    if (customInstructions) {
+      outboundMessage = buildCustomInstructionsPrompt(outboundMessage, customInstructions);
+    }
 
     // Store user message in history so replay works across devices
     const userMessage: UserMessage = {

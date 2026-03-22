@@ -234,6 +234,12 @@ export async function fetchProjectIcons(): Promise<Record<string, string>> {
   return res.json();
 }
 
+export async function fetchProject(projectId: string): Promise<Project> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`);
+  if (!res.ok) throw new Error("Failed to fetch project");
+  return res.json();
+}
+
 export async function fetchProjectArtifacts(projectId: string): Promise<ProjectArtifacts> {
   const res = await fetch(`/api/project-artifacts/${encodeURIComponent(projectId)}`);
   if (!res.ok) throw new Error("Failed to fetch project");
@@ -329,7 +335,14 @@ export async function createProject(parentDirectory: string, name: string): Prom
 
 export async function updateProject(
   id: string,
-  updates: { name?: string; targetBranch?: string | null },
+  updates: {
+    name?: string;
+    targetBranch?: string | null;
+    customInstructions?: string | null;
+    defaultSpaceBranch?: string | null;
+    defaultProvider?: string | null;
+    defaultModel?: string | null;
+  },
 ): Promise<Project> {
   const res = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
     method: "PATCH",
@@ -417,4 +430,84 @@ export async function fetchSpaceDiff(spaceId: string): Promise<string> {
   const data = await res.json();
   return data.diff;
 }
+// ─── Branch & Git Operations ──────────────────────────────────────────────
+
+export interface BranchesResponse {
+  local: string[];
+  remote: string[];
+  current: string | null;
+  aheadBehind: { ahead: number; behind: number };
+  dirty?: boolean;
+}
+
+export interface GitOpResult {
+  success: boolean;
+  error?: string;
+}
+
+export async function fetchBranches(projectId: string): Promise<BranchesResponse> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/branches`);
+  if (!res.ok) throw new Error("Failed to fetch branches");
+  return res.json();
+}
+
+export async function checkoutBranch(projectId: string, branch: string): Promise<BranchesResponse> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ branch }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to switch branch" }));
+    throw new Error(data.error || "Failed to switch branch");
+  }
+  return res.json();
+}
+
+export async function gitFetch(projectId: string): Promise<GitOpResult> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/fetch`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function gitPull(projectId: string): Promise<GitOpResult> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/pull`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function gitPush(
+  projectId: string,
+  opts?: { branch?: string; setUpstream?: boolean },
+): Promise<GitOpResult> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/push`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
+  });
+  return res.json();
+}
+
+// ─── Space Push ───────────────────────────────────────────────────────────
+
+export interface PushSpaceResult {
+  pushed: boolean;
+  prUrl?: string;
+  error?: string;
+}
+
+export async function pushSpace(
+  spaceId: string,
+  opts?: { createPR?: boolean },
+): Promise<PushSpaceResult> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/push`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
+  });
+  return res.json();
+}
+
 export type { NativeOpenTarget };

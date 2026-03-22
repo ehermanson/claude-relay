@@ -51,6 +51,10 @@ function rowToProject(row: ProjectRow): Project {
     repoRoot: row.repo_root,
     remoteUrl: row.remote_url,
     targetBranch: row.target_branch,
+    customInstructions: row.custom_instructions,
+    defaultSpaceBranch: row.default_space_branch,
+    defaultProvider: row.default_provider,
+    defaultModel: row.default_model,
     createdAt: row.created_at,
     lastActivityAt: row.last_activity_at,
   };
@@ -150,6 +154,10 @@ export class ProjectManager extends EventEmitter {
       repo_root: canonicalDirectory,
       remote_url: remoteUrl,
       target_branch: targetBranch,
+      custom_instructions: null,
+      default_space_branch: null,
+      default_provider: null,
+      default_model: null,
       created_at: now,
       last_activity_at: null,
     };
@@ -243,7 +251,14 @@ export class ProjectManager extends EventEmitter {
   /** Update project settings. */
   updateProject(
     id: string,
-    updates: { name?: string; targetBranch?: string | null },
+    updates: {
+      name?: string;
+      targetBranch?: string | null;
+      customInstructions?: string | null;
+      defaultSpaceBranch?: string | null;
+      defaultProvider?: string | null;
+      defaultModel?: string | null;
+    },
   ): Project | undefined {
     const existing = this.db.getProject(id);
     if (!existing) return undefined;
@@ -253,6 +268,18 @@ export class ProjectManager extends EventEmitter {
       name: updates.name ?? existing.name,
       target_branch:
         updates.targetBranch !== undefined ? updates.targetBranch : existing.target_branch,
+      custom_instructions:
+        updates.customInstructions !== undefined
+          ? updates.customInstructions
+          : existing.custom_instructions,
+      default_space_branch:
+        updates.defaultSpaceBranch !== undefined
+          ? updates.defaultSpaceBranch
+          : existing.default_space_branch,
+      default_provider:
+        updates.defaultProvider !== undefined ? updates.defaultProvider : existing.default_provider,
+      default_model:
+        updates.defaultModel !== undefined ? updates.defaultModel : existing.default_model,
     };
 
     this.db.upsertProject(row);

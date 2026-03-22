@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 16;
+const CURRENT_SCHEMA_VERSION = 17;
 
 export interface ProjectRow {
   id: string;
@@ -19,8 +19,34 @@ export interface ProjectRow {
   repo_root: string | null;
   remote_url: string | null;
   target_branch: string | null;
+  custom_instructions: string | null;
+  default_space_branch: string | null;
+  default_provider: string | null;
+  default_model: string | null;
   created_at: number;
   last_activity_at: number | null;
+}
+
+/**
+ * Normalize a ProjectRow, filling in null defaults for any missing columns.
+ * Protects against old DB rows (e.g. from pre-v17 backups) that lack the
+ * newer settings columns, which would otherwise cause a RangeError on upsert.
+ */
+function normalizeProjectRow(row: ProjectRow): ProjectRow {
+  return {
+    id: row.id,
+    name: row.name,
+    directory: row.directory,
+    repo_root: row.repo_root ?? null,
+    remote_url: row.remote_url ?? null,
+    target_branch: row.target_branch ?? null,
+    custom_instructions: row.custom_instructions ?? null,
+    default_space_branch: row.default_space_branch ?? null,
+    default_provider: row.default_provider ?? null,
+    default_model: row.default_model ?? null,
+    created_at: row.created_at,
+    last_activity_at: row.last_activity_at ?? null,
+  };
 }
 
 export interface SpaceRow {
@@ -467,6 +493,17 @@ export class SessionDB {
       }
     }
 
+    // v17: project-level settings
+    {
+      const projCols = this.db.pragma("table_info(projects)") as Array<{ name: string }>;
+      if (!projCols.some((c) => c.name === "custom_instructions")) {
+        this.db.exec(`ALTER TABLE projects ADD COLUMN custom_instructions TEXT`);
+        this.db.exec(`ALTER TABLE projects ADD COLUMN default_space_branch TEXT`);
+        this.db.exec(`ALTER TABLE projects ADD COLUMN default_provider TEXT`);
+        this.db.exec(`ALTER TABLE projects ADD COLUMN default_model TEXT`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -731,14 +768,18 @@ export class SessionDB {
 
     // Project CRUD
     this.stmtUpsertProject = this.db.prepare(`
-      INSERT INTO projects (id, name, directory, repo_root, remote_url, target_branch, created_at, last_activity_at)
-      VALUES (@id, @name, @directory, @repo_root, @remote_url, @target_branch, @created_at, @last_activity_at)
+      INSERT INTO projects (id, name, directory, repo_root, remote_url, target_branch, custom_instructions, default_space_branch, default_provider, default_model, created_at, last_activity_at)
+      VALUES (@id, @name, @directory, @repo_root, @remote_url, @target_branch, @custom_instructions, @default_space_branch, @default_provider, @default_model, @created_at, @last_activity_at)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         directory = excluded.directory,
         repo_root = excluded.repo_root,
         remote_url = excluded.remote_url,
         target_branch = excluded.target_branch,
+        custom_instructions = excluded.custom_instructions,
+        default_space_branch = excluded.default_space_branch,
+        default_provider = excluded.default_provider,
+        default_model = excluded.default_model,
         last_activity_at = excluded.last_activity_at
     `);
     this.stmtGetProject = this.db.prepare("SELECT * FROM projects WHERE id = ?");
@@ -1013,7 +1054,7 @@ export class SessionDB {
   // =========================================================================
 
   upsertProject(row: ProjectRow): void {
-    this.stmtUpsertProject.run(row);
+    this.stmtUpsertProject.run(normalizeProjectRow(row));
   }
 
   getProject(id: string): ProjectRow | undefined {

@@ -98,6 +98,26 @@ export function createSpaceRoutes(deps: HttpDeps): Route[] {
       },
     },
     {
+      method: "POST",
+      pattern: /^\/api\/spaces\/([a-f0-9-]+)\/push$/,
+      async handler(ctx, match) {
+        if (!requireAuth(ctx)) {
+          return;
+        }
+        try {
+          const body = await readJsonBody<{ createPR?: boolean }>(ctx.req);
+          const result = await instanceManager
+            .getSpaceManager()
+            .pushSpace(match[1], { createPR: body.createPR });
+          sendJson(ctx.res, result.pushed ? 200 : 400, result);
+        } catch (err) {
+          sendJson(ctx.res, 400, {
+            error: err instanceof Error ? err.message : "Failed to push space",
+          });
+        }
+      },
+    },
+    {
       method: "GET",
       pattern: /^\/api\/spaces\/([a-f0-9-]+)\/diff$/,
       handler(ctx, match) {

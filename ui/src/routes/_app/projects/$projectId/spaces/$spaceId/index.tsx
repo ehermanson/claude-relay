@@ -15,7 +15,9 @@ import {
   FolderOpen,
   GitBranch,
   GitMerge,
+  GitPullRequest,
   Info,
+  Upload,
   MoreVertical,
   Pencil,
   Plus,
@@ -38,6 +40,7 @@ import {
   fetchProjectChats,
   fetchSpaceDetail,
   fetchSpaceDiff,
+  pushSpace,
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
 import { formatTimeAgo, formatTimestamp, formatTokens } from "@/lib/utils";
@@ -334,6 +337,37 @@ export function SpaceView() {
     }
   };
 
+  const handlePush = async (createPR?: boolean) => {
+    try {
+      const result = await pushSpace(spaceId, { createPR });
+      if (result.pushed) {
+        if (result.prUrl) {
+          toast.success(
+            <span>
+              PR created:{" "}
+              <a
+                href={result.prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+              >
+                {result.prUrl}
+              </a>
+            </span>,
+          );
+        } else if (result.error) {
+          toast.warning(result.error);
+        } else {
+          toast.success("Branch pushed to remote");
+        }
+      } else {
+        toast.error(result.error || "Push failed");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to push");
+    }
+  };
+
   const handleDelete = () => {
     setConfirmDelete(true);
   };
@@ -479,6 +513,15 @@ export function SpaceView() {
               <EllipsisVertical size={14} />
             </Menu.Trigger>
             <Menu.Content>
+              <Menu.Item onClick={() => void handlePush(false)}>
+                <Upload size={13} className="text-muted" />
+                Push branch
+              </Menu.Item>
+              <Menu.Item onClick={() => void handlePush(true)}>
+                <GitPullRequest size={13} className="text-muted" />
+                Push & create PR
+              </Menu.Item>
+              <Menu.Separator />
               <Menu.Item onClick={() => setShowDebug(true)}>
                 <Bug size={13} strokeWidth={2} className="text-muted" />
                 Debug

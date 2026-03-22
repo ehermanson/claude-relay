@@ -578,6 +578,10 @@ export interface Project {
   repoRoot: string | null;
   remoteUrl: string | null;
   targetBranch: string | null;
+  customInstructions: string | null;
+  defaultSpaceBranch: string | null;
+  defaultProvider: string | null;
+  defaultModel: string | null;
   createdAt: number;
   lastActivityAt: number | null;
 }

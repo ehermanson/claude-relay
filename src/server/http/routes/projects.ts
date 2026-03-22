@@ -1,4 +1,13 @@
 import * as taskManager from "../../../core/task-manager.js";
+import {
+  listBranches,
+  getAheadBehind,
+  checkoutBranch,
+  gitFetch,
+  gitPull,
+  gitPush,
+  isWorktreeDirty,
+} from "../../../core/git.js";
 import type { Route, HttpDeps } from "../types.js";
 import { readJsonBody } from "../body.js";
 import { requireAuth } from "../guards.js";
@@ -250,6 +259,10 @@ export function createProjectRoutes(deps: HttpDeps): Route[] {
           const body = await readJsonBody<{
             name?: string;
             targetBranch?: string | null;
+            customInstructions?: string | null;
+            defaultSpaceBranch?: string | null;
+            defaultProvider?: string | null;
+            defaultModel?: string | null;
           }>(ctx.req);
           const project = instanceManager.projectManager.updateProject(match[1], body);
           if (!project) {
@@ -302,6 +315,112 @@ export function createProjectRoutes(deps: HttpDeps): Route[] {
           return;
         }
         sendJson(ctx.res, 200, artifacts);
+      },
+    },
+
+    // ─── Branch Management ──────────────────────────────────────────────
+
+    {
+      method: "GET",
+      pattern: /^\/api\/projects\/([a-f0-9-]+)\/branches$/,
+      handler(ctx, match) {
+        if (!requireAuth(ctx)) return;
+        const project = instanceManager.projectManager.getProject(match[1]);
+        if (!project) {
+          sendJson(ctx.res, 404, { error: "Project not found" });
+          return;
+        }
+        const dir = project.repoRoot || project.directory;
+        const branches = listBranches(dir);
+        const aheadBehind = getAheadBehind(dir);
+        const dirty = isWorktreeDirty(dir);
+        sendJson(ctx.res, 200, { ...branches, aheadBehind, dirty });
+      },
+    },
+    {
+      method: "POST",
+      pattern: /^\/api\/projects\/([a-f0-9-]+)\/checkout$/,
+      async handler(ctx, match) {
+        if (!requireAuth(ctx)) return;
+        const project = instanceManager.projectManager.getProject(match[1]);
+        if (!project) {
+          sendJson(ctx.res, 404, { error: "Project not found" });
+          return;
+        }
+        try {
+          const body = await readJsonBody<{ branch: string }>(ctx.req);
+          if (!body.branch) {
+            sendJson(ctx.res, 400, { error: "branch is required" });
+            return;
+          }
+          const dir = project.repoRoot || project.directory;
+          checkoutBranch(dir, body.branch);
+          const branches = listBranches(dir);
+          const aheadBehind = getAheadBehind(dir);
+          sendJson(ctx.res, 200, { ...branches, aheadBehind });
+        } catch (err) {
+          sendJson(ctx.res, 400, {
+            error: err instanceof Error ? err.message : "Failed to checkout branch",
+          });
+        }
+      },
+    },
+
+    // ─── Remote Git Operations ──────────────────────────────────────────
+
+    {
+      method: "POST",
+      pattern: /^\/api\/projects\/([a-f0-9-]+)\/git\/fetch$/,
+      async handler(ctx, match) {
+        if (!requireAuth(ctx)) return;
+        const project = instanceManager.projectManager.getProject(match[1]);
+        if (!project) {
+          sendJson(ctx.res, 404, { error: "Project not found" });
+          return;
+        }
+        const dir = project.repoRoot || project.directory;
+        const result = await gitFetch(dir);
+        sendJson(ctx.res, result.success ? 200 : 400, result);
+      },
+    },
+    {
+      method: "POST",
+      pattern: /^\/api\/projects\/([a-f0-9-]+)\/git\/pull$/,
+      async handler(ctx, match) {
+        if (!requireAuth(ctx)) return;
+        const project = instanceManager.projectManager.getProject(match[1]);
+        if (!project) {
+          sendJson(ctx.res, 404, { error: "Project not found" });
+          return;
+        }
+        const dir = project.repoRoot || project.directory;
+        const result = await gitPull(dir);
+        sendJson(ctx.res, result.success ? 200 : 400, result);
+      },
+    },
+    {
+      method: "POST",
+      pattern: /^\/api\/projects\/([a-f0-9-]+)\/git\/push$/,
+      async handler(ctx, match) {
+        if (!requireAuth(ctx)) return;
+        const project = instanceManager.projectManager.getProject(match[1]);
+        if (!project) {
+          sendJson(ctx.res, 404, { error: "Project not found" });
+          return;
+        }
+        try {
+          const body = await readJsonBody<{
+            branch?: string;
+            setUpstream?: boolean;
+          }>(ctx.req);
+          const dir = project.repoRoot || project.directory;
+          const result = await gitPush(dir, body.branch, body.setUpstream);
+          sendJson(ctx.res, result.success ? 200 : 400, result);
+        } catch (err) {
+          sendJson(ctx.res, 400, {
+            error: err instanceof Error ? err.message : "Failed to push",
+          });
+        }
       },
     },
   ];
