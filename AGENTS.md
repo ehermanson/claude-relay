@@ -86,6 +86,25 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - WS messages: `create_space`, `complete_space`, `delete_space` (client); `space_created`, `space_completed`, `space_removed`, `space_list` (server)
 - Non-default spaces render as clickable items in the sidebar; selecting one opens a tab-based view with horizontal tabs per chat
 - Non-git projects fall back to flat Chat[] model (spaces require git)
+- `pushSpace()` pushes the space branch and optionally creates a PR via `gh pr create` — all git args use `execFileSync` array form to prevent shell injection
+
+### Git Integration
+
+- `GitStatusBar` component renders below the project header: branch selector, push/pull/fetch buttons, ahead/behind indicators, dirty-state badge
+- `src/core/git.ts` provides pure-function git helpers: `listBranches()`, `getAheadBehind()`, `checkoutBranch()`, `gitFetch()`, `gitPull()`, `gitPush()`, `getPrimaryRemote()`
+- `getPrimaryRemote(dir)` detects the actual remote name (prefers `origin`, falls back to first listed) — never hardcode `"origin"`
+- Remote branch names are stripped of the dynamic remote prefix (not hardcoded `origin/`)
+- REST API: `GET /api/projects/:id/branches`, `POST /api/projects/:id/checkout`, `POST /api/projects/:id/git/fetch`, `POST /api/projects/:id/git/pull`, `POST /api/projects/:id/git/push`
+- Space push: `POST /api/spaces/:id/push` with optional `{ createPR: true }`
+
+### Project Settings
+
+- Per-project settings stored in `projects` table: `custom_instructions`, `default_space_branch`, `default_provider`, `default_model`
+- Custom instructions are injected as an internal user message on the first turn of managed sessions
+- Default provider/model are used when creating new sessions within the project
+- Default space branch determines the base branch when creating new spaces (worktrees)
+- Settings page: `/projects/:id/settings` with textarea for instructions, branch picker, provider/model selectors
+- `normalizeProjectRow()` in `db.ts` null-coalesces all optional fields before SQLite upsert — guards against older rows or migration sources missing new columns
 
 ### Plan Review Abstraction
 

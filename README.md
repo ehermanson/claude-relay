@@ -228,6 +228,8 @@ Sessions still carry a working directory, and that directory remains the agent's
 - **Slash commands** — `/model` and `/reasoning` from the composer command palette
 - **`@` file mentions** — workspace search with inline mention chips
 - **Lazy hydration** — sidebar renders instantly from cached metadata; full transcript replay happens when you open a session
+- **Git integration** — branch switching, push/pull/fetch from the UI, ahead/behind indicators, and space push with optional PR creation via `gh` CLI
+- **Project settings** — per-project custom instructions, default space branch, and default provider/model
 - **Git worktree support** — sessions in relay-managed worktrees can be merged back to main from the sidebar
 - **Mobile-friendly web UI** — markdown rendering, syntax highlighting, activity indicators, and framework-aware file icons
 - **Remote access** — built-in Cloudflare Tunnel support, or use Tailscale for private access
