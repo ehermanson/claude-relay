@@ -146,7 +146,7 @@ export function InputArea({
     setSelectedSlashKey,
     dismissSlashMenu,
     resetAfterSend,
-  } = useComposerState(sessionId, composerRef);
+  } = useComposerState(instanceId, composerRef);
   const [promptText, setPromptText] = useState("");
   const [selectedPromptAnswers, setSelectedPromptAnswers] = useState<Record<string, string>>({});
   const [planComments, setPlanComments] = useState<PlanComment[]>([]);

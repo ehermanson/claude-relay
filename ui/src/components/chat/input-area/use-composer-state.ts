@@ -4,33 +4,33 @@ import type { ComposerEditorHandle } from "../composer-editor";
 
 const DRAFT_PREFIX = "relay:draft:";
 
-function getDraftKey(sessionId: string): string {
-  return `${DRAFT_PREFIX}${sessionId}`;
+function getDraftKey(key: string): string {
+  return `${DRAFT_PREFIX}${key}`;
 }
 
-function loadDraft(sessionId: string): string {
+function loadDraft(key: string): string {
   try {
-    return sessionStorage.getItem(getDraftKey(sessionId)) || "";
+    return sessionStorage.getItem(getDraftKey(key)) || "";
   } catch {
     return "";
   }
 }
 
-function saveDraft(sessionId: string, value: string): void {
+function saveDraft(key: string, value: string): void {
   try {
     if (value) {
-      sessionStorage.setItem(getDraftKey(sessionId), value);
+      sessionStorage.setItem(getDraftKey(key), value);
     } else {
-      sessionStorage.removeItem(getDraftKey(sessionId));
+      sessionStorage.removeItem(getDraftKey(key));
     }
   } catch {
     // sessionStorage full or unavailable — silently ignore
   }
 }
 
-function deleteDraft(sessionId: string): void {
+function deleteDraft(key: string): void {
   try {
-    sessionStorage.removeItem(getDraftKey(sessionId));
+    sessionStorage.removeItem(getDraftKey(key));
   } catch {
     // ignore
   }
@@ -167,23 +167,23 @@ function reducer(state: ComposerState, action: ComposerAction): ComposerState {
 }
 
 export function useComposerState(
-  sessionId: string | undefined,
+  draftKey: string | undefined,
   composerRef: RefObject<ComposerEditorHandle | null>,
 ) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
 
   useEffect(() => {
-    if (!sessionId) return;
-    dispatch({ type: "restore", value: loadDraft(sessionId) });
+    if (!draftKey) return;
+    dispatch({ type: "restore", value: loadDraft(draftKey) });
     composerRef.current?.focus();
-  }, [composerRef, sessionId]);
+  }, [composerRef, draftKey]);
 
   const persistDraft = useCallback(
     (value: string) => {
-      if (!sessionId) return;
-      saveDraft(sessionId, value);
+      if (!draftKey) return;
+      saveDraft(draftKey, value);
     },
-    [sessionId],
+    [draftKey],
   );
 
   const updateDraft = useCallback(
@@ -204,9 +204,9 @@ export function useComposerState(
   );
 
   const resetAfterSend = useCallback(() => {
-    if (sessionId) deleteDraft(sessionId);
+    if (draftKey) deleteDraft(draftKey);
     dispatch({ type: "reset_after_send" });
-  }, [sessionId]);
+  }, [draftKey]);
 
   return {
     ...state,
