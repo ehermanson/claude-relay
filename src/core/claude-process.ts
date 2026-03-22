@@ -176,7 +176,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
   setBypassPermissions(bypass: boolean): void {
     this._bypassPermissions = bypass;
-    if (bypass) this._planMode = false;
   }
 
   /**
@@ -195,9 +194,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
   setPlanMode(planMode: boolean): void {
     this._planMode = planMode;
-    if (planMode) {
-      this._bypassPermissions = false;
-    }
   }
 
   /**
@@ -445,12 +441,10 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
     const args = ["-p", "--output-format", "stream-json", "--verbose"];
 
-    if (this._bypassPermissions) {
-      args.push("--dangerously-skip-permissions");
-    }
-
     if (this._planMode) {
       args.push("--permission-mode", "plan");
+    } else if (this._bypassPermissions) {
+      args.push("--dangerously-skip-permissions");
     }
 
     if (this.allowedTools.length > 0) {

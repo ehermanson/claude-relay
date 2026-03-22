@@ -221,6 +221,23 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
+    it("prefers plan permission mode when bypass is also configured", async () => {
+      let capturedOptions;
+      const fakeQuery = new FakeQuery();
+      const session = await createSdkSession({
+        cwd: "/test",
+        dangerouslySkipPermissions: true,
+        planMode: true,
+        logger: noopLogger,
+        queryFn: ({ prompt, options }) => {
+          capturedOptions = options;
+          return fakeQuery;
+        },
+      });
+      assert.equal(capturedOptions.permissionMode, "plan");
+      session.close();
+    });
+
     it("sets canUseTool when dangerouslySkipPermissions is false", async () => {
       let capturedOptions;
       const fakeQuery = new FakeQuery();
@@ -623,6 +640,19 @@ describe("ClaudeSdkSession", () => {
   });
 
   describe("permissions", () => {
+    it("restores bypass mode after plan mode is turned off", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness, {
+        dangerouslySkipPermissions: true,
+      });
+
+      session.setPlanMode(true);
+      session.setPlanMode(false);
+
+      assert.deepEqual(harness.fakeQuery.setPermissionModeCalls, ["plan", "bypassPermissions"]);
+      session.close();
+    });
+
     it("auto-allows pre-approved tools via canUseTool", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness, {

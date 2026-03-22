@@ -332,10 +332,10 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       this._bypassPermissions = true;
     }
 
-    if (this._bypassPermissions) {
-      sdkOptions.permissionMode = "bypassPermissions";
-    } else if (this._planMode) {
+    if (this._planMode) {
       sdkOptions.permissionMode = "plan";
+    } else if (this._bypassPermissions) {
+      sdkOptions.permissionMode = "bypassPermissions";
     }
 
     // Always set canUseTool so we can toggle bypass at runtime.
@@ -491,17 +491,15 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
   setBypassPermissions(bypass: boolean): void {
     this._bypassPermissions = bypass;
-    if (bypass) {
-      this._planMode = false;
-    }
     this.logger.info(`[SdkSession] Bypass permissions: ${bypass}`);
     this.query
-      .setPermissionMode(bypass ? "bypassPermissions" : this._planMode ? "plan" : "default")
+      .setPermissionMode(this._planMode ? "plan" : bypass ? "bypassPermissions" : "default")
       .catch((err) => {
         this.logger.warn(`[SdkSession] setPermissionMode error: ${err}`);
       });
-    // If switching to bypass and there's a pending permission, auto-approve it
-    if (bypass && this.pendingPermission) {
+    // If the active mode becomes bypass and there's a pending permission,
+    // auto-approve it so the session doesn't stay blocked.
+    if (bypass && !this._planMode && this.pendingPermission) {
       this.logger.info(
         `[SdkSession] Auto-approving pending permission for ${this.pendingPermission.toolName}`,
       );
@@ -517,9 +515,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   setPlanMode(planMode: boolean): void {
     if (this._stopped) return;
     this._planMode = planMode;
-    if (planMode) {
-      this._bypassPermissions = false;
-    }
     this.query
       .setPermissionMode(
         planMode ? "plan" : this._bypassPermissions ? "bypassPermissions" : "default",

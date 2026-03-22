@@ -396,14 +396,17 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
   setBypassPermissions(bypass: boolean): void {
     this._bypassPermissions = bypass;
-    if (bypass) this._planMode = false;
+    if (!bypass || this._planMode) return;
+
+    for (const [requestId, pending] of this.pendingRequests) {
+      if (pending.kind !== "approval") continue;
+      this.pendingRequests.delete(requestId);
+      this.sendRpcResponse(pending.rpcId, { decision: "accept" });
+    }
   }
 
   setPlanMode(planMode: boolean): void {
     this._planMode = planMode;
-    if (planMode) {
-      this._bypassPermissions = false;
-    }
   }
 
   respondToRequest(
@@ -1273,6 +1276,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   // ===========================================================================
 
   private resolveApprovalPolicy(): string {
+    if (this._planMode) return "on-failure";
     if (this._bypassPermissions) return "never";
     // "on-failure" is the default — approve commands, ask on failure
     // "untrusted" means ask for everything
@@ -1280,6 +1284,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   }
 
   private resolveSandboxMode(): string {
+    if (this._planMode) return "workspace-write";
     if (this._bypassPermissions) return "danger-full-access";
     return "workspace-write";
   }

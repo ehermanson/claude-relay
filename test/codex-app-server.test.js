@@ -253,6 +253,35 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
+  it("keeps plan mode active at startup even when full access is the saved preference", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      planMode: true,
+      dangerouslySkipPermissions: true,
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+
+    session.send("plan this change");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    const msgs = child.getStdinMessages();
+    const threadStart = msgs.find((m) => m.method === "thread/start");
+    const turnStart = msgs.find((m) => m.method === "turn/start");
+    assert.equal(threadStart.params.approvalPolicy, "on-failure");
+    assert.equal(threadStart.params.sandbox, "workspace-write");
+    assert.equal(turnStart.params.approvalPolicy, "on-failure");
+    assert.equal(turnStart.params.collaborationMode.mode, "plan");
+
+    session.close();
+  });
+
   it("resumes an existing thread when resumeSessionId is provided", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
@@ -884,6 +913,50 @@ describe("CodexAppServerSession", () => {
     const msgs = child.getStdinMessages();
     const rpcResponse = msgs.find((m) => m.id === 99 && m.result !== undefined && !m.method);
     assert.ok(rpcResponse, "Expected an auto-approval RPC response");
+    assert.equal(rpcResponse.result.decision, "accept");
+  });
+
+  it("auto-approves a pending approval when bypass is enabled mid-turn", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const permRequests = collectEvents(session, "permissionRequest");
+
+    session.send("run something");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 101,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-1",
+          itemId: "cmd-1",
+          command: "dangerous-cmd",
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    assert.equal(permRequests.length, 1);
+
+    session.setBypassPermissions(true);
+
+    await tick();
+
+    const msgs = child.getStdinMessages();
+    const rpcResponse = msgs.find((m) => m.id === 101 && m.result !== undefined && !m.method);
+    assert.ok(rpcResponse, "Expected a pending approval to be auto-approved");
     assert.equal(rpcResponse.result.decision, "accept");
   });
 

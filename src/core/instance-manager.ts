@@ -5853,8 +5853,10 @@ export class InstanceManager extends EventEmitter {
     instance.info.skipPermissions = skipPermissions;
     instance.process?.setBypassPermissions(skipPermissions);
 
-    // If switching to full access, clear any pending permission
-    if (skipPermissions && instance.info.pendingPermission) {
+    // If switching to active full access, clear any pending permission banner.
+    // In plan mode the saved preference should not dismiss a live approval yet,
+    // because the active runtime mode is still "plan".
+    if (skipPermissions && !instance.info.planMode && instance.info.pendingPermission) {
       instance.info.pendingPermission = undefined;
     }
 

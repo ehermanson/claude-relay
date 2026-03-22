@@ -228,12 +228,26 @@ describe("ClaudeProcess permissions and plan mode", () => {
     assert.equal(proc.getRuntimeBinding().runtimeMode, "plan");
   });
 
-  it("setBypassPermissions(true) disables plan mode", () => {
+  it("restores bypass after plan mode exits", () => {
+    const proc = new ClaudeProcess(makeConfig({ dangerouslySkipPermissions: true }));
+    assert.equal(proc.getRuntimeBinding().runtimeMode, "full-access");
+
+    proc.setPlanMode(true);
+    assert.equal(proc.getRuntimeBinding().runtimeMode, "plan");
+
+    proc.setPlanMode(false);
+    assert.equal(proc.getRuntimeBinding().runtimeMode, "full-access");
+  });
+
+  it("setBypassPermissions(true) preserves the saved bypass preference while plan mode is active", () => {
     const proc = new ClaudeProcess(makeConfig());
     proc.setPlanMode(true);
     assert.equal(proc.getRuntimeBinding().runtimeMode, "plan");
 
     proc.setBypassPermissions(true);
+    assert.equal(proc.getRuntimeBinding().runtimeMode, "plan");
+
+    proc.setPlanMode(false);
     assert.equal(proc.getRuntimeBinding().runtimeMode, "full-access");
   });
 
