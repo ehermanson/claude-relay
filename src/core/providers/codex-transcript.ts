@@ -9,7 +9,7 @@ import type {
   TaskItem,
   UserMessage,
 } from "../types.js";
-import { isInternalInjectedUserText } from "../internal-user-messages.js";
+import { isInternalInjectedUserText, stripInjectedWrapper } from "../internal-user-messages.js";
 import { convertProposedPlanText } from "../proposed-plan.js";
 import { buildTaskListActivityFromPlan } from "../tools.js";
 import { isPathWithinWorkspace } from "../workspace-paths.js";
@@ -342,12 +342,13 @@ export function convertCodexTranscriptEntry(
     switch (payload.type) {
       case "user_message":
         if (typeof payload.message === "string" && payload.message.trim()) {
+          const userText = stripInjectedWrapper(payload.message);
           results.push({
             timestamp,
             message: {
               type: "user",
-              text: payload.message,
-              internal: isInternalInjectedUserText(payload.message) || undefined,
+              text: userText,
+              internal: isInternalInjectedUserText(userText) || undefined,
             } as UserMessage,
           });
         }

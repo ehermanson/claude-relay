@@ -83,6 +83,7 @@ import {
   buildFirstTurnTaskContextPrompt,
   buildPermissionGrantedRetryMessage,
   isInternalInjectedUserText,
+  stripInjectedWrapper,
 } from "./internal-user-messages.js";
 import {
   describeToolUse,
@@ -444,8 +445,10 @@ function readFirstUserMessage(jsonlPath: string): string | null {
             // User message content is an array of blocks
             for (const block of parsed.message.content) {
               if (block.type === "text" && typeof block.text === "string") {
-                const cleaned = stripInternalTags(block.text);
-                if (cleaned && !isTrivialMessage(cleaned)) return cleaned;
+                let cleaned = stripInternalTags(block.text);
+                cleaned = stripInjectedWrapper(cleaned);
+                if (cleaned && !isInternalInjectedUserText(cleaned) && !isTrivialMessage(cleaned))
+                  return cleaned;
               }
             }
           }
@@ -3875,6 +3878,7 @@ export class InstanceManager extends EventEmitter {
           });
         }
       } else {
+        text = stripInjectedWrapper(text);
         const internal = isInternalInjectedUserText(text) ? true : undefined;
         results.push({
           timestamp,

@@ -44,3 +44,21 @@ export function isInternalInjectedUserText(text: string): boolean {
     /^Permission granted for .+\. Please continue\.$/.test(text)
   );
 }
+
+const USER_REQUEST_MARKER = "User request:\n";
+
+/**
+ * If `text` is a wrapped internal message (task context / custom instructions),
+ * extract and return the real user request embedded inside it.
+ * Returns the original text unchanged if no wrapper is detected.
+ */
+export function stripInjectedWrapper(text: string): string {
+  if (text.startsWith(TASK_CONTEXT_MSG) || text.startsWith(CUSTOM_INSTRUCTIONS_PREFIX)) {
+    const idx = text.lastIndexOf(USER_REQUEST_MARKER);
+    if (idx !== -1) {
+      const inner = text.slice(idx + USER_REQUEST_MARKER.length);
+      if (inner) return inner;
+    }
+  }
+  return text;
+}
