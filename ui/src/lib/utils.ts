@@ -6,14 +6,6 @@ export function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
-export function shortenPath(p: string, home?: string): string {
-  if (!p) return "";
-  if (home && p.startsWith(home)) {
-    return "~" + p.slice(home.length);
-  }
-  return p;
-}
-
 export function formatTimeAgo(timestamp: number | string): string {
   const ms = typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp;
   const diff = Date.now() - ms;

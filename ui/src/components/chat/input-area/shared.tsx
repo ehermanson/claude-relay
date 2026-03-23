@@ -29,7 +29,7 @@ export const SLASH_COMMANDS = [
   },
 ] as const;
 
-export interface SlashContext {
+interface SlashContext {
   commandQuery: string;
   argQuery: string;
   hasArgument: boolean;

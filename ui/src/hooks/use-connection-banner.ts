@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-export interface ConnectionBanner {
+interface ConnectionBanner {
   kind: "reconnecting" | "resyncing" | "running" | "interrupted";
   onDismiss?: () => void;
   onContinue?: () => void;

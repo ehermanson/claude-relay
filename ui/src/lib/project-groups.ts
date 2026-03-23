@@ -1,6 +1,6 @@
 import type { InstanceInfo, Project } from "@shared/types";
 
-export function getInstanceProjectDirectory(
+function getInstanceProjectDirectory(
   instance: Pick<InstanceInfo, "projectId" | "originalDirectory" | "workingDirectory">,
   projectById: Map<string, Pick<Project, "directory">>,
 ): string {

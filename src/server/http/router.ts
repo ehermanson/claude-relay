@@ -1,6 +1,6 @@
 import type { RequestContext, Route } from "./types.js";
 
-export interface Router {
+interface Router {
   handle(ctx: RequestContext): Promise<boolean>;
 }
 

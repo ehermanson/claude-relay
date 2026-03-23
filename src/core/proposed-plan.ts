@@ -39,7 +39,7 @@ function trailingPartialTagLength(text: string, tag: string): number {
   return tag.startsWith(suffix) ? suffix.length : 0;
 }
 
-export function extractProposedPlanSegments(text: string): ProposedPlanSegment[] {
+function extractProposedPlanSegments(text: string): ProposedPlanSegment[] {
   if (!text) return [];
 
   const segments: ProposedPlanSegment[] = [];

@@ -1,4 +1,4 @@
-export interface ChatRouteSearch {
+interface ChatRouteSearch {
   split?: string;
 }
 

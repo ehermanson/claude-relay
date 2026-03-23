@@ -56,8 +56,3 @@ export function useWSState() {
   if (!ctx) throw new Error("useWSState must be used within WebSocketProvider");
   return ctx;
 }
-
-/** Combined (convenience) — use only when you need both methods and state */
-export function useWS() {
-  return { ...useWSMethods(), ...useWSState() };
-}

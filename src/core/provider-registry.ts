@@ -29,7 +29,7 @@ import { findCodexTranscriptPath, parseCodexTranscript } from "./providers/codex
 
 type QueryFn = ((params: { prompt: unknown; options?: unknown }) => unknown) | null;
 
-export interface ProviderTranscriptParseResult {
+interface ProviderTranscriptParseResult {
   cwd: string;
   history: HistoryEntry[];
   tasks: Map<string, TaskItem>;
@@ -37,13 +37,13 @@ export interface ProviderTranscriptParseResult {
   stats: SessionStats;
 }
 
-export interface ProviderDriverContext {
+interface ProviderDriverContext {
   providerDirs: Record<ProviderKind, string>;
   logger: CoreConfig["logger"];
   sdkQueryFn: QueryFn;
 }
 
-export interface ProviderSessionOptions {
+interface ProviderSessionOptions {
   resumeSessionId?: string;
   model?: string;
   reasoningBudget?: number;
@@ -60,7 +60,7 @@ interface ProviderCaptureContext {
   providerDirs: Record<ProviderKind, string>;
 }
 
-export interface ProviderDriver {
+interface ProviderDriver {
   kind: ProviderKind;
   capabilities: ProviderCapabilities;
   isAvailable(context: ProviderDriverContext): boolean;

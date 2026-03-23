@@ -613,7 +613,7 @@ export interface ProjectStats {
   modelUsage: ModelUsageStats[];
 }
 
-export interface DashboardStats {
+interface DashboardStats {
   instances: {
     total: number;
     active: number;

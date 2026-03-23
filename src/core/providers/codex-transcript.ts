@@ -17,13 +17,13 @@ import { isPathWithinWorkspace } from "../workspace-paths.js";
 const MAX_HISTORY = 1000;
 const TOOL_OUTPUT_MARKER = "\nOutput:\n";
 
-export interface CodexPendingCall {
+interface CodexPendingCall {
   name: string;
   arguments?: string;
   requestId?: string;
 }
 
-export interface CodexReplayContext {
+interface CodexReplayContext {
   pendingCalls: Map<string, CodexPendingCall>;
   tasks: Map<string, TaskItem>;
   files: Map<string, FileChange>;
@@ -31,7 +31,7 @@ export interface CodexReplayContext {
   cwd?: string;
 }
 
-export interface CodexTranscriptParseResult {
+interface CodexTranscriptParseResult {
   cwd: string;
   tasks: Map<string, TaskItem>;
   files: Map<string, FileChange>;

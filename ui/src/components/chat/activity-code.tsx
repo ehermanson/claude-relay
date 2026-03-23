@@ -53,7 +53,7 @@ export function langFromPath(filePath?: string): string | undefined {
   return ext ? EXT_TO_LANG[ext] : undefined;
 }
 
-export function highlightCode(code: string, lang?: string): string | undefined {
+function highlightCode(code: string, lang?: string): string | undefined {
   if (!lang || !hljs.getLanguage(lang)) return undefined;
   try {
     return hljs.highlight(code, { language: lang }).value;

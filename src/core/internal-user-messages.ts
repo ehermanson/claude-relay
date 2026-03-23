@@ -1,7 +1,7 @@
 export const AUTO_CONTINUE_MSG =
   "The relay server restarted while you were mid-turn. Please continue from where you left off.";
 
-export const TASK_CONTEXT_MSG =
+const TASK_CONTEXT_MSG =
   "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). " +
   "Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. Ask if unsure whether a request should map to a task. " +
   "Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), " +

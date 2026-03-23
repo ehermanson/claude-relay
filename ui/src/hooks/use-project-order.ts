@@ -62,7 +62,7 @@ function persistSet(
   });
 }
 
-export const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
+const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
   order: loadOrder(),
 
   setOrder: (next) => {

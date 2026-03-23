@@ -1,16 +1,16 @@
-export interface ComposerTextSegment {
+interface ComposerTextSegment {
   kind: "text";
   text: string;
 }
 
-export interface ComposerMentionSegment {
+interface ComposerMentionSegment {
   kind: "mention";
   path: string;
 }
 
-export type ComposerSegment = ComposerTextSegment | ComposerMentionSegment;
+type ComposerSegment = ComposerTextSegment | ComposerMentionSegment;
 
-export interface MentionTriggerMatch {
+interface MentionTriggerMatch {
   query: string;
   rangeStart: number;
   rangeEnd: number;

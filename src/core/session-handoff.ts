@@ -10,7 +10,7 @@ interface HandoffMessage {
   text: string;
 }
 
-export interface ProviderSwitchHandoffOptions {
+interface ProviderSwitchHandoffOptions {
   sourceProvider: ProviderKind;
   targetProvider: ProviderKind;
   sourceName?: string;

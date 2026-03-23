@@ -1,4 +1,4 @@
-export interface PlansRouteSearch {
+interface PlansRouteSearch {
   plan?: string;
   sort?: string;
   q?: string;

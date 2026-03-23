@@ -6,7 +6,7 @@ export type RemoveProjectTarget = {
   directory: string;
 };
 
-export type StandaloneChatRoute = {
+type StandaloneChatRoute = {
   to: "/projects/$projectId/chats/$chatId";
   params: {
     projectId: string;
@@ -14,7 +14,7 @@ export type StandaloneChatRoute = {
   };
 };
 
-export type SpaceChatRoute = {
+type SpaceChatRoute = {
   to: "/projects/$projectId/spaces/$spaceId/$chatId";
   params: {
     projectId: string;
@@ -23,7 +23,7 @@ export type SpaceChatRoute = {
   };
 };
 
-export type InstanceChatRoute = StandaloneChatRoute | SpaceChatRoute;
+type InstanceChatRoute = StandaloneChatRoute | SpaceChatRoute;
 
 export function getProjectName(directory: string): string {
   return directory.split("/").pop() || directory;

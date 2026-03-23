@@ -149,15 +149,9 @@ export async function uploadImage(file: File): Promise<string> {
   return data.path;
 }
 
-export async function fetchDashboardStats(): Promise<import("@shared/types").DashboardStats> {
-  const res = await fetch("/api/stats");
-  if (!res.ok) throw new Error("Failed to fetch stats");
-  return res.json();
-}
-
 // ─── Task CRUD ────────────────────────────────────────────────────────────
 
-export interface CreateTaskInput {
+interface CreateTaskInput {
   title: string;
   description?: string;
   priority?: number;
@@ -167,7 +161,7 @@ export interface CreateTaskInput {
   blockedBy?: string[];
 }
 
-export interface UpdateTaskInput {
+interface UpdateTaskInput {
   title?: string;
   description?: string;
   status?: import("@shared/types").TaskStatus;
@@ -443,7 +437,7 @@ export async function fetchSpaceDiff(spaceId: string): Promise<string> {
 }
 // ─── Branch & Git Operations ──────────────────────────────────────────────
 
-export interface BranchesResponse {
+interface BranchesResponse {
   local: string[];
   remote: string[];
   current: string | null;
@@ -451,7 +445,7 @@ export interface BranchesResponse {
   dirty?: boolean;
 }
 
-export interface GitOpResult {
+interface GitOpResult {
   success: boolean;
   error?: string;
 }
@@ -503,7 +497,7 @@ export async function gitPush(
 
 // ─── Space Push ───────────────────────────────────────────────────────────
 
-export interface PushSpaceResult {
+interface PushSpaceResult {
   pushed: boolean;
   prUrl?: string;
   error?: string;
@@ -520,5 +514,3 @@ export async function pushSpace(
   });
   return res.json();
 }
-
-export type { NativeOpenTarget };

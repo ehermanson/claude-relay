@@ -4,7 +4,7 @@ import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { ContextRing } from "./input-area/shared";
 
-export const HEADER_SPLIT_BUTTON_WIDTH_CLASS = "w-[11.5rem]";
+const HEADER_SPLIT_BUTTON_WIDTH_CLASS = "w-[11.5rem]";
 
 export function HeaderActionDivider() {
   return <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />;

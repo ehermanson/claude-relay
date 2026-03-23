@@ -1,6 +1,8 @@
 import type { KnipConfig } from "knip";
 
 const config: KnipConfig = {
+  ignoreExportsUsedInFile: true,
+  exclude: ["duplicates"],
   workspaces: {
     ".": {
       entry: ["scripts/*.ts"],
@@ -9,6 +11,7 @@ const config: KnipConfig = {
     ui: {
       entry: ["src/routes/**/*.tsx"],
       project: ["src/**/*.{ts,tsx}"],
+      ignore: ["src/components/ui/**"],
       ignoreDependencies: [
         // used via @tailwindcss/postcss
         "tailwindcss",
