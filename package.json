@@ -67,5 +67,10 @@
     "*.{json,md,yaml,yml}": [
       "oxfmt"
     ]
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }

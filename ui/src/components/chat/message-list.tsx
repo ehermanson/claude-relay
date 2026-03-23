@@ -278,8 +278,8 @@ export function MessageList({
 }: MessageListProps) {
   const {
     ref: scrollRef,
-    scrollToBottom,
     forceStickToBottom,
+    onContentChange,
     showScrollToBottom,
   } = useAutoScroll<HTMLDivElement>();
 
@@ -335,9 +335,9 @@ export function MessageList({
     } else if (items.length === 0) {
       hadItems.current = false;
     } else {
-      scrollToBottom();
+      onContentChange();
     }
-  }, [items, forceStickToBottom, scrollToBottom]);
+  }, [items, forceStickToBottom, onContentChange]);
 
   // ── Thinking indicator ───────────────────────────────────────────
   const showThinking = !!showThinkingIndicator || !!isProcessing || instanceStatus === "processing";
