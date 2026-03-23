@@ -28,6 +28,7 @@ import { Popover } from "../ui/popover";
 import { RelayLogo } from "../ui/relay-logo";
 import { Tabs } from "../ui/tabs";
 import { SidebarProjectGroup } from "./sidebar-project-group";
+import "./sidebar.css";
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const queryClient = useQueryClient();
@@ -227,15 +228,18 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const hasProjects = projects.length > 0;
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-border/70 bg-surface">
-      <div className="flex shrink-0 items-center justify-between px-4 py-3">
+    <aside
+      className="flex h-full w-full flex-col border-r border-border/70 bg-surface"
+      style={{ containerName: "sidebar", containerType: "inline-size" }}
+    >
+      <div className="sidebar-header flex shrink-0 items-center justify-between px-4 py-3">
         <Link
           to="/"
           className="flex items-center gap-2 rounded-md transition-opacity hover:opacity-80"
         >
-          <RelayLogo size={28} connected={isConnected} />
+          <RelayLogo size={28} className="sidebar-logo-icon" connected={isConnected} />
           <span
-            className="text-[1.1rem] text-text-bright"
+            className="sidebar-logo-text text-[1.1rem] text-text-bright"
             style={{
               fontFamily: "'Orbitron', sans-serif",
               fontWeight: 900,
@@ -259,7 +263,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
           >
             <Popover.Trigger render={<Button variant="ghost" size="sm" />}>
               <FolderPlus size={14} strokeWidth={2} />
-              Add Project
+              <span className="sidebar-add-project-label">Add Project</span>
             </Popover.Trigger>
             <Popover.Content className="w-96" align="end">
               <Tabs.Root
@@ -358,7 +362,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
       </div>
 
       <div className="shrink-0 border-t border-border">
-        <div className="flex items-center justify-between px-4 py-2">
+        <div className="sidebar-footer flex items-center justify-between px-4 py-2">
           <Button variant="ghost" size="sm" onClick={toggleTheme}>
             {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             {theme === "dark" ? "Light" : "Dark"}

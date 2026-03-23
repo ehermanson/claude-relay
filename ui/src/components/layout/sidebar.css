@@ -1,0 +1,26 @@
+/* ── Sidebar Container Query Responsive ──────────────────────────── */
+
+.sidebar-add-project-label {
+  display: inline;
+}
+
+@container sidebar (max-width: 240px) {
+  .sidebar-add-project-label {
+    display: none;
+  }
+  .sidebar-logo-text {
+    font-size: 0.9rem !important;
+  }
+  .sidebar-logo-icon {
+    width: 22px !important;
+    height: 22px !important;
+  }
+  .sidebar-header {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+  .sidebar-footer {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
