@@ -817,10 +817,16 @@ export function listBranches(dir: string): {
     for (const line of localOutput.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      if (line.startsWith("* ") || line.startsWith("+ ")) {
+      if (line.startsWith("* ")) {
         const branch = trimmed.slice(2);
         current = branch.startsWith("(") ? null : branch;
         if (current) local.push(current);
+      } else if (line.startsWith("+ ")) {
+        // Branch checked out in another worktree — include it but don't mark as current
+        const branch = trimmed.slice(2);
+        if (branch && !branch.startsWith("(")) {
+          local.push(branch);
+        }
       } else {
         local.push(trimmed);
       }
