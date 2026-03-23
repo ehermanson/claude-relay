@@ -140,7 +140,8 @@ export class SpaceManager extends EventEmitter {
     const worktreePath = join(worktreeBase, `space-${shortId}`);
 
     try {
-      const baseBranch = opts?.baseBranch || getCurrentBranch(repoRoot) || "HEAD";
+      const baseBranch =
+        opts?.baseBranch || getDefaultBranch(repoRoot) || getCurrentBranch(repoRoot) || "HEAD";
       execSync(`git worktree add -b "${branchName}" "${worktreePath}" "${baseBranch}"`, {
         cwd: repoRoot,
         stdio: ["pipe", "pipe", "pipe"],

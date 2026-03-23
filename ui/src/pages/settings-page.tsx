@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Save, FileText } from "lucide-react";
@@ -6,40 +6,48 @@ import { fetchProject, updateProject, fetchProviders, fetchProviderModels } from
 import { useProjectContext } from "../context/project-context";
 import { Input, Textarea, Select } from "../components/ui/input";
 import { Button } from "../components/ui/button";
-import type { ProviderKind } from "@shared/types";
+import type { Project, ProviderKind } from "@shared/types";
 
-// ─── Settings Page ──────────────────────────────────────────────────────────
+// ─── Settings Page (data loader) ────────────────────────────────────────────
 
 export function SettingsPage() {
   const { artifacts } = useProjectContext();
   const projectId = artifacts.projectId;
-  const queryClient = useQueryClient();
 
   const { data: project, isLoading } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => fetchProject(projectId),
   });
 
+  if (isLoading || !project) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <span className="text-sm text-muted">Loading settings...</span>
+      </div>
+    );
+  }
+
+  return <SettingsForm key={project.id} project={project} />;
+}
+
+// ─── Settings Form ──────────────────────────────────────────────────────────
+
+function SettingsForm({ project }: { project: Project }) {
+  const queryClient = useQueryClient();
+
   const { data: providers = [] } = useQuery({
     queryKey: ["providers"],
     queryFn: fetchProviders,
   });
 
-  // Form state
-  const [customInstructions, setCustomInstructions] = useState("");
-  const [defaultSpaceBranch, setDefaultSpaceBranch] = useState("");
-  const [defaultProvider, setDefaultProvider] = useState("");
-  const [defaultModel, setDefaultModel] = useState("");
-
-  // Sync form state when project loads
-  useEffect(() => {
-    if (project) {
-      setCustomInstructions(project.customInstructions ?? "");
-      setDefaultSpaceBranch(project.defaultSpaceBranch ?? "");
-      setDefaultProvider(project.defaultProvider ?? "");
-      setDefaultModel(project.defaultModel ?? "");
-    }
-  }, [project]);
+  // Form state — initialized directly from project props (no useEffect sync)
+  const [customInstructions, setCustomInstructions] = useState(project.customInstructions ?? "");
+  const [defaultSpaceBranch, setDefaultSpaceBranch] = useState(project.defaultSpaceBranch ?? "");
+  const [spaceBranchSource, setSpaceBranchSource] = useState<"local" | "remote">(
+    project.spaceBranchSource ?? "local",
+  );
+  const [defaultProvider, setDefaultProvider] = useState(project.defaultProvider ?? "");
+  const [defaultModel, setDefaultModel] = useState(project.defaultModel ?? "");
 
   // Fetch models for selected provider
   const { data: providerModels } = useQuery({
@@ -51,22 +59,23 @@ export function SettingsPage() {
 
   // Track if form has changes
   const hasChanges =
-    project != null &&
-    (customInstructions !== (project.customInstructions ?? "") ||
-      defaultSpaceBranch !== (project.defaultSpaceBranch ?? "") ||
-      defaultProvider !== (project.defaultProvider ?? "") ||
-      defaultModel !== (project.defaultModel ?? ""));
+    customInstructions !== (project.customInstructions ?? "") ||
+    defaultSpaceBranch !== (project.defaultSpaceBranch ?? "") ||
+    spaceBranchSource !== (project.spaceBranchSource ?? "local") ||
+    defaultProvider !== (project.defaultProvider ?? "") ||
+    defaultModel !== (project.defaultModel ?? "");
 
   const saveMutation = useMutation({
     mutationFn: () =>
-      updateProject(projectId, {
+      updateProject(project.id, {
         customInstructions: customInstructions.trim() || null,
         defaultSpaceBranch: defaultSpaceBranch.trim() || null,
+        spaceBranchSource,
         defaultProvider: defaultProvider || null,
         defaultModel: defaultModel || null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["project", project.id] });
       toast.success("Settings saved");
     },
     onError: (err) => {
@@ -78,27 +87,22 @@ export function SettingsPage() {
     saveMutation.mutate();
   }, [saveMutation]);
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <span className="text-sm text-muted">Loading settings...</span>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <div className="mx-auto w-full max-w-2xl space-y-8 px-6 py-6">
         {/* Custom Instructions */}
         <section className="space-y-3">
           <div>
-            <h2 className="text-sm font-semibold text-text-bright">Custom Instructions</h2>
+            <label htmlFor="custom-instructions" className="text-sm font-semibold text-text-bright">
+              Custom Instructions
+            </label>
             <p className="mt-0.5 text-[0.75rem] text-muted">
               Instructions injected into every new session for this project. These guide the model's
               behavior — add coding standards, architecture notes, or style conventions.
             </p>
           </div>
           <Textarea
+            id="custom-instructions"
             rows={8}
             value={customInstructions}
             onChange={(e) => setCustomInstructions(e.target.value)}
@@ -118,16 +122,58 @@ export function SettingsPage() {
         {/* Default Space Branch */}
         <section className="space-y-3">
           <div>
-            <h2 className="text-sm font-semibold text-text-bright">Default Space Branch</h2>
+            <label
+              htmlFor="default-space-branch"
+              className="text-sm font-semibold text-text-bright"
+            >
+              Default Space Branch
+            </label>
             <p className="mt-0.5 text-[0.75rem] text-muted">
-              The base branch for new spaces. If empty, the current branch is used.
+              The base branch for new spaces. If empty, the repository's default branch is used
+              (typically <code className="rounded bg-surface px-1 py-0.5">main</code>).
             </p>
           </div>
           <Input
+            id="default-space-branch"
             value={defaultSpaceBranch}
             onChange={(e) => setDefaultSpaceBranch(e.target.value)}
             placeholder="e.g. main"
           />
+          <fieldset className="mt-2">
+            <legend className="text-[0.6875rem] font-medium text-muted">Branch from</legend>
+            <div className="mt-1.5 flex items-center gap-4">
+              <label
+                htmlFor="branch-source-local"
+                className="flex items-center gap-1.5 text-xs text-text"
+              >
+                <input
+                  type="radio"
+                  id="branch-source-local"
+                  name="space-branch-source"
+                  value="local"
+                  checked={spaceBranchSource === "local"}
+                  onChange={() => setSpaceBranchSource("local")}
+                  className="accent-accent"
+                />
+                Local branch
+              </label>
+              <label
+                htmlFor="branch-source-remote"
+                className="flex items-center gap-1.5 text-xs text-text"
+              >
+                <input
+                  type="radio"
+                  id="branch-source-remote"
+                  name="space-branch-source"
+                  value="remote"
+                  checked={spaceBranchSource === "remote"}
+                  onChange={() => setSpaceBranchSource("remote")}
+                  className="accent-accent"
+                />
+                Remote tracking branch
+              </label>
+            </div>
+          </fieldset>
         </section>
 
         {/* Default Provider & Model */}
@@ -139,10 +185,13 @@ export function SettingsPage() {
               session.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-[0.6875rem] font-medium text-muted">Provider</label>
+          <div className="flex flex-wrap gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="default-provider" className="text-[0.6875rem] font-medium text-muted">
+                Provider
+              </label>
               <Select
+                id="default-provider"
                 inputSize="md"
                 value={defaultProvider}
                 onChange={(e) => {
@@ -158,9 +207,12 @@ export function SettingsPage() {
                 ))}
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <label className="text-[0.6875rem] font-medium text-muted">Model</label>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="default-model" className="text-[0.6875rem] font-medium text-muted">
+                Model
+              </label>
               <Select
+                id="default-model"
                 inputSize="md"
                 value={defaultModel}
                 onChange={(e) => setDefaultModel(e.target.value)}

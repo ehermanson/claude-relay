@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 17;
+const CURRENT_SCHEMA_VERSION = 18;
 
 export interface ProjectRow {
   id: string;
@@ -21,6 +21,7 @@ export interface ProjectRow {
   target_branch: string | null;
   custom_instructions: string | null;
   default_space_branch: string | null;
+  space_branch_source: string | null;
   default_provider: string | null;
   default_model: string | null;
   created_at: number;
@@ -42,6 +43,7 @@ function normalizeProjectRow(row: ProjectRow): ProjectRow {
     target_branch: row.target_branch ?? null,
     custom_instructions: row.custom_instructions ?? null,
     default_space_branch: row.default_space_branch ?? null,
+    space_branch_source: row.space_branch_source ?? null,
     default_provider: row.default_provider ?? null,
     default_model: row.default_model ?? null,
     created_at: row.created_at,
@@ -504,6 +506,14 @@ export class SessionDB {
       }
     }
 
+    // v18: space branch source (local vs remote)
+    {
+      const projCols = this.db.pragma("table_info(projects)") as Array<{ name: string }>;
+      if (!projCols.some((c) => c.name === "space_branch_source")) {
+        this.db.exec(`ALTER TABLE projects ADD COLUMN space_branch_source TEXT`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -768,8 +778,8 @@ export class SessionDB {
 
     // Project CRUD
     this.stmtUpsertProject = this.db.prepare(`
-      INSERT INTO projects (id, name, directory, repo_root, remote_url, target_branch, custom_instructions, default_space_branch, default_provider, default_model, created_at, last_activity_at)
-      VALUES (@id, @name, @directory, @repo_root, @remote_url, @target_branch, @custom_instructions, @default_space_branch, @default_provider, @default_model, @created_at, @last_activity_at)
+      INSERT INTO projects (id, name, directory, repo_root, remote_url, target_branch, custom_instructions, default_space_branch, space_branch_source, default_provider, default_model, created_at, last_activity_at)
+      VALUES (@id, @name, @directory, @repo_root, @remote_url, @target_branch, @custom_instructions, @default_space_branch, @space_branch_source, @default_provider, @default_model, @created_at, @last_activity_at)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         directory = excluded.directory,
@@ -778,6 +788,7 @@ export class SessionDB {
         target_branch = excluded.target_branch,
         custom_instructions = excluded.custom_instructions,
         default_space_branch = excluded.default_space_branch,
+        space_branch_source = excluded.space_branch_source,
         default_provider = excluded.default_provider,
         default_model = excluded.default_model,
         last_activity_at = excluded.last_activity_at

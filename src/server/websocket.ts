@@ -15,6 +15,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { AuthManager } from "./auth.js";
 import type { InstanceManager } from "../core/instance-manager.js";
 import type { InstanceInfo } from "../core/types.js";
+import { getPrimaryRemote } from "../core/git.js";
 import type { RelayConfig } from "./config.js";
 import type {
   ClientMessage,
@@ -382,9 +383,23 @@ export function createWebSocketServer(
 
           case "create_space": {
             try {
+              // Resolve effective base branch using project settings
+              let effectiveBranch: string | undefined = message.baseBranch;
+              const project = instanceManager.projectManager.getProjectByDirectory(
+                message.projectDirectory,
+              );
+              if (!effectiveBranch && project?.defaultSpaceBranch) {
+                effectiveBranch = project.defaultSpaceBranch;
+              }
+              if (effectiveBranch && project?.spaceBranchSource === "remote" && project.repoRoot) {
+                const remote = getPrimaryRemote(project.repoRoot);
+                if (!effectiveBranch.includes("/")) {
+                  effectiveBranch = `${remote}/${effectiveBranch}`;
+                }
+              }
               instanceManager.getSpaceManager().createSpace(message.projectDirectory, {
                 name: message.name,
-                baseBranch: message.baseBranch,
+                baseBranch: effectiveBranch,
               });
             } catch (err) {
               sendMessage(ws, {

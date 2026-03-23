@@ -350,6 +350,7 @@ export async function updateProject(
     targetBranch?: string | null;
     customInstructions?: string | null;
     defaultSpaceBranch?: string | null;
+    spaceBranchSource?: "local" | "remote" | null;
     defaultProvider?: string | null;
     defaultModel?: string | null;
   },

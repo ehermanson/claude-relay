@@ -2,6 +2,7 @@ import type { Route, HttpDeps } from "../types.js";
 import { readJsonBody } from "../body.js";
 import { requireAuth } from "../guards.js";
 import { sendJson } from "../respond.js";
+import { getPrimaryRemote } from "../../../core/git.js";
 
 export function createSpaceRoutes(deps: HttpDeps): Route[] {
   const { instanceManager } = deps;
@@ -36,9 +37,21 @@ export function createSpaceRoutes(deps: HttpDeps): Route[] {
         }
         try {
           const body = await readJsonBody<{ name?: string; baseBranch?: string }>(ctx.req);
+          // Resolve effective base branch: explicit > project default > repo default (main)
+          let effectiveBranch = body.baseBranch;
+          if (!effectiveBranch && project.defaultSpaceBranch) {
+            effectiveBranch = project.defaultSpaceBranch;
+          }
+          // Prefix with remote name when project is configured to branch from remote
+          if (effectiveBranch && project.spaceBranchSource === "remote" && project.repoRoot) {
+            const remote = getPrimaryRemote(project.repoRoot);
+            if (!effectiveBranch.includes("/")) {
+              effectiveBranch = `${remote}/${effectiveBranch}`;
+            }
+          }
           const space = instanceManager.getSpaceManager().createSpace(project.directory, {
             name: body.name,
-            baseBranch: body.baseBranch,
+            baseBranch: effectiveBranch,
           });
           sendJson(ctx.res, 201, space);
         } catch (err) {

@@ -53,6 +53,7 @@ function rowToProject(row: ProjectRow): Project {
     targetBranch: row.target_branch,
     customInstructions: row.custom_instructions,
     defaultSpaceBranch: row.default_space_branch,
+    spaceBranchSource: (row.space_branch_source as "local" | "remote") ?? null,
     defaultProvider: row.default_provider,
     defaultModel: row.default_model,
     createdAt: row.created_at,
@@ -149,6 +150,7 @@ export class ProjectManager extends EventEmitter {
           target_branch: getCurrentBranch(canonicalDirectory),
           custom_instructions: null,
           default_space_branch: null,
+          space_branch_source: null,
           default_provider: null,
           default_model: null,
           created_at: now,
@@ -215,6 +217,7 @@ export class ProjectManager extends EventEmitter {
       target_branch: targetBranch,
       custom_instructions: null,
       default_space_branch: null,
+      space_branch_source: null,
       default_provider: null,
       default_model: null,
       created_at: now,
@@ -315,6 +318,7 @@ export class ProjectManager extends EventEmitter {
       targetBranch?: string | null;
       customInstructions?: string | null;
       defaultSpaceBranch?: string | null;
+      spaceBranchSource?: "local" | "remote" | null;
       defaultProvider?: string | null;
       defaultModel?: string | null;
     },
@@ -335,6 +339,10 @@ export class ProjectManager extends EventEmitter {
         updates.defaultSpaceBranch !== undefined
           ? updates.defaultSpaceBranch
           : existing.default_space_branch,
+      space_branch_source:
+        updates.spaceBranchSource !== undefined
+          ? updates.spaceBranchSource
+          : existing.space_branch_source,
       default_provider:
         updates.defaultProvider !== undefined ? updates.defaultProvider : existing.default_provider,
       default_model:

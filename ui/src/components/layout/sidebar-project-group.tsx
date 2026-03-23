@@ -18,6 +18,7 @@ import {
   MoreVertical,
   NotebookPen,
   Plus,
+  Settings,
   Toolbox,
 } from "lucide-react";
 import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
@@ -333,6 +334,18 @@ export function SidebarProjectGroup({
                   >
                     <Toolbox size={13} strokeWidth={2} className="text-muted" />
                     Skills
+                  </Menu.Item>
+                  <Menu.Item
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
+                      navigate({
+                        to: "/projects/$projectId/settings",
+                        params: { projectId: routeProjectId },
+                      });
+                    }}
+                  >
+                    <Settings size={13} strokeWidth={2} className="text-muted" />
+                    Settings
                   </Menu.Item>
                   <Menu.Separator />
                   {onMoveToTop && (
