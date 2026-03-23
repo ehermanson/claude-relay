@@ -185,6 +185,8 @@ interface Instance {
   customInstructionsInjected?: boolean;
   /** True while an async git-branch refresh is in flight */
   refreshingGitBranch?: boolean;
+  /** True when the user explicitly cancelled — suppresses error exit messages */
+  cancelledByUser?: boolean;
 }
 
 export interface InstanceManagerEvents {
@@ -1649,6 +1651,7 @@ export class InstanceManager extends EventEmitter {
     if (!instance) throw new Error(`Instance ${id} not found`);
     if (instance.info.external) throw new Error("Cannot cancel on external instances");
     if (!instance.process) throw new Error("Instance is not running");
+    instance.cancelledByUser = true;
     instance.process!.interrupt();
   }
 
@@ -5620,17 +5623,21 @@ export class InstanceManager extends EventEmitter {
     proc.on("exit", (message) => {
       instance.providerBinding = proc.getRuntimeBinding();
       instance.info.lastActivityAt = Date.now();
-      if (message.code !== 0) {
+      const wasCancelledByUser = instance.cancelledByUser;
+      instance.cancelledByUser = false;
+      if (message.code !== 0 && !wasCancelledByUser) {
         this.pushHistory(instance, message);
         this.setStatus(instance, "error");
       } else {
-        // Clean exit (code 0) — session ended normally (e.g. SDK stream ended
-        // between turns). Mark as "stopped" so the next sendMessage() auto-revives
-        // instead of silently dropping messages into a dead session.
+        // Clean exit (code 0) or user-cancelled — session ended normally or was
+        // intentionally stopped. Mark as "stopped" so the next sendMessage()
+        // auto-revives instead of silently dropping messages into a dead session.
         this.setStatus(instance, "stopped");
       }
       this.dbSave(instance);
-      this.emit("instance:exit", id, message);
+      if (!wasCancelledByUser) {
+        this.emit("instance:exit", id, message);
+      }
     });
 
     // SDK permission requests — set pending state without creating a chat activity
