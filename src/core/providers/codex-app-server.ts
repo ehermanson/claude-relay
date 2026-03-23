@@ -350,18 +350,10 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     });
   }
 
-  close(): void {
+  close(): Promise<void> {
     this.clearTimeout();
     this._closingIntentionally = true;
-    if (this.process) {
-      this.process.kill("SIGTERM");
-      // Give it a moment to exit gracefully, then force kill
-      setTimeout(() => {
-        if (this.process && this.process.exitCode === null && !this.process.killed) {
-          this.process.kill("SIGKILL");
-        }
-      }, 2000);
-    }
+    const child = this.process;
     this._isProcessing = false;
     this._pendingMessage = null;
     this._planDeltaBuffer = "";
@@ -372,6 +364,36 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     }
     this.pendingRpcResponses.clear();
     this.pendingRequests.clear();
+    if (!child) return Promise.resolve();
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.removeListener("exit", onExit);
+        child.removeListener("error", onExit);
+        if (this.process === child) {
+          this.process = null;
+        }
+        resolve();
+      };
+      const onExit = () => finish();
+      const timer = setTimeout(() => {
+        if (child.exitCode === null && !child.killed) {
+          child.kill("SIGKILL");
+        }
+        finish();
+      }, 2000);
+      timer.unref?.();
+      child.once("exit", onExit);
+      child.once("error", onExit);
+      if (child.exitCode === null && !child.killed) {
+        child.kill("SIGTERM");
+      } else {
+        finish();
+      }
+    });
   }
 
   addAllowedTool(_tool: string): void {

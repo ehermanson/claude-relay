@@ -165,6 +165,8 @@ interface Instance {
   tasks?: Map<string, TaskItem>;
   /** Accumulated file change state for file_list activity rendering */
   files?: Map<string, FileChange>;
+  /** Monotonic revision for file-state refreshes to guard async enrichment */
+  fileStateRevision: number;
   /** Queued retry message when tool approval arrives while process is still running */
   pendingRetry?: string;
   /** Last plan file path detected from Edit/Write activity while in plan mode */
@@ -978,6 +980,7 @@ function statsChanged(before: SessionStats, after: SessionStats): boolean {
 
 export class InstanceManager extends EventEmitter {
   private instances = new Map<string, Instance>();
+  private instanceMutationChains = new Map<string, Promise<void>>();
   private baseConfig: CoreConfig;
   private db: SessionDB;
   private instanceCounter = 0;
@@ -996,6 +999,8 @@ export class InstanceManager extends EventEmitter {
   scanComplete = false;
   /** Guard to prevent concurrent discovery polls from overlapping */
   private discovering = false;
+  /** Prevent late process/watcher events from mutating state after shutdown begins */
+  private shuttingDown = false;
   /** Space lifecycle manager */
   private spaceManager: SpaceManager;
   /** Project manager for explicit project registration */
@@ -1030,6 +1035,7 @@ export class InstanceManager extends EventEmitter {
     this._projectManager.on("project:updated", () => {
       this.emit("projects:changed");
     });
+    this._projectManager.recoverProjectsFromSessionDirectories();
   }
 
   /** Access the project manager for project CRUD operations. */
@@ -1248,6 +1254,7 @@ export class InstanceManager extends EventEmitter {
       process: proc,
       providerBinding: proc.getRuntimeBinding(),
       history: [],
+      fileStateRevision: 0,
       autoTitle: !hasCustomName && !resumeId,
       worktreePath: spaceWorktreePath,
       gitBranch: spaceGitBranch,
@@ -1288,6 +1295,7 @@ export class InstanceManager extends EventEmitter {
         if (tasks.size > 0) instance.tasks = tasks;
         if (files.size > 0) {
           instance.files = files;
+          instance.fileStateRevision += 1;
           const diffCwd = instance.actualCwd || instance.info.workingDirectory;
           const origBranch = instance.originalDirectory
             ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
@@ -1422,21 +1430,98 @@ export class InstanceManager extends EventEmitter {
   getSpaceManager(): SpaceManager {
     return this.spaceManager;
   }
+
+  private cloneInstanceInfo(info: InstanceInfo): InstanceInfo {
+    return {
+      ...info,
+      lastMessage: info.lastMessage ? { ...info.lastMessage } : undefined,
+      pendingPermission: info.pendingPermission
+        ? {
+            ...info.pendingPermission,
+            questions: info.pendingPermission.questions?.map((question) => ({
+              ...question,
+              options: question.options?.map((option) => ({ ...option })) ?? question.options,
+            })),
+          }
+        : undefined,
+      stats: info.stats ? { ...info.stats } : undefined,
+      gitInfo: info.gitInfo ? { ...info.gitInfo } : undefined,
+      branchChanged: info.branchChanged ? { ...info.branchChanged } : undefined,
+      modelOptions: info.modelOptions ? { ...info.modelOptions } : undefined,
+    };
+  }
+
+  private deriveInstanceView(instance: Instance): InstanceInfo {
+    return this.cloneInstanceInfo(instance.info);
+  }
+
+  private emitInstanceStatus(instance: Instance): void {
+    if (this.shuttingDown) return;
+    this.emit("instance:status", instance.info.id, this.deriveInstanceView(instance));
+  }
+
+  private isInstanceNotFoundError(err: unknown): boolean {
+    return err instanceof Error && /Instance .* not found/.test(err.message);
+  }
+
+  private logQueuedMutationError(context: string, instanceId: string, err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    if (this.shuttingDown || this.isInstanceNotFoundError(err)) {
+      this.baseConfig.logger.debug(
+        `[InstanceManager] ${context} dropped for ${instanceId}: ${message}`,
+      );
+      return;
+    }
+    this.baseConfig.logger.error(
+      `[InstanceManager] ${context} failed for ${instanceId}: ${message}`,
+    );
+  }
+
+  private enqueueInstanceMutation<T>(
+    instanceId: string,
+    mutate: (instance: Instance) => T | Promise<T>,
+  ): Promise<T> {
+    const previous = this.instanceMutationChains.get(instanceId) ?? Promise.resolve();
+    const run = previous
+      .catch(() => {})
+      .then(async () => {
+        const instance = this.instances.get(instanceId);
+        if (!instance) throw new Error(`Instance ${instanceId} not found`);
+        return mutate(instance);
+      });
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.instanceMutationChains.set(instanceId, tail);
+    return run.finally(() => {
+      if (this.instanceMutationChains.get(instanceId) === tail) {
+        this.instanceMutationChains.delete(instanceId);
+      }
+    });
+  }
+
+  private async flushInstanceMutations(): Promise<void> {
+    await Promise.all(
+      [...this.instanceMutationChains.values()].map((chain) => chain.catch(() => {})),
+    );
+  }
+
   listInstances(): InstanceInfo[] {
     return Array.from(this.instances.values())
       .filter((i) => !!i.info.projectId)
-      .map((i) => ({ ...i.info }));
+      .map((i) => this.deriveInstanceView(i));
   }
 
   getInstance(id: string): InstanceInfo | undefined {
     const instance = this.instances.get(id);
-    return instance ? { ...instance.info } : undefined;
+    return instance ? this.deriveInstanceView(instance) : undefined;
   }
 
   getChatSummary(id: string): InstanceInfo | null {
     const live = this.instances.get(id);
     if (live) {
-      return toChatSummaryInfo(live.info);
+      return toChatSummaryInfo(this.deriveInstanceView(live));
     }
 
     const external = this.db.getByInstanceId(id);
@@ -1459,7 +1544,7 @@ export class InstanceManager extends EventEmitter {
       if (instance.info.projectId !== projectId) {
         continue;
       }
-      chats.set(instance.info.id, toChatSummaryInfo(instance.info));
+      chats.set(instance.info.id, toChatSummaryInfo(this.deriveInstanceView(instance)));
     }
 
     for (const row of this.db.getByProjectId(projectId)) {
@@ -1517,30 +1602,22 @@ export class InstanceManager extends EventEmitter {
     return filePath ? getFileDiff(cwd, filePath, opts) : getFullDiff(cwd, opts);
   }
 
-  /**
-   * Send a message to an instance. If the instance is external (read-only),
-   * transparently resumes it first. Returns the updated InstanceInfo if a
-   * resume happened (so callers can broadcast the transition), undefined otherwise.
-   */
-  sendMessage(
+  private dispatchUserMessageLocked(
     id: string,
+    instance: Instance,
     text: string,
     images?: string[],
     internal?: boolean,
   ): InstanceInfo | undefined {
-    const instance = this.instances.get(id);
-    if (!instance) throw new Error(`Instance ${id} not found`);
-
     this.hydrateInstance(id, instance);
 
-    // Transparent resume/revive on first send
     let resumed: InstanceInfo | undefined;
     if (instance.info.external) {
-      resumed = this.resumeInstance(id);
+      resumed = this.resumeInstanceLocked(id, instance);
     } else if (!instance.process) {
       this.bootManagedInstance(id, instance);
     } else if (instance.info.status === "stopped" && instance.sessionId) {
-      resumed = this.reviveInstance(id);
+      resumed = this.reviveInstanceLocked(id, instance);
     }
 
     if (!instance.process) {
@@ -1550,7 +1627,6 @@ export class InstanceManager extends EventEmitter {
     let shouldInjectTaskContext = false;
     let customInstructions: string | null = null;
 
-    // Inject task context into the first outbound user turn for projects with .relay/tasks.jsonl
     if (!instance.taskContextInjected && !internal && instance.info.projectId) {
       instance.taskContextInjected = true;
       const taskProject = this._projectManager.getProject(instance.info.projectId);
@@ -1559,19 +1635,14 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Collect custom instructions for the first outbound user turn
     if (!instance.customInstructionsInjected && !internal && instance.info.projectId) {
       instance.customInstructionsInjected = true;
       const project = this._projectManager.getProject(instance.info.projectId);
       if (project) {
         const parts: string[] = [];
-
-        // DB-stored custom instructions
         if (project.customInstructions?.trim()) {
           parts.push(project.customInstructions.trim());
         }
-
-        // File-based instructions (.relay/instructions.md)
         const instructionsPath = join(project.directory, ".relay", "instructions.md");
         try {
           if (existsSync(instructionsPath)) {
@@ -1583,27 +1654,23 @@ export class InstanceManager extends EventEmitter {
         } catch {
           // Non-critical — skip if file can't be read
         }
-
         if (parts.length > 0) {
           customInstructions = parts.join("\n\n");
         }
       }
     }
 
-    // Auto-title from first user message
     if (instance.autoTitle) {
       instance.info.name = generateTitle(text);
       instance.autoTitle = false;
     }
 
-    // Build message text with image file paths so Claude can read them
     let messageText = text;
     if (images && images.length > 0) {
       const markers = images.map((p) => `[Image: source: ${p}]`).join("\n");
       messageText = messageText ? `${messageText}\n${markers}` : markers;
     }
 
-    // Apply context injections to the outbound message
     let outboundMessage = messageText;
     if (shouldInjectTaskContext) {
       outboundMessage = buildFirstTurnTaskContextPrompt(outboundMessage);
@@ -1612,7 +1679,6 @@ export class InstanceManager extends EventEmitter {
       outboundMessage = buildCustomInstructionsPrompt(outboundMessage, customInstructions);
     }
 
-    // Store user message in history so replay works across devices
     const userMessage: UserMessage = {
       type: "user",
       text: messageText,
@@ -1624,13 +1690,10 @@ export class InstanceManager extends EventEmitter {
     this.pushHistory(instance, userMessage);
     this.emit("instance:user", id, userMessage);
 
-    // Immediately reflect processing status
     instance.info.lastActivityAt = Date.now();
     instance.info.pendingTool = undefined;
     instance.info.pendingPermission = undefined;
 
-    // If the user is responding to a pending plan, exit plan mode so
-    // the provider executes instead of re-planning on the next turn.
     if (instance.info.pendingPlan && instance.info.planMode) {
       instance.info.planMode = false;
       instance.process?.setPlanMode?.(false);
@@ -1642,27 +1705,17 @@ export class InstanceManager extends EventEmitter {
     instance.planFilePath = undefined;
     this.setStatus(instance, "processing");
 
-    instance.process!.send(outboundMessage);
-    return resumed;
+    instance.process.send(outboundMessage);
+    return resumed ? this.cloneInstanceInfo(resumed) : undefined;
   }
 
-  cancelMessage(id: string): void {
-    const instance = this.instances.get(id);
-    if (!instance) throw new Error(`Instance ${id} not found`);
-    if (instance.info.external) throw new Error("Cannot cancel on external instances");
-    if (!instance.process) throw new Error("Instance is not running");
-    instance.cancelledByUser = true;
-    instance.process!.interrupt();
-  }
-
-  respondToRequest(
+  private async resolveRequestLocked(
     id: string,
+    instance: Instance,
     requestId: string,
     decision: "accept" | "decline",
     response?: import("./types.js").ProviderRequestResponse,
-  ): void {
-    const instance = this.instances.get(id);
-    if (!instance) throw new Error(`Instance ${id} not found`);
+  ): Promise<void> {
     if (instance.info.external) throw new Error("Cannot approve tools on external instances");
     if (!instance.process) throw new Error("Instance is not running");
     const pendingRequest = instance.info.pendingPermission;
@@ -1673,7 +1726,7 @@ export class InstanceManager extends EventEmitter {
       instance.info.pendingTool = undefined;
       instance.info.pendingPermission = undefined;
       this.emitPendingStateIfChanged(instance, pendingStateBefore);
-      if (instance.process?.respondToRequest?.(requestId, decision, response)) {
+      if (instance.process.respondToRequest?.(requestId, decision, response)) {
         this.setStatus(instance, "processing");
         return;
       }
@@ -1690,7 +1743,7 @@ export class InstanceManager extends EventEmitter {
       this.noteManagedProcessActivity(instance);
       this.pushHistory(instance, activity);
       this.emit("instance:activity", id, activity);
-      this.sendMessage(id, reply.text);
+      this.dispatchUserMessageLocked(id, instance, reply.text);
       return;
     }
 
@@ -1709,8 +1762,8 @@ export class InstanceManager extends EventEmitter {
         if (row) {
           try {
             const existing = JSON.parse(row.allowed_tools) as string[];
-            for (const t of existing) {
-              if (!allTools.includes(t)) allTools.push(t);
+            for (const allowedTool of existing) {
+              if (!allTools.includes(allowedTool)) allTools.push(allowedTool);
             }
           } catch {
             // ignore parse errors
@@ -1722,16 +1775,12 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    if (instance.process?.respondToRequest) {
-      for (const t of toolsToAdd) {
-        instance.process!.addAllowedTool(t);
+    if (instance.process.respondToRequest) {
+      for (const allowedTool of toolsToAdd) {
+        instance.process.addAllowedTool(allowedTool);
       }
       instance.process.respondToRequest(requestId, decision, response);
-      if (decision === "accept") {
-        this.setStatus(instance, "processing");
-      } else {
-        this.setStatus(instance, "idle");
-      }
+      this.setStatus(instance, decision === "accept" ? "processing" : "idle");
       return;
     }
 
@@ -1740,50 +1789,82 @@ export class InstanceManager extends EventEmitter {
       return;
     }
 
-    // CLI path: add tools + send retry message
-    for (const t of toolsToAdd) {
-      instance.process!.addAllowedTool(t);
+    for (const allowedTool of toolsToAdd) {
+      instance.process.addAllowedTool(allowedTool);
     }
 
-    const toolLabel = isFileWrite ? "file writes" : tool;
-    const retryText = buildPermissionGrantedRetryMessage(toolLabel);
-
-    if (instance.process!.isProcessing) {
+    const retryText = buildPermissionGrantedRetryMessage(isFileWrite ? "file writes" : tool);
+    if (instance.process.isProcessing) {
       instance.pendingRetry = retryText;
-    } else {
-      const userMessage: UserMessage = {
-        type: "user",
-        text: retryText,
-        instanceId: id,
-        internal: true,
-      };
-      this.noteManagedProcessActivity(instance);
-      this.pushHistory(instance, userMessage);
-      this.emit("instance:user", id, userMessage);
-      instance.info.lastActivityAt = Date.now();
-      this.setStatus(instance, "processing");
-      instance.process!.send(retryText);
+      return;
     }
+
+    const userMessage: UserMessage = {
+      type: "user",
+      text: retryText,
+      instanceId: id,
+      internal: true,
+    };
+    this.noteManagedProcessActivity(instance);
+    this.pushHistory(instance, userMessage);
+    this.emit("instance:user", id, userMessage);
+    instance.info.lastActivityAt = Date.now();
+    this.setStatus(instance, "processing");
+    instance.process.send(retryText);
   }
 
-  approveToolUse(id: string, tool: string): void {
-    const instance = this.instances.get(id);
-    if (!instance) throw new Error(`Instance ${id} not found`);
-    const requestId =
-      typeof instance.info.pendingPermission === "object" &&
-      instance.info.pendingPermission.tool === tool
-        ? instance.info.pendingPermission.requestId
-        : tool;
-    this.respondToRequest(id, requestId, "accept");
+  /**
+   * Send a message to an instance. If the instance is external (read-only),
+   * transparently resumes it first. Returns the updated InstanceInfo if a
+   * resume happened (so callers can broadcast the transition), undefined otherwise.
+   */
+  async sendMessage(
+    id: string,
+    text: string,
+    images?: string[],
+    internal?: boolean,
+  ): Promise<InstanceInfo | undefined> {
+    return this.enqueueInstanceMutation(id, (instance) =>
+      this.dispatchUserMessageLocked(id, instance, text, images, internal),
+    );
+  }
+
+  async cancelMessage(id: string): Promise<void> {
+    await this.enqueueInstanceMutation(id, async (instance) => {
+      if (instance.info.external) throw new Error("Cannot cancel on external instances");
+      if (!instance.process) throw new Error("Instance is not running");
+      instance.cancelledByUser = true;
+      instance.process.interrupt();
+    });
+  }
+
+  async respondToRequest(
+    id: string,
+    requestId: string,
+    decision: "accept" | "decline",
+    response?: import("./types.js").ProviderRequestResponse,
+  ): Promise<void> {
+    await this.enqueueInstanceMutation(id, (instance) =>
+      this.resolveRequestLocked(id, instance, requestId, decision, response),
+    );
+  }
+
+  async approveToolUse(id: string, tool: string): Promise<void> {
+    await this.enqueueInstanceMutation(id, (instance) => {
+      const requestId =
+        typeof instance.info.pendingPermission === "object" &&
+        instance.info.pendingPermission.tool === tool
+          ? instance.info.pendingPermission.requestId
+          : tool;
+      return this.resolveRequestLocked(id, instance, requestId, "accept");
+    });
   }
 
   /**
    * Resume an external session — converts it from read-only monitoring
    * to an interactive managed instance.
    */
-  resumeInstance(id: string): InstanceInfo {
-    const instance = this.instances.get(id);
-    if (!instance) throw new Error(`Instance ${id} not found`);
+  private resumeInstanceLocked(id: string, instance: Instance): InstanceInfo {
     const sessionId = instance.externalState?.sessionId ?? instance.sessionId;
     const jsonlPath = instance.externalState?.jsonlPath ?? instance.jsonlPath;
     if (!sessionId) throw new Error("Instance has no session ID to resume");
@@ -1876,9 +1957,7 @@ export class InstanceManager extends EventEmitter {
    * Revive a stopped session — creates a new provider session with resume
    * so the user can continue a previously ended conversation.
    */
-  reviveInstance(id: string): InstanceInfo {
-    const instance = this.instances.get(id);
-    if (!instance) throw new Error(`Instance ${id} not found`);
+  private reviveInstanceLocked(id: string, instance: Instance): InstanceInfo {
     if (instance.info.status !== "stopped") throw new Error("Instance is not stopped");
     if (!instance.sessionId) throw new Error("Instance has no session to revive");
 
@@ -1997,6 +2076,7 @@ export class InstanceManager extends EventEmitter {
       instance.history = parsed.history;
       instance.tasks = parsed.tasks.size > 0 ? parsed.tasks : undefined;
       instance.files = parsed.files.size > 0 ? parsed.files : undefined;
+      instance.fileStateRevision += 1;
 
       const parsedStats = hasSessionStats(parsed.stats) ? parsed.stats : undefined;
       if (parsedStats) {
@@ -2025,7 +2105,7 @@ export class InstanceManager extends EventEmitter {
 
     instance.hydrated = true;
     this.dbSave(instance);
-    this.emit("instance:status", id, { ...instance.info });
+    this.emitInstanceStatus(instance);
 
     // Phase 2: Git enrichment — deferred so history is served immediately.
     // Runs async; emits a second instance:status when git data arrives.
@@ -2055,7 +2135,7 @@ export class InstanceManager extends EventEmitter {
 
   private emitPendingStateIfChanged(instance: Instance, before: string): void {
     if (this.pendingStateSignature(instance) !== before) {
-      this.emit("instance:status", instance.info.id, { ...instance.info });
+      this.emitInstanceStatus(instance);
     }
   }
 
@@ -2077,7 +2157,7 @@ export class InstanceManager extends EventEmitter {
             );
             instance.info.pendingPlan = content;
           }
-          this.emit("instance:status", instance.info.id, { ...instance.info });
+          this.emitInstanceStatus(instance);
         }
       } catch {
         // Plan file may have been deleted — ignore
@@ -2143,109 +2223,128 @@ export class InstanceManager extends EventEmitter {
    * delivery isn't blocked by synchronous git subprocess calls.
    */
   private async enrichGitDataAsync(id: string, instance: Instance): Promise<void> {
-    let changed = false;
+    const diffCwd = instance.actualCwd || instance.info.workingDirectory;
+    const fileStateRevision = instance.fileStateRevision;
+    const needsDiffStats = Boolean(instance.files && instance.files.size > 0);
+    const needsGitInfo = !instance.info.gitInfo;
+    const hasWorktree = Boolean(instance.worktreePath && instance.originalDirectory);
 
-    // Diff stats for files
-    if (instance.files && instance.files.size > 0) {
-      const diffCwd = instance.actualCwd || instance.info.workingDirectory;
-      const origBranch = instance.originalDirectory
-        ? ((await getCurrentBranchAsync(instance.originalDirectory)) ?? undefined)
-        : undefined;
-      await enrichDiffStatsAsync(diffCwd, instance.files, {
-        originalBranch: origBranch,
-        sessionCreatedAt: instance.info.createdAt,
-      });
-      changed = true;
-    }
+    const [origBranch, gitInfo, hasChanges] = await Promise.all([
+      needsDiffStats && instance.originalDirectory
+        ? getCurrentBranchAsync(instance.originalDirectory)
+        : Promise.resolve(null),
+      needsGitInfo
+        ? getGitInfoAsync(
+            instance.info.external && instance.worktreePath
+              ? instance.worktreePath
+              : instance.info.workingDirectory,
+          )
+        : Promise.resolve(null),
+      hasWorktree
+        ? hasWorktreeChangesAsync(instance.worktreePath!, instance.originalDirectory!)
+        : Promise.resolve(null),
+    ]);
 
-    // Git branch/worktree info
-    if (!instance.info.gitInfo) {
-      const dir =
-        instance.info.external && instance.worktreePath
-          ? instance.worktreePath
-          : instance.info.workingDirectory;
-      instance.info.gitInfo = (await getGitInfoAsync(dir)) ?? undefined;
-      if (instance.info.gitInfo) changed = true;
-    }
-
-    // Backfill originalGitBranch for sessions created before this feature
-    if (!instance.info.originalGitBranch) {
-      const fallbackOriginalBranch = instance.gitBranch ?? instance.info.gitBranch;
-      if (fallbackOriginalBranch || instance.info.gitInfo?.branch) {
-        instance.info.originalGitBranch = fallbackOriginalBranch ?? instance.info.gitInfo?.branch;
+    await this.enqueueInstanceMutation(id, async (live) => {
+      let changed = false;
+      if (
+        needsDiffStats &&
+        live.fileStateRevision === fileStateRevision &&
+        live.files &&
+        live.files.size > 0
+      ) {
+        await enrichDiffStatsAsync(diffCwd, live.files, {
+          originalBranch: origBranch ?? undefined,
+          sessionCreatedAt: live.info.createdAt,
+        });
         changed = true;
       }
-    }
-
-    // Worktree changes check
-    if (instance.worktreePath && instance.originalDirectory) {
-      instance.info.hasChanges = await hasWorktreeChangesAsync(
-        instance.worktreePath,
-        instance.originalDirectory,
+      if (!live.info.gitInfo && gitInfo) {
+        live.info.gitInfo = gitInfo;
+        changed = true;
+      }
+      if (!live.info.originalGitBranch) {
+        const fallbackOriginalBranch = live.gitBranch ?? live.info.gitBranch;
+        if (fallbackOriginalBranch || live.info.gitInfo?.branch) {
+          live.info.originalGitBranch = fallbackOriginalBranch ?? live.info.gitInfo?.branch;
+          changed = true;
+        }
+      }
+      if (hasChanges != null && live.worktreePath && live.originalDirectory) {
+        live.info.hasChanges = hasChanges;
+        changed = true;
+      }
+      if (changed) {
+        this.dbSave(live);
+        this.emitInstanceStatus(live);
+      }
+    }).catch((err) => {
+      this.baseConfig.logger.debug(
+        `[InstanceManager] Git enrichment apply failed for ${id}: ${err}`,
       );
-      changed = true;
-    }
-
-    if (changed) {
-      this.dbSave(instance);
-      this.emit("instance:status", id, { ...instance.info });
-    }
+    });
   }
 
   private async refreshGitBranchStateAsync(id: string, instance: Instance): Promise<void> {
-    if (instance.refreshingGitBranch || !this.instances.has(id)) return;
+    const prep = await this.enqueueInstanceMutation(id, (live) => {
+      if (live.refreshingGitBranch) return null;
+      live.refreshingGitBranch = true;
+      return {
+        cwd: this.resolveRunnableCwd(live),
+        currentIsWorktree: live.info.gitInfo?.isWorktree ?? Boolean(live.worktreePath),
+      };
+    }).catch(() => null);
+    if (!prep) return;
 
-    instance.refreshingGitBranch = true;
     try {
-      const cwd = this.resolveRunnableCwd(instance);
-      const currentBranch = await getCurrentBranchAsync(cwd);
-      const currentIsWorktree = instance.info.gitInfo?.isWorktree ?? Boolean(instance.worktreePath);
-      let changed = false;
-
-      if (currentBranch) {
-        if (
-          !instance.info.gitInfo ||
-          instance.info.gitInfo.branch !== currentBranch ||
-          instance.info.gitInfo.isWorktree !== currentIsWorktree
-        ) {
-          instance.info.gitInfo = {
-            branch: currentBranch,
-            isWorktree: currentIsWorktree,
-          };
-          changed = true;
-        }
-
-        if (!instance.info.originalGitBranch) {
-          instance.info.originalGitBranch =
-            instance.gitBranch ?? instance.info.gitBranch ?? currentBranch;
-          changed = true;
-        }
-
-        if (instance.info.originalGitBranch !== currentBranch) {
-          const nextBranchChanged = {
-            originalBranch: instance.info.originalGitBranch,
-            currentBranch,
-          };
+      const currentBranch = await getCurrentBranchAsync(prep.cwd);
+      await this.enqueueInstanceMutation(id, (live) => {
+        let changed = false;
+        if (currentBranch) {
           if (
-            !instance.info.branchChanged ||
-            instance.info.branchChanged.originalBranch !== nextBranchChanged.originalBranch ||
-            instance.info.branchChanged.currentBranch !== nextBranchChanged.currentBranch
+            !live.info.gitInfo ||
+            live.info.gitInfo.branch !== currentBranch ||
+            live.info.gitInfo.isWorktree !== prep.currentIsWorktree
           ) {
-            instance.info.branchChanged = nextBranchChanged;
+            live.info.gitInfo = {
+              branch: currentBranch,
+              isWorktree: prep.currentIsWorktree,
+            };
             changed = true;
           }
-        } else if (instance.info.branchChanged) {
-          instance.info.branchChanged = undefined;
-          changed = true;
-        }
-      }
 
-      if (changed) {
-        this.dbSave(instance);
-        this.emit("instance:status", id, { ...instance.info });
-      }
+          if (!live.info.originalGitBranch) {
+            live.info.originalGitBranch = live.gitBranch ?? live.info.gitBranch ?? currentBranch;
+            changed = true;
+          }
+
+          if (live.info.originalGitBranch !== currentBranch) {
+            const nextBranchChanged = {
+              originalBranch: live.info.originalGitBranch,
+              currentBranch,
+            };
+            if (
+              !live.info.branchChanged ||
+              live.info.branchChanged.originalBranch !== nextBranchChanged.originalBranch ||
+              live.info.branchChanged.currentBranch !== nextBranchChanged.currentBranch
+            ) {
+              live.info.branchChanged = nextBranchChanged;
+              changed = true;
+            }
+          } else if (live.info.branchChanged) {
+            live.info.branchChanged = undefined;
+            changed = true;
+          }
+        }
+        if (changed) {
+          this.dbSave(live);
+          this.emitInstanceStatus(live);
+        }
+      });
     } finally {
-      instance.refreshingGitBranch = false;
+      await this.enqueueInstanceMutation(id, (live) => {
+        live.refreshingGitBranch = false;
+      }).catch(() => {});
     }
   }
 
@@ -2294,7 +2393,7 @@ export class InstanceManager extends EventEmitter {
     if (instance.info.status === "stopped") {
       this.setStatus(instance, "idle");
     } else {
-      this.emit("instance:status", id, { ...instance.info });
+      this.emitInstanceStatus(instance);
     }
     this.dbSave(instance);
   }
@@ -2809,12 +2908,75 @@ export class InstanceManager extends EventEmitter {
     return join(this.baseConfig.dbPath, "..", "processing-at-shutdown.json");
   }
 
+  async stopAllGracefully(): Promise<void> {
+    this.stopDiscovery();
+    await this.flushInstanceMutations();
+    this.shuttingDown = true;
+
+    const instances = [...this.instances.values()];
+    const processingIds: string[] = [];
+
+    for (const instance of instances) {
+      const wasProcessing = instance.process?.isProcessing ?? false;
+      if (
+        wasProcessing &&
+        !instance.info.external &&
+        !this.recentlyAutoContinued.has(instance.info.id)
+      ) {
+        processingIds.push(instance.info.id);
+      }
+      if (wasProcessing) {
+        try {
+          instance.process?.interrupt();
+        } catch {
+          // best-effort
+        }
+      }
+    }
+
+    await Promise.all(
+      instances.map(async (instance) => {
+        if (instance.process) {
+          await Promise.resolve(instance.process.close());
+        }
+        instance.info.status = "stopped";
+        if (instance.sessionId) {
+          this.db.updateLastActivity(instance.sessionId, instance.info.lastActivityAt);
+        }
+      }),
+    );
+
+    await this.flushInstanceMutations();
+
+    try {
+      if (processingIds.length > 0) {
+        writeFileSync(this.processingAtShutdownPath, JSON.stringify(processingIds));
+      } else if (existsSync(this.processingAtShutdownPath)) {
+        unlinkSync(this.processingAtShutdownPath);
+      }
+    } catch {
+      // best-effort
+    }
+
+    try {
+      this.db.checkpointWal();
+    } catch {
+      // best-effort
+    }
+
+    this.instances.clear();
+    this.instanceMutationChains.clear();
+    this.staleCounts.clear();
+    this.db.close();
+  }
+
   stopAll(): void {
+    this.shuttingDown = true;
     const processingIds: string[] = [];
     for (const instance of this.instances.values()) {
       const wasProcessing = instance.process?.isProcessing ?? false;
       if (instance.process) {
-        instance.process.close();
+        void Promise.resolve(instance.process.close());
       }
       instance.info.status = "stopped";
       if (instance.sessionId) {
@@ -2839,8 +3001,14 @@ export class InstanceManager extends EventEmitter {
       // best-effort
     }
     this.instances.clear();
+    this.instanceMutationChains.clear();
     this.staleCounts.clear();
     this.stopDiscovery();
+    try {
+      this.db.checkpointWal();
+    } catch {
+      // best-effort
+    }
     this.db.close();
   }
 
@@ -3273,6 +3441,7 @@ export class InstanceManager extends EventEmitter {
       watchState: createWatchState(jsonlPath, fileSize, info.stats),
       tasks: tasks.size > 0 ? tasks : undefined,
       files: files.size > 0 ? files : undefined,
+      fileStateRevision: files.size > 0 ? 1 : 0,
       worktreePath,
       gitBranch,
       originalDirectory,
@@ -4024,8 +4193,6 @@ export class InstanceManager extends EventEmitter {
     if (this.watchIntervals.has(instanceId)) return; // Already watching
 
     const interval = setInterval(() => {
-      if (!instance.watchState || !this.instances.has(instanceId)) return;
-
       this.refreshGitBranchStateAsync(instanceId, instance).catch((err) => {
         this.baseConfig.logger.debug(
           `[Watcher] Git branch refresh failed for ${instanceId}:`,
@@ -4034,41 +4201,38 @@ export class InstanceManager extends EventEmitter {
       });
 
       try {
+        if (!instance.watchState || !this.instances.has(instanceId)) return;
         const stat = statSync(instance.watchState.jsonlPath);
-
-        // Safety: if the file was truncated/rewritten, reset to beginning
-        if (stat.size < instance.watchState.fileOffset) {
-          instance.watchState.fileOffset = 0;
-        }
-
-        if (stat.size <= instance.watchState.fileOffset) return;
+        const observedOffset = instance.watchState.fileOffset;
+        const readOffset = observedOffset > stat.size ? 0 : observedOffset;
+        if (stat.size <= readOffset) return;
 
         // Read new bytes
         const fd = openSync(instance.watchState.jsonlPath, "r");
         let newContent: string;
         try {
-          const buf = Buffer.alloc(stat.size - instance.watchState.fileOffset);
-          readSync(fd, buf, 0, buf.length, instance.watchState.fileOffset);
+          const buf = Buffer.alloc(stat.size - readOffset);
+          readSync(fd, buf, 0, buf.length, readOffset);
           newContent = buf.toString("utf-8");
         } finally {
           closeSync(fd);
         }
 
-        instance.watchState.fileOffset = stat.size;
-
-        // When the relay's own process is active, it handles output via
-        // wireProcessEvents. Suppress watcher emissions to avoid duplicates.
-        if (instance.process?.isProcessing) return;
-
-        for (const line of newContent.split("\n")) {
-          if (!line.trim()) continue;
-          try {
-            const entry = JSON.parse(line);
-            this.applyWatcherEntry(instanceId, instance, entry);
-          } catch {
-            // skip malformed lines
+        void this.enqueueInstanceMutation(instanceId, (live) => {
+          if (!live.watchState) return;
+          if (live.watchState.fileOffset !== observedOffset) return;
+          live.watchState.fileOffset = stat.size;
+          if (live.process?.isProcessing) return;
+          for (const line of newContent.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              const entry = JSON.parse(line);
+              this.applyWatcherEntry(instanceId, live, entry);
+            } catch {
+              // skip malformed lines
+            }
           }
-        }
+        }).catch((err) => this.logQueuedMutationError("watcher mutation", instanceId, err));
       } catch (err) {
         this.baseConfig.logger.debug(
           `[Watcher] Read error for ${instanceId}:`,
@@ -4151,7 +4315,7 @@ export class InstanceManager extends EventEmitter {
           });
     if (statsChanged(prevStats, instance.watchState.stats)) {
       instance.info.stats = { ...instance.watchState.stats };
-      this.emit("instance:status", instanceId, { ...instance.info });
+      this.emitInstanceStatus(instance);
     }
 
     for (const histEntry of converted) {
@@ -4176,6 +4340,7 @@ export class InstanceManager extends EventEmitter {
         this.syncPendingInteractiveState(instance, activity);
         this.emitPendingStateIfChanged(instance, pendingStateBefore);
         if (activity.activity === "file_list" && activity.files && instance.files) {
+          instance.fileStateRevision += 1;
           // Enrich with git diff stats for watcher path
           const diffCwd = instance.actualCwd || instance.info.workingDirectory;
           const origBranch = instance.originalDirectory
@@ -4317,6 +4482,7 @@ export class InstanceManager extends EventEmitter {
   }
 
   private dbSave(instance: Instance): void {
+    if (this.shuttingDown) return;
     try {
       if (!instance.info.external && this.shouldPersistManagedInstance(instance)) {
         instance.providerBinding =
@@ -5117,6 +5283,7 @@ export class InstanceManager extends EventEmitter {
         sessionId: entry.session_id,
       },
       // tasks and files deferred until hydration
+      fileStateRevision: 0,
       worktreePath: extWorktreePath,
       gitBranch: extGitBranch,
       originalDirectory: extOriginalDir,
@@ -5243,6 +5410,7 @@ export class InstanceManager extends EventEmitter {
       sessionId: resumeSessionId,
       jsonlPath: transcriptPath,
       // watchState, tasks, and files deferred until hydration
+      fileStateRevision: 0,
       worktreePath: restoreWorktreePath,
       gitBranch: restoreGitBranch,
       originalDirectory: restoreOriginalDirectory,
@@ -5339,6 +5507,7 @@ export class InstanceManager extends EventEmitter {
    */
   private scanAndRestoreNew(): number {
     this.scanAllSessions();
+    this._projectManager.recoverProjectsFromSessionDirectories();
 
     let discovered = 0;
     for (const entry of this.db.getAllActive()) {
@@ -5404,7 +5573,7 @@ export class InstanceManager extends EventEmitter {
       const lastMsg = readLastMessage(jsonlPath);
       if (lastMsg) {
         instance.info.lastMessage = lastMsg;
-        this.emit("instance:status", instance.info.id, { ...instance.info });
+        this.emitInstanceStatus(instance);
         this.dbSave(instance);
         count++;
       }
@@ -5502,150 +5671,156 @@ export class InstanceManager extends EventEmitter {
 
   private wireProcessEvents(id: string, instance: Instance, proc: ProviderSession): void {
     proc.on("output", (message) => {
-      this.noteManagedProcessActivity(instance);
-      instance.providerBinding = proc.getRuntimeBinding();
-      this.pushHistory(instance, message);
-      instance.info.lastActivityAt = Date.now();
+      void this.enqueueInstanceMutation(id, (live) => {
+        if (this.shuttingDown || live.process !== proc) return;
+        this.noteManagedProcessActivity(live);
+        live.providerBinding = proc.getRuntimeBinding();
+        this.pushHistory(live, message);
+        live.info.lastActivityAt = Date.now();
 
-      if (message.isWaiting) {
-        // Advance watcher offset so it doesn't re-emit what the process already handled
-        if (instance.watchState) {
-          try {
-            instance.watchState.fileOffset = statSync(instance.watchState.jsonlPath).size;
-          } catch {
-            // ignore — file may not exist yet
+        if (message.isWaiting) {
+          if (live.watchState) {
+            try {
+              live.watchState.fileOffset = statSync(live.watchState.jsonlPath).size;
+            } catch {
+              // ignore — file may not exist yet
+            }
           }
-        }
 
-        // Drain pending tool-approval retry before going idle
-        if (instance.pendingRetry) {
-          const retryText = instance.pendingRetry;
-          instance.pendingRetry = undefined;
-          const userMessage: UserMessage = {
-            type: "user",
-            text: retryText,
-            instanceId: id,
-            internal: true,
-          };
-          this.noteManagedProcessActivity(instance);
-          this.pushHistory(instance, userMessage);
-          this.emit("instance:user", id, userMessage);
-          instance.info.lastActivityAt = Date.now();
-          this.setStatus(instance, "processing");
-          instance.process!.send(retryText);
+          if (live.pendingRetry) {
+            const retryText = live.pendingRetry;
+            live.pendingRetry = undefined;
+            const userMessage: UserMessage = {
+              type: "user",
+              text: retryText,
+              instanceId: id,
+              internal: true,
+            };
+            this.noteManagedProcessActivity(live);
+            this.pushHistory(live, userMessage);
+            this.emit("instance:user", id, userMessage);
+            live.info.lastActivityAt = Date.now();
+            this.setStatus(live, "processing");
+            live.process?.send(retryText);
+          } else {
+            this.checkWorktreeChanges(live);
+            this.refreshPendingPlan(live);
+            this.setStatus(live, "idle");
+            this.doRefreshTitle(live);
+          }
         } else {
-          this.checkWorktreeChanges(instance);
-          this.refreshPendingPlan(instance);
-          this.setStatus(instance, "idle");
-          this.doRefreshTitle(instance);
+          this.setStatus(live, "processing");
         }
-      } else {
-        this.setStatus(instance, "processing");
-      }
 
-      this.dbSave(instance);
-      this.emit("instance:output", id, message);
+        this.dbSave(live);
+        this.emit("instance:output", id, message);
+      }).catch((err) => this.logQueuedMutationError("output handler", id, err));
     });
 
     proc.on("activity", (message) => {
-      this.noteManagedProcessActivity(instance);
-      instance.providerBinding = proc.getRuntimeBinding();
-      const pendingStateBefore = this.pendingStateSignature(instance);
-      // Sync task state from process to instance
-      if (message.activity === "task_list" && message.tasks) {
-        if (!instance.tasks) instance.tasks = new Map();
-        instance.tasks.clear();
-        for (const t of message.tasks) {
-          instance.tasks.set(t.id, { ...t });
+      void this.enqueueInstanceMutation(id, (live) => {
+        if (this.shuttingDown || live.process !== proc) return;
+        this.noteManagedProcessActivity(live);
+        live.providerBinding = proc.getRuntimeBinding();
+        const pendingStateBefore = this.pendingStateSignature(live);
+        if (message.activity === "task_list" && message.tasks) {
+          if (!live.tasks) live.tasks = new Map();
+          live.tasks.clear();
+          for (const task of message.tasks) {
+            live.tasks.set(task.id, { ...task });
+          }
         }
-      }
-      // Sync file state from process to instance
-      if (message.activity === "file_list" && message.files) {
-        if (!instance.files) instance.files = new Map();
-        instance.files.clear();
-        for (const f of message.files) {
-          instance.files.set(f.path, { ...f });
+        if (message.activity === "file_list" && message.files) {
+          if (!live.files) live.files = new Map();
+          live.files.clear();
+          live.fileStateRevision += 1;
+          for (const file of message.files) {
+            live.files.set(file.path, { ...file });
+          }
+          const diffCwd = live.actualCwd || live.info.workingDirectory;
+          const origBranch = live.originalDirectory
+            ? (getCurrentBranch(live.originalDirectory) ?? undefined)
+            : undefined;
+          enrichDiffStats(diffCwd, live.files, {
+            originalBranch: origBranch,
+            sessionCreatedAt: live.info.createdAt,
+          });
+          message.files = Array.from(live.files.values()).map((file) => ({ ...file }));
         }
-        // Enrich with git diff stats
-        const diffCwd = instance.actualCwd || instance.info.workingDirectory;
-        const origBranch = instance.originalDirectory
-          ? (getCurrentBranch(instance.originalDirectory) ?? undefined)
-          : undefined;
-        enrichDiffStats(diffCwd, instance.files, {
-          originalBranch: origBranch,
-          sessionCreatedAt: instance.info.createdAt,
-        });
-        // Update the activity message with enriched data
-        message.files = Array.from(instance.files.values()).map((f) => ({ ...f }));
-      }
-      // Track plan file path from Edit/Write while in plan mode
-      if (
-        instance.info.planMode &&
-        message.activity === "tool_use" &&
-        (message.tool === "Edit" || message.tool === "Write") &&
-        message.input
-      ) {
-        const filePath = (message.input as Record<string, unknown>).file_path as string | undefined;
-        if (filePath) {
-          instance.planFilePath = filePath;
+        if (
+          live.info.planMode &&
+          message.activity === "tool_use" &&
+          (message.tool === "Edit" || message.tool === "Write") &&
+          message.input
+        ) {
+          const filePath = (message.input as Record<string, unknown>).file_path as
+            | string
+            | undefined;
+          if (filePath) {
+            live.planFilePath = filePath;
+          }
         }
-      }
-
-      // Track permission denials for the banner
-      if (message.permissionDenied) {
-        instance.info.pendingPermission = {
-          requestId: message.permissionDenied,
-          kind: "approval",
-          tool: message.permissionDenied,
-          description: message.description,
-        };
-        this.emit("instance:status", id, { ...instance.info });
-      }
-      this.syncPendingInteractiveState(instance, message);
-      this.emitPendingStateIfChanged(instance, pendingStateBefore);
-      this.pushHistory(instance, message);
-      instance.info.lastActivityAt = Date.now();
-      this.setStatus(instance, "processing");
-      this.dbSave(instance);
-      this.emit("instance:activity", id, message);
+        if (message.permissionDenied) {
+          live.info.pendingPermission = {
+            requestId: message.permissionDenied,
+            kind: "approval",
+            tool: message.permissionDenied,
+            description: message.description,
+          };
+          this.emitInstanceStatus(live);
+        }
+        this.syncPendingInteractiveState(live, message);
+        this.emitPendingStateIfChanged(live, pendingStateBefore);
+        this.pushHistory(live, message);
+        live.info.lastActivityAt = Date.now();
+        this.setStatus(live, "processing");
+        this.dbSave(live);
+        this.emit("instance:activity", id, message);
+      }).catch((err) => this.logQueuedMutationError("activity handler", id, err));
     });
 
     proc.on("stats", (stats) => {
-      instance.info.stats =
-        instance.info.stats?.contextWindow != null && stats.contextWindow == null
-          ? { ...stats, contextWindow: instance.info.stats.contextWindow }
-          : stats;
-      instance.providerBinding = proc.getRuntimeBinding();
-      this.dbSave(instance);
-      this.emit("instance:status", id, { ...instance.info });
+      void this.enqueueInstanceMutation(id, (live) => {
+        if (this.shuttingDown || live.process !== proc) return;
+        live.info.stats =
+          live.info.stats?.contextWindow != null && stats.contextWindow == null
+            ? { ...stats, contextWindow: live.info.stats.contextWindow }
+            : stats;
+        live.providerBinding = proc.getRuntimeBinding();
+        this.dbSave(live);
+        this.emitInstanceStatus(live);
+      }).catch((err) => this.logQueuedMutationError("stats handler", id, err));
     });
 
     proc.on("exit", (message) => {
-      instance.providerBinding = proc.getRuntimeBinding();
-      instance.info.lastActivityAt = Date.now();
-      const wasCancelledByUser = instance.cancelledByUser;
-      instance.cancelledByUser = false;
-      if (message.code !== 0 && !wasCancelledByUser) {
-        this.pushHistory(instance, message);
-        this.setStatus(instance, "error");
-      } else {
-        // Clean exit (code 0) or user-cancelled — session ended normally or was
-        // intentionally stopped. Mark as "stopped" so the next sendMessage()
-        // auto-revives instead of silently dropping messages into a dead session.
-        this.setStatus(instance, "stopped");
-      }
-      this.dbSave(instance);
-      if (!wasCancelledByUser) {
-        this.emit("instance:exit", id, message);
-      }
+      void this.enqueueInstanceMutation(id, (live) => {
+        if (this.shuttingDown || live.process !== proc) return;
+        live.providerBinding = proc.getRuntimeBinding();
+        live.info.lastActivityAt = Date.now();
+        const wasCancelledByUser = live.cancelledByUser;
+        live.cancelledByUser = false;
+        if (message.code !== 0 && !wasCancelledByUser) {
+          this.pushHistory(live, message);
+          this.setStatus(live, "error");
+        } else {
+          this.setStatus(live, "stopped");
+        }
+        this.dbSave(live);
+        if (!wasCancelledByUser) {
+          this.emit("instance:exit", id, message);
+        }
+      }).catch((err) => this.logQueuedMutationError("exit handler", id, err));
     });
 
     // SDK permission requests — set pending state without creating a chat activity
     proc.on(
       "permissionRequest" as keyof import("./provider.js").ProviderSessionEvents,
       ((request: ProviderRequest) => {
-        instance.info.pendingPermission = request;
-        this.emit("instance:status", id, { ...instance.info });
+        void this.enqueueInstanceMutation(id, (live) => {
+          if (this.shuttingDown || live.process !== proc) return;
+          live.info.pendingPermission = request;
+          this.emitInstanceStatus(live);
+        }).catch((err) => this.logQueuedMutationError("permissionRequest handler", id, err));
       }) as (...args: unknown[]) => void,
     );
 
@@ -5653,13 +5828,15 @@ export class InstanceManager extends EventEmitter {
     proc.on(
       "titleUpdate" as keyof import("./provider.js").ProviderSessionEvents,
       ((name: string) => {
-        if (!instance.info.customTitle && name !== instance.info.name) {
-          instance.info.name = name;
-          this.emit("instance:status", id, { ...instance.info });
-          this.dbSave(instance);
-          const sid = instance.sessionId || instance.info.sessionId;
+        void this.enqueueInstanceMutation(id, (live) => {
+          if (this.shuttingDown || live.process !== proc) return;
+          if (live.info.customTitle || name === live.info.name) return;
+          live.info.name = name;
+          this.emitInstanceStatus(live);
+          this.dbSave(live);
+          const sid = live.sessionId || live.info.sessionId;
           if (sid) this.db.updateName(sid, name, false);
-        }
+        }).catch((err) => this.logQueuedMutationError("titleUpdate handler", id, err));
       }) as (...args: unknown[]) => void,
     );
   }
@@ -5802,19 +5979,22 @@ export class InstanceManager extends EventEmitter {
     return null;
   }
 
-  renameInstance(id: string, name: string): boolean {
-    const instance = this.instances.get(id);
-    if (!instance) return false;
-    const trimmed = name.trim();
-    if (!trimmed) return false;
+  async renameInstance(id: string, name: string): Promise<boolean> {
+    return this.enqueueInstanceMutation(id, async (instance) => {
+      const trimmed = name.trim();
+      if (!trimmed) return false;
 
-    instance.info.name = trimmed;
-    instance.info.customTitle = true;
-    this.emit("instance:status", instance.info.id, { ...instance.info });
-    this.dbSave(instance);
-    const sid = instance.sessionId || instance.info.sessionId;
-    if (sid) this.db.updateName(sid, trimmed, true);
-    return true;
+      instance.info.name = trimmed;
+      instance.info.customTitle = true;
+      this.emitInstanceStatus(instance);
+      this.dbSave(instance);
+      const sid = instance.sessionId || instance.info.sessionId;
+      if (sid) this.db.updateName(sid, trimmed, true);
+      return true;
+    }).catch((err) => {
+      if (this.isInstanceNotFoundError(err)) return false;
+      throw err;
+    });
   }
 
   /**
@@ -5822,24 +6002,28 @@ export class InstanceManager extends EventEmitter {
    * The model is applied on the next message send via --model <id>.
    * Pass null to clear the preference (reverts to Claude's default).
    */
-  setModel(id: string, model: string | null): boolean {
-    const instance = this.instances.get(id);
-    if (!instance || instance.info.external) return false;
+  async setModel(id: string, model: string | null): Promise<boolean> {
+    return this.enqueueInstanceMutation(id, async (instance) => {
+      if (instance.info.external) return false;
 
-    instance.info.preferredModel = model ?? undefined;
-    instance.process?.setModel(model);
-    this.emit("instance:status", instance.info.id, { ...instance.info });
-    this.dbSave(instance);
-    const sid = instance.sessionId || instance.info.sessionId;
-    if (sid) this.db.updatePreferredModel(sid, model);
-    return true;
+      instance.info.preferredModel = model ?? undefined;
+      instance.process?.setModel(model);
+      this.emitInstanceStatus(instance);
+      this.dbSave(instance);
+      const sid = instance.sessionId || instance.info.sessionId;
+      if (sid) this.db.updatePreferredModel(sid, model);
+      return true;
+    }).catch((err) => {
+      if (this.isInstanceNotFoundError(err)) return false;
+      throw err;
+    });
   }
 
   /**
    * Set the reasoning budget for a managed instance.
    * Delegates to setModelOptions for canonical storage.
    */
-  setReasoningBudget(id: string, budget: number | null): boolean {
+  async setReasoningBudget(id: string, budget: number | null): Promise<boolean> {
     return this.setModelOptions(id, { reasoningBudgetTokens: budget });
   }
 
@@ -5847,87 +6031,91 @@ export class InstanceManager extends EventEmitter {
    * Sparse-merge model options on a managed instance.
    * Omitted keys are left unchanged; null clears/resets a field.
    */
-  setModelOptions(
+  async setModelOptions(
     id: string,
     patch: {
       reasoningBudgetTokens?: number | null;
       reasoningEffort?: string | null;
       fastMode?: boolean | null;
     },
-  ): boolean {
-    const instance = this.instances.get(id);
-    if (!instance || instance.info.external) return false;
+  ): Promise<boolean> {
+    return this.enqueueInstanceMutation(id, async (instance) => {
+      if (instance.info.external) return false;
 
-    const current = instance.info.modelOptions ?? {};
-    const next: ProviderModelOptions = { ...current };
+      const current = instance.info.modelOptions ?? {};
+      const next: ProviderModelOptions = { ...current };
 
-    if ("reasoningBudgetTokens" in patch) {
-      next.reasoningBudgetTokens = patch.reasoningBudgetTokens ?? undefined;
-    }
-    if ("reasoningEffort" in patch) {
-      next.reasoningEffort = patch.reasoningEffort ?? undefined;
-    }
-    if ("fastMode" in patch) {
-      next.fastMode = patch.fastMode ?? undefined;
-    }
+      if ("reasoningBudgetTokens" in patch) {
+        next.reasoningBudgetTokens = patch.reasoningBudgetTokens ?? undefined;
+      }
+      if ("reasoningEffort" in patch) {
+        next.reasoningEffort = patch.reasoningEffort ?? undefined;
+      }
+      if ("fastMode" in patch) {
+        next.fastMode = patch.fastMode ?? undefined;
+      }
 
-    // Clean up empty bag
-    const isEmpty =
-      next.reasoningBudgetTokens == null && next.reasoningEffort == null && next.fastMode == null;
-    instance.info.modelOptions = isEmpty ? undefined : next;
+      const isEmpty =
+        next.reasoningBudgetTokens == null && next.reasoningEffort == null && next.fastMode == null;
+      instance.info.modelOptions = isEmpty ? undefined : next;
+      instance.info.reasoningBudget = next.reasoningBudgetTokens;
 
-    // Keep legacy reasoningBudget in sync
-    instance.info.reasoningBudget = next.reasoningBudgetTokens;
+      if ("reasoningBudgetTokens" in patch) {
+        instance.process?.setReasoningBudget(next.reasoningBudgetTokens ?? null);
+      }
+      if (instance.process?.setModelOptions) {
+        instance.process.setModelOptions(isEmpty ? {} : next);
+      }
 
-    // Apply to live process if running
-    if ("reasoningBudgetTokens" in patch) {
-      instance.process?.setReasoningBudget(next.reasoningBudgetTokens ?? null);
-    }
-    // Push the full canonical bag to providers that support runtime model option updates
-    if (instance.process?.setModelOptions) {
-      instance.process.setModelOptions(isEmpty ? {} : next);
-    }
-
-    this.emit("instance:status", instance.info.id, { ...instance.info });
-    this.dbSave(instance);
-    const sid = instance.sessionId || instance.info.sessionId;
-    if (sid && "reasoningBudgetTokens" in patch) {
-      this.db.updateReasoningBudget(sid, next.reasoningBudgetTokens ?? null);
-    }
-    return true;
+      this.emitInstanceStatus(instance);
+      this.dbSave(instance);
+      const sid = instance.sessionId || instance.info.sessionId;
+      if (sid && "reasoningBudgetTokens" in patch) {
+        this.db.updateReasoningBudget(sid, next.reasoningBudgetTokens ?? null);
+      }
+      return true;
+    }).catch((err) => {
+      if (this.isInstanceNotFoundError(err)) return false;
+      throw err;
+    });
   }
 
-  setPermissions(id: string, skipPermissions: boolean): boolean {
-    const instance = this.instances.get(id);
-    if (!instance || instance.info.external) return false;
+  async setPermissions(id: string, skipPermissions: boolean): Promise<boolean> {
+    return this.enqueueInstanceMutation(id, async (instance) => {
+      if (instance.info.external) return false;
 
-    instance.info.skipPermissions = skipPermissions;
-    instance.process?.setBypassPermissions(skipPermissions);
+      instance.info.skipPermissions = skipPermissions;
+      instance.process?.setBypassPermissions(skipPermissions);
 
-    // If switching to active full access, clear any pending permission banner.
-    // In plan mode the saved preference should not dismiss a live approval yet,
-    // because the active runtime mode is still "plan".
-    if (skipPermissions && !instance.info.planMode && instance.info.pendingPermission) {
-      instance.info.pendingPermission = undefined;
-    }
+      if (skipPermissions && !instance.info.planMode && instance.info.pendingPermission) {
+        instance.info.pendingPermission = undefined;
+      }
 
-    this.emit("instance:status", instance.info.id, { ...instance.info });
-    this.dbSave(instance);
-    const sid = instance.sessionId || instance.info.sessionId;
-    if (sid) this.db.updateSkipPermissions(sid, skipPermissions);
-    return true;
+      this.emitInstanceStatus(instance);
+      this.dbSave(instance);
+      const sid = instance.sessionId || instance.info.sessionId;
+      if (sid) this.db.updateSkipPermissions(sid, skipPermissions);
+      return true;
+    }).catch((err) => {
+      if (this.isInstanceNotFoundError(err)) return false;
+      throw err;
+    });
   }
 
-  setPlanMode(id: string, planMode: boolean): boolean {
-    const instance = this.instances.get(id);
-    if (!instance || instance.info.external || !instance.process?.setPlanMode) return false;
+  async setPlanMode(id: string, planMode: boolean): Promise<boolean> {
+    return this.enqueueInstanceMutation(id, async (instance) => {
+      if (instance.info.external || !instance.process?.setPlanMode) return false;
 
-    instance.info.planMode = planMode ? true : undefined;
-    instance.process?.setPlanMode?.(planMode);
+      instance.info.planMode = planMode ? true : undefined;
+      instance.process.setPlanMode(planMode);
 
-    this.emit("instance:status", instance.info.id, { ...instance.info });
-    this.dbSave(instance);
-    return true;
+      this.emitInstanceStatus(instance);
+      this.dbSave(instance);
+      return true;
+    }).catch((err) => {
+      if (this.isInstanceNotFoundError(err)) return false;
+      throw err;
+    });
   }
 
   /**
@@ -5935,54 +6123,52 @@ export class InstanceManager extends EventEmitter {
    * Tears down the current process and creates a new one for the target provider.
    * Returns false if the instance already has a session (message was sent).
    */
-  setProvider(id: string, provider: ProviderKind): boolean {
-    const instance = this.instances.get(id);
-    if (!instance || instance.info.external) return false;
-    if (!this.isProviderAvailable(provider)) return false;
+  async setProvider(id: string, provider: ProviderKind): Promise<boolean> {
+    return this.enqueueInstanceMutation(id, async (instance) => {
+      if (instance.info.external) return false;
+      if (!this.isProviderAvailable(provider)) return false;
+      if (instance.sessionId || instance.info.sessionId) return false;
+      if (instance.info.provider === provider) return true;
 
-    // Only allow switching before any message has been sent
-    if (instance.sessionId || instance.info.sessionId) return false;
-
-    if (instance.info.provider === provider) return true; // no-op
-
-    // Tear down old process
-    if (instance.process) {
-      instance.process.close();
+      const previousProcess = instance.process;
       instance.process = null;
-    }
+      if (previousProcess) {
+        await Promise.resolve(previousProcess.close());
+      }
 
-    // Clear model preference — may not be valid for the new provider
-    instance.info.preferredModel = undefined;
-    instance.info.reasoningBudget = undefined;
-    instance.info.modelOptions = undefined;
-    instance.info.planMode = undefined;
-    instance.info.provider = provider;
+      instance.info.preferredModel = undefined;
+      instance.info.reasoningBudget = undefined;
+      instance.info.modelOptions = undefined;
+      instance.info.planMode = undefined;
+      instance.info.provider = provider;
 
-    // Create new process for the target provider
-    const instanceConfig: CoreConfig = {
-      ...this.baseConfig,
-      workingDirectory: instance.actualCwd || instance.info.workingDirectory,
-      dangerouslySkipPermissions:
-        instance.info.skipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
-    };
+      const instanceConfig: CoreConfig = {
+        ...this.baseConfig,
+        workingDirectory: instance.actualCwd || instance.info.workingDirectory,
+        dangerouslySkipPermissions:
+          instance.info.skipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
+      };
 
-    const proc = this.createProviderSession(instanceConfig, {
-      provider,
-      planMode: instance.info.planMode,
+      const proc = this.createProviderSession(instanceConfig, {
+        provider,
+        planMode: instance.info.planMode,
+      });
+      instance.process = proc;
+      instance.providerBinding = proc.getRuntimeBinding();
+
+      this.wireProcessEvents(id, instance, proc);
+      this.captureSessionId(id, instance, proc);
+
+      this.emitInstanceStatus(instance);
+      this.dbSave(instance);
+      this.baseConfig.logger.info(
+        `[InstanceManager] Switched instance ${id} to provider "${provider}"`,
+      );
+      return true;
+    }).catch((err) => {
+      if (this.isInstanceNotFoundError(err)) return false;
+      throw err;
     });
-    instance.process = proc;
-    instance.providerBinding = proc.getRuntimeBinding();
-
-    this.wireProcessEvents(id, instance, proc);
-    this.captureSessionId(id, instance, proc);
-
-    this.emit("instance:status", instance.info.id, { ...instance.info });
-    this.dbSave(instance);
-
-    this.baseConfig.logger.info(
-      `[InstanceManager] Switched instance ${id} to provider "${provider}"`,
-    );
-    return true;
   }
 
   private doRefreshTitle(instance: Instance): boolean {
@@ -5995,7 +6181,7 @@ export class InstanceManager extends EventEmitter {
     const summary = this.getSessionSummary(sessionId, instance.info.workingDirectory);
     if (summary && summary !== instance.info.name) {
       instance.info.name = summary;
-      this.emit("instance:status", instance.info.id, { ...instance.info });
+      this.emitInstanceStatus(instance);
       this.dbSave(instance);
       if (sessionId) this.db.updateName(sessionId, summary, false);
       return true;
@@ -6012,7 +6198,7 @@ export class InstanceManager extends EventEmitter {
         const title = generateTitle(text);
         if (title && title !== instance.info.name) {
           instance.info.name = title;
-          this.emit("instance:status", instance.info.id, { ...instance.info });
+          this.emitInstanceStatus(instance);
           this.dbSave(instance);
           const sid = instance.sessionId || instance.info.sessionId;
           if (sid) this.db.updateName(sid, title, false);
@@ -6036,7 +6222,7 @@ export class InstanceManager extends EventEmitter {
   private setStatus(instance: Instance, status: InstanceStatus): void {
     if (instance.info.status === status) return;
     instance.info.status = status;
-    this.emit("instance:status", instance.info.id, { ...instance.info });
+    this.emitInstanceStatus(instance);
   }
 
   private pushHistory(instance: Instance, message: ServerMessage): void {

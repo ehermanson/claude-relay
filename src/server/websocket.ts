@@ -206,7 +206,7 @@ export function createWebSocketServer(
       sendMessage(ws, { type: "scan_complete" });
     }
 
-    ws.on("message", (data: Buffer | string) => {
+    ws.on("message", async (data: Buffer | string) => {
       try {
         const rawMessage = typeof data === "string" ? data : data.toString();
         const message = JSON.parse(rawMessage) as ClientMessage;
@@ -296,7 +296,7 @@ export function createWebSocketServer(
                 // sendMessage emits instance:user which is forwarded to
                 // subscribers — no separate echo needed (avoids duplicates
                 // when the JSONL watcher also picks up the same message).
-                const resumed = instanceManager.sendMessage(
+                const resumed = await instanceManager.sendMessage(
                   message.instanceId,
                   message.text || "",
                   hasImages ? message.images : undefined,
@@ -319,7 +319,7 @@ export function createWebSocketServer(
 
           case "instance_cancel": {
             try {
-              instanceManager.cancelMessage(message.instanceId);
+              await instanceManager.cancelMessage(message.instanceId);
             } catch (err) {
               sendMessage(ws, {
                 type: "error",
@@ -332,7 +332,7 @@ export function createWebSocketServer(
 
           case "respond_to_request": {
             try {
-              instanceManager.respondToRequest(
+              await instanceManager.respondToRequest(
                 message.instanceId,
                 message.requestId,
                 message.decision,
@@ -351,32 +351,32 @@ export function createWebSocketServer(
           }
 
           case "rename_instance": {
-            instanceManager.renameInstance(message.instanceId, message.name);
+            await instanceManager.renameInstance(message.instanceId, message.name);
             break;
           }
 
           case "set_model": {
-            instanceManager.setModel(message.instanceId, message.model);
+            await instanceManager.setModel(message.instanceId, message.model);
             break;
           }
 
           case "set_model_options": {
-            instanceManager.setModelOptions(message.instanceId, message.modelOptions);
+            await instanceManager.setModelOptions(message.instanceId, message.modelOptions);
             break;
           }
 
           case "set_permissions": {
-            instanceManager.setPermissions(message.instanceId, message.skipPermissions);
+            await instanceManager.setPermissions(message.instanceId, message.skipPermissions);
             break;
           }
 
           case "set_plan_mode": {
-            instanceManager.setPlanMode(message.instanceId, message.planMode);
+            await instanceManager.setPlanMode(message.instanceId, message.planMode);
             break;
           }
 
           case "set_provider": {
-            instanceManager.setProvider(message.instanceId, message.provider);
+            await instanceManager.setProvider(message.instanceId, message.provider);
             break;
           }
 

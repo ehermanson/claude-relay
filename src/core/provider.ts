@@ -57,7 +57,7 @@ export interface ProviderSession extends EventEmitter {
   interrupt(): void;
 
   /** Kill/close the session and release all resources. */
-  close(): void;
+  close(): void | Promise<void>;
 
   /** Whether a turn is currently active. */
   readonly isProcessing: boolean;

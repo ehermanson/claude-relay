@@ -14,6 +14,16 @@ import type {
 } from "@shared/types";
 import { getDefaultProviderCapabilities } from "@shared/provider-catalog";
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export async function login(password: string): Promise<{ success: boolean; error?: string }> {
   const res = await fetch("/auth", {
     method: "POST",
@@ -236,13 +246,13 @@ export async function fetchProjectIcons(): Promise<Record<string, string>> {
 
 export async function fetchProject(projectId: string): Promise<Project> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`);
-  if (!res.ok) throw new Error("Failed to fetch project");
+  if (!res.ok) throw new ApiError("Failed to fetch project", res.status);
   return res.json();
 }
 
 export async function fetchProjectArtifacts(projectId: string): Promise<ProjectArtifacts> {
   const res = await fetch(`/api/project-artifacts/${encodeURIComponent(projectId)}`);
-  if (!res.ok) throw new Error("Failed to fetch project");
+  if (!res.ok) throw new ApiError("Failed to fetch project", res.status);
   return res.json();
 }
 

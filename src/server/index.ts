@@ -116,12 +116,7 @@ export class Relay {
             return;
           }
 
-          try {
-            this.instanceManager.stopAll();
-            resolve();
-          } catch (stopErr) {
-            reject(stopErr);
-          }
+          this.instanceManager.stopAllGracefully().then(resolve, reject);
         });
       });
     });

@@ -215,8 +215,7 @@ function startServer(): void {
 
     stopTunnel();
 
-    // Force exit after 3s if graceful shutdown hangs
-    const forceExit = setTimeout(() => process.exit(1), 3000);
+    const forceExit = setTimeout(() => process.exit(1), 10000);
     forceExit.unref();
 
     relay.stop().then(

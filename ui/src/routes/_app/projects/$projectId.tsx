@@ -1,4 +1,11 @@
-import { createFileRoute, Outlet, useParams, useLocation, Link } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Outlet,
+  useParams,
+  useLocation,
+  Link,
+  redirect,
+} from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { ChevronLeft } from "lucide-react";
 import { GitStatusBar } from "@/components/project/git-status-bar";
@@ -8,7 +15,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { ProjectContext } from "@/context/project-context";
 import { useWSState } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { fetchProjectArtifacts } from "@/lib/api";
+import { ApiError, fetchProjectArtifacts } from "@/lib/api";
 import { getProjectName, instanceMatchesProject } from "@/lib/project-route";
 import { formatTokens, getDisplayTokenBreakdown } from "@/lib/utils";
 
@@ -277,7 +284,16 @@ function ProjectError({ error }: { error: Error }) {
 }
 
 export const Route = createFileRoute("/_app/projects/$projectId")({
-  loader: ({ params }) => fetchProjectArtifacts(params.projectId),
+  loader: async ({ params }) => {
+    try {
+      return await fetchProjectArtifacts(params.projectId);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        throw redirect({ to: "/" });
+      }
+      throw err;
+    }
+  },
   pendingComponent: ProjectPending,
   errorComponent: ProjectError,
   component: ProjectLayout,

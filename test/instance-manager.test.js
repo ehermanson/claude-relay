@@ -242,9 +242,9 @@ describe("InstanceManager", () => {
       assert.equal(codex.supportsTitleUpdates, true);
     });
 
-    it("rejects switching to an unavailable provider", () => {
+    it("rejects switching to an unavailable provider", async () => {
       const info = manager.createInstance();
-      assert.equal(manager.setProvider(info.id, "gemini"), false);
+      assert.equal(await manager.setProvider(info.id, "gemini"), false);
     });
   });
 
@@ -283,11 +283,11 @@ describe("InstanceManager", () => {
   });
 
   describe("sendMessage guards", () => {
-    it("throws for unknown instance", () => {
-      assert.throws(() => manager.sendMessage("nope", "hi"), /not found/);
+    it("throws for unknown instance", async () => {
+      await assert.rejects(() => manager.sendMessage("nope", "hi"), /not found/);
     });
 
-    it("folds task guidance into the first real user turn instead of sending a separate hidden turn", () => {
+    it("folds task guidance into the first real user turn instead of sending a separate hidden turn", async () => {
       const relayDir = join(manager.baseConfig.workingDirectory, ".relay");
       mkdirSync(relayDir, { recursive: true });
       writeFileSync(
@@ -323,7 +323,7 @@ describe("InstanceManager", () => {
         },
       };
 
-      manager.sendMessage(info.id, "tell me how to run this locally");
+      await manager.sendMessage(info.id, "tell me how to run this locally");
 
       assert.equal(sentMessages.length, 1);
       assert.match(sentMessages[0], /This project tracks tasks in \.relay\/tasks\.jsonl/);
@@ -376,7 +376,7 @@ describe("InstanceManager", () => {
       execSync("git checkout -q -b feature-branch", { cwd: repoDir, stdio: "pipe" });
 
       await manager.refreshGitBranchStateAsync(info.id, instance);
-      manager.sendMessage(info.id, "hello on the new branch");
+      await manager.sendMessage(info.id, "hello on the new branch");
 
       assert.deepEqual(instance.info.branchChanged, {
         originalBranch: "main",
@@ -388,19 +388,19 @@ describe("InstanceManager", () => {
   });
 
   describe("cancelMessage guards", () => {
-    it("throws for unknown instance", () => {
-      assert.throws(() => manager.cancelMessage("nope"), /not found/);
+    it("throws for unknown instance", async () => {
+      await assert.rejects(() => manager.cancelMessage("nope"), /not found/);
     });
   });
 
   describe("approveToolUse guards", () => {
-    it("throws for unknown instance", () => {
-      assert.throws(() => manager.approveToolUse("nope", "Bash"), /not found/);
+    it("throws for unknown instance", async () => {
+      await assert.rejects(() => manager.approveToolUse("nope", "Bash"), /not found/);
     });
   });
 
   describe("respondToRequest", () => {
-    it("falls back to a normal user message for provider-neutral AskUserQuestion replies", () => {
+    it("falls back to a normal user message for provider-neutral AskUserQuestion replies", async () => {
       const info = manager.createInstance();
       const instance = manager.instances.get(info.id);
       assert.ok(instance);
@@ -451,7 +451,7 @@ describe("InstanceManager", () => {
         ],
       };
 
-      manager.respondToRequest(info.id, "ask-1", "accept", {
+      await manager.respondToRequest(info.id, "ask-1", "accept", {
         answers: {
           drink: {
             answers: ["Tea"],
@@ -467,7 +467,7 @@ describe("InstanceManager", () => {
       assert.equal(lastHistory.message.resolution, "approved");
     });
 
-    it("turns empty AskUserQuestion answers into a dismiss-style fallback reply", () => {
+    it("turns empty AskUserQuestion answers into a dismiss-style fallback reply", async () => {
       const info = manager.createInstance();
       const instance = manager.instances.get(info.id);
       assert.ok(instance);
@@ -514,7 +514,7 @@ describe("InstanceManager", () => {
         ],
       };
 
-      manager.respondToRequest(info.id, "ask-2", "accept", { answers: {} });
+      await manager.respondToRequest(info.id, "ask-2", "accept", { answers: {} });
 
       assert.equal(
         sentMessages[0],
@@ -868,12 +868,12 @@ describe("InstanceManager", () => {
       assert.equal(info.reasoningBudget, 9999);
     });
 
-    it("setModelOptions sparse-merges and null clears individual fields", () => {
+    it("setModelOptions sparse-merges and null clears individual fields", async () => {
       const mgr = new InstanceManager(makeConfig());
       const info = mgr.createInstance();
 
       // Set all three fields
-      mgr.setModelOptions(info.id, {
+      await mgr.setModelOptions(info.id, {
         reasoningBudgetTokens: 5000,
         reasoningEffort: "high",
         fastMode: true,
@@ -887,42 +887,45 @@ describe("InstanceManager", () => {
       assert.equal(updated.reasoningBudget, 5000);
 
       // Sparse update: only change effort, leave others untouched
-      mgr.setModelOptions(info.id, { reasoningEffort: "max" });
+      await mgr.setModelOptions(info.id, { reasoningEffort: "max" });
       updated = mgr.getInstance(info.id);
       assert.equal(updated.modelOptions.reasoningEffort, "max");
       assert.equal(updated.modelOptions.reasoningBudgetTokens, 5000);
       assert.equal(updated.modelOptions.fastMode, true);
 
       // Null clears a single field
-      mgr.setModelOptions(info.id, { fastMode: null });
+      await mgr.setModelOptions(info.id, { fastMode: null });
       updated = mgr.getInstance(info.id);
       assert.equal(updated.modelOptions.fastMode, undefined);
       assert.equal(updated.modelOptions.reasoningBudgetTokens, 5000);
       assert.equal(updated.modelOptions.reasoningEffort, "max");
 
       // Null-clearing all fields removes the bag entirely
-      mgr.setModelOptions(info.id, { reasoningBudgetTokens: null, reasoningEffort: null });
+      await mgr.setModelOptions(info.id, {
+        reasoningBudgetTokens: null,
+        reasoningEffort: null,
+      });
       updated = mgr.getInstance(info.id);
       assert.equal(updated.modelOptions, undefined);
       assert.equal(updated.reasoningBudget, undefined);
     });
 
-    it("setReasoningBudget delegates to setModelOptions", () => {
+    it("setReasoningBudget delegates to setModelOptions", async () => {
       const mgr = new InstanceManager(makeConfig());
       const info = mgr.createInstance();
 
-      mgr.setReasoningBudget(info.id, 10000);
+      await mgr.setReasoningBudget(info.id, 10000);
       let updated = mgr.getInstance(info.id);
       assert.equal(updated.modelOptions.reasoningBudgetTokens, 10000);
       assert.equal(updated.reasoningBudget, 10000);
 
-      mgr.setReasoningBudget(info.id, null);
+      await mgr.setReasoningBudget(info.id, null);
       updated = mgr.getInstance(info.id);
       assert.equal(updated.modelOptions, undefined);
       assert.equal(updated.reasoningBudget, undefined);
     });
 
-    it("setModelOptions pushes to live process via setModelOptions", () => {
+    it("setModelOptions pushes to live process via setModelOptions", async () => {
       const mgr = new InstanceManager(makeConfig());
       const info = mgr.createInstance();
       const instance = mgr.instances.get(info.id);
@@ -950,7 +953,7 @@ describe("InstanceManager", () => {
         },
       };
 
-      mgr.setModelOptions(info.id, { reasoningEffort: "high", fastMode: true });
+      await mgr.setModelOptions(info.id, { reasoningEffort: "high", fastMode: true });
       assert.equal(captured.length, 1);
       assert.equal(captured[0].reasoningEffort, "high");
       assert.equal(captured[0].fastMode, true);
@@ -969,7 +972,7 @@ describe("InstanceManager", () => {
   });
 
   describe("sendMessage auto-exits plan mode on plan approval", () => {
-    it("exits plan mode when sending a message while pendingPlan is set", () => {
+    it("exits plan mode when sending a message while pendingPlan is set", async () => {
       const info = manager.createInstance();
       const instance = manager.instances.get(info.id);
       assert.ok(instance);
@@ -1008,7 +1011,7 @@ describe("InstanceManager", () => {
       instance.info.status = "idle";
 
       // Send approval message
-      manager.sendMessage(info.id, "Yes, go ahead with this plan.");
+      await manager.sendMessage(info.id, "Yes, go ahead with this plan.");
 
       // Should have exited plan mode
       assert.equal(planModeSet, false, "setPlanMode(false) should be called");
@@ -1018,7 +1021,7 @@ describe("InstanceManager", () => {
       assert.equal(sentMessages[0], "Yes, go ahead with this plan.");
     });
 
-    it("preserves plan mode when no pendingPlan is set", () => {
+    it("preserves plan mode when no pendingPlan is set", async () => {
       const info = manager.createInstance();
       const instance = manager.instances.get(info.id);
       assert.ok(instance);
@@ -1053,7 +1056,7 @@ describe("InstanceManager", () => {
       instance.info.pendingPlan = undefined;
       instance.info.status = "idle";
 
-      manager.sendMessage(info.id, "plan this feature");
+      await manager.sendMessage(info.id, "plan this feature");
 
       // Should stay in plan mode
       assert.equal(planModeSet, undefined, "setPlanMode should not be called");

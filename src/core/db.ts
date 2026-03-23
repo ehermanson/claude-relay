@@ -1174,6 +1174,10 @@ export class SessionDB {
     this.db.exec("DELETE FROM spaces");
   }
 
+  checkpointWal(): void {
+    this.db.pragma("wal_checkpoint(TRUNCATE)");
+  }
+
   close(): void {
     this.db.close();
   }

@@ -791,19 +791,62 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this.cancel();
   }
 
-  /**
-   * Kill the process immediately (SIGKILL).
-   */
-  kill(): void {
-    if (this.currentProcess) {
-      this.currentProcess.kill("SIGKILL");
-      this.currentProcess = null;
-      this._isProcessing = false;
-    }
+  private waitForProcessExit(graceMs = 2000): Promise<void> {
+    const child = this.currentProcess;
+    if (!child) return Promise.resolve();
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.removeListener("exit", onExit);
+        child.removeListener("error", onExit);
+        if (this.currentProcess === child) {
+          this.currentProcess = null;
+          this._isProcessing = false;
+        }
+        resolve();
+      };
+      const onExit = () => finish();
+      const timer = setTimeout(() => {
+        if (child.exitCode === null && !child.killed) {
+          child.kill("SIGKILL");
+        }
+        finish();
+      }, graceMs);
+      timer.unref?.();
+      child.once("exit", onExit);
+      child.once("error", onExit);
+      if (child.exitCode !== null) {
+        finish();
+      }
+    });
   }
 
-  /** ProviderSession: close the session and release resources (alias for kill). */
-  close(): void {
-    this.kill();
+  kill(): void {
+    const child = this.currentProcess;
+    if (!child) return;
+    if (this._processTimeout) {
+      clearTimeout(this._processTimeout);
+      this._processTimeout = null;
+    }
+    child.kill("SIGKILL");
+    this.currentProcess = null;
+    this._isProcessing = false;
+  }
+
+  /** ProviderSession: close the session and release resources. */
+  async close(): Promise<void> {
+    const child = this.currentProcess;
+    if (!child) return;
+    if (this._processTimeout) {
+      clearTimeout(this._processTimeout);
+      this._processTimeout = null;
+    }
+    if (child.exitCode === null && !child.killed) {
+      child.kill("SIGTERM");
+    }
+    await this.waitForProcessExit();
   }
 }

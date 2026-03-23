@@ -66,7 +66,7 @@ interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   ): Promise<void>;
   setModel(model?: string): Promise<void>;
   setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
-  close(): void;
+  close(): void | Promise<void>;
 }
 
 type CanUseTool = (

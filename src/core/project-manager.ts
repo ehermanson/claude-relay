@@ -117,6 +117,65 @@ export class ProjectManager extends EventEmitter {
   }
 
   /**
+   * Rebuild missing project registrations from session rows already in SQLite.
+   * This recovers the sidebar/project model after the projects table is lost
+   * but session metadata is still present.
+   */
+  recoverProjectsFromSessionDirectories(): number {
+    const existingByDirectory = new Map(
+      this.db.getAllProjects().map((project) => [project.directory, project] as const),
+    );
+    let recovered = 0;
+
+    for (const sessionDirectory of this.db.getDistinctSessionDirectories()) {
+      const repoRoot = getRepoRoot(sessionDirectory);
+      if (!repoRoot) {
+        continue;
+      }
+
+      const canonicalDirectory = isRelayWorktreePath(repoRoot)
+        ? (resolveWorktreeOrigin(repoRoot) ?? repoRoot)
+        : repoRoot;
+
+      let project = existingByDirectory.get(canonicalDirectory);
+      if (!project) {
+        const now = Date.now();
+        project = {
+          id: randomUUID(),
+          name: basename(canonicalDirectory),
+          directory: canonicalDirectory,
+          repo_root: canonicalDirectory,
+          remote_url: getRemoteUrl(canonicalDirectory),
+          target_branch: getCurrentBranch(canonicalDirectory),
+          custom_instructions: null,
+          default_space_branch: null,
+          default_provider: null,
+          default_model: null,
+          created_at: now,
+          last_activity_at: null,
+        };
+        this.db.upsertProject(project);
+        existingByDirectory.set(canonicalDirectory, project);
+        recovered++;
+        this.emit("project:created", rowToProject(project));
+      }
+
+      this.db.assignSessionsToProject(project.id, sessionDirectory);
+      if (sessionDirectory !== canonicalDirectory) {
+        this.db.assignSessionsToProject(project.id, canonicalDirectory);
+      }
+    }
+
+    if (recovered > 0) {
+      this.logger.info(
+        `[ProjectManager] Recovered ${recovered} project registration(s) from session history`,
+      );
+    }
+
+    return recovered;
+  }
+
+  /**
    * Register a new project. Directory must be a git repository.
    * Returns the created project, or the existing one if already registered.
    */
