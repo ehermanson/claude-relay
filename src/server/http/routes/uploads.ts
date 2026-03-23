@@ -4,7 +4,7 @@ import path from "node:path";
 import { homedir } from "node:os";
 import type { Hono } from "hono";
 import { getMimeType, getParsedUrl, readBodyBuffer, requireAuth } from "../hono-utils.js";
-import type { ContextVariables, HttpDeps } from "../types.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 
 const IMAGE_EXTS = new Set([
   ".png",
@@ -18,10 +18,7 @@ const IMAGE_EXTS = new Set([
   ".ico",
 ]);
 
-export function registerUploadRoutes(
-  app: Hono<{ Variables: ContextVariables }>,
-  _: HttpDeps,
-): void {
+export function registerUploadRoutes(app: Hono<AppEnv>, _: HttpDeps): void {
   app.post("/api/upload", async (c) => {
     const session = requireAuth(c);
     if (session instanceof Response) return session;

@@ -1,11 +1,8 @@
 import type { Hono } from "hono";
 import { getParsedUrl, requireAuth } from "../hono-utils.js";
-import type { ContextVariables, HttpDeps } from "../types.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 
-export function registerProviderRoutes(
-  app: Hono<{ Variables: ContextVariables }>,
-  deps: HttpDeps,
-): void {
+export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   app.get("/api/provider-models", async (c) => {
     const session = requireAuth(c);
     if (session instanceof Response) return session;

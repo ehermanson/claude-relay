@@ -1,12 +1,9 @@
 import type { Hono } from "hono";
 import { getPrimaryRemote } from "../../../core/git.js";
 import { readJsonBody, requireAuth } from "../hono-utils.js";
-import type { ContextVariables, HttpDeps } from "../types.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 
-export function registerSpaceRoutes(
-  app: Hono<{ Variables: ContextVariables }>,
-  deps: HttpDeps,
-): void {
+export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { instanceManager } = deps;
 
   app.get("/api/projects/:id/spaces", (c) => {

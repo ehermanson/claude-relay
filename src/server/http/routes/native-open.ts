@@ -2,12 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Hono } from "hono";
 import { getParsedUrl, readJsonBody, requireAuth } from "../hono-utils.js";
-import type { ContextVariables, HttpDeps } from "../types.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 
-export function registerNativeOpenRoutes(
-  app: Hono<{ Variables: ContextVariables }>,
-  deps: HttpDeps,
-): void {
+export function registerNativeOpenRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   app.get("/api/open-targets", async (c) => {
     const session = requireAuth(c);
     if (session instanceof Response) return session;

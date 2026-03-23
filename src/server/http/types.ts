@@ -1,4 +1,5 @@
 import http from "node:http";
+import type { HttpBindings } from "@hono/node-server";
 import type { Session } from "../../core/types.js";
 import type { AuthManager } from "../auth.js";
 import type { InstanceManager } from "../../core/instance-manager.js";
@@ -33,6 +34,11 @@ export interface ContextVariables {
   session: Session | null;
   isAuthenticated: boolean;
   parsedUrl: URL;
+}
+
+export interface AppEnv {
+  Bindings: HttpBindings;
+  Variables: ContextVariables;
 }
 
 export interface RequestContext {

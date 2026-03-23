@@ -3,12 +3,9 @@ import path from "node:path";
 import { homedir } from "node:os";
 import type { Hono } from "hono";
 import { getParsedUrl, requireAuth } from "../hono-utils.js";
-import type { ContextVariables, HttpDeps } from "../types.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 
-export function registerWorkspaceRoutes(
-  app: Hono<{ Variables: ContextVariables }>,
-  deps: HttpDeps,
-): void {
+export function registerWorkspaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { instanceManager } = deps;
 
   app.get("/api/directories", (c) => {

@@ -1,9 +1,9 @@
 import path from "node:path";
 import type { Hono } from "hono";
 import { fileResponse, indexResponse, isAuthenticated } from "../hono-utils.js";
-import type { ContextVariables, HttpDeps } from "../types.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 
-export function registerUiRoutes(app: Hono<{ Variables: ContextVariables }>, deps: HttpDeps): void {
+export function registerUiRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   app.get("*", (c) => {
     const pathname = new URL(c.req.url).pathname;
 

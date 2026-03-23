@@ -1,12 +1,9 @@
 import type { Hono } from "hono";
 import type { ProviderKind, ProviderModelOptions } from "../../../core/types.js";
 import { getParsedUrl, readJsonBody, requireAuth } from "../hono-utils.js";
-import type { ContextVariables, HttpDeps } from "../types.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 
-export function registerInstanceRoutes(
-  app: Hono<{ Variables: ContextVariables }>,
-  deps: HttpDeps,
-): void {
+export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { instanceManager } = deps;
 
   app.get("/api/instances", (c) => {

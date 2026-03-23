@@ -1,13 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Hono } from "hono";
-import type { HttpDeps, ContextVariables } from "../types.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 import { getSession, readJsonBody, requireAuth } from "../hono-utils.js";
 
-export function registerAuthSystemRoutes(
-  app: Hono<{ Variables: ContextVariables }>,
-  deps: HttpDeps,
-): void {
+export function registerAuthSystemRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { auth, config, instanceManager, packageVersion, startedAt } = deps;
 
   app.get("/health", (c) => {
@@ -24,7 +21,7 @@ export function registerAuthSystemRoutes(
     const forwarded = c.req.header("x-forwarded-for");
     const rawIp =
       (typeof forwarded === "string" ? forwarded.split(",")[0].trim() : null) ||
-      c.req.header("x-relay-remote-address") ||
+      c.env.incoming.socket.remoteAddress ||
       "unknown";
     const ip = rawIp.startsWith("::ffff:") ? rawIp.slice(7) : rawIp;
 

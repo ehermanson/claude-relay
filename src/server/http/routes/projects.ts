@@ -10,12 +10,9 @@ import {
   isWorktreeDirty,
 } from "../../../core/git.js";
 import { readJsonBody, requireAuth } from "../hono-utils.js";
-import type { ContextVariables, HttpDeps } from "../types.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 
-export function registerProjectRoutes(
-  app: Hono<{ Variables: ContextVariables }>,
-  deps: HttpDeps,
-): void {
+export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { instanceManager } = deps;
 
   app.post("/api/projects/:id/tasks/init", (c) => {

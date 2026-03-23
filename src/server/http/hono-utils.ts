@@ -3,9 +3,9 @@ import path from "node:path";
 import type { Context, Next } from "hono";
 import type { Session } from "../../core/types.js";
 import type { AuthManager } from "../auth.js";
-import type { ContextVariables } from "./types.js";
+import type { AppEnv } from "./types.js";
 
-export type AppContext = Context<{ Variables: ContextVariables }>;
+export type AppContext = Context<AppEnv>;
 
 export async function sessionMiddleware(
   auth: AuthManager,

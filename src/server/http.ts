@@ -9,7 +9,7 @@ import fs from "node:fs";
 import http from "node:http";
 import { homedir } from "node:os";
 import path from "node:path";
-import { Readable } from "node:stream";
+import { getRequestListener } from "@hono/node-server";
 import { Hono } from "hono";
 import type { AuthManager } from "./auth.js";
 import type { InstanceManager } from "../core/instance-manager.js";
@@ -33,7 +33,7 @@ import { registerSpaceRoutes } from "./http/routes/spaces.js";
 import { registerUiRoutes } from "./http/routes/ui.js";
 import { registerUploadRoutes } from "./http/routes/uploads.js";
 import { registerWorkspaceRoutes } from "./http/routes/workspace.js";
-import type { ContextVariables, HttpDeps } from "./http/types.js";
+import type { AppEnv, HttpDeps } from "./http/types.js";
 
 const uiDistDir = path.join(import.meta.dirname, "..", "..", "ui", "dist");
 const indexHtmlPath = path.join(uiDistDir, "index.html");
@@ -177,62 +177,6 @@ function createGitRepoLister() {
   };
 }
 
-function toRequest(req: http.IncomingMessage): Request {
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value === undefined) continue;
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        headers.append(key, item);
-      }
-      continue;
-    }
-    headers.set(key, value);
-  }
-  if (req.socket.remoteAddress) {
-    headers.set("x-relay-remote-address", req.socket.remoteAddress);
-  }
-
-  const method = req.method || "GET";
-  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-  if (method === "GET" || method === "HEAD") {
-    return new Request(url, { method, headers });
-  }
-
-  return new Request(url, {
-    method,
-    headers,
-    body: Readable.toWeb(req) as ReadableStream,
-    duplex: "half",
-  } as RequestInit);
-}
-
-async function writeResponse(res: http.ServerResponse, response: Response): Promise<void> {
-  const headers: Record<string, string | string[]> = {};
-  response.headers.forEach((value, key) => {
-    if (key === "set-cookie" && typeof response.headers.getSetCookie === "function") {
-      headers[key] = response.headers.getSetCookie();
-      return;
-    }
-    headers[key] = value;
-  });
-
-  res.writeHead(response.status, headers);
-
-  if (!response.body) {
-    res.end();
-    return;
-  }
-
-  const body = Readable.fromWeb(response.body as any);
-  await new Promise<void>((resolve, reject) => {
-    body.on("error", reject);
-    res.on("error", reject);
-    res.on("finish", resolve);
-    body.pipe(res);
-  });
-}
-
 export function createRequestHandler(
   config: RelayConfig,
   auth: AuthManager,
@@ -305,7 +249,7 @@ export function createRequestHandler(
     getGitRepos: createGitRepoLister(),
   };
 
-  const app = new Hono<{ Variables: ContextVariables }>();
+  const app = new Hono<AppEnv>();
 
   app.use(async (c, next) => sessionMiddleware(auth, c, next));
   registerAuthSystemRoutes(app, deps);
@@ -323,12 +267,5 @@ export function createRequestHandler(
     return c.html("<h1>500 Internal Server Error</h1>", 500);
   });
 
-  return async function handleRequest(
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
-  ): Promise<void> {
-    const request = toRequest(req);
-    const response = await app.fetch(request);
-    await writeResponse(res, response);
-  };
+  return getRequestListener(app.fetch);
 }
