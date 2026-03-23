@@ -1,128 +1,110 @@
 import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
-import type { Route, HttpDeps } from "../types.js";
-import { requireAuth } from "../guards.js";
-import { sendJson } from "../respond.js";
+import type { Hono } from "hono";
+import { getParsedUrl, requireAuth } from "../hono-utils.js";
+import type { ContextVariables, HttpDeps } from "../types.js";
 
-export function createWorkspaceRoutes(deps: HttpDeps): Route[] {
+export function registerWorkspaceRoutes(
+  app: Hono<{ Variables: ContextVariables }>,
+  deps: HttpDeps,
+): void {
   const { instanceManager } = deps;
 
-  return [
-    {
-      method: "GET",
-      pattern: /^\/api\/directories$/,
-      handler(ctx) {
-        if (!requireAuth(ctx)) {
-          return;
-        }
-        sendJson(ctx.res, 200, {
-          defaultDirectory: instanceManager.defaultWorkingDirectory,
-          directories: instanceManager.getKnownDirectories(),
-        });
-      },
-    },
-    {
-      method: "GET",
-      pattern: /^\/api\/git-repos$/,
-      async handler(ctx) {
-        if (!requireAuth(ctx)) {
-          return;
-        }
-        sendJson(ctx.res, 200, { repos: await deps.getGitRepos() });
-      },
-    },
-    {
-      method: "GET",
-      pattern: /^\/api\/browse$/,
-      handler(ctx) {
-        if (!requireAuth(ctx)) {
-          return;
-        }
-        const home = homedir();
-        const raw = ctx.parsedUrl.searchParams.get("prefix") || "";
-        const gitOnly = ctx.parsedUrl.searchParams.get("gitOnly") === "1";
-        const prefix = raw && raw !== "/" ? raw : home + "/";
-        const resolved = path.resolve(prefix);
+  app.get("/api/directories", (c) => {
+    const session = requireAuth(c);
+    if (session instanceof Response) return session;
+    return c.json({
+      defaultDirectory: instanceManager.defaultWorkingDirectory,
+      directories: instanceManager.getKnownDirectories(),
+    });
+  });
 
-        if (!resolved.startsWith(home)) {
-          sendJson(ctx.res, 400, { error: "Path must be under home directory" });
-          return;
-        }
+  app.get("/api/git-repos", async (c) => {
+    const session = requireAuth(c);
+    if (session instanceof Response) return session;
+    return c.json({ repos: await deps.getGitRepos() });
+  });
 
-        let dirToRead: string;
-        let partial: string;
-        try {
-          const stat = fs.statSync(resolved);
-          if (stat.isDirectory() && prefix.endsWith("/")) {
-            dirToRead = resolved;
-            partial = "";
+  app.get("/api/browse", (c) => {
+    const session = requireAuth(c);
+    if (session instanceof Response) return session;
+    const home = homedir();
+    const parsedUrl = getParsedUrl(c);
+    const raw = parsedUrl.searchParams.get("prefix") || "";
+    const gitOnly = parsedUrl.searchParams.get("gitOnly") === "1";
+    const prefix = raw && raw !== "/" ? raw : home + "/";
+    const resolved = path.resolve(prefix);
+
+    if (!resolved.startsWith(home)) {
+      return c.json({ error: "Path must be under home directory" }, 400);
+    }
+
+    let dirToRead: string;
+    let partial: string;
+    try {
+      const stat = fs.statSync(resolved);
+      if (stat.isDirectory() && prefix.endsWith("/")) {
+        dirToRead = resolved;
+        partial = "";
+      } else {
+        dirToRead = path.dirname(resolved);
+        partial = path.basename(resolved);
+      }
+    } catch {
+      dirToRead = path.dirname(resolved);
+      partial = path.basename(resolved);
+    }
+
+    try {
+      const entries = fs.readdirSync(dirToRead, { withFileTypes: true });
+      const lowerPartial = partial.toLowerCase();
+      const dirs = entries
+        .filter((entry) => {
+          if (!entry.isDirectory()) return false;
+          if (entry.name.startsWith(".")) return false;
+          if (!partial) return true;
+          return entry.name.toLowerCase().startsWith(lowerPartial);
+        })
+        .slice(0, 50)
+        .map((entry) => path.join(dirToRead, entry.name));
+
+      if (gitOnly) {
+        const gitRepos: string[] = [];
+        const nonGit: string[] = [];
+        for (const dir of dirs) {
+          if (fs.existsSync(path.join(dir, ".git"))) {
+            gitRepos.push(dir);
           } else {
-            dirToRead = path.dirname(resolved);
-            partial = path.basename(resolved);
+            nonGit.push(dir);
           }
-        } catch {
-          dirToRead = path.dirname(resolved);
-          partial = path.basename(resolved);
         }
+        return c.json({
+          home,
+          directories: [...gitRepos, ...nonGit].slice(0, 20),
+          gitRepos,
+        });
+      }
 
-        try {
-          const entries = fs.readdirSync(dirToRead, { withFileTypes: true });
-          const lowerPartial = partial.toLowerCase();
-          const dirs = entries
-            .filter((entry) => {
-              if (!entry.isDirectory()) return false;
-              if (entry.name.startsWith(".")) return false;
-              if (!partial) return true;
-              return entry.name.toLowerCase().startsWith(lowerPartial);
-            })
-            .slice(0, 50)
-            .map((entry) => path.join(dirToRead, entry.name));
+      return c.json({ home, directories: dirs.slice(0, 20) });
+    } catch {
+      return c.json({ home, directories: [], ...(gitOnly ? { gitRepos: [] } : {}) });
+    }
+  });
 
-          if (gitOnly) {
-            const gitRepos: string[] = [];
-            const nonGit: string[] = [];
-            for (const dir of dirs) {
-              if (fs.existsSync(path.join(dir, ".git"))) {
-                gitRepos.push(dir);
-              } else {
-                nonGit.push(dir);
-              }
-            }
-            sendJson(ctx.res, 200, {
-              home,
-              directories: [...gitRepos, ...nonGit].slice(0, 20),
-              gitRepos,
-            });
-            return;
-          }
-
-          sendJson(ctx.res, 200, { home, directories: dirs.slice(0, 20) });
-        } catch {
-          sendJson(ctx.res, 200, { home, directories: [], ...(gitOnly ? { gitRepos: [] } : {}) });
-        }
-      },
-    },
-    {
-      method: "GET",
-      pattern: /^\/api\/workspace-entries$/,
-      handler(ctx) {
-        if (!requireAuth(ctx)) {
-          return;
-        }
-        const instanceId = ctx.parsedUrl.searchParams.get("instanceId") || "";
-        const query = ctx.parsedUrl.searchParams.get("q") || "";
-        if (!instanceId) {
-          sendJson(ctx.res, 400, { error: "instanceId is required" });
-          return;
-        }
-        const entries = instanceManager.getWorkspaceEntries(instanceId, query);
-        if (!entries) {
-          sendJson(ctx.res, 404, { error: "Instance not found" });
-          return;
-        }
-        sendJson(ctx.res, 200, { entries });
-      },
-    },
-  ];
+  app.get("/api/workspace-entries", (c) => {
+    const session = requireAuth(c);
+    if (session instanceof Response) return session;
+    const parsedUrl = getParsedUrl(c);
+    const instanceId = parsedUrl.searchParams.get("instanceId") || "";
+    const query = parsedUrl.searchParams.get("q") || "";
+    if (!instanceId) {
+      return c.json({ error: "instanceId is required" }, 400);
+    }
+    const entries = instanceManager.getWorkspaceEntries(instanceId, query);
+    if (!entries) {
+      return c.json({ error: "Instance not found" }, 404);
+    }
+    return c.json({ entries });
+  });
 }

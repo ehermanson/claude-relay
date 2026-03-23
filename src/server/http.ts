@@ -5,10 +5,12 @@
  * Separated from server creation so consumers can compose their own server.
  */
 
-import http from "node:http";
 import fs from "node:fs";
-import path from "node:path";
+import http from "node:http";
 import { homedir } from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
+import { Hono } from "hono";
 import type { AuthManager } from "./auth.js";
 import type { InstanceManager } from "../core/instance-manager.js";
 import type { RelayConfig } from "./config.js";
@@ -21,19 +23,17 @@ import type {
   ProviderModelOption,
 } from "../core/types.js";
 import { ProjectOpener } from "./project-opener.js";
-import { createRequestContext } from "./http/context.js";
-import { createRouter } from "./http/router.js";
-import { sendHtml } from "./http/respond.js";
-import type { HttpDeps } from "./http/types.js";
-import { createAuthSystemRoutes } from "./http/routes/auth-system.js";
-import { createInstanceRoutes } from "./http/routes/instances.js";
-import { createProjectRoutes } from "./http/routes/projects.js";
-import { createSpaceRoutes } from "./http/routes/spaces.js";
-import { createWorkspaceRoutes } from "./http/routes/workspace.js";
-import { createProviderRoutes } from "./http/routes/providers.js";
-import { createNativeOpenRoutes } from "./http/routes/native-open.js";
-import { createUploadRoutes } from "./http/routes/uploads.js";
-import { createUiRoutes } from "./http/routes/ui.js";
+import { sessionMiddleware } from "./http/hono-utils.js";
+import { registerAuthSystemRoutes } from "./http/routes/auth-system.js";
+import { registerInstanceRoutes } from "./http/routes/instances.js";
+import { registerNativeOpenRoutes } from "./http/routes/native-open.js";
+import { registerProjectRoutes } from "./http/routes/projects.js";
+import { registerProviderRoutes } from "./http/routes/providers.js";
+import { registerSpaceRoutes } from "./http/routes/spaces.js";
+import { registerUiRoutes } from "./http/routes/ui.js";
+import { registerUploadRoutes } from "./http/routes/uploads.js";
+import { registerWorkspaceRoutes } from "./http/routes/workspace.js";
+import type { ContextVariables, HttpDeps } from "./http/types.js";
 
 const uiDistDir = path.join(import.meta.dirname, "..", "..", "ui", "dist");
 const indexHtmlPath = path.join(uiDistDir, "index.html");
@@ -177,6 +177,62 @@ function createGitRepoLister() {
   };
 }
 
+function toRequest(req: http.IncomingMessage): Request {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        headers.append(key, item);
+      }
+      continue;
+    }
+    headers.set(key, value);
+  }
+  if (req.socket.remoteAddress) {
+    headers.set("x-relay-remote-address", req.socket.remoteAddress);
+  }
+
+  const method = req.method || "GET";
+  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  if (method === "GET" || method === "HEAD") {
+    return new Request(url, { method, headers });
+  }
+
+  return new Request(url, {
+    method,
+    headers,
+    body: Readable.toWeb(req) as ReadableStream,
+    duplex: "half",
+  } as RequestInit);
+}
+
+async function writeResponse(res: http.ServerResponse, response: Response): Promise<void> {
+  const headers: Record<string, string | string[]> = {};
+  response.headers.forEach((value, key) => {
+    if (key === "set-cookie" && typeof response.headers.getSetCookie === "function") {
+      headers[key] = response.headers.getSetCookie();
+      return;
+    }
+    headers[key] = value;
+  });
+
+  res.writeHead(response.status, headers);
+
+  if (!response.body) {
+    res.end();
+    return;
+  }
+
+  const body = Readable.fromWeb(response.body as any);
+  await new Promise<void>((resolve, reject) => {
+    body.on("error", reject);
+    res.on("error", reject);
+    res.on("finish", resolve);
+    body.pipe(res);
+  });
+}
+
 export function createRequestHandler(
   config: RelayConfig,
   auth: AuthManager,
@@ -249,32 +305,30 @@ export function createRequestHandler(
     getGitRepos: createGitRepoLister(),
   };
 
-  const router = createRouter([
-    ...createAuthSystemRoutes(deps),
-    ...createInstanceRoutes(deps),
-    ...createProjectRoutes(deps),
-    ...createSpaceRoutes(deps),
-    ...createWorkspaceRoutes(deps),
-    ...createProviderRoutes(deps),
-    ...createNativeOpenRoutes(deps),
-    ...createUploadRoutes(deps),
-    ...createUiRoutes(deps),
-  ]);
+  const app = new Hono<{ Variables: ContextVariables }>();
+
+  app.use(async (c, next) => sessionMiddleware(auth, c, next));
+  registerAuthSystemRoutes(app, deps);
+  registerInstanceRoutes(app, deps);
+  registerProjectRoutes(app, deps);
+  registerSpaceRoutes(app, deps);
+  registerWorkspaceRoutes(app, deps);
+  registerProviderRoutes(app, deps);
+  registerNativeOpenRoutes(app, deps);
+  registerUploadRoutes(app, deps);
+  registerUiRoutes(app, deps);
+
+  app.onError((error, c) => {
+    log.error("Request error:", error);
+    return c.html("<h1>500 Internal Server Error</h1>", 500);
+  });
 
   return async function handleRequest(
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
-    const ctx = createRequestContext(req, res, auth);
-
-    try {
-      const handled = await router.handle(ctx);
-      if (!handled) {
-        sendHtml(res, 404, "<h1>404 Not Found</h1>");
-      }
-    } catch (error) {
-      log.error("Request error:", error);
-      sendHtml(res, 500, "<h1>500 Internal Server Error</h1>");
-    }
+    const request = toRequest(req);
+    const response = await app.fetch(request);
+    await writeResponse(res, response);
   };
 }

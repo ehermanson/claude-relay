@@ -12,22 +12,6 @@ import type {
   ProviderModelOption,
 } from "../../core/types.js";
 
-export interface RequestContext {
-  req: http.IncomingMessage;
-  res: http.ServerResponse;
-  method: string;
-  parsedUrl: URL;
-  pathname: string;
-  session: Session | null;
-  isAuthenticated: boolean;
-}
-
-export interface Route {
-  method: string;
-  pattern: RegExp;
-  handler: (ctx: RequestContext, match: RegExpMatchArray) => Promise<void> | void;
-}
-
 export interface HttpDeps {
   config: RelayConfig;
   auth: AuthManager;
@@ -43,4 +27,26 @@ export interface HttpDeps {
   getOpenTargets: (targetPath: string) => Promise<NativeOpenTargetsResponse>;
   openNativePath: (request: NativeOpenRequest) => Promise<void>;
   getGitRepos: () => Promise<string[]>;
+}
+
+export interface ContextVariables {
+  session: Session | null;
+  isAuthenticated: boolean;
+  parsedUrl: URL;
+}
+
+export interface RequestContext {
+  req: http.IncomingMessage;
+  res: http.ServerResponse;
+  method: string;
+  parsedUrl: URL;
+  pathname: string;
+  session: Session | null;
+  isAuthenticated: boolean;
+}
+
+export interface Route {
+  method: string;
+  pattern: RegExp;
+  handler: (ctx: RequestContext, match: RegExpMatchArray) => Promise<void> | void;
 }
