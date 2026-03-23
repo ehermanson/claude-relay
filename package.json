@@ -39,6 +39,7 @@
     "fmt:check": "oxfmt --check src/ ui/src/",
     "lint": "oxlint src/ ui/src/",
     "lint:fix": "oxlint --fix src/ ui/src/",
+    "knip": "knip",
     "prepare": "husky"
   },
   "dependencies": {
@@ -54,6 +55,7 @@
     "@types/ws": "^8.5.13",
     "concurrently": "^9.2.1",
     "husky": "^9.1.7",
+    "knip": "^6.0.3",
     "lint-staged": "^16.2.7",
     "oxfmt": "^0.31.0",
     "oxlint": "^1.46.0",
