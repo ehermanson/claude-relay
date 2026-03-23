@@ -71,14 +71,9 @@ function BranchSelector({
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger>
-        <button
-          type="button"
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
-        >
-          <GitBranch size={13} />
-          <span className="max-w-[180px] truncate">{current || "HEAD"}</span>
-        </button>
+      <Popover.Trigger className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
+        <GitBranch size={13} />
+        <span className="max-w-[180px] truncate">{current || "HEAD"}</span>
       </Popover.Trigger>
       <Popover.Content side="bottom" align="start" sideOffset={4} className="w-72 p-0">
         <Command>

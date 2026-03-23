@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { Group, Panel } from "react-resizable-panels";
+import { ConnectionStatusBanner } from "@/components/chat/connection-status-banner";
 import { DebugModal } from "@/components/chat/debug-modal";
 import { ExternalSessionBar } from "@/components/chat/external-session-bar";
 import { InputArea } from "@/components/chat/input-area";
@@ -16,6 +17,7 @@ import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useInstanceMessages } from "@/hooks/use-instance-messages";
+import { useConnectionBanner } from "@/hooks/use-connection-banner";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSidecarPanels } from "@/hooks/use-sidecar-panels";
 import { createInstance, fetchInstanceHistory } from "@/lib/api";
@@ -39,7 +41,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   const id = propId ?? paramId;
   const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
-  const { isConnected, connectionId, instances } = useWSState();
+  const { isConnected, isSyncing, connectionId, instances } = useWSState();
   const {
     items,
     hasLoadedHistory,
@@ -162,6 +164,16 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   const [showDebugPaste, setShowDebugPaste] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dismissedBranchChangeKey, setDismissedBranchChangeKey] = useState<string | null>(null);
+  const connectionBanner = useConnectionBanner({
+    isConnected,
+    connectionId,
+    isActive,
+    isSyncing,
+    isExternal: !!instance?.external,
+    isStopped: instance?.status === "stopped",
+    isLoadingSession: connectionId > 0 && !hasLoadedHistory,
+    onContinue: handleTakeover,
+  });
 
   const hasStats =
     !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
@@ -346,6 +358,14 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
 
       {pendingTerminalTool && !pendingUserInput && (
         <TerminalPermissionBar provider={instance.provider} pendingTool={pendingTerminalTool} />
+      )}
+
+      {connectionBanner && (
+        <ConnectionStatusBanner
+          kind={connectionBanner.kind}
+          onContinue={connectionBanner.onContinue}
+          onDismiss={connectionBanner.onDismiss}
+        />
       )}
 
       {!isLoadingSession && showBranchChangeBanner && instance.branchChanged && (
