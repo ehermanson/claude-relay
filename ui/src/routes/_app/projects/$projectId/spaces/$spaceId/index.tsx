@@ -50,6 +50,7 @@ import {
   HeaderIconSkeleton,
 } from "@/components/chat/header-actions";
 import { FilesPanel } from "@/components/chat/files-panel";
+import "@/components/chat/sidecar.css";
 import { OpenInMenu } from "@/components/project/open-in-menu";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ConfirmMergeDialog } from "@/components/spaces/confirm-merge-dialog";
@@ -1076,7 +1077,7 @@ function SpaceSidebar({
   const stoppedCount = instances.filter((i) => i.status === "stopped").length;
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-surface">
+    <div className="@container/sidecar flex h-full flex-col border-l border-border bg-surface">
       {/* Tab bar */}
       <div className="flex shrink-0 border-b border-border">
         <TabButton
