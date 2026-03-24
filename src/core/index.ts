@@ -180,5 +180,4 @@ export {
   deleteTask,
   hasTasks,
   initTasks,
-  migrateFromBeads,
 } from "./task-manager.js";

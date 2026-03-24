@@ -180,7 +180,7 @@ function buildToolUseActivity(
       tool: "AskUserQuestion",
       description: "Question",
       input: {
-        ...(parsedArgs ?? {}),
+        ...parsedArgs,
         ...(requestId ? { requestId } : {}),
       },
       inputDescription: extractQuestionPrompt(parsedArgs),
@@ -230,7 +230,7 @@ function buildToolResultActivity(
       description: "Tool completed",
       resolution: parsedOutput?.hasAnswers ? "approved" : "dismissed",
       input: {
-        ...(parsedArgs ?? {}),
+        ...parsedArgs,
         ...(call.requestId ? { requestId: call.requestId } : {}),
       },
     };

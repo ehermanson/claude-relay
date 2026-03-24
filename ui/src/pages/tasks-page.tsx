@@ -54,13 +54,6 @@ const statusLabels: Record<string, string> = {
   done: "Done",
 };
 
-const statusVariants: Record<string, "accent" | "warning" | "error" | "default" | "success"> = {
-  open: "accent",
-  in_progress: "warning",
-  blocked: "error",
-  done: "success",
-};
-
 const statusDotColors: Record<string, string> = {
   open: "bg-accent",
   in_progress: "bg-warning",
@@ -130,9 +123,6 @@ function TaskLinkSection({
 
 const STATUS_ORDER: TaskStatus[] = ["open", "in_progress", "blocked", "done"];
 
-/** Cycle through statuses for inline clicking (skip blocked — it's auto-derived) */
-const CYCLE_STATUSES: TaskStatus[] = ["open", "in_progress", "done"];
-
 type SortKey = "priority" | "updated" | "type" | "created";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -165,15 +155,7 @@ function getColumnSortKey(status: TaskStatus, boardSort: SortKey): SortKey {
 
 // ─── Task Card ──────────────────────────────────────────────────────────────
 
-function TaskCard({
-  task,
-  onClick,
-  onCycleStatus,
-}: {
-  task: Task;
-  onClick: () => void;
-  onCycleStatus: () => void;
-}) {
+function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const timeAgo = formatTimeAgo(task.updatedAt);
   const blockerCount = task.blockedBy?.length ?? 0;
 
@@ -514,13 +496,11 @@ function KanbanColumn({
   tasks,
   mobile,
   onSelectTask,
-  onCycleStatus,
 }: {
   status: string;
   tasks: Task[];
   mobile?: boolean;
   onSelectTask: (id: string) => void;
-  onCycleStatus: (task: Task) => void;
 }) {
   if (tasks.length === 0) return null;
 
@@ -539,12 +519,7 @@ function KanbanColumn({
         }
       >
         {tasks.map((task) => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            onClick={() => onSelectTask(task.id)}
-            onCycleStatus={() => onCycleStatus(task)}
-          />
+          <TaskCard key={task.id} task={task} onClick={() => onSelectTask(task.id)} />
         ))}
       </div>
     </div>
@@ -784,12 +759,6 @@ export function TasksPage() {
     }
   };
 
-  const handleCycleStatus = (task: Task) => {
-    const currentIdx = CYCLE_STATUSES.indexOf(task.status as TaskStatus);
-    const nextStatus = CYCLE_STATUSES[(currentIdx + 1) % CYCLE_STATUSES.length];
-    handleUpdate(task.id, { status: nextStatus });
-  };
-
   // Sync URL → stack (initial load, browser back/forward)
   useEffect(() => {
     if (selectedId) {
@@ -990,14 +959,7 @@ export function TasksPage() {
         </div>
         <div className="flex flex-col gap-6 px-4 py-2">
           {STATUS_ORDER.map((s) => (
-            <KanbanColumn
-              key={s}
-              status={s}
-              tasks={grouped[s]}
-              mobile
-              onSelectTask={selectTask}
-              onCycleStatus={handleCycleStatus}
-            />
+            <KanbanColumn key={s} status={s} tasks={grouped[s]} mobile onSelectTask={selectTask} />
           ))}
         </div>
         {drawerStack}
@@ -1013,13 +975,7 @@ export function TasksPage() {
       </div>
       <div className="flex flex-1 gap-4 overflow-x-auto px-6 py-2">
         {STATUS_ORDER.map((s) => (
-          <KanbanColumn
-            key={s}
-            status={s}
-            tasks={grouped[s]}
-            onSelectTask={selectTask}
-            onCycleStatus={handleCycleStatus}
-          />
+          <KanbanColumn key={s} status={s} tasks={grouped[s]} onSelectTask={selectTask} />
         ))}
       </div>
       {drawerStack}

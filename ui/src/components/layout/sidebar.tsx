@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Sun } from "lucide-react";
 import { toast } from "sonner";
-import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
+import type { InstanceInfo } from "@shared/types";
 import { useAuthContext } from "../../context/auth-context";
 import { useTheme } from "../../context/theme-context";
 import { useWSMethods, useWSState } from "../../context/websocket-context";

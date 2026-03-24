@@ -5,7 +5,6 @@ const config: KnipConfig = {
   exclude: ["duplicates"],
   workspaces: {
     ".": {
-      entry: ["scripts/*.ts"],
       project: ["src/**/*.ts"],
     },
     ui: {

@@ -2,7 +2,6 @@ import type {
   CreateInstancePayload,
   HistoryEntry,
   InstanceInfo,
-  NativeOpenTarget,
   NativeOpenTargetsResponse,
   Project,
   ProviderCapabilities,

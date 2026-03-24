@@ -25,7 +25,7 @@ import {
 } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import { execSync, execFileSync, execFile } from "child_process";
+import { execFileSync, execFile } from "child_process";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
@@ -90,7 +90,6 @@ import {
   describeToolDetail,
   extractInputDescription,
   extractToolResultText,
-  isPermissionDenial,
   INTERACTIVE_TOOLS,
   buildToolResultActivity,
   TASK_TOOLS,
@@ -336,7 +335,7 @@ function buildToolActivityInput(
   toolUseId?: string,
 ): Record<string, unknown> | undefined {
   if (toolName === "AskUserQuestion" && toolUseId) {
-    return { ...(input ?? {}), requestId: toolUseId };
+    return { ...input, requestId: toolUseId };
   }
   return input;
 }
@@ -912,7 +911,7 @@ function gitInfoFromDb(entry: {
 }
 
 function toChatSummaryInfo(info: InstanceInfo): InstanceInfo {
-  const { lastMessage, ...summary } = info;
+  const { lastMessage: _, ...summary } = info;
   return { ...summary };
 }
 
@@ -1267,7 +1266,7 @@ export class InstanceManager extends EventEmitter {
     };
     this.instances.set(id, instance);
 
-    this.wireProcessEvents(id, instance, proc);
+    this.wireProcessEvents(id, proc);
 
     if (resumeId) {
       // We already know the session ID — set it up directly instead of waiting for captureSessionId
@@ -1933,7 +1932,7 @@ export class InstanceManager extends EventEmitter {
     delete instance.externalState;
 
     try {
-      this.wireProcessEvents(id, instance, proc);
+      this.wireProcessEvents(id, proc);
       this.captureSessionId(id, instance, proc);
     } catch (err) {
       // Rollback: restore previous external state so discovery doesn't duplicate
@@ -1992,7 +1991,7 @@ export class InstanceManager extends EventEmitter {
     instance.providerBinding = proc.getRuntimeBinding();
 
     try {
-      this.wireProcessEvents(id, instance, proc);
+      this.wireProcessEvents(id, proc);
     } catch (err) {
       instance.process = prevProcess;
       proc.close();
@@ -2288,7 +2287,7 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
-  private async refreshGitBranchStateAsync(id: string, instance: Instance): Promise<void> {
+  private async refreshGitBranchStateAsync(id: string, _instance: Instance): Promise<void> {
     const prep = await this.enqueueInstanceMutation(id, (live) => {
       if (live.refreshingGitBranch) return null;
       live.refreshingGitBranch = true;
@@ -2382,7 +2381,7 @@ export class InstanceManager extends EventEmitter {
 
     instance.process = proc;
     instance.providerBinding = {
-      ...(binding ?? {}),
+      ...binding,
       ...proc.getRuntimeBinding(),
       provider: instance.info.provider,
       providerSessionId: resumeSessionId,
@@ -2391,7 +2390,7 @@ export class InstanceManager extends EventEmitter {
     instance.sessionId = resumeSessionId;
     instance.info.sessionId = resumeSessionId;
 
-    this.wireProcessEvents(id, instance, proc);
+    this.wireProcessEvents(id, proc);
 
     if (instance.info.status === "stopped") {
       this.setStatus(instance, "idle");
@@ -3146,7 +3145,7 @@ export class InstanceManager extends EventEmitter {
     // Note: SDK-based managed instances don't spawn a `claude` CLI process, so they
     // won't appear in ps output. Their JSONLs are already in knownJsonls (via
     // instance.jsonlPath), so the check below naturally prevents duplicates.
-    for (const [jsonlPath, { cwd, pid }] of activeJsonls) {
+    for (const [jsonlPath, { pid }] of activeJsonls) {
       if (knownJsonls.has(jsonlPath)) {
         // Check if this is a restored stopped external that should be upgraded to active
         const existingId = knownJsonls.get(jsonlPath)!;
@@ -5673,7 +5672,7 @@ export class InstanceManager extends EventEmitter {
   // Event wiring
   // ===========================================================================
 
-  private wireProcessEvents(id: string, instance: Instance, proc: ProviderSession): void {
+  private wireProcessEvents(id: string, proc: ProviderSession): void {
     proc.on("output", (message) => {
       void this.enqueueInstanceMutation(id, (live) => {
         if (this.shuttingDown || live.process !== proc) return;
@@ -6160,7 +6159,7 @@ export class InstanceManager extends EventEmitter {
       instance.process = proc;
       instance.providerBinding = proc.getRuntimeBinding();
 
-      this.wireProcessEvents(id, instance, proc);
+      this.wireProcessEvents(id, proc);
       this.captureSessionId(id, instance, proc);
 
       this.emitInstanceStatus(instance);

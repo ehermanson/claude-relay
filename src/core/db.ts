@@ -139,7 +139,6 @@ export interface ManagedInstanceRow {
 
 export class SessionDB {
   private db: Database.Database;
-  private logger: Logger;
 
   /** Set to true if the DB was corrupt and had to be recreated */
   needsRebuild = false;
@@ -196,8 +195,6 @@ export class SessionDB {
   private stmtUpdateManagedSpaceId!: Database.Statement;
 
   constructor(dbPath: string, logger: Logger) {
-    this.logger = logger;
-
     // Ensure the directory exists
     mkdirSync(dirname(dbPath), { recursive: true });
 

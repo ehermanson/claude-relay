@@ -12,7 +12,7 @@ import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useProjectNavigationModel } from "@/hooks/use-project-navigation-model";
 import { fetchProjectIcons } from "@/lib/api";
 import { getInstanceProjectRouteId, getProjectName } from "@/lib/project-route";
-import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
+import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
 // ── Project flyout (sessions for one project) ────────────────────────
 

@@ -115,7 +115,6 @@ export function ContextRing({
   const circ = 2 * Math.PI * r;
   const dashOffset = circ * (1 - pct);
   const ringColor = pct > 0.9 ? "#ef4444" : pct > 0.7 ? "#f59e0b" : "currentColor";
-  const textColor = pct > 0.9 ? "text-error" : pct > 0.7 ? "text-warning" : "text-muted";
 
   return (
     <Tooltip

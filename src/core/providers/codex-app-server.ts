@@ -252,7 +252,6 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private stderrBuffer = "";
   private initialized = false;
   private _currentTurnId: string | null = null;
-  private _startedResolve: (() => void) | null = null;
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private readonly proposedPlanParser = new ProposedPlanStreamParser();
 

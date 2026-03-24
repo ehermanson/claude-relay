@@ -394,9 +394,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
             isProcessing={isActive}
             isConnected={isConnected}
             instanceId={id!}
-            sessionId={instance.sessionId}
             isStopped={isStopped}
-            isPendingInTerminal={!!pendingTerminalTool}
             provider={instance.provider}
             preferredModel={instance.preferredModel}
             reasoningBudget={instance.reasoningBudget}
@@ -455,7 +453,6 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
               rawHistory={rawHistory}
               provider={instance.provider}
               preferredModel={instance.preferredModel}
-              instanceName={instance.name}
               instanceId={id}
               createdAt={instance.createdAt}
               lastActivityAt={instance.lastActivityAt}
@@ -479,7 +476,6 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
           rawHistory={rawHistory}
           provider={instance.provider}
           preferredModel={instance.preferredModel}
-          instanceName={instance.name}
           instanceId={id}
           createdAt={instance.createdAt}
           lastActivityAt={instance.lastActivityAt}

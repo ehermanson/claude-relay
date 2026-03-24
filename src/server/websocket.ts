@@ -120,7 +120,7 @@ export function createWebSocketServer(
 
   // External session discovery events
   instanceManager.on("instance:created", (instanceId: string, info: InstanceInfo) => {
-    broadcast({ type: "instance_created", instance: info });
+    broadcast({ type: "instance_created", instanceId, instance: info });
   });
 
   instanceManager.on("instance:removed", (instanceId: string) => {
@@ -232,7 +232,7 @@ export function createWebSocketServer(
                 spaceId: message.spaceId,
                 modelOptions: message.modelOptions,
               });
-              broadcast({ type: "instance_created", instance: info });
+              broadcast({ type: "instance_created", instanceId: info.id, instance: info });
             } catch (err) {
               sendMessage(ws, {
                 type: "error",

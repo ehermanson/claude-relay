@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import type {
   ControlOption,
-  ProviderCapabilities,
   ProviderDescriptor,
   ProviderKind,
   ProviderModelOption,

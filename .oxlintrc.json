@@ -1,5 +1,7 @@
 {
   "rules": {
+    "no-unused-vars": "error",
+    "no-unused-imports": "error",
     "typescript/no-unsafe-declaration-merging": "off"
   }
 }

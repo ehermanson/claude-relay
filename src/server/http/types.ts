@@ -1,4 +1,3 @@
-import http from "node:http";
 import type { HttpBindings } from "@hono/node-server";
 import type { Session } from "../../core/types.js";
 import type { AuthManager } from "../auth.js";
@@ -38,20 +37,4 @@ export interface ContextVariables {
 export interface AppEnv {
   Bindings: HttpBindings;
   Variables: ContextVariables;
-}
-
-export interface RequestContext {
-  req: http.IncomingMessage;
-  res: http.ServerResponse;
-  method: string;
-  parsedUrl: URL;
-  pathname: string;
-  session: Session | null;
-  isAuthenticated: boolean;
-}
-
-export interface Route {
-  method: string;
-  pattern: RegExp;
-  handler: (ctx: RequestContext, match: RegExpMatchArray) => Promise<void> | void;
 }

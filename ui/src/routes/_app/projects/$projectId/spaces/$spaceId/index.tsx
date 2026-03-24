@@ -10,7 +10,6 @@ import {
   ChevronRight,
   Copy,
   EllipsisVertical,
-  FileCode2,
   FileText,
   FolderOpen,
   GitBranch,
@@ -22,7 +21,6 @@ import {
   Pencil,
   Plus,
   Trash2,
-  X,
 } from "lucide-react";
 import { Group, Panel } from "react-resizable-panels";
 import { useWSState, useWSMethods } from "@/context/websocket-context";
@@ -43,7 +41,7 @@ import {
   pushSpace,
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
-import { formatTimeAgo, formatTimestamp, instanceStatusVariant } from "@/lib/utils";
+import { instanceStatusVariant } from "@/lib/utils";
 import {
   HeaderActionDivider,
   HeaderContextToggle,
@@ -85,7 +83,6 @@ export function SpaceView() {
   const spaceQueryKey = ["space", spaceId] as const;
   const chatsQueryKey = ["projectChats", projectId] as const;
   const [spaceDiff, setSpaceDiff] = useState<string | null>(null);
-  const [diffInitialLoad, setDiffInitialLoad] = useState(true);
   const [showDiffDrawer, setShowDiffDrawer] = useState(false);
   const [diffScrollToFile, setDiffScrollToFile] = useState<string | undefined>();
 
@@ -179,9 +176,6 @@ export function SpaceView() {
         })
         .catch(() => {
           if (!cancelled) setSpaceDiff("");
-        })
-        .finally(() => {
-          if (!cancelled) setDiffInitialLoad(false);
         });
     };
     load();
@@ -642,7 +636,6 @@ export function SpaceView() {
                   activePanels={activePanels}
                   stats={aggregatedStats}
                   fileChanges={fileChanges}
-                  diffLoading={diffInitialLoad}
                   onOpenDiff={(scrollTo) => {
                     setDiffScrollToFile(scrollTo);
                     setShowDiffDrawer(true);
@@ -1059,7 +1052,6 @@ function SpaceSidebar({
   activePanels,
   stats,
   fileChanges,
-  diffLoading,
   onOpenDiff,
 }: {
   space: SpaceInfo;
@@ -1067,7 +1059,6 @@ function SpaceSidebar({
   activePanels: ReadonlySet<SidecarTab>;
   stats: SessionStats | null;
   fileChanges: FileChange[];
-  diffLoading: boolean;
   onOpenDiff: (scrollToFile?: string) => void;
 }) {
   const activeCount = instances.filter(

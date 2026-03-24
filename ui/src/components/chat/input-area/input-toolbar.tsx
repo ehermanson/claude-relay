@@ -28,7 +28,6 @@ interface InputToolbarProps {
   isSecondaryActionDisabled?: boolean;
 }
 
-const roundIcon = "h-8 w-8 shrink-0 !rounded-full";
 const roundPrimary = "h-8 w-8 shrink-0 !rounded-full !p-0";
 
 export function InputToolbar({

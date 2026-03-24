@@ -26,7 +26,6 @@ import {
   describeToolDetail,
   extractInputDescription,
   extractToolResultText,
-  isPermissionDenial,
   buildToolResultActivity,
   getContextWindow,
   TASK_TOOLS,
@@ -277,9 +276,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     toolUseId?: string,
   ): void {
     const activityInput =
-      toolName === "AskUserQuestion" && toolUseId
-        ? { ...(input ?? {}), requestId: toolUseId }
-        : input;
+      toolName === "AskUserQuestion" && toolUseId ? { ...input, requestId: toolUseId } : input;
 
     if (toolName === "AskUserQuestion" && toolUseId) {
       const questions = Array.isArray(input?.questions)

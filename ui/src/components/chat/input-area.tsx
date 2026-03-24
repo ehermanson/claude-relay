@@ -49,10 +49,7 @@ interface InputAreaProps {
   isProcessing: boolean;
   isConnected: boolean;
   instanceId: string;
-  sessionId?: string;
   isStopped?: boolean;
-  /** @deprecated Currently unused but kept for future terminal-pending UI. */
-  isPendingInTerminal?: boolean;
   provider: ProviderKind;
   preferredModel?: string;
   reasoningBudget?: number;
@@ -85,9 +82,7 @@ export function InputArea({
   isProcessing,
   isConnected,
   instanceId,
-  sessionId,
   isStopped,
-  isPendingInTerminal,
   provider,
   preferredModel,
   reasoningBudget,

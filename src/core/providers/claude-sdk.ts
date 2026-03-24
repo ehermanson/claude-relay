@@ -26,7 +26,7 @@ import type {
   UserInputQuestion,
 } from "../types.js";
 import type { CoreConfig } from "../config.js";
-import type { ProviderSession, ProviderSessionEvents } from "../provider.js";
+import type { ProviderSession } from "../provider.js";
 import {
   describeToolUse,
   describeToolDetail,
@@ -1103,9 +1103,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this.trackFileChange(toolName, input);
 
     const activityInput =
-      toolName === "AskUserQuestion" && toolUseId
-        ? { ...(input ?? {}), requestId: toolUseId }
-        : input;
+      toolName === "AskUserQuestion" && toolUseId ? { ...input, requestId: toolUseId } : input;
 
     // Note: AskUserQuestion user_input permissionRequest is emitted from
     // handleCanUseTool (which always blocks for this tool). No duplicate here.

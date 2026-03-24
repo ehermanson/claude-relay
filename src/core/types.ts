@@ -471,6 +471,7 @@ export interface InstanceListMessage {
 
 export interface InstanceCreatedMessage {
   type: "instance_created";
+  instanceId: string;
   instance: InstanceInfo;
 }
 
@@ -611,29 +612,6 @@ export interface ProjectStats {
   cacheCreationTokens: number;
   cacheReadTokens: number;
   modelUsage: ModelUsageStats[];
-}
-
-interface DashboardStats {
-  instances: {
-    total: number;
-    active: number;
-    idle: number;
-    stopped: number;
-    external: number;
-  };
-  currentSessions: {
-    tokens: number;
-  };
-  allTime: {
-    sessionCount: number;
-    inputTokens: number;
-    outputTokens: number;
-    cacheCreationTokens: number;
-    cacheReadTokens: number;
-    tokens: number;
-  };
-  uptime: number;
-  connections: number;
 }
 
 export type NativeOpenTargetKind = "default" | "app" | "finder" | "file-manager" | "terminal";

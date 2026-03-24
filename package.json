@@ -31,7 +31,7 @@
     "relay:import": "node dist/bin.js import",
     "relay:export-tgz": "node dist/bin.js export-tgz",
     "relay:import-tgz": "node dist/bin.js import-tgz",
-    "dev": "tsc && concurrently -n srv,tsc,ui \"DEV=1 node --watch-path=dist --watch-kill-signal=SIGKILL dist/bin.js\" \"tsc --watch --preserveWatchOutput\" \"pnpm --filter relay-ui dev\"",
+    "dev": "tsc && concurrently -n srv,tsc,ui \"DEV=1 node --watch-path=dist dist/bin.js\" \"tsc --watch --preserveWatchOutput\" \"pnpm --filter relay-ui dev\"",
     "test": "node --test test/*.test.js",
     "typecheck": "tsc --noEmit && pnpm --filter relay-ui typecheck",
     "typecheck:ui": "pnpm --filter relay-ui typecheck",
@@ -73,7 +73,7 @@
     ]
   },
   "engines": {
-    "node": ">=22.15.0"
+    "node": ">=22.0.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

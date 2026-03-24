@@ -157,8 +157,6 @@ interface SidecarProps {
   rawHistory?: HistoryEntry[] | null;
   provider?: string;
   preferredModel?: string;
-  /** @deprecated Currently unused but kept for the custom comparator. */
-  instanceName?: string;
   instanceId?: string;
   createdAt?: number;
   lastActivityAt?: number;
@@ -180,7 +178,6 @@ export const Sidecar = memo(
     rawHistory,
     provider,
     preferredModel,
-    instanceName,
     instanceId,
     createdAt,
     lastActivityAt,
@@ -352,7 +349,6 @@ export const Sidecar = memo(
       prev.workingDirectory === next.workingDirectory &&
       prev.isMobileOverlay === next.isMobileOverlay &&
       prev.instanceId === next.instanceId &&
-      prev.instanceName === next.instanceName &&
       prev.createdAt === next.createdAt &&
       prev.lastActivityAt === next.lastActivityAt &&
       prev.stats === next.stats &&
