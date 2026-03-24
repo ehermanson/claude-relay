@@ -1,50 +1,41 @@
 import path from "node:path";
-import type { Route, HttpDeps } from "../types.js";
-import { redirect, sendHtml, sendJson, sendFile, serveIndex } from "../respond.js";
+import type { Hono } from "hono";
+import { fileResponse, indexResponse, isAuthenticated } from "../hono-utils.js";
+import type { AppEnv, HttpDeps } from "../types.js";
 
-export function createUiRoutes(deps: HttpDeps): Route[] {
-  return [
-    {
-      method: "GET",
-      pattern: /^\/.*$/,
-      handler(ctx) {
-        if (deps.config.serveUI) {
-          if (
-            ctx.pathname.startsWith("/assets/") ||
-            ctx.pathname === "/favicon.svg" ||
-            ctx.pathname === "/favicon.ico" ||
-            ctx.pathname === "/manifest.json"
-          ) {
-            const filePath = path.join(deps.uiDistDir, ctx.pathname);
-            const resolved = path.resolve(filePath);
-            if (!resolved.startsWith(deps.uiDistDir)) {
-              sendHtml(ctx.res, 403, "<h1>Forbidden</h1>");
-              return;
-            }
-            sendFile(ctx.res, resolved, ctx.pathname.startsWith("/assets/"));
-            return;
-          }
+export function registerUiRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
+  app.get("*", (c) => {
+    const pathname = new URL(c.req.url).pathname;
 
-          serveIndex(ctx.res, deps.indexHtmlPath);
-          return;
+    if (deps.config.serveUI) {
+      if (
+        pathname.startsWith("/assets/") ||
+        pathname === "/favicon.svg" ||
+        pathname === "/favicon.ico" ||
+        pathname === "/manifest.json"
+      ) {
+        const filePath = path.join(deps.uiDistDir, pathname);
+        const resolved = path.resolve(filePath);
+        if (!resolved.startsWith(deps.uiDistDir)) {
+          return c.html("<h1>Forbidden</h1>", 403);
         }
+        return fileResponse(resolved, pathname.startsWith("/assets/"));
+      }
 
-        if (ctx.pathname === "/" || ctx.pathname === "/login") {
-          sendJson(ctx.res, 200, { status: "ok", authenticated: ctx.isAuthenticated });
-          return;
-        }
+      return indexResponse(deps.indexHtmlPath);
+    }
 
-        if (ctx.pathname.startsWith("/projects")) {
-          if (!ctx.isAuthenticated) {
-            redirect(ctx.res, "/login");
-            return;
-          }
-          sendJson(ctx.res, 200, { status: "ok", authenticated: true });
-          return;
-        }
+    if (pathname === "/" || pathname === "/login") {
+      return c.json({ status: "ok", authenticated: isAuthenticated(c) });
+    }
 
-        sendHtml(ctx.res, 404, "<h1>404 Not Found</h1>");
-      },
-    },
-  ];
+    if (pathname.startsWith("/projects")) {
+      if (!isAuthenticated(c)) {
+        return c.redirect("/login", 302);
+      }
+      return c.json({ status: "ok", authenticated: true });
+    }
+
+    return c.html("<h1>404 Not Found</h1>", 404);
+  });
 }

@@ -31,7 +31,7 @@ In the backend, Relay manages providers through a provider-driver registry (`pro
 
 - **Runtime**: Node.js 20+, ESM only (`"type": "module"`)
 - **Language**: TypeScript (strict mode)
-- **Server**: Raw `node:http` + `ws`. No Express/Fastify/etc.
+- **Server**: `node:http` host server + Hono for HTTP routing + `ws` for WebSockets
 - **UI**: React 19 + Vite + Tailwind CSS v4 + React Router
 - **Tests**: Node.js built-in test runner (`node --test`)
 

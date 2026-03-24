@@ -1,4 +1,5 @@
 import http from "node:http";
+import type { HttpBindings } from "@hono/node-server";
 import type { Session } from "../../core/types.js";
 import type { AuthManager } from "../auth.js";
 import type { InstanceManager } from "../../core/instance-manager.js";
@@ -11,22 +12,6 @@ import type {
   ProviderKind,
   ProviderModelOption,
 } from "../../core/types.js";
-
-export interface RequestContext {
-  req: http.IncomingMessage;
-  res: http.ServerResponse;
-  method: string;
-  parsedUrl: URL;
-  pathname: string;
-  session: Session | null;
-  isAuthenticated: boolean;
-}
-
-export interface Route {
-  method: string;
-  pattern: RegExp;
-  handler: (ctx: RequestContext, match: RegExpMatchArray) => Promise<void> | void;
-}
 
 export interface HttpDeps {
   config: RelayConfig;
@@ -43,4 +28,30 @@ export interface HttpDeps {
   getOpenTargets: (targetPath: string) => Promise<NativeOpenTargetsResponse>;
   openNativePath: (request: NativeOpenRequest) => Promise<void>;
   getGitRepos: () => Promise<string[]>;
+}
+
+export interface ContextVariables {
+  session: Session | null;
+  isAuthenticated: boolean;
+}
+
+export interface AppEnv {
+  Bindings: HttpBindings;
+  Variables: ContextVariables;
+}
+
+export interface RequestContext {
+  req: http.IncomingMessage;
+  res: http.ServerResponse;
+  method: string;
+  parsedUrl: URL;
+  pathname: string;
+  session: Session | null;
+  isAuthenticated: boolean;
+}
+
+export interface Route {
+  method: string;
+  pattern: RegExp;
+  handler: (ctx: RequestContext, match: RegExpMatchArray) => Promise<void> | void;
 }

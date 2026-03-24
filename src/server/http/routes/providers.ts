@@ -1,47 +1,31 @@
-import type { Route, HttpDeps } from "../types.js";
-import { requireAuth } from "../guards.js";
-import { sendJson } from "../respond.js";
+import type { Hono } from "hono";
+import type { AppEnv, HttpDeps } from "../types.js";
 
-export function createProviderRoutes(deps: HttpDeps): Route[] {
-  return [
-    {
-      method: "GET",
-      pattern: /^\/api\/provider-models$/,
-      async handler(ctx) {
-        if (!requireAuth(ctx)) {
-          return;
-        }
-        const providerParam = ctx.parsedUrl.searchParams.get("provider");
-        const provider = deps
-          .getAvailableProviders()
-          .find((entry) => entry.provider === providerParam)?.provider;
-        if (!provider) {
-          sendJson(ctx.res, 400, { error: "Invalid provider" });
-          return;
-        }
-        try {
-          const models = await deps.getProviderModels(provider);
-          sendJson(ctx.res, 200, {
-            provider,
-            models,
-            capabilities: deps.getProviderCapabilities(provider),
-          });
-        } catch (err) {
-          sendJson(ctx.res, 500, {
-            error: err instanceof Error ? err.message : "Failed to load provider models",
-          });
-        }
-      },
-    },
-    {
-      method: "GET",
-      pattern: /^\/api\/providers$/,
-      handler(ctx) {
-        if (!requireAuth(ctx)) {
-          return;
-        }
-        sendJson(ctx.res, 200, { providers: deps.getAvailableProviders() });
-      },
-    },
-  ];
+export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
+  app.get("/api/provider-models", async (c) => {
+    const providerParam = c.req.query("provider");
+    const provider = deps
+      .getAvailableProviders()
+      .find((entry) => entry.provider === providerParam)?.provider;
+    if (!provider) {
+      return c.json({ error: "Invalid provider" }, 400);
+    }
+    try {
+      const models = await deps.getProviderModels(provider);
+      return c.json({
+        provider,
+        models,
+        capabilities: deps.getProviderCapabilities(provider),
+      });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Failed to load provider models" },
+        500,
+      );
+    }
+  });
+
+  app.get("/api/providers", (c) => {
+    return c.json({ providers: deps.getAvailableProviders() });
+  });
 }
