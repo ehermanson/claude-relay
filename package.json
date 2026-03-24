@@ -72,6 +72,9 @@
       "oxfmt"
     ]
   },
+  "engines": {
+    "node": ">=22.15.0"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3"
