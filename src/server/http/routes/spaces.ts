@@ -1,14 +1,12 @@
 import type { Hono } from "hono";
 import { getPrimaryRemote } from "../../../core/git.js";
-import { readJsonBody, requireAuth } from "../hono-utils.js";
+import { readJsonBody } from "../hono-utils.js";
 import type { AppEnv, HttpDeps } from "../types.js";
 
 export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { instanceManager } = deps;
 
   app.get("/api/projects/:id/spaces", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -17,8 +15,6 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.post("/api/projects/:id/spaces", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -46,8 +42,6 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.get("/api/spaces/:id", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const space = instanceManager.getSpaceManager().getSpace(c.req.param("id"));
     if (!space) {
       return c.json({ error: "Space not found" }, 404);
@@ -56,8 +50,6 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.post("/api/spaces/:id/complete", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     try {
       const result = instanceManager.getSpaceManager().completeSpace(c.req.param("id"));
       return c.json({ success: true, ...result });
@@ -70,8 +62,6 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.delete("/api/spaces/:id", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     try {
       instanceManager.getSpaceManager().deleteSpace(c.req.param("id"));
       return c.json({ success: true });
@@ -81,8 +71,6 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.post("/api/spaces/:id/push", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     try {
       const body = await readJsonBody<{ createPR?: boolean }>(c);
       const result = await instanceManager
@@ -95,8 +83,6 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.get("/api/spaces/:id/diff", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const diff = instanceManager.getSpaceManager().getSpaceDiff(c.req.param("id"));
     if (diff == null) {
       return c.json({ error: "Space not found" }, 404);

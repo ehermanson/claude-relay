@@ -1,23 +1,21 @@
 import type { Hono } from "hono";
 import * as taskManager from "../../../core/task-manager.js";
 import {
-  listBranches,
-  getAheadBehind,
   checkoutBranch,
+  getAheadBehind,
   gitFetch,
   gitPull,
   gitPush,
   isWorktreeDirty,
+  listBranches,
 } from "../../../core/git.js";
-import { readJsonBody, requireAuth } from "../hono-utils.js";
+import { readJsonBody } from "../hono-utils.js";
 import type { AppEnv, HttpDeps } from "../types.js";
 
 export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { instanceManager } = deps;
 
   app.post("/api/projects/:id/tasks/init", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -27,8 +25,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.get("/api/projects/:id/tasks", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -40,8 +36,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.post("/api/projects/:id/tasks", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const projectId = c.req.param("id");
     const project = instanceManager.projectManager.getProject(projectId);
     if (!project) {
@@ -61,8 +55,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.patch("/api/projects/:id/tasks/:taskId", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const projectId = c.req.param("id");
     const taskId = c.req.param("taskId");
     const project = instanceManager.projectManager.getProject(projectId);
@@ -84,8 +76,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.delete("/api/projects/:id/tasks/:taskId", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const projectId = c.req.param("id");
     const taskId = c.req.param("taskId");
     const project = instanceManager.projectManager.getProject(projectId);
@@ -106,8 +96,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.get("/api/projects/:id/chats", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -116,14 +104,10 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.get("/api/projects", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     return c.json({ projects: instanceManager.projectManager.listProjects() });
   });
 
   app.post("/api/projects", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     try {
       const body = await readJsonBody<{
         directory?: string;
@@ -148,8 +132,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.post("/api/projects/init", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     try {
       const body = await readJsonBody<{
         parentDirectory?: string;
@@ -176,8 +158,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.get("/api/projects/:id", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -186,8 +166,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.patch("/api/projects/:id", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     try {
       const body = await readJsonBody<{
         name?: string;
@@ -212,8 +190,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.delete("/api/projects/:id", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const removed = instanceManager.projectManager.removeProject(c.req.param("id"));
     if (removed) {
       return c.json({ success: true });
@@ -222,14 +198,10 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.get("/api/project-icons", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     return c.json(instanceManager.getProjectIcons());
   });
 
   app.get("/api/project-artifacts/:name", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const artifacts = instanceManager.getProjectArtifacts(c.req.param("name"));
     if (!artifacts) {
       return c.json({ error: "Project not found" }, 404);
@@ -238,8 +210,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.get("/api/projects/:id/branches", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -252,8 +222,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.post("/api/projects/:id/checkout", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -277,8 +245,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.post("/api/projects/:id/git/fetch", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -289,8 +255,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.post("/api/projects/:id/git/pull", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
@@ -301,8 +265,6 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   });
 
   app.post("/api/projects/:id/git/push", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
       return c.json({ error: "Project not found" }, 404);

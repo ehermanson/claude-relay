@@ -2,9 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Hono } from "hono";
 import type { AppEnv, HttpDeps } from "../types.js";
-import { getSession, readJsonBody, requireAuth } from "../hono-utils.js";
+import { getSession, readJsonBody } from "../hono-utils.js";
 
-export function registerAuthSystemRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
+export function registerPublicSystemRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { auth, config, instanceManager, packageVersion, startedAt } = deps;
 
   app.get("/health", (c) => {
@@ -54,11 +54,12 @@ export function registerAuthSystemRoutes(app: Hono<AppEnv>, deps: HttpDeps): voi
     c.header("Set-Cookie", auth.clearSessionCookie());
     return c.redirect("/login", 302);
   });
+}
 
-  app.get("/api/stats", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
+export function registerProtectedSystemRoutes(api: Hono<AppEnv>, deps: HttpDeps): void {
+  const { instanceManager, startedAt } = deps;
 
+  api.get("/api/stats", (c) => {
     const allInstances = instanceManager.listInstances();
     const uptimeSeconds = Math.floor((Date.now() - startedAt) / 1000);
 
@@ -103,9 +104,7 @@ export function registerAuthSystemRoutes(app: Hono<AppEnv>, deps: HttpDeps): voi
     });
   });
 
-  app.get("/api/beads-projects", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
+  api.get("/api/beads-projects", (c) => {
     return c.json(
       instanceManager
         .getKnownDirectories()

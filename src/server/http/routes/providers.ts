@@ -1,12 +1,9 @@
 import type { Hono } from "hono";
-import { getParsedUrl, requireAuth } from "../hono-utils.js";
 import type { AppEnv, HttpDeps } from "../types.js";
 
 export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   app.get("/api/provider-models", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
-    const providerParam = getParsedUrl(c).searchParams.get("provider");
+    const providerParam = c.req.query("provider");
     const provider = deps
       .getAvailableProviders()
       .find((entry) => entry.provider === providerParam)?.provider;
@@ -29,8 +26,6 @@ export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
   });
 
   app.get("/api/providers", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     return c.json({ providers: deps.getAvailableProviders() });
   });
 }

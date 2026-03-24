@@ -1,15 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Hono } from "hono";
-import { getParsedUrl, readJsonBody, requireAuth } from "../hono-utils.js";
+import { readJsonBody } from "../hono-utils.js";
 import type { AppEnv, HttpDeps } from "../types.js";
 
 export function registerNativeOpenRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   app.get("/api/open-targets", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
-
-    const targetPath = (getParsedUrl(c).searchParams.get("path") || "").trim();
+    const targetPath = (c.req.query("path") || "").trim();
     if (!targetPath) {
       return c.json({ error: "Missing path" }, 400);
     }
@@ -31,9 +28,6 @@ export function registerNativeOpenRoutes(app: Hono<AppEnv>, deps: HttpDeps): voi
   });
 
   app.post("/api/open", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
-
     const body = await readJsonBody<{
       path?: string;
       line?: number;

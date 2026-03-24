@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import type { Hono } from "hono";
-import { getMimeType, getParsedUrl, readBodyBuffer, requireAuth } from "../hono-utils.js";
+import { getMimeType, readBodyBuffer } from "../hono-utils.js";
 import type { AppEnv, HttpDeps } from "../types.js";
 
 const IMAGE_EXTS = new Set([
@@ -20,9 +20,6 @@ const IMAGE_EXTS = new Set([
 
 export function registerUploadRoutes(app: Hono<AppEnv>, _: HttpDeps): void {
   app.post("/api/upload", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
-
     const contentType = c.req.header("content-type") || "";
     const allowedMimes: Record<string, string> = {
       "image/png": ".png",
@@ -60,10 +57,7 @@ export function registerUploadRoutes(app: Hono<AppEnv>, _: HttpDeps): void {
   });
 
   app.get("/api/file", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
-
-    const filePath = getParsedUrl(c).searchParams.get("path");
+    const filePath = c.req.query("path");
     if (!filePath) {
       return c.json({ error: "Missing path parameter" }, 400);
     }

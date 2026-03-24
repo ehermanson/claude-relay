@@ -33,7 +33,6 @@ export interface HttpDeps {
 export interface ContextVariables {
   session: Session | null;
   isAuthenticated: boolean;
-  parsedUrl: URL;
 }
 
 export interface AppEnv {

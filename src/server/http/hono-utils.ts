@@ -15,7 +15,6 @@ export async function sessionMiddleware(
   const session = auth.getSessionFromCookies(c.req.header("cookie"));
   c.set("session", session);
   c.set("isAuthenticated", session !== null);
-  c.set("parsedUrl", new URL(c.req.url));
   await next();
 }
 
@@ -23,20 +22,16 @@ export function getSession(c: AppContext): Session | null {
   return c.get("session");
 }
 
-export function getParsedUrl(c: AppContext): URL {
-  return c.get("parsedUrl");
-}
-
 export function isAuthenticated(c: AppContext): boolean {
   return c.get("isAuthenticated");
 }
 
-export function requireAuth(c: AppContext): Session | Response {
+export async function requireAuthMiddleware(c: AppContext, next: Next): Promise<Response | void> {
   const session = getSession(c);
   if (!session) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  return session;
+  await next();
 }
 
 export async function readJsonBody<T>(c: AppContext): Promise<T> {

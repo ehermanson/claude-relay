@@ -23,8 +23,11 @@ import type {
   ProviderModelOption,
 } from "../core/types.js";
 import { ProjectOpener } from "./project-opener.js";
-import { sessionMiddleware } from "./http/hono-utils.js";
-import { registerAuthSystemRoutes } from "./http/routes/auth-system.js";
+import { requireAuthMiddleware, sessionMiddleware } from "./http/hono-utils.js";
+import {
+  registerProtectedSystemRoutes,
+  registerPublicSystemRoutes,
+} from "./http/routes/auth-system.js";
 import { registerInstanceRoutes } from "./http/routes/instances.js";
 import { registerNativeOpenRoutes } from "./http/routes/native-open.js";
 import { registerProjectRoutes } from "./http/routes/projects.js";
@@ -252,7 +255,9 @@ export function createRequestHandler(
   const app = new Hono<AppEnv>();
 
   app.use(async (c, next) => sessionMiddleware(auth, c, next));
-  registerAuthSystemRoutes(app, deps);
+  app.use("/api/*", requireAuthMiddleware);
+  registerPublicSystemRoutes(app, deps);
+  registerProtectedSystemRoutes(app, deps);
   registerInstanceRoutes(app, deps);
   registerProjectRoutes(app, deps);
   registerSpaceRoutes(app, deps);

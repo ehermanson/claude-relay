@@ -2,15 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import type { Hono } from "hono";
-import { getParsedUrl, requireAuth } from "../hono-utils.js";
 import type { AppEnv, HttpDeps } from "../types.js";
 
 export function registerWorkspaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { instanceManager } = deps;
 
   app.get("/api/directories", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     return c.json({
       defaultDirectory: instanceManager.defaultWorkingDirectory,
       directories: instanceManager.getKnownDirectories(),
@@ -18,18 +15,13 @@ export function registerWorkspaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void
   });
 
   app.get("/api/git-repos", async (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     return c.json({ repos: await deps.getGitRepos() });
   });
 
   app.get("/api/browse", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
     const home = homedir();
-    const parsedUrl = getParsedUrl(c);
-    const raw = parsedUrl.searchParams.get("prefix") || "";
-    const gitOnly = parsedUrl.searchParams.get("gitOnly") === "1";
+    const raw = c.req.query("prefix") || "";
+    const gitOnly = c.req.query("gitOnly") === "1";
     const prefix = raw && raw !== "/" ? raw : home + "/";
     const resolved = path.resolve(prefix);
 
@@ -90,11 +82,8 @@ export function registerWorkspaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void
   });
 
   app.get("/api/workspace-entries", (c) => {
-    const session = requireAuth(c);
-    if (session instanceof Response) return session;
-    const parsedUrl = getParsedUrl(c);
-    const instanceId = parsedUrl.searchParams.get("instanceId") || "";
-    const query = parsedUrl.searchParams.get("q") || "";
+    const instanceId = c.req.query("instanceId") || "";
+    const query = c.req.query("q") || "";
     if (!instanceId) {
       return c.json({ error: "instanceId is required" }, 400);
     }
