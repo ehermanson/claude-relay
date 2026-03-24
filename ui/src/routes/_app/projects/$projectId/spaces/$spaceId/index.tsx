@@ -43,13 +43,16 @@ import {
   pushSpace,
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
-import { formatTimeAgo, formatTimestamp, formatTokens } from "@/lib/utils";
+import { formatTimeAgo, formatTimestamp, instanceStatusVariant } from "@/lib/utils";
 import {
   HeaderActionDivider,
   HeaderContextToggle,
   HeaderIconSkeleton,
 } from "@/components/chat/header-actions";
 import { FilesPanel } from "@/components/chat/files-panel";
+import { ContextPanel } from "@/components/chat/context-panel";
+import { StatusDot } from "@/components/ui/status-dot";
+import { useSidecarPanels, type SidecarTab } from "@/hooks/use-sidecar-panels";
 import "@/components/chat/sidecar.css";
 import { OpenInMenu } from "@/components/project/open-in-menu";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
@@ -62,8 +65,6 @@ import type { SpaceInfo, InstanceInfo, SessionStats, FileChange } from "@shared/
 // =============================================================================
 // Space view — owns the full viewport below the sidebar
 // =============================================================================
-
-type SidebarTab = "files" | "context";
 
 export function SpaceView() {
   const {
@@ -83,16 +84,6 @@ export function SpaceView() {
   const projectId = artifacts.projectId || routeProjectId;
   const spaceQueryKey = ["space", spaceId] as const;
   const chatsQueryKey = ["projectChats", projectId] as const;
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("files");
-  const [showSidebar, setShowSidebar] = useState(true);
-  const toggleSidebarTab = (tab: SidebarTab) => {
-    if (showSidebar && sidebarTab === tab) {
-      setShowSidebar(false);
-    } else {
-      setSidebarTab(tab);
-      setShowSidebar(true);
-    }
-  };
   const [spaceDiff, setSpaceDiff] = useState<string | null>(null);
   const [diffInitialLoad, setDiffInitialLoad] = useState(true);
   const [showDiffDrawer, setShowDiffDrawer] = useState(false);
@@ -270,6 +261,21 @@ export function SpaceView() {
     }
     return files;
   })();
+
+  const hasStats =
+    !!aggregatedStats && (aggregatedStats.inputTokens > 0 || aggregatedStats.outputTokens > 0);
+  const {
+    activePanels,
+    togglePanel,
+    showDesktopSidecar: showSidebar,
+  } = useSidecarPanels({
+    instanceId: spaceId,
+    isMobile: false,
+    hasTasksContent: false,
+    hasFilesContent: fileChanges.length > 0,
+    hasPlanContent: false,
+    hasStats,
+  });
 
   // Track instance IDs to detect newly created chats and navigate to them
   const prevSpaceInstanceIds = useRef(new Set<string>());
@@ -545,13 +551,11 @@ export function SpaceView() {
                 </>
               ) : (
                 <>
-                  <Tooltip
-                    content={showSidebar && sidebarTab === "files" ? "Hide files" : "Show files"}
-                  >
+                  <Tooltip content={activePanels.has("files") ? "Hide files" : "Show files"}>
                     <Button
                       variant="icon"
-                      toggled={showSidebar && sidebarTab === "files"}
-                      onClick={() => toggleSidebarTab("files")}
+                      toggled={activePanels.has("files")}
+                      onClick={() => togglePanel("files")}
                       className="relative shrink-0"
                     >
                       <FileText size={15} strokeWidth={2} />
@@ -564,11 +568,9 @@ export function SpaceView() {
                   </Tooltip>
                   <HeaderContextToggle
                     stats={activeLiveInstance?.stats}
-                    active={showSidebar && sidebarTab === "context"}
-                    tooltip={
-                      showSidebar && sidebarTab === "context" ? "Hide context" : "Show context"
-                    }
-                    onClick={() => toggleSidebarTab("context")}
+                    active={activePanels.has("context")}
+                    tooltip={activePanels.has("context") ? "Hide context" : "Show context"}
+                    onClick={() => togglePanel("context")}
                   />
                 </>
               )}
@@ -637,8 +639,7 @@ export function SpaceView() {
                 <SpaceSidebar
                   space={space}
                   instances={spaceInstances}
-                  activeTab={sidebarTab}
-                  onChangeTab={setSidebarTab}
+                  activePanels={activePanels}
                   stats={aggregatedStats}
                   fileChanges={fileChanges}
                   diffLoading={diffInitialLoad}
@@ -918,7 +919,7 @@ function SpaceChatTab({
           : "text-muted hover:bg-surface-hover hover:text-text"
       }`}
     >
-      <StatusDot status={instance.status} />
+      <StatusDot variant={instanceStatusVariant(instance.status)} />
       {editing ? (
         <input
           ref={inputRef}
@@ -1022,7 +1023,7 @@ function SpaceDebugModal({
                     : "text-muted hover:text-text"
                 }`}
               >
-                <StatusDot status={inst.status} />
+                <StatusDot variant={instanceStatusVariant(inst.status)} />
                 <span className="max-w-[120px] truncate">{inst.name}</span>
               </button>
             ))}
@@ -1055,8 +1056,7 @@ function SpaceDebugModal({
 function SpaceSidebar({
   space,
   instances,
-  activeTab,
-  onChangeTab,
+  activePanels,
   stats,
   fileChanges,
   diffLoading,
@@ -1064,8 +1064,7 @@ function SpaceSidebar({
 }: {
   space: SpaceInfo;
   instances: InstanceInfo[];
-  activeTab: SidebarTab;
-  onChangeTab: (tab: SidebarTab) => void;
+  activePanels: ReadonlySet<SidecarTab>;
   stats: SessionStats | null;
   fileChanges: FileChange[];
   diffLoading: boolean;
@@ -1076,219 +1075,98 @@ function SpaceSidebar({
   ).length;
   const stoppedCount = instances.filter((i) => i.status === "stopped").length;
 
+  const hasFiles = activePanels.has("files") && fileChanges.length > 0;
+  const hasStats =
+    activePanels.has("context") && !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
+
+  type Tab = { key: string; label: string; count: number };
+  const availableTabs: Tab[] = [];
+  if (hasFiles) availableTabs.push({ key: "files", label: "Files", count: fileChanges.length });
+  if (hasStats) availableTabs.push({ key: "context", label: "Context", count: 0 });
+
+  const [activeTab, setActiveTab] = useState(availableTabs[0]?.key ?? "files");
+  const effectiveTab = availableTabs.find((t) => t.key === activeTab)?.key ?? availableTabs[0]?.key;
+
+  // Auto-switch to newly toggled panel
+  const prevPanelsRef = useRef(activePanels);
+  useEffect(() => {
+    const prev = prevPanelsRef.current;
+    prevPanelsRef.current = activePanels;
+    for (const panel of activePanels) {
+      if (!prev.has(panel)) {
+        setActiveTab(panel);
+        return;
+      }
+    }
+  }, [activePanels]);
+
   return (
     <div className="@container/sidecar flex h-full flex-col border-l border-border bg-surface">
-      {/* Tab bar */}
-      <div className="flex shrink-0 border-b border-border">
-        <TabButton
-          active={activeTab === "files"}
-          onClick={() => onChangeTab("files")}
-          label="Files"
-          badge={fileChanges.length > 0 ? fileChanges.length : undefined}
-        />
-        <TabButton
-          active={activeTab === "context"}
-          onClick={() => onChangeTab("context")}
-          label="Context"
-        />
+      {/* Header */}
+      <div className="shrink-0 border-b border-border/60">
+        <div className="flex items-center justify-between">
+          {availableTabs.length > 1 ? (
+            <div className="flex min-w-0 flex-1 items-stretch">
+              {availableTabs.map((tab) => {
+                const isActive = tab.key === effectiveTab;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`relative flex min-w-0 flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-[0.8125rem] font-semibold transition-colors ${
+                      isActive
+                        ? "border-accent text-text-bright"
+                        : "border-transparent text-muted hover:text-text"
+                    }`}
+                  >
+                    <span className="truncate">{tab.label}</span>
+                    {tab.count > 0 && (
+                      <span
+                        className={`shrink-0 text-[0.75rem] tabular-nums ${
+                          isActive ? "text-text" : "text-muted/70"
+                        }`}
+                      >
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <h2 className="px-3.5 py-2.5 text-[0.8125rem] font-semibold text-text-bright">
+              {availableTabs[0]?.label ?? "Sidebar"}
+            </h2>
+          )}
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === "files" &&
-          (diffLoading ? (
-            <div className="flex items-center justify-center py-8 text-sm text-muted">
-              Loading changes...
-            </div>
-          ) : fileChanges.length === 0 ? (
-            <div className="flex items-center justify-center py-8 text-sm text-muted">
-              No file changes yet
-            </div>
-          ) : (
-            <FilesPanel
-              files={fileChanges}
-              cwd=""
-              onViewChanges={() => onOpenDiff()}
-              onFileClick={(path) => onOpenDiff(path)}
-            />
-          ))}
-        {activeTab === "context" && (
-          <ContextTab
-            space={space}
+        {effectiveTab === "files" && hasFiles && (
+          <FilesPanel
+            files={fileChanges}
+            cwd=""
+            onViewChanges={() => onOpenDiff()}
+            onFileClick={(path) => onOpenDiff(path)}
+          />
+        )}
+        {effectiveTab === "context" && hasStats && (
+          <ContextPanel
+            mode="space"
+            stats={stats!}
             instances={instances}
-            stats={stats}
+            branch={space.gitBranch ?? null}
+            status={space.status}
             activeCount={activeCount}
             stoppedCount={stoppedCount}
+            createdAt={space.createdAt}
           />
         )}
       </div>
     </div>
   );
-}
-
-// =============================================================================
-// Sidebar tab button
-// =============================================================================
-
-function TabButton({
-  active,
-  onClick,
-  label,
-  badge,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  badge?: number;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex flex-1 items-center justify-center gap-1.5 py-2 text-[0.75rem] font-medium transition-colors ${
-        active
-          ? "border-b-2 border-accent text-accent"
-          : "border-b-2 border-transparent text-muted hover:text-text"
-      }`}
-    >
-      {label}
-      {badge !== undefined && (
-        <span className="ml-0.5 rounded-full bg-accent-dim px-1.5 py-px text-[0.625rem] font-semibold text-accent">
-          {badge}
-        </span>
-      )}
-    </button>
-  );
-}
-
-// =============================================================================
-// Context tab — aggregated stats, chat list, space metadata
-// =============================================================================
-
-function ContextTab({
-  space,
-  instances,
-  stats,
-  activeCount,
-  stoppedCount,
-}: {
-  space: SpaceInfo;
-  instances: InstanceInfo[];
-  stats: SessionStats | null;
-  activeCount: number;
-  stoppedCount: number;
-}) {
-  const totalTokens = stats ? stats.inputTokens + stats.outputTokens : 0;
-  const cacheRead = stats?.cacheReadTokens ?? 0;
-  const cacheWrite = stats?.cacheCreationTokens ?? 0;
-  const pureInput = stats?.inputTokens ?? 0;
-  const output = stats?.outputTokens ?? 0;
-  const breakdownTotal = pureInput + cacheRead + cacheWrite + output;
-
-  const segments =
-    breakdownTotal > 0
-      ? [
-          { label: "Input", pct: (pureInput / breakdownTotal) * 100, color: "bg-blue-400" },
-          { label: "Cache read", pct: (cacheRead / breakdownTotal) * 100, color: "bg-emerald-400" },
-          { label: "Cache write", pct: (cacheWrite / breakdownTotal) * 100, color: "bg-amber-400" },
-          { label: "Output", pct: (output / breakdownTotal) * 100, color: "bg-purple-400" },
-        ].filter((s) => s.pct > 0)
-      : [];
-
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="px-3.5 py-2.5">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <StatRow label="Branch" value={space.gitBranch ?? "—"} />
-          <StatRow label="Status" value={space.status} />
-          <StatRow label="Chats" value={instances.length} />
-          {activeCount > 0 && <StatRow label="Active" value={activeCount} />}
-          {stoppedCount > 0 && <StatRow label="Ended" value={stoppedCount} />}
-          {stats && (
-            <>
-              <div className="col-span-2 border-t border-border/30" />
-              <StatRow label="Total Tokens" value={formatTokens(totalTokens)} />
-              <StatRow label="Input Tokens" value={formatTokens(pureInput)} />
-              <StatRow label="Output Tokens" value={formatTokens(output)} />
-              <StatRow
-                label="Cache Tokens (read/write)"
-                value={`${formatTokens(cacheRead)} / ${formatTokens(cacheWrite)}`}
-              />
-            </>
-          )}
-          <div className="col-span-2 border-t border-border/30" />
-          <StatRow label="Created" value={formatTimestamp(space.createdAt)} />
-        </div>
-
-        {/* Token breakdown bar */}
-        {segments.length > 0 && (
-          <div className="mt-4">
-            <div className="mb-1.5 text-[0.6875rem] text-muted">Token Breakdown</div>
-            <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-hover">
-              {segments.map((seg) => (
-                <Tooltip key={seg.label} content={`${seg.label} ${seg.pct.toFixed(1)}%`}>
-                  <div className={`h-full ${seg.color}`} style={{ width: `${seg.pct}%` }} />
-                </Tooltip>
-              ))}
-            </div>
-            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
-              {segments.map((seg) => (
-                <span
-                  key={seg.label}
-                  className="flex items-center gap-1 text-[0.625rem] text-muted"
-                >
-                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${seg.color}`} />
-                  {seg.label} {seg.pct.toFixed(1)}%
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Per-chat breakdown */}
-      {instances.length > 0 && (
-        <div className="border-t border-border/30">
-          <div className="px-3.5 py-2.5 text-[0.6875rem] text-muted">Per-chat</div>
-          <div className="flex flex-col gap-0.5 px-3.5 pb-3">
-            {instances.map((inst) => (
-              <div key={inst.id} className="flex items-center gap-2 py-1">
-                <StatusDot status={inst.status} />
-                <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-text">
-                  {inst.name}
-                </span>
-                {inst.stats && (
-                  <span className="shrink-0 text-[0.6875rem] text-muted/50">
-                    {formatTokens(inst.stats.inputTokens + inst.stats.outputTokens)}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// =============================================================================
-// Shared primitives
-// =============================================================================
-
-function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[0.6875rem] text-muted">{label}</span>
-      <span className="text-[0.8125rem] font-medium text-text-bright">{value}</span>
-    </div>
-  );
-}
-
-function StatusDot({ status }: { status: InstanceInfo["status"] }) {
-  let dotClass = "bg-muted";
-  if (status === "processing") dotClass = "animate-pulse-dot bg-warning";
-  else if (status === "error") dotClass = "bg-error";
-  else if (status === "idle") dotClass = "bg-accent";
-  return <span className={`h-[5px] w-[5px] shrink-0 rounded-full ${dotClass}`} />;
 }
 
 export const Route = createFileRoute("/_app/projects/$projectId/spaces/$spaceId/")({

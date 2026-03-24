@@ -13,27 +13,9 @@ import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { fetchProjectChats, fetchSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
-import { formatModel, formatTimeAgo, formatTokens } from "@/lib/utils";
+import { formatModel, formatTimeAgo, formatTokens, instanceStatusVariant } from "@/lib/utils";
+import { StatusDot } from "@/components/ui/status-dot";
 import type { InstanceInfo, SpaceInfo } from "@shared/types";
-
-function StatusDot({ instance }: { instance: InstanceInfo }) {
-  const hasPendingTool = !!instance.pendingTool;
-  return (
-    <span
-      className={`h-[6px] w-[6px] shrink-0 rounded-full ${
-        hasPendingTool
-          ? "animate-pulse-dot bg-warning"
-          : instance.status === "idle"
-            ? "bg-accent"
-            : instance.status === "processing"
-              ? "animate-pulse-dot bg-warning"
-              : instance.status === "error"
-                ? "bg-error"
-                : "bg-muted"
-      }`}
-    />
-  );
-}
 
 function SessionCard({
   instance,
@@ -53,7 +35,10 @@ function SessionCard({
       className="group flex items-center gap-3 rounded-lg border border-border/80 bg-surface px-4 py-3 transition-all duration-150 hover:border-accent/30 hover:bg-surface-hover hover:shadow-sm"
     >
       {/* Status dot */}
-      <StatusDot instance={instance} />
+      <StatusDot
+        variant={instanceStatusVariant(instance.status, !!instance.pendingTool)}
+        size={6}
+      />
 
       {/* Main column — name, preview, parent */}
       <div className="min-w-0 flex-1">
@@ -195,7 +180,10 @@ function SpaceCard({
                 params={route.params}
                 className="group ml-4 flex items-center gap-3 rounded-md border border-transparent px-3 py-2 transition-colors hover:border-border/60 hover:bg-surface-hover/70"
               >
-                <StatusDot instance={chat} />
+                <StatusDot
+                  variant={instanceStatusVariant(chat.status, !!chat.pendingTool)}
+                  size={6}
+                />
 
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[0.75rem] font-medium text-text">{chat.name}</div>

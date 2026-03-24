@@ -4,7 +4,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SidecarTab } from "../components/chat/sidecar";
+
+export type SidecarTab = "tasks" | "files" | "plan" | "context";
 
 interface UseSidecarPanelsOptions {
   instanceId?: string;

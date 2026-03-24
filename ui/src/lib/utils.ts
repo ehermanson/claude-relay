@@ -1,4 +1,13 @@
 import type { ProviderKind } from "@shared/types";
+import type { StatusDotVariant } from "@/components/ui/status-dot";
+
+/** Map an instance status to a StatusDot variant. */
+export function instanceStatusVariant(status: string, pendingTool?: boolean): StatusDotVariant {
+  if (pendingTool || status === "processing") return "active";
+  if (status === "error") return "error";
+  if (status === "idle") return "success";
+  return "default";
+}
 
 export function escapeHtml(text: string): string {
   const div = document.createElement("div");
