@@ -174,17 +174,23 @@ export function createWebSocketServer(
   });
 
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
-    const cookieHeader = req.headers.cookie;
-    const session = auth.getSessionFromCookies(cookieHeader);
+    let connectionLabel = "open-mode";
 
-    if (!session) {
-      log.info("WebSocket connection rejected: Unauthorized");
-      ws.close(4001, "Unauthorized");
-      return;
+    if (auth.authRequired) {
+      const cookieHeader = req.headers.cookie;
+      const session = auth.getSessionFromCookies(cookieHeader);
+
+      if (!session) {
+        log.info("WebSocket connection rejected: Unauthorized");
+        ws.close(4001, "Unauthorized");
+        return;
+      }
+
+      connectionLabel = `session ${truncateSessionId(session.id)}`;
+      log.debug(`WebSocket connected: ${connectionLabel}`);
+    } else {
+      log.debug("WebSocket connected (open mode)");
     }
-
-    const truncatedId = truncateSessionId(session.id);
-    log.debug(`WebSocket connected: session ${truncatedId}`);
 
     // Initialize subscription tracking and heartbeat
     subscriptions.set(ws, new Set());
@@ -471,11 +477,11 @@ export function createWebSocketServer(
     });
 
     ws.on("error", (error) => {
-      log.error(`WebSocket error for session ${truncatedId}:`, error);
+      log.error(`WebSocket error for ${connectionLabel}:`, error);
     });
 
     ws.on("close", () => {
-      log.debug(`WebSocket disconnected: session ${truncatedId}`);
+      log.debug(`WebSocket disconnected: ${connectionLabel}`);
       subscriptions.delete(ws);
       alive.delete(ws);
     });

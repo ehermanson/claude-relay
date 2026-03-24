@@ -14,10 +14,16 @@ export function registerPublicSystemRoutes(app: Hono<AppEnv>, deps: HttpDeps): v
       uptime: uptimeSeconds,
       instances: instanceManager.listInstances().length,
       version: packageVersion,
+      authRequired: auth.authRequired,
     });
   });
 
   app.post("/auth", async (c) => {
+    // Open mode — no password needed, auto-succeed
+    if (!auth.authRequired) {
+      return c.json({ success: true }, 200);
+    }
+
     const forwarded = c.req.header("x-forwarded-for");
     const rawIp =
       (typeof forwarded === "string" ? forwarded.split(",")[0].trim() : null) ||

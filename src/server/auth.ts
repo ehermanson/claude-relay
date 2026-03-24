@@ -24,9 +24,15 @@ export class AuthManager {
   private rateLimits = new Map<string, RateLimitEntry>();
   private config: RelayConfig;
 
+  /** True when a password is configured and auth is enforced. */
+  readonly authRequired: boolean;
+
   constructor(config: RelayConfig) {
     this.config = config;
-    this.loadSessions();
+    this.authRequired = config.password !== undefined && config.password !== "";
+    if (this.authRequired) {
+      this.loadSessions();
+    }
   }
 
   /**

@@ -16,8 +16,8 @@ import { defaultLogger } from "../core/logger.js";
 export interface RelayConfig extends CoreConfig {
   /** Port to run the server on */
   port: number;
-  /** Password for authentication */
-  password: string;
+  /** Password for authentication (undefined = open mode, no auth required) */
+  password: string | undefined;
   /** Session lifetime in milliseconds */
   sessionMaxAge: number;
   /** Whether to serve the built-in web UI at / and /chat */
@@ -31,10 +31,10 @@ export interface RelayConfig extends CoreConfig {
 }
 
 /**
- * User-facing options. Password is required, everything else has defaults.
+ * User-facing options. Everything has defaults.
+ * When password is omitted, the server runs in open mode (no auth required).
  */
-export type RelayOptions = Partial<Omit<RelayConfig, "password">> & {
-  password: string;
+export type RelayOptions = Partial<RelayConfig> & {
   /** Alias for workingDirectory */
   defaultWorkingDirectory?: string;
 };

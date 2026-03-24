@@ -3,24 +3,31 @@
 /**
  * Relay CLI entry point
  *
- * Reads configuration from environment variables and either starts the relay
- * or runs a local export/import migration command.
+ * Usage:
+ *   relay start [options]       Start the relay server
+ *   relay export <output-dir>   Export data to a directory bundle
+ *   relay import <bundle-dir>   Import data from a directory bundle
+ *   relay export-tgz <file>     Export data as a .tgz archive
+ *   relay import-tgz <file>     Import data from a .tgz archive
  *
- * Environment variables:
- *   RELAY_PASSWORD           (required for server mode) Password for authentication
- *   PORT                     (optional) Server port, default 7777
- *   SESSION_MAX_AGE          (optional) Session lifetime in ms, default 7 days
- *   PROCESS_TIMEOUT          (optional) Claude process timeout in ms, default 5 min
- *   WORKING_DIR              (optional) Working directory for Claude, default $HOME
- *   MAX_PROCESSES             (optional) Maximum concurrent managed processes, default 15
- *   MAX_INSTANCES             (deprecated) Alias for MAX_PROCESSES
- *   TUNNEL                   (optional) Set to "true" to start a cloudflared tunnel
- *   SESSION_FILE             (optional) Path to session persistence file, default ~/.relay/sessions.json
- *   DB_PATH                  (optional) Path to SQLite database, default ~/.relay/sessions.db
- *   DEFAULT_MODEL            (optional) Default model for new sessions, default "claude-opus-4-6"
- *   MANIFEST_FILE            (optional) Legacy manifest file path (used for one-time migration to SQLite)
- *   CLAUDE_DIR               (optional) Claude data directory, default ~/.claude
- *   CODEX_DIR                (optional) Codex data directory, default ~/.codex
+ * Start options:
+ *   --port <number>             Server port (default: 7777, env: PORT)
+ *   --password <string>         Require password for auth (env: RELAY_PASSWORD)
+ *   --tunnel                    Start a cloudflared tunnel (env: TUNNEL=true)
+ *
+ * Environment variables (all optional):
+ *   RELAY_PASSWORD              Password for authentication (or use --password)
+ *   PORT                        Server port (or use --port)
+ *   TUNNEL                      Set to "true" to start a cloudflared tunnel
+ *   SESSION_MAX_AGE             Session lifetime in ms, default 7 days
+ *   PROCESS_TIMEOUT             Claude process timeout in ms, default 5 min
+ *   WORKING_DIR                 Working directory for Claude, default cwd
+ *   MAX_PROCESSES               Maximum concurrent managed processes, default 15
+ *   SESSION_FILE                Path to session persistence file
+ *   DB_PATH                     Path to SQLite database
+ *   DEFAULT_MODEL               Default model for new sessions
+ *   CLAUDE_DIR                  Claude data directory, default ~/.claude
+ *   CODEX_DIR                   Codex data directory, default ~/.codex
  */
 
 import { join } from "node:path";
@@ -35,6 +42,20 @@ import {
 } from "./core/migration.js";
 import { resolveCoreConfig } from "./core/config.js";
 
+// ---------- Arg parsing helpers ----------
+
+function parseFlag(args: string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  if (idx === -1 || idx + 1 >= args.length) return undefined;
+  return args[idx + 1];
+}
+
+function hasFlag(args: string[], flag: string): boolean {
+  return args.includes(flag);
+}
+
+// ---------- Main dispatch ----------
+
 const args = process.argv.slice(2);
 const command = args[0];
 
@@ -42,39 +63,47 @@ if (
   command === "export" ||
   command === "import" ||
   command === "export-tgz" ||
-  command === "import-tgz" ||
-  command === "--help" ||
-  command === "-h"
+  command === "import-tgz"
 ) {
   runCliCommand(command, args.slice(1)).catch((err: Error) => {
     console.error(`\n  ${err.message}`);
     process.exit(1);
   });
+} else if (command === "--help" || command === "-h") {
+  printUsage();
+} else if (command === "start") {
+  startServer(args.slice(1));
+} else if (!command) {
+  // Bare `relay` with no args — start the server (backwards compat)
+  startServer(args);
 } else {
-  startServer();
+  console.error(`Unknown command: ${command}\n`);
+  printUsage();
+  process.exit(1);
 }
 
 function printUsage(): void {
   console.log(`Usage:
-  relay
+  relay start [--port <number>] [--password <string>] [--tunnel]
   relay export <output-dir>
   relay import <bundle-dir>
   relay export-tgz <archive.tgz>
   relay import-tgz <archive.tgz>
 
+Options:
+  --port <number>     Server port (default: 7777)
+  --password <string> Require password for authentication
+  --tunnel            Expose via cloudflared tunnel
+
 Notes:
-  - migration commands do not require RELAY_PASSWORD
+  - When no password is set, the server runs in open mode (no login required).
+    Set a password if you plan to expose the server over a tunnel or network.
   - export/import use a directory bundle with manifest + DB snapshot + transcript files
   - export-tgz/import-tgz wrap the same bundle format in a .tgz archive
   - import merges transcripts into local ~/.claude / ~/.codex by default`);
 }
 
 async function runCliCommand(commandName: string | undefined, args: string[]): Promise<void> {
-  if (commandName === "--help" || commandName === "-h") {
-    printUsage();
-    return;
-  }
-
   const targetPath = args[0];
   if (!targetPath) {
     printUsage();
@@ -136,27 +165,26 @@ async function runCliCommand(commandName: string | undefined, args: string[]): P
   throw new Error(`Unknown command: ${commandName}`);
 }
 
-function startServer(): void {
-  const password = process.env.RELAY_PASSWORD;
-
-  if (!password) {
-    console.error(
-      "Error: RELAY_PASSWORD environment variable is required.\n" +
-        "  Set it with: RELAY_PASSWORD=your-secret pnpm start",
-    );
-    process.exit(1);
-  }
-
-  const port = parseInt(process.env.PORT || "7777");
-  const enableTunnel = process.env.TUNNEL === "true";
+function startServer(cliArgs: string[]): void {
+  const password = parseFlag(cliArgs, "--password") || process.env.RELAY_PASSWORD || undefined;
+  const port = parseInt(parseFlag(cliArgs, "--port") || process.env.PORT || "7777");
+  const enableTunnel = hasFlag(cliArgs, "--tunnel") || process.env.TUNNEL === "true";
   const home = homedir();
+
+  // Warn if exposing via tunnel without a password
+  if (enableTunnel && !password) {
+    console.warn(
+      "Warning: Starting tunnel without a password. Anyone with the URL can access Relay.\n" +
+        "  Set a password with: relay start --password <secret> --tunnel\n",
+    );
+  }
 
   const relay = createRelay({
     password,
     port,
     sessionMaxAge: parseInt(process.env.SESSION_MAX_AGE || String(7 * 24 * 60 * 60 * 1000)),
     processTimeout: parseInt(process.env.PROCESS_TIMEOUT || String(5 * 60 * 1000)),
-    workingDirectory: process.env.WORKING_DIR || process.env.HOME || process.cwd(),
+    workingDirectory: process.env.WORKING_DIR || process.cwd(),
     maxProcesses: parseInt(
       process.env.MAX_PROCESSES ||
         (() => {
@@ -192,15 +220,13 @@ function startServer(): void {
         console.log(`Relay UI at http://localhost:5173\n`);
       } else if (enableTunnel) {
         startTunnel(port);
-      } else {
-        console.log(`  Expose with: TUNNEL=true RELAY_PASSWORD=... pnpm start\n`);
       }
     })
     .catch((err: Error) => {
       console.error(`\n  Failed to start Relay: ${err.message}`);
       if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
         console.error(
-          `  Port ${port} is already in use. Try a different port with: PORT=8888 pnpm start`,
+          `  Port ${port} is already in use. Try a different port with: relay start --port 8888`,
         );
         console.error(`  To inspect the current listener: lsof -nP -iTCP:${port} -sTCP:LISTEN`);
       }

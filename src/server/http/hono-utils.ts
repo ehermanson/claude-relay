@@ -12,6 +12,14 @@ export async function sessionMiddleware(
   c: AppContext,
   next: Next,
 ): Promise<void> {
+  if (!auth.authRequired) {
+    // Open mode — everyone is authenticated
+    c.set("session", null);
+    c.set("isAuthenticated", true);
+    await next();
+    return;
+  }
+
   const session = auth.getSessionFromCookies(c.req.header("cookie"));
   c.set("session", session);
   c.set("isAuthenticated", session !== null);
@@ -27,8 +35,8 @@ export function isAuthenticated(c: AppContext): boolean {
 }
 
 export async function requireAuthMiddleware(c: AppContext, next: Next): Promise<Response | void> {
-  const session = getSession(c);
-  if (!session) {
+  // isAuthenticated is already true in open mode (set by sessionMiddleware)
+  if (!c.get("isAuthenticated")) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   await next();

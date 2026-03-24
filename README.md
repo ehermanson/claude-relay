@@ -1,10 +1,13 @@
 # Relay
 
-A lightweight bridge between remote devices and your local AI coding agents. Run it on your dev machine, connect from your phone or laptop, and manage your agent sessions from anywhere.
+A remote control center for your local AI coding agents. Run Relay on your dev machine, open it locally or from an external device, and manage Claude Code or Codex sessions from anywhere.
 
-Relay also automatically discovers agent sessions running on your machine and lets you monitor or resume them from the web UI.
+Relay discovers sessions already running on your machine, lets you resume them from the browser, and gives you a cleaner way to manage multiple chats, projects, and git worktrees in one place.
 
-> **Fair warning:** This project is held together with duct tape and optimism. It relies on undocumented transcript formats (Claude Code's JSONL, Codex's session files), CLI flags, and directory layouts (`~/.claude/`, `~/.codex/`) that could change without notice. Any provider CLI update could break things in spectacular and unexpected ways. There is no stable API contract here — just a guy reading transcript files and hoping for the best. If it works today, celebrate. If it breaks tomorrow, that's expected.
+- Monitor local Claude Code and Codex sessions from anywhere
+- Resume terminal-started chats from the web UI
+- Switch branches, manage worktrees, and keep project context organized
+- Use it privately over Tailscale or expose it through a tunnel when needed
 
 ### Chats
 
@@ -13,6 +16,114 @@ Relay also automatically discovers agent sessions running on your machine and le
 ### Spaces (git worktrees)
 
 <img src="relay-space.png" alt="Relay Spaces" width="800" />
+
+## Quick Start
+
+### Install
+
+If you want to run Relay, clone the repo, build it once, and install the CLI globally from the checked-out directory:
+
+```bash
+git clone git@github.com:ehermanson/relay.git
+cd relay
+pnpm install
+pnpm build
+npm install -g .
+```
+
+Then you can run it from anywhere:
+
+```bash
+relay start
+```
+
+Open `http://localhost:7777`. That's it.
+
+Notes:
+
+- `npm install -g relay` is not the right command here; the bare `relay` package name on npm is already taken
+- The global install above uses the CLI from your local checkout after `pnpm build`
+- After pulling updates, rebuild and reinstall globally: `pnpm build && npm install -g .`
+
+### Run Without Installing Globally
+
+If you prefer not to install the CLI globally, you can still run Relay directly from the repo:
+
+```bash
+pnpm install
+pnpm build
+pnpm start
+```
+
+### Setting a Password
+
+Relay can run in open mode with no login, or with a single shared password for the web UI.
+
+```bash
+# Open mode (local-only / trusted network)
+relay start
+
+# Password via CLI flag
+relay start --password "your-secret"
+
+# Password via env var
+export RELAY_PASSWORD="your-secret"
+relay start
+
+# Or use a .env file (not committed to git)
+echo 'RELAY_PASSWORD=your-secret' > .env
+source .env && relay start
+```
+
+When a password is configured, the web UI shows a login page and then keeps you authenticated with a session cookie for 7 days.
+
+If you are running from the repo without a global install, use the same flags through `pnpm start`:
+
+```bash
+pnpm start -- --password "your-secret"
+pnpm start -- --port 8888
+pnpm start -- --tunnel --password "your-secret"
+```
+
+### Remote Access
+
+**Option A: Tailscale (recommended for personal use)**
+
+If you run [Tailscale](https://tailscale.com) on your devices, the relay is already accessible:
+
+```bash
+relay start --password "your-secret"
+# -> http://your-machine:7777 from any tailnet device
+```
+
+**Option B: Cloudflare Tunnel (for public URLs)**
+
+```bash
+# Built-in tunnel (requires cloudflared)
+relay start --tunnel --password "your-secret"
+
+# Or manually
+cloudflared tunnel --url http://localhost:7777
+```
+
+If you use `--tunnel`, set a password. Open mode plus a public tunnel exposes the full Relay UI to anyone with the URL.
+
+## Core Features
+
+- **Multi-session management** — run multiple agent instances side-by-side, each with its own working directory and conversation history
+- **Multi-provider support** — managed sessions for Claude and Codex, with a provider picker in the UI
+- **External session discovery** — automatically detects agent sessions running in terminals and streams their output in real time
+- **Resume external sessions** — take over a terminal-started session from the web UI
+- **Per-session controls** — model picker, reasoning effort, and build/plan mode toggle, driven by provider capabilities
+- **Provider handoff** — switch providers mid-project, optionally carrying recent context into the new session
+- **Interactive tool responses** — when the agent asks a question or requests approval, the composer becomes an answer form
+- **Slash commands** — `/model` and `/reasoning` from the composer command palette
+- **`@` file mentions** — workspace search with inline mention chips
+- **Lazy hydration** — sidebar renders instantly from cached metadata; full transcript replay happens when you open a session
+- **Git integration** — branch switching, push/pull/fetch from the UI, ahead/behind indicators, and space push with optional PR creation via `gh` CLI
+- **Project settings** — per-project custom instructions, default space branch, and default provider/model
+- **Git worktree support** — sessions in relay-managed worktrees can be merged back to main from the sidebar
+- **Remote access** — built-in Cloudflare Tunnel support, or use Tailscale for private access
 
 ## How It Works
 
@@ -53,8 +164,6 @@ Relay also automatically discovers agent sessions running on your machine and le
 4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
 5. **Tailscale** (optional) makes the relay reachable from any device on your private tailnet
 6. **Cloudflare Tunnel** (optional) gives you a public HTTPS URL for access from any device
-
-## Architecture
 
 ### Provider Registry
 
@@ -195,101 +304,17 @@ Each driver implements: `isAvailable()`, `createSession()`, `getModels()`, `pars
   └──────────────┘
 ```
 
-### Package Structure
-
-The package exposes two entry points:
-
-```ts
-// Core only — embed process management in your own app
-import { InstanceManager } from "relay";
-
-// Full server — HTTP + WebSocket + auth + UI
-import { createRelay } from "relay/server";
-```
-
-The server entry point re-exports everything from core, so you never need to import from both.
-
 ## Projects and Directories
 
 Relay organizes work around explicitly registered git projects. A project is opt-in: once you add a repo, Relay discovers sessions for that repo, groups chats under that project in the sidebar, and aggregates project artifacts (plans, memory, docs) on the project page.
 
 Sessions still carry a working directory, and that directory remains the agent's "home base," not a sandbox. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar`. But visibility and discovery now key off registered projects, with Relay normalizing registrations to the repo root.
 
-## What It Does
-
-- **Multi-session management** — run multiple agent instances side-by-side, each with its own working directory and conversation history
-- **Multi-provider support** — managed sessions for Claude and Codex, with a provider picker in the UI
-- **External session discovery** — automatically detects agent sessions running in terminals and streams their output in real time
-- **Resume external sessions** — take over a terminal-started session from the web UI
-- **Per-session controls** — model picker, reasoning effort, and build/plan mode toggle, driven by provider capabilities
-- **Plan review normalization** — Codex `<proposed_plan>` blocks are surfaced through the same plan-review UI used by provider plan mode, both live and from transcript replay
-- **Provider handoff** — switch providers mid-project, optionally carrying recent context into the new session
-- **Interactive tool responses** — when the agent asks a question or requests approval, the composer becomes an answer form
-- **Slash commands** — `/model` and `/reasoning` from the composer command palette
-- **`@` file mentions** — workspace search with inline mention chips
-- **Lazy hydration** — sidebar renders instantly from cached metadata; full transcript replay happens when you open a session
-- **Git integration** — branch switching, push/pull/fetch from the UI, ahead/behind indicators, and space push with optional PR creation via `gh` CLI
-- **Project settings** — per-project custom instructions, default space branch, and default provider/model
-- **Git worktree support** — sessions in relay-managed worktrees can be merged back to main from the sidebar
-- **Mobile-friendly web UI** — markdown rendering, syntax highlighting, activity indicators, and framework-aware file icons
-- **Remote access** — built-in Cloudflare Tunnel support, or use Tailscale for private access
-- **Embeddable** — use as a standalone server or import the core library into your own app
-
-## What It Doesn't Do
+## Limits
 
 - **No model access** — this is not an API wrapper. It manages provider CLIs and SDKs on your machine. You need at least one provider installed.
-- **No multi-user auth** — single password protects the whole server.
-- **No multi-device sync** — persistence is local to the machine running the relay.
-
-## Quick Start
-
-```bash
-pnpm install
-pnpm build
-RELAY_PASSWORD="your-secret" pnpm start
-```
-
-Open `http://localhost:7777`. That's it.
-
-### Setting a Password
-
-The `RELAY_PASSWORD` environment variable is required:
-
-```bash
-# Inline
-RELAY_PASSWORD="your-secret" pnpm start
-
-# Export for current shell
-export RELAY_PASSWORD="your-secret"
-pnpm start
-
-# Or use a .env file (not committed to git)
-echo 'RELAY_PASSWORD=your-secret' > .env
-source .env && pnpm start
-```
-
-The password protects the web UI — you'll enter it once on the login page, then a session cookie keeps you authenticated for 7 days.
-
-### Remote Access
-
-**Option A: Tailscale (recommended for personal use)**
-
-If you run [Tailscale](https://tailscale.com) on your devices, the relay is already accessible — no tunnel needed:
-
-```bash
-RELAY_PASSWORD="your-secret" pnpm start
-# → http://your-machine:7777 from any tailnet device
-```
-
-**Option B: Cloudflare Tunnel (for public URLs)**
-
-```bash
-# Built-in tunnel (requires cloudflared)
-TUNNEL=true RELAY_PASSWORD="your-secret" pnpm start
-
-# Or manually
-cloudflared tunnel --url http://localhost:7777
-```
+- **No multi-user auth** — optional single-password auth protects the whole server when enabled.
+- **No multi-device sync** — persistence is local to the machine running the relay (though importing/exporting is supported, see below).
 
 ### Export / Import
 
@@ -321,100 +346,51 @@ Notes:
 - Relay rewrites transcript paths in imported DB rows to the new machine's local provider dirs
 - Project/worktree paths are best-effort; if your repos live in different places, you may need to re-register or clean up a few entries after import
 
-## Library Usage
-
-### Full Server
-
-```ts
-import { createRelay } from "relay/server";
-
-const relay = createRelay({
-  password: "my-secret",
-  port: 8080,
-  workingDirectory: "/path/to/project",
-});
-
-await relay.start();
-await relay.stop();
-```
-
-### Core Only
-
-```ts
-import { InstanceManager, resolveCoreConfig } from "relay";
-
-const config = resolveCoreConfig({
-  workingDirectory: "/my/project",
-  maxProcesses: 5,
-});
-
-const manager = new InstanceManager(config);
-const instance = manager.createInstance({ name: "My Session", provider: "claude" });
-
-manager.on("instance:output", (id, message) => {
-  console.log(message.text);
-});
-
-manager.sendMessage(instance.id, "Hello!");
-```
-
 ## Configuration
 
 ### Environment Variables
 
-| Variable          | Default                  | Description                          |
-| ----------------- | ------------------------ | ------------------------------------ |
-| `RELAY_PASSWORD`  | **(required)**           | Authentication password              |
-| `PORT`            | `7777`                   | Server port                          |
-| `WORKING_DIR`     | `$HOME`                  | Default working directory            |
-| `MAX_PROCESSES`   | `15`                     | Maximum concurrent managed processes |
-| `TUNNEL`          | `false`                  | Start a Cloudflare Tunnel            |
-| `PROCESS_TIMEOUT` | `300000`                 | Process timeout in ms (5 min)        |
-| `SESSION_MAX_AGE` | `604800000`              | Auth session lifetime in ms (7 days) |
-| `SESSION_FILE`    | `~/.relay/sessions.json` | Auth session persistence file        |
-| `DB_PATH`         | `~/.relay/sessions.db`   | Relay SQLite database path           |
-| `CLAUDE_DIR`      | `~/.claude`              | Claude data directory                |
-| `CODEX_DIR`       | `~/.codex`               | Codex data directory                 |
-
-### Programmatic Options
-
-| Option                       | Type      | Default         | Description                      |
-| ---------------------------- | --------- | --------------- | -------------------------------- |
-| `password`                   | `string`  | **(required)**  | Authentication password          |
-| `port`                       | `number`  | `7777`          | Server port                      |
-| `workingDirectory`           | `string`  | `process.cwd()` | Default working directory        |
-| `maxProcesses`               | `number`  | `15`            | Max concurrent managed processes |
-| `dangerouslySkipPermissions` | `boolean` | `true`          | Skip agent permission prompts    |
-| `processTimeout`             | `number`  | `300000`        | Process timeout in ms            |
-| `serveUI`                    | `boolean` | `true`          | Serve the built-in web UI        |
-| `sessionMaxAge`              | `number`  | `604800000`     | Auth session lifetime in ms      |
-| `rateLimitMax`               | `number`  | `5`             | Max login attempts per IP/window |
-| `rateLimitWindow`            | `number`  | `60000`         | Rate limit window in ms          |
-| `claudeDir`                  | `string`  | `~/.claude`     | Claude transcript directory      |
-| `codexDir`                   | `string`  | `~/.codex`      | Codex transcript directory       |
-| `logger`                     | `Logger`  | `console`       | Custom logger implementation     |
-
-## Security
-
-- **No default password** — the server refuses to start without `RELAY_PASSWORD`
-- **Rate limiting** — login attempts are throttled per IP (5/min default)
-- **Full access by default** — agents run with full permissions; use the UI toggle to restrict per-session
-- **HttpOnly cookies** — session tokens are not accessible to JavaScript
-- **SameSite=strict** — cookies are not sent on cross-origin requests
-- Designed to run behind Cloudflare Tunnel (HTTPS) for remote access
+| Variable          | Default                  | Description                                |
+| ----------------- | ------------------------ | ------------------------------------------ |
+| `RELAY_PASSWORD`  | unset                    | Authentication password; unset = open mode |
+| `PORT`            | `7777`                   | Server port                                |
+| `WORKING_DIR`     | `process.cwd()`          | Default working directory                  |
+| `MAX_PROCESSES`   | `15`                     | Maximum concurrent managed processes       |
+| `TUNNEL`          | `false`                  | Start a Cloudflare Tunnel                  |
+| `PROCESS_TIMEOUT` | `300000`                 | Process timeout in ms (5 min)              |
+| `SESSION_MAX_AGE` | `604800000`              | Auth session lifetime in ms (7 days)       |
+| `SESSION_FILE`    | `~/.relay/sessions.json` | Auth session persistence file              |
+| `DB_PATH`         | `~/.relay/sessions.db`   | Relay SQLite database path                 |
+| `CLAUDE_DIR`      | `~/.claude`              | Claude data directory                      |
+| `CODEX_DIR`       | `~/.codex`               | Codex data directory                       |
 
 ## Development
 
+### For Contributors
+
+Contributor workflow stays repo-local; you do not need a global install for development.
+
 ```bash
+pnpm install
 pnpm dev    # Watch mode — rebuilds server + UI on changes
-pnpm test   # Run tests (build first: pnpm build:server)
+pnpm build:server
+pnpm test   # Tests import from dist/, so build server first
 pnpm typecheck  # Run server + UI TypeScript checks
 pnpm build  # Build everything
 ```
 
+Useful repo-local CLI commands:
+
+```bash
+pnpm start -- --password "your-secret"
+pnpm start -- --port 8888
+pnpm relay:export -- ~/relay-export
+pnpm relay:import -- ~/relay-export
+```
+
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - At least one supported provider installed and authenticated:
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
   - [Codex](https://github.com/openai/codex) (`npm install -g @openai/codex`)
