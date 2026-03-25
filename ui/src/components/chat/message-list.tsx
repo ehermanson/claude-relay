@@ -256,6 +256,7 @@ interface MessageListProps {
   onApproveTool?: (tool: string) => void;
   approvedTools?: Set<string>;
   isExternal?: boolean;
+  pendingInteraction?: boolean;
   planChildId?: string;
   planChildName?: string;
 }
@@ -273,6 +274,7 @@ export function MessageList({
   onApproveTool,
   approvedTools,
   isExternal,
+  pendingInteraction,
   planChildId,
   planChildName,
 }: MessageListProps) {
@@ -340,7 +342,9 @@ export function MessageList({
   }, [items, forceStickToBottom, onContentChange]);
 
   // ── Thinking indicator ───────────────────────────────────────────
-  const showThinking = !!showThinkingIndicator || !!isProcessing || instanceStatus === "processing";
+  const showThinking =
+    !pendingInteraction &&
+    (!!showThinkingIndicator || !!isProcessing || instanceStatus === "processing");
 
   // ── Row renderer ─────────────────────────────────────────────────
   const renderRow = (row: RenderRow) => {
