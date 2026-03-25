@@ -411,11 +411,29 @@ export function commitAll(
   message: string,
 ): { success: true } | { success: false; error: string } {
   try {
-    execSync(`git add -A && git commit -m "${message.replace(/"/g, '\\"')}"`, {
-      cwd: worktreePath,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 30000,
-    });
+    const opts = { cwd: worktreePath, stdio: "pipe" as const, timeout: 30000 };
+    execFileSync("git", ["add", "-A"], opts);
+    try {
+      execFileSync("git", ["commit", "-m", message], opts);
+    } catch (error) {
+      if (!isMissingGitIdentityError(error)) {
+        throw error;
+      }
+
+      execFileSync(
+        "git",
+        [
+          "-c",
+          `user.name=${RELAY_GIT_FALLBACK_NAME}`,
+          "-c",
+          `user.email=${RELAY_GIT_FALLBACK_EMAIL}`,
+          "commit",
+          "-m",
+          message,
+        ],
+        opts,
+      );
+    }
     return { success: true };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown commit error";

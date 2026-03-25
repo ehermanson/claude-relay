@@ -693,7 +693,7 @@ export function InputArea({
 
           <div
             ref={composerContainerRef}
-            className="@container/toolbar relative rounded-2xl border border-border bg-surface"
+            className="@container/toolbar relative rounded-2xl border border-border/60 bg-surface"
           >
             {!isInSpecialMode ? (
               <ImageAttachmentStrip images={images} onRemove={removeImage} />

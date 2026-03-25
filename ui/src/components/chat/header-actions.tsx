@@ -4,10 +4,6 @@ import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { ContextRing } from "./input-area/shared";
 
-export function HeaderActionDivider() {
-  return <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />;
-}
-
 export function HeaderIconSkeleton({ className = "" }: { className?: string }) {
   return (
     <span

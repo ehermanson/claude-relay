@@ -19,6 +19,7 @@ import { Tooltip } from "../ui/tooltip";
 
 interface OpenInMenuProps {
   path?: string | null;
+  compact?: boolean;
   className?: string;
 }
 
@@ -83,7 +84,7 @@ function OpenTargetIcon({ target, className }: { target: NativeOpenTarget; class
   }
 }
 
-export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
+export function OpenInMenu({ path, compact = false, className = "" }: OpenInMenuProps) {
   const { theme } = useTheme();
   const openTargetPath = path ?? "";
   const { data: openTargetsData, isLoading: loading } = useQuery({
@@ -128,6 +129,7 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
   }
 
   const triggerLabel = selectedTarget ? `Open in ${selectedTarget.label}` : "Open in";
+  const triggerTooltip = selectedTarget ? `Open in ${selectedTarget.label}` : "Open in another app";
   const iconClassName = theme === "light" ? "text-black/70" : "text-white/80";
 
   const rememberSelection = (targetId: string) => {
@@ -160,7 +162,7 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
 
   return (
     <Menu.Root>
-      <Tooltip content="Open this project in another app">
+      <Tooltip content={compact ? triggerTooltip : "Open this project in another app"}>
         <div
           className={`flex h-7 items-center overflow-hidden rounded-md border border-border/50 bg-transparent text-xs text-muted ${className}`}
         >
@@ -170,14 +172,14 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
             onClick={() => {
               if (selectedTarget) void handleOpenTarget(selectedTarget.id);
             }}
-            className="flex h-full min-w-0 items-center gap-2 px-2.5 transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+            className={`flex h-full min-w-0 items-center gap-2 transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40 ${compact ? "px-1.5" : "px-2.5"}`}
           >
             {selectedTarget ? (
               <OpenTargetIcon target={selectedTarget} className={iconClassName} />
             ) : (
               <span aria-hidden="true" className="h-3.5 w-3.5 shrink-0 rounded-sm bg-border/50" />
             )}
-            <span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
+            {!compact && <span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>}
           </button>
           <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border/60" />
           <Menu.Trigger

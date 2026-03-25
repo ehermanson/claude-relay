@@ -9,8 +9,8 @@ interface EmptyStateProps {
 
 export function EmptyState({ icon, title, description, children }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-surface-hover text-muted">
+    <div className="flex flex-col items-center justify-center py-24 text-center animate-fade-in">
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-accent-dim text-accent">
         {icon}
       </div>
       <p className="mb-1 text-sm font-medium text-text">{title}</p>

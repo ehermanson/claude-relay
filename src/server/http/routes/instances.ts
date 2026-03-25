@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { commitAll, gitPush, isWorktreeDirty } from "../../../core/git.js";
 import type { ProviderKind, ProviderModelOptions } from "../../../core/types.js";
 import { readJsonBody } from "../hono-utils.js";
 import type { AppEnv, HttpDeps } from "../types.js";
@@ -80,5 +81,44 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
       return c.json({ error: "Instance not found or not a git repo" }, 404);
     }
     return c.json({ diff });
+  });
+
+  app.post("/api/instances/:id/git/commit", async (c) => {
+    const instance = instanceManager.getInstance(c.req.param("id"));
+    if (!instance) {
+      return c.json({ error: "Instance not found" }, 404);
+    }
+    try {
+      const body = await readJsonBody<{ message?: string }>(c);
+      const dir = instance.workingDirectory;
+      if (!isWorktreeDirty(dir)) {
+        return c.json({ success: false, error: "Nothing to commit — working tree is clean" }, 400);
+      }
+      const result = commitAll(dir, body.message || "Commit via Relay");
+      return c.json(result, result.success ? 200 : 400);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Failed to commit" }, 400);
+    }
+  });
+
+  app.post("/api/instances/:id/git/push", async (c) => {
+    const instance = instanceManager.getInstance(c.req.param("id"));
+    if (!instance) {
+      return c.json({ error: "Instance not found" }, 404);
+    }
+    try {
+      const body = await readJsonBody<{
+        branch?: string;
+        setUpstream?: boolean;
+      }>(c);
+      const result = await gitPush(
+        instance.workingDirectory,
+        body.branch || instance.gitInfo?.branch || instance.gitBranch,
+        body.setUpstream,
+      );
+      return c.json(result, result.success ? 200 : 400);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Failed to push" }, 400);
+    }
   });
 }

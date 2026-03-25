@@ -296,6 +296,30 @@ export async function fetchInstanceDiff(instanceId: string, filePath?: string): 
   return data.diff;
 }
 
+export async function gitPushInstance(
+  instanceId: string,
+  opts?: { branch?: string; setUpstream?: boolean },
+): Promise<GitOpResult> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/git/push`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
+  });
+  return res.json();
+}
+
+export async function gitCommitInstance(
+  instanceId: string,
+  opts?: { message?: string },
+): Promise<GitOpResult> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/git/commit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
+  });
+  return res.json();
+}
+
 // =========================================================================
 // Project CRUD
 // =========================================================================

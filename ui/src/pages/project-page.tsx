@@ -4,6 +4,7 @@ import { Tabs } from "../components/ui/tabs";
 import { Tooltip } from "../components/ui/tooltip";
 import { FolderOpen, HelpCircle } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
+import { PageShell } from "@/components/ui/page-shell";
 import { formatTokens, formatModel, getDisplayTokenBreakdown } from "../lib/utils";
 import { ProviderLogo } from "../components/chat/input-area/shared";
 import type { ModelUsageStats, ProviderKind } from "@shared/types";
@@ -44,14 +45,14 @@ function StatCard({
 // ─── Model Bar ──────────────────────────────────────────────────────────────
 
 const MODEL_COLORS = [
-  "bg-accent",
-  "bg-claude",
-  "bg-[#60a5fa]",
-  "bg-warning",
-  "bg-error",
-  "bg-[#f472b6]",
-  "bg-[#a3e635]",
-  "bg-[#38bdf8]",
+  "bg-chart-1",
+  "bg-chart-2",
+  "bg-chart-3",
+  "bg-chart-4",
+  "bg-chart-5",
+  "bg-chart-6",
+  "bg-chart-7",
+  "bg-chart-8",
 ];
 
 function ModelUsageBreakdown({ models }: { models: ModelUsageStats[] }) {
@@ -210,17 +211,19 @@ export function ProjectPage() {
 
   if (!hasContent) {
     return (
-      <EmptyState
-        icon={<FolderOpen size={24} strokeWidth={1.5} />}
-        title="No project data yet"
-        description="Usage stats and documentation will appear here as you chat"
-      />
+      <PageShell maxWidth="wide">
+        <EmptyState
+          icon={<FolderOpen size={24} strokeWidth={1.5} />}
+          title="No project data yet"
+          description="Usage stats and documentation will appear here as you chat"
+        />
+      </PageShell>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
+    <PageShell maxWidth="wide">
+      <div className="space-y-6">
         {/* Stats row */}
         {modelUsage.length > 0 && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -253,6 +256,6 @@ export function ProjectPage() {
         {/* Documentation */}
         <DocSection tabs={docTabs} />
       </div>
-    </div>
+    </PageShell>
   );
 }

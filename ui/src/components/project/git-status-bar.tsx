@@ -223,18 +223,15 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
   }, [projectId, invalidate, current]);
 
   return (
-    <div className="flex items-center gap-1 border-b border-border/70 px-5 py-1">
-      {/* Branch selector */}
+    <div className="hidden items-center gap-1 sm:flex">
       <BranchSelector projectId={projectId} current={current} onBranchChanged={invalidate} />
 
-      {/* Dirty indicator */}
       {dirty && (
         <Tooltip content="Uncommitted changes">
           <span className="h-2 w-2 rounded-full bg-amber-400" />
         </Tooltip>
       )}
 
-      {/* Ahead/behind */}
       {(ahead > 0 || behind > 0) && (
         <div className="flex items-center gap-1.5 px-1 text-[0.6875rem] tabular-nums text-muted">
           {ahead > 0 && (
@@ -256,10 +253,6 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
         </div>
       )}
 
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Git actions */}
       <GitAction icon={RefreshCw} tooltip="Fetch" loading={fetchLoading} onClick={handleFetch} />
       <GitAction
         icon={ArrowDownToLine}

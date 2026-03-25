@@ -6,7 +6,9 @@ import { fetchProject, updateProject, fetchProviders, fetchProviderModels } from
 import { useProjectContext } from "../context/project-context";
 import { Input, Textarea, Select } from "../components/ui/input";
 import { Button } from "../components/ui/button";
+import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import type { Project, ProviderKind } from "@shared/types";
+import { PageShell } from "@/components/ui/page-shell";
 
 // ─── Settings Page (data loader) ────────────────────────────────────────────
 
@@ -88,8 +90,8 @@ function SettingsForm({ project }: { project: Project }) {
   }, [saveMutation]);
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-2xl space-y-8 px-6 py-6">
+    <PageShell maxWidth="narrow">
+      <div className="space-y-8">
         {/* Custom Instructions */}
         <section className="space-y-3">
           <div>
@@ -141,38 +143,15 @@ function SettingsForm({ project }: { project: Project }) {
           />
           <fieldset className="mt-2">
             <legend className="text-[0.6875rem] font-medium text-muted">Branch from</legend>
-            <div className="mt-1.5 flex items-center gap-4">
-              <label
-                htmlFor="branch-source-local"
-                className="flex items-center gap-1.5 text-xs text-text"
-              >
-                <input
-                  type="radio"
-                  id="branch-source-local"
-                  name="space-branch-source"
-                  value="local"
-                  checked={spaceBranchSource === "local"}
-                  onChange={() => setSpaceBranchSource("local")}
-                  className="accent-accent"
-                />
-                Local branch
-              </label>
-              <label
-                htmlFor="branch-source-remote"
-                className="flex items-center gap-1.5 text-xs text-text"
-              >
-                <input
-                  type="radio"
-                  id="branch-source-remote"
-                  name="space-branch-source"
-                  value="remote"
-                  checked={spaceBranchSource === "remote"}
-                  onChange={() => setSpaceBranchSource("remote")}
-                  className="accent-accent"
-                />
-                Remote tracking branch
-              </label>
-            </div>
+            <RadioGroup
+              value={spaceBranchSource}
+              onValueChange={(value) => setSpaceBranchSource(value as "local" | "remote")}
+              className="mt-1.5 flex items-center gap-4"
+              name="space-branch-source"
+            >
+              <RadioGroupField value="local" label="Local branch" />
+              <RadioGroupField value="remote" label="Remote tracking branch" />
+            </RadioGroup>
           </fieldset>
         </section>
 
@@ -244,6 +223,6 @@ function SettingsForm({ project }: { project: Project }) {
           </Button>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

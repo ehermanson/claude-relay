@@ -18,10 +18,10 @@ function toneClasses(tone: ConnectionBannerTone): {
 } {
   if (tone === "warning") {
     return {
-      border: "border-amber-500/25",
-      bg: "bg-amber-500/8",
-      chip: "bg-amber-500/14",
-      icon: "text-amber-300",
+      border: "border-warning/25",
+      bg: "bg-warning/8",
+      chip: "bg-warning/14",
+      icon: "text-warning",
     };
   }
 

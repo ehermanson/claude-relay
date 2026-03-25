@@ -1,7 +1,7 @@
 import type { ReactNode, HTMLAttributes } from "react";
 
 type BadgeVariant = "default" | "accent" | "warning" | "error" | "claude" | "success";
-type BadgeSize = "default" | "sm";
+type BadgeSize = "default" | "sm" | "xs";
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;
@@ -25,6 +25,7 @@ const variants: Record<BadgeVariant, string> = {
 const sizes: Record<BadgeSize, string> = {
   default: "px-2.5 py-1 text-xs gap-1.5",
   sm: "px-1.5 py-0.5 text-[0.625rem] gap-1",
+  xs: "px-1 py-px text-[0.5625rem] gap-0.5",
 };
 
 export function Badge({

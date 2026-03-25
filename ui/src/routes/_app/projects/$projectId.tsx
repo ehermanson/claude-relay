@@ -17,7 +17,6 @@ import { useWSState } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { ApiError, fetchProjectArtifacts } from "@/lib/api";
 import { getProjectName, instanceMatchesProject } from "@/lib/project-route";
-import { formatTokens, getDisplayTokenBreakdown } from "@/lib/utils";
 
 const MotionLogo = motion.create(RelayLogo);
 
@@ -110,6 +109,17 @@ function ProjectLayout() {
   const isChatsTab = pathname.includes("/chats");
   const isSettingsTab = pathname.includes("/settings");
   const isOverviewTab = !isPlansTab && !isTasksTab && !isSkillsTab && !isChatsTab && !isSettingsTab;
+  const activeTab = isPlansTab
+    ? "plans"
+    : isTasksTab
+      ? "tasks"
+      : isSkillsTab
+        ? "skills"
+        : isChatsTab
+          ? "chats"
+          : isSettingsTab
+            ? "settings"
+            : "overview";
 
   const planCount = artifacts.plans.length;
   const taskCount = artifacts.tasks?.length ?? 0;
@@ -127,58 +137,20 @@ function ProjectLayout() {
 
   const chatBadge = sessionStats.activeCount > 0 ? `${sessionStats.activeCount} active` : undefined;
 
-  const modelUsage = artifacts.stats.modelUsage ?? [];
-  const normalizedUsage = modelUsage.map(getDisplayTokenBreakdown);
-  const normalizedInputTokens = normalizedUsage.reduce((sum, row) => sum + row.inputTokens, 0);
-  const normalizedOutputTokens = normalizedUsage.reduce((sum, row) => sum + row.outputTokens, 0);
-  const normalizedCacheTokens = normalizedUsage.reduce((sum, row) => sum + row.cacheTokens, 0);
-  const normalizedTotalTokens =
-    modelUsage.length > 0
-      ? normalizedUsage.reduce((sum, row) => sum + row.totalTokens, 0)
-      : artifacts.stats.inputTokens +
-        artifacts.stats.outputTokens +
-        artifacts.stats.cacheCreationTokens +
-        artifacts.stats.cacheReadTokens;
-
   return (
     <ProjectContext.Provider value={ctxValue}>
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
         <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-5 py-2.5">
           {isMobile && <BackButton to="/" />}
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
+          <Tooltip content={artifacts.directory} side="bottom">
+            <h1 className="min-w-0 truncate text-sm font-semibold tracking-tight text-text-bright">
               {dirName}
             </h1>
-            {/* Metadata line: path · cost */}
-            <div className="flex items-center gap-1 text-[0.6875rem] text-muted">
-              <Tooltip content={artifacts.directory} side="bottom">
-                <span className="hidden truncate sm:inline">{artifacts.directory}</span>
-              </Tooltip>
-              {normalizedTotalTokens > 0 && (
-                <>
-                  <span className="hidden text-border sm:inline">·</span>
-                  <Tooltip
-                    content={
-                      <div className="flex flex-col gap-0.5">
-                        <div>Input: {formatTokens(normalizedInputTokens)}</div>
-                        <div>Output: {formatTokens(normalizedOutputTokens)}</div>
-                        {normalizedCacheTokens > 0 && (
-                          <div>Cache: {formatTokens(normalizedCacheTokens)}</div>
-                        )}
-                      </div>
-                    }
-                  >
-                    <span className="shrink-0">
-                      {formatTokens(normalizedTotalTokens)} tokens across{" "}
-                      {artifacts.stats.sessionCount} session
-                      {artifacts.stats.sessionCount !== 1 ? "s" : ""}
-                    </span>
-                  </Tooltip>
-                </>
-              )}
-            </div>
-          </div>
+          </Tooltip>
+          <div className="flex-1" />
+          <GitStatusBar projectId={projectId} />
+          <span className="hidden h-4 w-px bg-border/50 sm:block" />
           <div className="flex items-center gap-1">
             <OpenInMenu path={artifacts.directory} className="hidden sm:flex" />
             {artifacts.githubUrl && (
@@ -197,9 +169,6 @@ function ProjectLayout() {
             )}
           </div>
         </div>
-
-        {/* Git status bar */}
-        <GitStatusBar projectId={projectId} />
 
         {/* Sub-nav */}
         <nav className="flex shrink-0 items-center gap-1 border-b border-border/70 px-6">
@@ -251,9 +220,15 @@ function ProjectLayout() {
         </nav>
 
         {/* Content */}
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.15, ease: "easeOut" }}
+          className="flex flex-1 flex-col overflow-hidden"
+        >
           <Outlet />
-        </div>
+        </motion.div>
       </div>
     </ProjectContext.Provider>
   );

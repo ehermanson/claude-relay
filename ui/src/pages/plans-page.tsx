@@ -13,6 +13,7 @@ import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Collapsible } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Menu } from "@/components/ui/menu";
+import { PageShell } from "@/components/ui/page-shell";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useProjectContext } from "@/context/project-context";
 import {
@@ -155,11 +156,13 @@ export function PlansPage() {
 
   if (artifacts.plans.length === 0) {
     return (
-      <EmptyState
-        icon={<NotebookPen size={24} strokeWidth={1.5} />}
-        title="No plans yet"
-        description="Implementation plans generated during chats will appear here"
-      />
+      <PageShell maxWidth="wide">
+        <EmptyState
+          icon={<NotebookPen size={24} strokeWidth={1.5} />}
+          title="No plans yet"
+          description="Implementation plans generated during chats will appear here"
+        />
+      </PageShell>
     );
   }
 
@@ -181,56 +184,59 @@ export function PlansPage() {
 
   const sortLabel = SORT_OPTIONS.find((o) => o.key === currentSort)?.label ?? "Newest first";
 
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto px-6 py-6">
-        {/* Toolbar */}
-        <div className="mb-3 flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
-            <Input
-              type="text"
-              value={searchInput}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Search plans..."
-              className="h-8 !rounded-md !bg-surface !py-1.5 pl-8 pr-3"
-            />
-          </div>
-          <Menu.Root>
-            <Menu.Trigger className="flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
-              <ArrowDownNarrowWide size={12} />
-              {sortLabel}
-            </Menu.Trigger>
-            <Menu.Content>
-              {SORT_OPTIONS.map((option) => (
-                <Menu.Item key={option.key} onClick={() => setSort(option.key)}>
-                  <span className="flex-1">{option.label}</span>
-                  {currentSort === option.key && <Check size={14} className="shrink-0" />}
-                </Menu.Item>
-              ))}
-            </Menu.Content>
-          </Menu.Root>
-        </div>
+  const toolbar = (
+    <div className="flex items-center gap-2">
+      <div className="relative flex-1">
+        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+        <Input
+          type="text"
+          value={searchInput}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          placeholder="Search plans..."
+          className="h-8 !rounded-md !bg-surface !py-1.5 pl-8 pr-3"
+        />
+      </div>
+      <Menu.Root>
+        <Menu.Trigger className="flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
+          <ArrowDownNarrowWide size={12} />
+          {sortLabel}
+        </Menu.Trigger>
+        <Menu.Content>
+          {SORT_OPTIONS.map((option) => (
+            <Menu.Item key={option.key} onClick={() => setSort(option.key)}>
+              <span className="flex-1">{option.label}</span>
+              {currentSort === option.key && <Check size={14} className="shrink-0" />}
+            </Menu.Item>
+          ))}
+        </Menu.Content>
+      </Menu.Root>
+    </div>
+  );
 
-        {/* Plans list */}
-        {filteredAndSorted.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <p className="text-sm text-muted">No plans match "{searchQuery}"</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {filteredAndSorted.map((plan) => (
+  return (
+    <PageShell maxWidth="wide" toolbar={toolbar}>
+      {filteredAndSorted.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <p className="text-sm text-muted">No plans match "{searchQuery}"</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {filteredAndSorted.map((plan, index) => (
+            <div
+              key={plan.slug}
+              className="opacity-0 animate-stagger-fade-in"
+              style={{ animationDelay: `${Math.min(index, 8) * 30}ms` }}
+            >
               <PlanCard
-                key={plan.slug}
                 plan={plan}
                 projectId={projectId}
                 isOpen={selectedPlan === plan.slug}
                 onToggle={() => togglePlan(plan.slug)}
               />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </PageShell>
   );
 }

@@ -9,6 +9,7 @@ import {
   Circle,
   CircleCheck,
   CircleDashed,
+  ListChecks,
   Plus,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -21,6 +22,8 @@ import { Drawer } from "@/components/ui/drawer";
 import { Input, Textarea, Select } from "@/components/ui/input";
 import { Menu } from "@/components/ui/menu";
 import { Tooltip } from "@/components/ui/tooltip";
+import { EmptyState } from "@/components/empty-state";
+import { PageShell } from "@/components/ui/page-shell";
 import { useProjectContext } from "@/context/project-context";
 import { useWSMethods } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -170,7 +173,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
           onClick();
         }
       }}
-      className="w-full cursor-pointer rounded-lg border border-border/70 bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-border-hover hover:bg-surface-hover hover:shadow-sm"
+      className="w-full cursor-pointer rounded-lg border border-border/70 bg-surface px-3 py-2 text-left transition-all duration-150 hover:-translate-y-px hover:border-border-hover hover:bg-surface-hover hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
     >
       <div className="mb-1">
         <span className="text-[0.8125rem] font-medium leading-snug text-text-bright">
@@ -178,7 +181,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="shrink-0 font-mono text-[0.5625rem] text-muted/70">{task.id}</span>
+        <span className="shrink-0 font-mono text-[0.625rem] text-muted/70">{task.id}</span>
         <Badge variant={priorityVariants[task.priority] ?? "default"} size="sm">
           {priorityLabels[task.priority] ?? `P${task.priority}`}
         </Badge>
@@ -190,13 +193,13 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
         ))}
         {blockerCount > 0 && (
           <Tooltip content={`Blocked by ${blockerCount} task${blockerCount !== 1 ? "s" : ""}`}>
-            <span className="inline-flex items-center gap-0.5 text-[0.5625rem] text-muted">
+            <span className="inline-flex items-center gap-0.5 text-[0.625rem] text-muted">
               <Ban size={9} />
               {blockerCount}
             </span>
           </Tooltip>
         )}
-        <span className="ml-auto shrink-0 text-[0.5625rem] text-muted/70">{timeAgo}</span>
+        <span className="ml-auto shrink-0 text-[0.625rem] text-muted/70">{timeAgo}</span>
       </div>
     </div>
   );
@@ -833,45 +836,52 @@ export function TasksPage() {
 
   if (!tasks) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-        <p className="mb-1 text-sm text-muted">No tasks initialized</p>
-        <Button
-          size="sm"
-          onClick={async () => {
-            try {
-              const result = await initTasksApi(projectId);
-              setSnippet(result.snippet);
-              await queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
-              toast.success("Initialized tasks");
-            } catch (e) {
-              console.error("Failed to init tasks:", e);
-              toast.error(e instanceof Error ? e.message : "Failed to initialize tasks");
-            }
-          }}
+      <PageShell>
+        <EmptyState
+          icon={<ListChecks size={24} strokeWidth={1.5} />}
+          title="No tasks initialized"
+          description="Initialize task tracking for this project"
         >
-          Initialize Tasks
-        </Button>
-        {snippet && (
-          <div className="mt-4 w-full max-w-lg text-left">
-            <p className="mb-2 text-xs text-muted">
-              Add this to your CLAUDE.md or AGENTS.md so models know about tasks:
-            </p>
-            <div className="relative rounded-md border border-border bg-surface p-3">
-              <pre className="overflow-x-auto text-xs text-text">{snippet}</pre>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="absolute top-2 right-2 !text-[0.625rem]"
-                onClick={() => {
-                  void handleCopySnippet();
-                }}
-              >
-                Copy
-              </Button>
-            </div>
+          <div className="mt-5 flex flex-col items-center gap-4">
+            <Button
+              size="sm"
+              onClick={async () => {
+                try {
+                  const result = await initTasksApi(projectId);
+                  setSnippet(result.snippet);
+                  await queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
+                  toast.success("Initialized tasks");
+                } catch (e) {
+                  console.error("Failed to init tasks:", e);
+                  toast.error(e instanceof Error ? e.message : "Failed to initialize tasks");
+                }
+              }}
+            >
+              Initialize Tasks
+            </Button>
+            {snippet && (
+              <div className="mt-4 w-full max-w-lg text-left">
+                <p className="mb-2 text-xs text-muted">
+                  Add this to your CLAUDE.md or AGENTS.md so models know about tasks:
+                </p>
+                <div className="relative rounded-md border border-border bg-surface p-3">
+                  <pre className="overflow-x-auto text-xs text-text">{snippet}</pre>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute top-2 right-2 !text-[0.625rem]"
+                    onClick={() => {
+                      void handleCopySnippet();
+                    }}
+                  >
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </EmptyState>
+      </PageShell>
     );
   }
 
@@ -879,12 +889,17 @@ export function TasksPage() {
 
   if (tasks.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-4 py-10">
-        <p className="text-sm text-muted">No tasks yet</p>
-        <div className="w-full max-w-md px-4">
-          <CreateTaskForm projectId={projectId} allTasks={[]} onCreated={refreshTasks} />
-        </div>
-      </div>
+      <PageShell>
+        <EmptyState
+          icon={<ListChecks size={24} strokeWidth={1.5} />}
+          title="No tasks yet"
+          description="Create your first task to start tracking work"
+        >
+          <div className="mt-5">
+            <CreateTaskForm projectId={projectId} allTasks={[]} onCreated={refreshTasks} />
+          </div>
+        </EmptyState>
+      </PageShell>
     );
   }
 
@@ -935,7 +950,7 @@ export function TasksPage() {
 
   const sortMenu = (
     <Menu.Root>
-      <Menu.Trigger className="flex items-center gap-1 rounded-md px-2 py-1 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
+      <Menu.Trigger className="flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-[0.75rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text">
         <ArrowDownNarrowWide size={12} />
         {sortLabel}
       </Menu.Trigger>

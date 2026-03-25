@@ -31,6 +31,15 @@
   --color-success: #10b981;
   --color-warning: #f59e0b;
   --color-warning-glow: rgba(245, 158, 11, 0.25);
+  --color-warning-dim: rgba(245, 158, 11, 0.1);
+  --color-chart-1: #10b981;
+  --color-chart-2: #a78bfa;
+  --color-chart-3: #60a5fa;
+  --color-chart-4: #f59e0b;
+  --color-chart-5: #f87171;
+  --color-chart-6: #f472b6;
+  --color-chart-7: #a3e635;
+  --color-chart-8: #38bdf8;
   --color-tool-use-bg: rgba(96, 165, 250, 0.08);
   --color-tool-use-text: #60a5fa;
   --color-panel-header: rgba(0, 0, 0, 0.25);
@@ -61,6 +70,7 @@
   --animate-ring-pulse: ring-pulse 2s ease-in-out infinite;
   --animate-slide-in-right: slide-in-right 0.2s ease-out forwards;
   --animate-slide-in-left: slide-in-left 0.15s ease-out forwards;
+  --animate-stagger-fade-in: stagger-fade-in 0.25s ease-out forwards;
 
   @keyframes pulse-dot {
     0%,
@@ -140,6 +150,17 @@
       transform: translateX(0);
     }
   }
+
+  @keyframes stagger-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
 /* ── Light Theme ───────────────────────────────────────────────────── */
@@ -176,6 +197,7 @@ html.light {
   --color-success: #059669;
   --color-warning: #d97706;
   --color-warning-glow: rgba(217, 119, 6, 0.2);
+  --color-warning-dim: rgba(217, 119, 6, 0.06);
   --color-tool-use-bg: rgba(37, 99, 235, 0.06);
   --color-tool-use-text: #2563eb;
   --color-panel-header: rgba(0, 0, 0, 0.03);
@@ -286,6 +308,7 @@ select,
 summary {
   cursor: pointer;
 }
+
 
 /* ── Base ──────────────────────────────────────────────────────────── */
 html,

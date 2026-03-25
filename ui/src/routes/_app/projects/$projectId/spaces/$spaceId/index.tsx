@@ -1,6 +1,6 @@
 import { lazy, useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate, useParams, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -13,10 +13,6 @@ import {
   FileText,
   FolderOpen,
   GitBranch,
-  GitMerge,
-  GitPullRequest,
-  Info,
-  Upload,
   MoreVertical,
   Pencil,
   Plus,
@@ -28,7 +24,15 @@ import { useProjectContext } from "@/context/project-context";
 import { InstanceView } from "@/components/chat/instance-view";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { Tooltip } from "@/components/ui/tooltip";
+import {
+  ViewHeader,
+  ViewHeaderBreadcrumb,
+  ViewHeaderTitle,
+  BranchBadge,
+  TokenBadge,
+} from "@/components/ui/view-header";
 import { Menu } from "@/components/ui/menu";
+import { GitMenu } from "@/components/ui/git-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
@@ -41,12 +45,8 @@ import {
   pushSpace,
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
-import { instanceStatusVariant } from "@/lib/utils";
-import {
-  HeaderActionDivider,
-  HeaderContextToggle,
-  HeaderIconSkeleton,
-} from "@/components/chat/header-actions";
+import { formatTokens, instanceStatusVariant } from "@/lib/utils";
+import { HeaderContextToggle, HeaderIconSkeleton } from "@/components/chat/header-actions";
 import { FilesPanel } from "@/components/chat/files-panel";
 import { ContextPanel } from "@/components/chat/context-panel";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -471,58 +471,34 @@ export function SpaceView() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Space header ── replaces project header entirely */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2.5">
-        {/* Back + name */}
-        <Link
+      <ViewHeader>
+        <ViewHeaderBreadcrumb
           to="/projects/$projectId"
           params={{ projectId }}
-          className="text-[0.8125rem] font-medium text-muted transition-colors hover:text-text"
-        >
-          {projectName}
-        </Link>
-        <ChevronLeft size={12} strokeWidth={2.5} className="shrink-0 rotate-180 text-muted/40" />
+          label={projectName}
+        />
         <GitBranch size={14} className="shrink-0 text-accent" />
-        <div className="min-w-0 flex-1">
-          <span className="text-sm font-semibold text-text-bright">{space.name}</span>
-          {space.gitBranch && (
-            <span className="ml-2 rounded-full bg-surface-hover px-2 py-0.5 text-[0.6875rem] font-medium text-muted">
-              {space.gitBranch}
-            </span>
-          )}
-        </div>
-
-        {/* Right actions */}
-        <div className="flex items-center gap-1.5">
-          <OpenInMenu path={space.worktreePath || artifacts.directory} className="hidden sm:flex" />
-          <Tooltip
-            content={spaceInstances.length === 0 ? "Start a chat first" : "Complete & merge"}
-          >
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setMergeDialog({ phase: "confirm" })}
-              disabled={spaceInstances.length === 0}
-              className="h-7"
-            >
-              <GitMerge size={13} />
-              Complete
-            </Button>
-          </Tooltip>
-
+        <ViewHeaderTitle>
+          <span className="truncate text-sm font-semibold text-text-bright">{space.name}</span>
+          {space.gitBranch && <BranchBadge branch={space.gitBranch} />}
+          <TokenBadge
+            tokens={spaceInstances.reduce(
+              (sum, inst) => sum + (inst.stats?.inputTokens ?? 0) + (inst.stats?.outputTokens ?? 0),
+              0,
+            )}
+            tooltip={`${formatTokens(
+              spaceInstances.reduce(
+                (sum, inst) =>
+                  sum + (inst.stats?.inputTokens ?? 0) + (inst.stats?.outputTokens ?? 0),
+                0,
+              ),
+            )} tokens across ${spaceInstances.length} chat${spaceInstances.length !== 1 ? "s" : ""}`}
+          />
           <Menu.Root>
             <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
               <EllipsisVertical size={14} />
             </Menu.Trigger>
             <Menu.Content>
-              <Menu.Item onClick={() => void handlePush(false)}>
-                <Upload size={13} className="text-muted" />
-                Push branch
-              </Menu.Item>
-              <Menu.Item onClick={() => void handlePush(true)}>
-                <GitPullRequest size={13} className="text-muted" />
-                Push & create PR
-              </Menu.Item>
-              <Menu.Separator />
               <Menu.Item onClick={() => setShowDebug(true)}>
                 <Bug size={13} strokeWidth={2} className="text-muted" />
                 Debug
@@ -534,10 +510,25 @@ export function SpaceView() {
               </Menu.Item>
             </Menu.Content>
           </Menu.Root>
+        </ViewHeaderTitle>
+
+        {/* Right actions */}
+        <div className="flex items-center gap-1.5">
+          <OpenInMenu
+            path={space.worktreePath || artifacts.directory}
+            compact
+            className="hidden sm:flex"
+          />
+          <GitMenu
+            onMerge={() => setMergeDialog({ phase: "confirm" })}
+            mergeDisabled={spaceInstances.length === 0}
+            onPush={() => void handlePush(false)}
+            onPushAndCreatePR={() => void handlePush(true)}
+            worktreePath={space.worktreePath || undefined}
+          />
 
           {(spaceInstances.length > 0 || chatSummariesLoading) && (
             <>
-              <HeaderActionDivider />
               {chatSummariesLoading && spaceInstances.length === 0 ? (
                 <>
                   <HeaderIconSkeleton />
@@ -571,37 +562,7 @@ export function SpaceView() {
             </>
           )}
         </div>
-      </div>
-
-      {/* ── Worktree info bar ── */}
-      {!space.isDefault && space.worktreePath && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-hover/40 px-4 py-1.5 text-xs text-muted">
-          <FolderOpen size={13} className="shrink-0 text-muted/70" />
-          <Tooltip content={pathCopied ? "Copied!" : "Click to copy path"}>
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard.writeText(space.worktreePath!).then(() => {
-                  setPathCopied(true);
-                  setTimeout(() => setPathCopied(false), 1500);
-                  toast.success("Copied to clipboard");
-                });
-              }}
-              className="min-w-0 truncate font-mono text-[0.6875rem] text-muted transition-colors hover:text-text"
-            >
-              {space.worktreePath}
-            </button>
-          </Tooltip>
-          <Tooltip content="This space uses a separate working copy (git worktree). Changes here won't appear in your main project directory. Open a terminal at this path to run your dev server against this copy.">
-            <button
-              type="button"
-              className="inline-flex shrink-0 items-center rounded px-1 py-0.5 text-muted/70 transition-colors hover:text-text"
-            >
-              <Info size={12} />
-            </button>
-          </Tooltip>
-        </div>
-      )}
+      </ViewHeader>
 
       {/* ── Main content: tabs + chat | sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">

@@ -3,25 +3,32 @@
  * and action buttons (open-in, debug, sidecar toggles).
  */
 
-import { Link } from "@tanstack/react-router";
 import {
   Bug,
-  ChevronLeft,
   Columns2,
   EllipsisVertical,
   FileText,
-  GitBranch,
   LayoutGrid,
   ListChecks,
   ScrollText,
   Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { Menu } from "../ui/menu";
+import { GitMenu } from "../ui/git-menu";
+import {
+  ViewHeader,
+  ViewHeaderBreadcrumb,
+  ViewHeaderTitle,
+  BranchBadge,
+  TokenBadge,
+} from "../ui/view-header";
 import { OpenInMenu } from "../project/open-in-menu";
-import { HeaderActionDivider, HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
+import { HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
+import { gitCommitInstance, gitPushInstance } from "../../lib/api";
 import { formatTokens } from "../../lib/utils";
 import type { InstanceInfo, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
@@ -60,13 +67,10 @@ function SidecarToggles({
 
   return (
     <>
-      <HeaderActionDivider />
       {/* Desktop: per-panel toggle buttons */}
       {!isMobile &&
         (loading ? (
           <>
-            <HeaderIconSkeleton />
-            <HeaderIconSkeleton />
             <HeaderIconSkeleton />
             <HeaderIconSkeleton />
           </>
@@ -195,96 +199,80 @@ export function InstanceHeader({
     statusLabel = "Idle";
   }
 
+  const projectId = getInstanceProjectRouteId(instance);
+  const totalTokens = instance.stats ? instance.stats.inputTokens + instance.stats.outputTokens : 0;
+  const displayBranchName = displayBranch || undefined;
+
+  const handleCommit = async () => {
+    const result = await gitCommitInstance(instance.id);
+    if (result.success) {
+      toast.success("Changes committed");
+    } else {
+      toast.error(result.error || "Commit failed");
+    }
+  };
+
+  const handlePush = async () => {
+    const result = await gitPushInstance(instance.id, {
+      branch: displayBranchName,
+      setUpstream: true,
+    });
+    if (!result.success) {
+      toast.error(result.error || "Push failed");
+      return;
+    }
+    toast.success("Pushed successfully");
+  };
+
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-5 py-2.5">
-      <Tooltip content="Back">
-        <Link
-          to="/projects/$projectId/chats"
-          params={{
-            projectId: getInstanceProjectRouteId(instance),
-          }}
-          className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
-        >
-          <ChevronLeft size={16} strokeWidth={2} />
-        </Link>
+    <ViewHeader>
+      <ViewHeaderBreadcrumb
+        to="/projects/$projectId/chats"
+        params={{ projectId }}
+        label={getProjectName(instance.workingDirectory)}
+      />
+      <Tooltip content={statusLabel}>
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
       </Tooltip>
-      {/* Title area with inline status dot */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <Tooltip content={statusLabel}>
-            <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
-          </Tooltip>
-          <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
-            {instance.name}
-          </h1>
-        </div>
-        {/* Metadata line: project . branch . tokens */}
-        <div className="hidden items-center gap-1 pl-4 text-[0.6875rem] text-muted sm:flex">
-          <Tooltip content={instance.workingDirectory} side="bottom">
-            <Link
-              to="/projects/$projectId/chats"
-              params={{
-                projectId: getInstanceProjectRouteId(instance),
-              }}
-              className="truncate transition-colors hover:text-accent"
-            >
-              {getProjectName(instance.workingDirectory)}
-            </Link>
-          </Tooltip>
-          {displayBranch && (
-            <>
-              <span className="text-border">&middot;</span>
-              <Tooltip
-                content={
-                  displayBranchIsWorktree
-                    ? `Working in worktree on branch ${displayBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
-                    : `On branch ${displayBranch}`
-                }
-              >
-                <span className="flex shrink-0 items-center gap-1 text-accent/70">
-                  <GitBranch size={10} strokeWidth={2.5} />
-                  {displayBranch}
-                </span>
-              </Tooltip>
-            </>
-          )}
-          {instance.stats && instance.stats.inputTokens + instance.stats.outputTokens > 0 && (
-            <>
-              <span className="text-border">&middot;</span>
-              <Tooltip
-                content={
-                  <div className="flex flex-col gap-0.5">
-                    <div className="font-medium">{instance.stats.model ?? "Unknown model"}</div>
-                    <div>Input: {formatTokens(instance.stats.inputTokens)}</div>
-                    <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
-                    <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
-                    <div>Cache read: {formatTokens(instance.stats.cacheReadTokens)}</div>
-                  </div>
-                }
-              >
-                <span className="shrink-0">
-                  {formatTokens(instance.stats.inputTokens + instance.stats.outputTokens)} tokens
-                </span>
-              </Tooltip>
-            </>
-          )}
-        </div>
-      </div>
-      {/* Action buttons: [Open in X] [Split] [Debug] | [Sidecar Controls] */}
-      <div className="flex items-center gap-1">
-        <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
-        {onSplit && !isMobile && (
-          <Tooltip content="Split view">
-            <Button variant="icon" onClick={onSplit} className="shrink-0">
-              <Columns2 size={15} strokeWidth={2} />
-            </Button>
-          </Tooltip>
+      <ViewHeaderTitle>
+        <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
+          {instance.name}
+        </h1>
+        {displayBranch && (
+          <BranchBadge
+            branch={displayBranch}
+            tooltip={
+              displayBranchIsWorktree
+                ? `Working in worktree on branch ${displayBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
+                : `On branch ${displayBranch}`
+            }
+          />
         )}
+        <TokenBadge
+          tokens={totalTokens}
+          tooltip={
+            instance.stats ? (
+              <div className="flex flex-col gap-0.5">
+                <div className="font-medium">{instance.stats.model ?? "Unknown model"}</div>
+                <div>Input: {formatTokens(instance.stats.inputTokens)}</div>
+                <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
+                <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
+                <div>Cache read: {formatTokens(instance.stats.cacheReadTokens)}</div>
+              </div>
+            ) : undefined
+          }
+        />
         <Menu.Root>
           <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
             <EllipsisVertical size={14} />
           </Menu.Trigger>
           <Menu.Content>
+            {onSplit && !isMobile && (
+              <Menu.Item onClick={onSplit}>
+                <Columns2 size={13} strokeWidth={2} className="text-muted" />
+                Split view
+              </Menu.Item>
+            )}
             <Menu.Item onClick={onOpenDebug}>
               <Bug size={13} strokeWidth={2} className="text-muted" />
               Debug
@@ -300,6 +288,10 @@ export function InstanceHeader({
             )}
           </Menu.Content>
         </Menu.Root>
+      </ViewHeaderTitle>
+      <div className="flex items-center gap-1">
+        <OpenInMenu path={instance.workingDirectory} compact className="hidden sm:flex" />
+        <GitMenu onCommit={handleCommit} onPush={handlePush} />
         <SidecarToggles
           loading={loadingSidecarActions}
           isMobile={isMobile}
@@ -314,6 +306,6 @@ export function InstanceHeader({
           onOpenMobileSidecar={onOpenMobileSidecar}
         />
       </div>
-    </div>
+    </ViewHeader>
   );
 }

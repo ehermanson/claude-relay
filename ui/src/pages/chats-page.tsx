@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "@tanstack/react-router";
-import { GitBranch, MessageSquare } from "lucide-react";
+import { GitBranch, MessageSquare, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { EmptyProjectActions } from "@/components/empty-project-actions";
 import { EmptyState } from "@/components/empty-state";
 import { CreateSpaceDialog, useCreateSpaceDialog } from "@/components/spaces/create-space-dialog";
@@ -14,6 +15,7 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { fetchProjectChats, fetchSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
 import { formatModel, formatTimeAgo, formatTokens, instanceStatusVariant } from "@/lib/utils";
+import { PageShell } from "@/components/ui/page-shell";
 import { StatusDot } from "@/components/ui/status-dot";
 import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
@@ -32,7 +34,7 @@ function SessionCard({
     <Link
       to={route.to}
       params={route.params}
-      className="group flex items-center gap-3 rounded-lg border border-border/80 bg-surface px-4 py-3 transition-all duration-150 hover:border-accent/30 hover:bg-surface-hover hover:shadow-sm"
+      className="group flex items-center gap-3 rounded-lg border border-border/80 bg-surface px-4 py-3 transition-all duration-150 hover:-translate-y-px hover:border-accent/30 hover:bg-surface-hover hover:shadow-sm"
     >
       {/* Status dot */}
       <StatusDot
@@ -216,6 +218,7 @@ export function ChatsPage() {
   const { instances } = useWSState();
   const { artifacts } = useProjectContext();
   const { trackInstanceCreate } = useActionToasts();
+  const [searchQuery, setSearchQuery] = useState("");
   const spaceDialog = useCreateSpaceDialog();
   const projectId = artifacts.projectId || routeProjectId;
   const spacesQueryKey = ["spaces", projectId] as const;
@@ -296,6 +299,24 @@ export function ChatsPage() {
     }))
     .sort((a, b) => b.lastActivity - a.lastActivity);
 
+  const filteredStandalone = searchQuery
+    ? standaloneInstances.filter(
+        (inst) =>
+          inst.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          inst.gitBranch?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          inst.lastMessage?.text?.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    : standaloneInstances;
+
+  const filteredSpaces = searchQuery
+    ? visibleSpaces.filter(
+        ({ space, chats }) =>
+          space.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          space.gitBranch?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          chats.some((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase())),
+      )
+    : visibleSpaces;
+
   const hasMainChats = standaloneInstances.length > 0;
   const hasSpaces = visibleSpaces.length > 0;
 
@@ -312,8 +333,22 @@ export function ChatsPage() {
     }
   };
 
+  const searchToolbar =
+    standaloneInstances.length > 0 || visibleSpaces.length > 0 ? (
+      <div className="relative">
+        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+        <Input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search chats..."
+          className="h-8 !rounded-md !bg-surface !py-1.5 pl-8 pr-3"
+        />
+      </div>
+    ) : undefined;
+
   return (
-    <div className="flex-1 overflow-y-auto">
+    <PageShell maxWidth="wide" toolbar={searchToolbar}>
       {!hasMainChats && !hasSpaces ? (
         <EmptyState
           icon={<MessageSquare size={24} strokeWidth={1.5} />}
@@ -324,30 +359,37 @@ export function ChatsPage() {
             <EmptyProjectActions onNewChat={handleNewChat} onNewSpace={handleNewSpace} />
           </div>
         </EmptyState>
+      ) : filteredStandalone.length === 0 && filteredSpaces.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <p className="text-sm text-muted">No chats match "{searchQuery}"</p>
+        </div>
       ) : (
-        <div className="mx-auto px-6 py-4">
-          <div className="flex flex-col gap-3">
-            {hasSpaces &&
-              visibleSpaces.map(({ space, chats }) => (
-                <SpaceCard
-                  key={space.id}
-                  projectId={projectId}
-                  space={space}
-                  chats={chats}
-                  isMobile={isMobile}
-                />
-              ))}
+        <div className="flex flex-col gap-3">
+          {filteredSpaces.length > 0 &&
+            filteredSpaces.map(({ space, chats }, index) => (
+              <div
+                key={space.id}
+                className="opacity-0 animate-stagger-fade-in"
+                style={{ animationDelay: `${Math.min(index, 8) * 30}ms` }}
+              >
+                <SpaceCard projectId={projectId} space={space} chats={chats} isMobile={isMobile} />
+              </div>
+            ))}
 
-            {hasMainChats &&
-              standaloneInstances.map((inst) => (
+          {filteredStandalone.length > 0 &&
+            filteredStandalone.map((inst, index) => (
+              <div
+                key={inst.id}
+                className="opacity-0 animate-stagger-fade-in"
+                style={{ animationDelay: `${Math.min(index, 8) * 30}ms` }}
+              >
                 <SessionCard
-                  key={inst.id}
                   instance={inst}
                   parentName={parentNames.get(inst.id)}
                   isMobile={isMobile}
                 />
-              ))}
-          </div>
+              </div>
+            ))}
         </div>
       )}
 
@@ -357,6 +399,6 @@ export function ChatsPage() {
         projectId={projectId}
         onOpenChange={(open) => !open && spaceDialog.close()}
       />
-    </div>
+    </PageShell>
   );
 }

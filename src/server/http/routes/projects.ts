@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import * as taskManager from "../../../core/task-manager.js";
 import {
   checkoutBranch,
+  commitAll,
   getAheadBehind,
   gitFetch,
   gitPull,
@@ -279,6 +280,24 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
       return c.json(result, result.success ? 200 : 400);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "Failed to push" }, 400);
+    }
+  });
+
+  app.post("/api/projects/:id/git/commit", async (c) => {
+    const project = instanceManager.projectManager.getProject(c.req.param("id"));
+    if (!project) {
+      return c.json({ error: "Project not found" }, 404);
+    }
+    try {
+      const body = await readJsonBody<{ message?: string }>(c);
+      const dir = project.repoRoot || project.directory;
+      if (!isWorktreeDirty(dir)) {
+        return c.json({ success: false, error: "Nothing to commit — working tree is clean" }, 400);
+      }
+      const result = commitAll(dir, body.message || "Commit via Relay");
+      return c.json(result, result.success ? 200 : 400);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Failed to commit" }, 400);
     }
   });
 }
