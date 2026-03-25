@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import {
+  commitSpace,
   completeSpace,
   deleteSpace,
   fetchProjectChats,
@@ -55,6 +56,8 @@ import "@/components/chat/sidecar.css";
 import { OpenInMenu } from "@/components/project/open-in-menu";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ConfirmMergeDialog } from "@/components/spaces/confirm-merge-dialog";
+import { CommitMessageDialog } from "@/components/git/commit-message-dialog";
+import { GhCliRequiredDialog } from "@/components/git/gh-cli-required-dialog";
 const DiffDrawer = lazy(() =>
   import("@/components/chat/diff-drawer").then((m) => ({ default: m.DiffDrawer })),
 );
@@ -90,6 +93,11 @@ export function SpaceView() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+  const [ghCliDialogOpen, setGhCliDialogOpen] = useState(false);
+  const [ghCliReason, setGhCliReason] = useState<"not-installed" | "not-authenticated">(
+    "not-installed",
+  );
 
   // Merge dialog state
   const [mergeDialog, setMergeDialog] = useState<
@@ -338,6 +346,23 @@ export function SpaceView() {
     }
   };
 
+  const handleCommit = async (message: string) => {
+    try {
+      const result = await commitSpace(spaceId, { message });
+      if (result.success) {
+        toast.success("Changes committed");
+        // Refresh diff so the Files panel reflects the commit
+        fetchSpaceDiff(spaceId)
+          .then((d) => setSpaceDiff(d))
+          .catch(() => setSpaceDiff(""));
+      } else {
+        toast.error(result.error || "Commit failed");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to commit");
+    }
+  };
+
   const handlePush = async (createPR?: boolean) => {
     try {
       const result = await pushSpace(spaceId, { createPR });
@@ -356,6 +381,12 @@ export function SpaceView() {
               </a>
             </span>,
           );
+        } else if (result.ghNotFound) {
+          setGhCliReason("not-installed");
+          setGhCliDialogOpen(true);
+        } else if (result.ghNotAuthenticated) {
+          setGhCliReason("not-authenticated");
+          setGhCliDialogOpen(true);
         } else if (result.error) {
           toast.warning(result.error);
         } else {
@@ -520,11 +551,22 @@ export function SpaceView() {
             className="hidden sm:flex"
           />
           <GitMenu
+            onCommit={() => setCommitDialogOpen(true)}
             onMerge={() => setMergeDialog({ phase: "confirm" })}
             mergeDisabled={spaceInstances.length === 0}
             onPush={() => void handlePush(false)}
             onPushAndCreatePR={() => void handlePush(true)}
             worktreePath={space.worktreePath || undefined}
+          />
+          <CommitMessageDialog
+            open={commitDialogOpen}
+            onOpenChange={setCommitDialogOpen}
+            onCommit={(msg) => void handleCommit(msg)}
+          />
+          <GhCliRequiredDialog
+            open={ghCliDialogOpen}
+            onOpenChange={setGhCliDialogOpen}
+            reason={ghCliReason}
           />
 
           {(spaceInstances.length > 0 || chatSummariesLoading) && (

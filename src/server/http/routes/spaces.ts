@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { getPrimaryRemote } from "../../../core/git.js";
+import { commitAll, isWorktreeDirty, getPrimaryRemote } from "../../../core/git.js";
 import { readJsonBody } from "../hono-utils.js";
 import type { AppEnv, HttpDeps } from "../types.js";
 
@@ -67,6 +67,27 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
       return c.json({ success: true });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "Failed to delete space" }, 400);
+    }
+  });
+
+  app.post("/api/spaces/:id/commit", async (c) => {
+    const space = instanceManager.getSpaceManager().getSpace(c.req.param("id"));
+    if (!space) {
+      return c.json({ error: "Space not found" }, 404);
+    }
+    try {
+      const body = await readJsonBody<{ message?: string }>(c);
+      const dir = space.worktreePath;
+      if (!dir) {
+        return c.json({ success: false, error: "Space has no worktree" }, 400);
+      }
+      if (!isWorktreeDirty(dir)) {
+        return c.json({ success: false, error: "Nothing to commit — working tree is clean" }, 400);
+      }
+      const result = commitAll(dir, body.message || "Commit via Relay");
+      return c.json(result, result.success ? 200 : 400);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Failed to commit" }, 400);
     }
   });
 

@@ -3,6 +3,7 @@
  * and action buttons (open-in, debug, sidecar toggles).
  */
 
+import { useState } from "react";
 import {
   Bug,
   Columns2,
@@ -27,6 +28,7 @@ import {
 } from "../ui/view-header";
 import { OpenInMenu } from "../project/open-in-menu";
 import { HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
+import { CommitMessageDialog } from "../git/commit-message-dialog";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
 import { gitCommitInstance, gitPushInstance } from "../../lib/api";
 import { formatTokens } from "../../lib/utils";
@@ -203,8 +205,10 @@ export function InstanceHeader({
   const totalTokens = instance.stats ? instance.stats.inputTokens + instance.stats.outputTokens : 0;
   const displayBranchName = displayBranch || undefined;
 
-  const handleCommit = async () => {
-    const result = await gitCommitInstance(instance.id);
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+
+  const handleCommit = async (message: string) => {
+    const result = await gitCommitInstance(instance.id, { message });
     if (result.success) {
       toast.success("Changes committed");
     } else {
@@ -291,7 +295,12 @@ export function InstanceHeader({
       </ViewHeaderTitle>
       <div className="flex items-center gap-1">
         <OpenInMenu path={instance.workingDirectory} compact className="hidden sm:flex" />
-        <GitMenu onCommit={handleCommit} onPush={handlePush} />
+        <GitMenu onCommit={() => setCommitDialogOpen(true)} onPush={handlePush} />
+        <CommitMessageDialog
+          open={commitDialogOpen}
+          onOpenChange={setCommitDialogOpen}
+          onCommit={(msg) => void handleCommit(msg)}
+        />
         <SidecarToggles
           loading={loadingSidecarActions}
           isMobile={isMobile}

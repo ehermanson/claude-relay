@@ -518,12 +518,28 @@ export async function gitPush(
   return res.json();
 }
 
+// ─── Space Commit ────────────────────────────────────────────────────────
+
+export async function commitSpace(
+  spaceId: string,
+  opts?: { message?: string },
+): Promise<GitOpResult> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/commit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
+  });
+  return res.json();
+}
+
 // ─── Space Push ───────────────────────────────────────────────────────────
 
 interface PushSpaceResult {
   pushed: boolean;
   prUrl?: string;
   error?: string;
+  ghNotFound?: boolean;
+  ghNotAuthenticated?: boolean;
 }
 
 export async function pushSpace(

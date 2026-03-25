@@ -306,7 +306,13 @@ export class SpaceManager extends EventEmitter {
   async pushSpace(
     id: string,
     opts?: { createPR?: boolean },
-  ): Promise<{ pushed: boolean; prUrl?: string; error?: string }> {
+  ): Promise<{
+    pushed: boolean;
+    prUrl?: string;
+    error?: string;
+    ghNotFound?: boolean;
+    ghNotAuthenticated?: boolean;
+  }> {
     const row = this.db.getSpace(id);
     if (!row) throw new Error(`Space ${id} not found`);
     if (row.is_default) throw new Error("Cannot push the default space");
@@ -332,10 +338,18 @@ export class SpaceManager extends EventEmitter {
 
     // Optionally create PR via gh CLI
     if (opts?.createPR) {
+      // Check if gh is available
       try {
-        // Check if gh is available
         execFileSync("which", ["gh"], { stdio: "pipe", timeout: 3000 });
+      } catch {
+        return {
+          pushed: true,
+          error: "gh CLI not found — branch pushed but PR not created",
+          ghNotFound: true,
+        };
+      }
 
+      try {
         const repoRoot = getRepoRoot(row.project_directory);
         const defaultBranch = (repoRoot ? getDefaultBranch(repoRoot) : null) || "main";
         const title = row.name || `Space ${row.id.slice(0, 8)}`;
@@ -366,8 +380,8 @@ export class SpaceManager extends EventEmitter {
         return { pushed: true, prUrl };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("which gh") || msg.includes("not found")) {
-          return { pushed: true, error: "gh CLI not found — branch pushed but PR not created" };
+        if (msg.includes("gh auth login") || msg.includes("GH_TOKEN")) {
+          return { pushed: true, error: "gh CLI is not authenticated", ghNotAuthenticated: true };
         }
         return { pushed: true, error: `PR creation failed: ${msg}` };
       }
