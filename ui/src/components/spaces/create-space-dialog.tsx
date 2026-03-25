@@ -23,18 +23,25 @@ export function CreateSpaceDialog({
   projectName,
   projectId,
   defaultBaseBranch,
+  spaceBranchSource,
   onOpenChange,
 }: {
   dir: string | null;
   projectName: string;
   projectId: string | undefined;
   defaultBaseBranch?: string;
+  spaceBranchSource?: "local" | "remote";
   onOpenChange: (open: boolean) => void;
 }) {
   const [name, setName] = useState("");
   const [baseBranch, setBaseBranch] = useState("");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const displayBranch = defaultBaseBranch
+    ? spaceBranchSource === "remote"
+      ? `origin/${defaultBaseBranch}`
+      : defaultBaseBranch
+    : undefined;
 
   const handleCreate = async () => {
     if (!projectId) {
@@ -111,8 +118,14 @@ export function CreateSpaceDialog({
                   void handleCreate();
                 }
               }}
-              placeholder={defaultBaseBranch || "Current branch"}
+              placeholder={displayBranch || "Current branch"}
             />
+            {displayBranch && !baseBranch.trim() && (
+              <p className="text-[0.6875rem] text-muted">
+                Defaults to <span className="font-medium text-text">{displayBranch}</span> from
+                project settings
+              </p>
+            )}
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>

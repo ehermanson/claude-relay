@@ -420,6 +420,16 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
           spaceDialog.dir ? (projectByDir.get(spaceDialog.dir)?.name ?? spaceDialog.dir) : ""
         }
         projectId={spaceDialog.dir ? projectByDir.get(spaceDialog.dir)?.id : undefined}
+        defaultBaseBranch={
+          spaceDialog.dir
+            ? (projectByDir.get(spaceDialog.dir)?.defaultSpaceBranch ?? undefined)
+            : undefined
+        }
+        spaceBranchSource={
+          spaceDialog.dir
+            ? (projectByDir.get(spaceDialog.dir)?.spaceBranchSource ?? undefined)
+            : undefined
+        }
         onOpenChange={(open) => !open && spaceDialog.close()}
       />
     </aside>
