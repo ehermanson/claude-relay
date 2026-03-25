@@ -39,7 +39,11 @@ function SimpleIconGlyph({
   viewBox?: string;
 }) {
   return (
-    <svg viewBox={viewBox} aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 ${className}`}>
+    <svg
+      viewBox={viewBox}
+      aria-hidden="true"
+      className={`h-3.5 w-3.5 shrink-0 opacity-70 ${className}`}
+    >
       <path fill="currentColor" d={pathData} />
     </svg>
   );
@@ -96,8 +100,6 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
   const preferredTargetId = openTargetsData?.preferredTargetId ?? null;
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [openingTargetId, setOpeningTargetId] = useState<string | null>(null);
-
-  console.log(openTargetsData);
 
   useEffect(() => {
     if (!path || targets.length === 0) {

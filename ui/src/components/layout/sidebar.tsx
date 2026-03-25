@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Sun } from "lucide-react";
+import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Plus, Sun } from "lucide-react";
 import { toast } from "sonner";
 import type { InstanceInfo } from "@shared/types";
 import { useAuthContext } from "../../context/auth-context";
@@ -27,15 +27,19 @@ import { ConfirmActionDialog } from "../ui/confirm-action-dialog";
 import { Popover } from "../ui/popover";
 import { RelayLogo } from "../ui/relay-logo";
 import { Tabs } from "../ui/tabs";
+import { Tooltip } from "../ui/tooltip";
 import { SidebarProjectGroup } from "./sidebar-project-group";
 import "./sidebar.css";
 
-export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
+export function Sidebar({
+  onCollapse,
+  showLogo = false,
+}: { onCollapse?: () => void; showLogo?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { send } = useWSMethods();
   const { isConnected, isSyncing, instances } = useWSState();
   const { trackInstanceCreate, trackInstanceMerge, trackInstanceRemove } = useActionToasts();
-  const { logout } = useAuthContext();
+  const { isAuthenticated, logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
   const {
     groups,
@@ -232,12 +236,16 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
       className="flex h-full w-full flex-col border-r border-border/70 bg-surface"
       style={{ containerName: "sidebar", containerType: "inline-size" }}
     >
-      <div className="sidebar-header flex shrink-0 items-center justify-between px-4 py-3">
+      <div className="sidebar-header group/header flex shrink-0 items-center justify-between px-4 py-3">
         <Link
           to="/"
           className="flex items-center gap-2 rounded-md transition-opacity hover:opacity-80"
         >
-          <RelayLogo size={28} className="sidebar-logo-icon" connected={isConnected} />
+          {showLogo ? (
+            <RelayLogo size={28} className="sidebar-logo-icon" connected={isConnected} />
+          ) : (
+            <div className="h-7 w-7" aria-hidden />
+          )}
           <span
             className="sidebar-logo-text text-[1.1rem] text-text-bright"
             style={{
@@ -250,6 +258,17 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
           </span>
         </Link>
         <div className="flex items-center gap-1">
+          {onCollapse && (
+            <Tooltip content="Collapse sidebar" side="bottom">
+              <Button
+                variant="icon"
+                onClick={onCollapse}
+                className="opacity-0 transition-opacity duration-200 ease-in group-hover/header:opacity-100"
+              >
+                <PanelLeftClose size={15} strokeWidth={2} />
+              </Button>
+            </Tooltip>
+          )}
           <Popover.Root
             open={showAddProject}
             onOpenChange={(open) => {
@@ -261,10 +280,18 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               }
             }}
           >
-            <Popover.Trigger render={<Button variant="ghost" size="sm" />}>
-              <FolderPlus size={14} strokeWidth={2} />
-              <span className="sidebar-add-project-label">Add Project</span>
-            </Popover.Trigger>
+            <Tooltip content="Add project" side="bottom">
+              <Popover.Trigger
+                render={
+                  <Button
+                    variant="icon"
+                    className="rounded-lg border border-border/60 hover:border-border-hover"
+                  />
+                }
+              >
+                <Plus size={14} strokeWidth={2.5} />
+              </Popover.Trigger>
+            </Tooltip>
             <Popover.Content className="w-96 max-w-[calc(100vw-2rem)]" align="end">
               <Tabs.Root
                 value={projectTab}
@@ -297,11 +324,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               </Tabs.Root>
             </Popover.Content>
           </Popover.Root>
-          {onCollapse && (
-            <Button variant="icon" onClick={onCollapse}>
-              <PanelLeftClose size={15} strokeWidth={2} />
-            </Button>
-          )}
         </div>
       </div>
 
@@ -367,10 +389,12 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
             {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             {theme === "dark" ? "Light" : "Dark"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={logout}>
-            <LogOut size={13} />
-            Sign out
-          </Button>
+          {isAuthenticated && (
+            <Button variant="ghost" size="sm" onClick={logout}>
+              <LogOut size={13} />
+              Sign out
+            </Button>
+          )}
         </div>
       </div>
 

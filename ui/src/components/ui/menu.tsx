@@ -35,7 +35,7 @@ interface MenuContentProps {
   sideOffset?: number;
 }
 
-const popupClass = "glass z-50 min-w-[148px] overflow-hidden rounded-lg py-1 animate-fade-in";
+const popupClass = "glass z-50 min-w-[148px] overflow-hidden rounded-lg p-1 animate-fade-in";
 
 function MenuContent({
   children,
@@ -61,7 +61,7 @@ interface MenuItemProps extends ComponentPropsWithoutRef<"div"> {
 }
 
 const itemBase =
-  "flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[0.8125rem] transition-colors";
+  "flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[0.8125rem] transition-colors rounded";
 
 function MenuItem({ children, className = "", danger, disabled, ...props }: MenuItemProps) {
   const colorClass = disabled
@@ -82,7 +82,7 @@ function MenuItem({ children, className = "", danger, disabled, ...props }: Menu
 }
 
 function MenuSeparator({ className = "" }: { className?: string }) {
-  return <div className={`my-1 h-px bg-border ${className}`} role="separator" />;
+  return <div className={`h-px my-1 bg-border ${className}`} role="separator" />;
 }
 
 function MenuSub({ children, ...props }: BaseMenu.SubmenuRoot.Props & { children: ReactNode }) {

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { Group, Panel } from "react-resizable-panels";
 import { ConnectionStatusBanner } from "@/components/chat/connection-status-banner";
 import { DebugModal } from "@/components/chat/debug-modal";
 import { ExternalSessionBar } from "@/components/chat/external-session-bar";
@@ -14,11 +13,11 @@ import { Sidecar } from "@/components/chat/sidecar";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
-import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useInstanceMessages } from "@/hooks/use-instance-messages";
 import { useConnectionBanner } from "@/hooks/use-connection-banner";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { useSidecarPanels } from "@/hooks/use-sidecar-store";
 import { createInstance, fetchInstanceHistory } from "@/lib/api";
 import { getInstanceChatRoute, getInstanceProjectRouteId } from "@/lib/project-route";
@@ -206,6 +205,18 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     hasFilesContent,
     hasPlanContent,
     hasStats,
+  });
+
+  const {
+    panelRef: sidecarRef,
+    containerRef,
+    width: sidecarWidth,
+    isResizing,
+    onResizeStart: handleResizeStart,
+  } = useResizablePanel({
+    side: "right",
+    minWidth: 280,
+    maxWidth: (cw) => cw * 0.45,
   });
 
   const handleRespondToRequest = (requestId: string, tool: string) => {
@@ -437,35 +448,41 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         onSplit={() => navigate({ search: { split: "pick" } })}
       />
 
-      {showDesktopSidecar ? (
-        <Group orientation="horizontal" className="min-h-0 flex-1">
-          <Panel defaultSize="70" minSize="40">
-            <div className="flex h-full min-w-0 flex-col overflow-hidden">{chatContent}</div>
-          </Panel>
-          <ResizableHandle />
-          <Panel defaultSize="30" minSize="20" maxSize="45">
-            <Sidecar
-              tasks={currentTasks}
-              files={currentFiles}
-              planContent={instance.planContent}
-              stats={instance.stats}
-              items={items}
-              rawHistory={rawHistory}
-              provider={instance.provider}
-              preferredModel={instance.preferredModel}
-              instanceId={id}
-              createdAt={instance.createdAt}
-              lastActivityAt={instance.lastActivityAt}
-              workingDirectory={instance.workingDirectory}
-              activePanels={activePanels}
+      <div ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{chatContent}</div>
+        {!isMobile && (
+          <div
+            className={`relative flex h-full shrink-0 overflow-hidden ${
+              isResizing ? "" : "transition-[width,opacity] duration-200 ease-out"
+            } ${showDesktopSidecar ? "opacity-100" : "w-0 opacity-0"}`}
+            ref={sidecarRef}
+            style={showDesktopSidecar ? { width: sidecarWidth ?? "30%" } : undefined}
+          >
+            {/* Resize handle */}
+            <div
+              onMouseDown={handleResizeStart}
+              className="absolute inset-y-0 left-0 z-10 w-px cursor-col-resize bg-border/50 after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:content-['']"
             />
-          </Panel>
-        </Group>
-      ) : (
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="flex min-w-0 flex-1 flex-col">{chatContent}</div>
-        </div>
-      )}
+            <div className="h-full min-w-[280px] flex-1 pl-px">
+              <Sidecar
+                tasks={currentTasks}
+                files={currentFiles}
+                planContent={instance.planContent}
+                stats={instance.stats}
+                items={items}
+                rawHistory={rawHistory}
+                provider={instance.provider}
+                preferredModel={instance.preferredModel}
+                instanceId={id}
+                createdAt={instance.createdAt}
+                lastActivityAt={instance.lastActivityAt}
+                workingDirectory={instance.workingDirectory}
+                activePanels={activePanels}
+              />
+            </div>
+          </div>
+        )}
+      </div>
       {isMobile && sidecarMobileOpen && sidecarContentCount > 0 && (
         <Sidecar
           tasks={currentTasks}

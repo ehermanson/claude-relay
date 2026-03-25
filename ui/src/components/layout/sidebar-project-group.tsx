@@ -31,6 +31,7 @@ import { EmptyProjectActions } from "../empty-project-actions";
 import { Button } from "../ui/button";
 import { Collapsible } from "../ui/collapsible";
 import { Menu } from "../ui/menu";
+import { Tooltip } from "../ui/tooltip";
 import { SidebarItem } from "./sidebar-item";
 import { SidebarSpaceGroup } from "./sidebar-space-group";
 
@@ -68,7 +69,7 @@ interface SidebarProjectGroupProps {
   onMoveToBottom?: () => void;
   spaces?: SpaceInfo[];
   activeSpaceId?: string;
-  onCreateSpace?: (dir: string) => void;
+  onCreateSpace: (dir: string) => void;
   onCompleteSpace?: (spaceId: string) => void;
   onDeleteSpace?: (spaceId: string) => void;
 }
@@ -229,64 +230,50 @@ export function SidebarProjectGroup({
           </Collapsible.Trigger>
 
           <div className="flex shrink-0 items-center gap-0.5">
-            {onCreateSpace ? (
-              <Menu.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+            <Menu.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+              <Tooltip content="New" side="top">
                 <Menu.Trigger
                   onClick={(event: React.MouseEvent) => {
                     event.stopPropagation();
                   }}
-                  className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-accent/10 hover:text-accent"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-surface-hover hover:text-text"
                 >
-                  <Plus size={12} strokeWidth={2.5} />
-                  New
+                  <Plus size={13} strokeWidth={2.5} />
                 </Menu.Trigger>
-                <Menu.Content align="start">
-                  <Menu.Item
-                    className="!items-start"
-                    onClick={(event: React.MouseEvent) => {
-                      event.stopPropagation();
-                      onQuickCreate(dir);
-                    }}
-                  >
-                    <MessageSquarePlus size={13} strokeWidth={2} className="mt-1 text-muted" />
-                    <div>
-                      <div>New Chat</div>
-                      <div className="text-[0.6875rem] text-muted">
-                        Work with an agent on this branch
-                      </div>
+              </Tooltip>
+              <Menu.Content align="start">
+                <Menu.Item
+                  className="!items-start"
+                  onClick={(event: React.MouseEvent) => {
+                    event.stopPropagation();
+                    onQuickCreate(dir);
+                  }}
+                >
+                  <MessageSquarePlus size={13} strokeWidth={2} className="mt-1 text-muted" />
+                  <div>
+                    <div>New Chat</div>
+                    <div className="text-[0.6875rem] text-muted">
+                      Work with an agent on this branch
                     </div>
-                  </Menu.Item>
-                  <Menu.Item
-                    className="!items-start"
-                    onClick={(event: React.MouseEvent) => {
-                      event.stopPropagation();
-                      onCreateSpace(dir);
-                    }}
-                  >
-                    <GitBranch size={13} strokeWidth={2} className="mt-1 text-muted" />
-                    <div>
-                      <div>New Space</div>
-                      <div className="text-[0.6875rem] text-muted">
-                        Start an isolated worktree and merge back later
-                      </div>
+                  </div>
+                </Menu.Item>
+                <Menu.Item
+                  className="!items-start"
+                  onClick={(event: React.MouseEvent) => {
+                    event.stopPropagation();
+                    onCreateSpace(dir);
+                  }}
+                >
+                  <GitBranch size={13} strokeWidth={2} className="mt-1 text-muted" />
+                  <div>
+                    <div>New Space</div>
+                    <div className="text-[0.6875rem] text-muted">
+                      Start an isolated worktree and merge back later
                     </div>
-                  </Menu.Item>
-                </Menu.Content>
-              </Menu.Root>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onQuickCreate(dir);
-                }}
-                className="opacity-0 transition-all group-hover/project:opacity-100 hover:!bg-accent/10 hover:!text-accent"
-              >
-                <Plus size={12} strokeWidth={2.5} />
-                New Chat
-              </Button>
-            )}
+                  </div>
+                </Menu.Item>
+              </Menu.Content>
+            </Menu.Root>
 
             {menuOpen ? (
               <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>

@@ -19,7 +19,7 @@ function splitTextAndImages(text: string): { textPart: string; images: string[] 
 
 function ImageRow({ images }: { images: string[] }) {
   return (
-    <div className="flex flex-wrap gap-2 mt-1.5">
+    <div className="flex flex-wrap gap-2">
       {images.map((filePath, i) => (
         <ImageThumbnail
           key={i}
@@ -39,7 +39,7 @@ export function UserMessage({ text, timestamp }: UserMessageProps) {
   return (
     <div className="flex max-w-[80%] flex-col items-end gap-1.5 self-end">
       {hasText && (
-        <div className="rounded-2xl rounded-br-sm border border-border/50 bg-user-bg px-4 py-3 text-sm leading-relaxed text-user-text">
+        <div className="rounded-2xl rounded-br-sm border border-border/50 bg-user-bg p-2 text-sm leading-relaxed text-user-text">
           <MarkdownContent text={textPart} />
         </div>
       )}

@@ -2,12 +2,11 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useParams, useLocation } from "@tanstack/react-router";
 import { LogOut, Moon, PanelLeftOpen, Plus, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RelayLogo } from "@/components/ui/relay-logo";
 import { Tooltip } from "@/components/ui/tooltip";
 import { SidebarItem } from "@/components/layout/sidebar-item";
 import { useAuthContext } from "@/context/auth-context";
 import { useTheme } from "@/hooks/use-theme-store";
-import { useWSMethods, useWSState } from "@/context/websocket-context";
+import { useWSMethods } from "@/context/websocket-context";
 import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useProjectNavigationModel } from "@/hooks/use-project-navigation-model";
 import { fetchProjectIcons } from "@/lib/api";
@@ -177,10 +176,9 @@ function ProjectIcon({
 // ── Main component ───────────────────────────────────────────────────
 
 export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
-  const { isConnected } = useWSState();
   const { send } = useWSMethods();
   const { trackInstanceCreate } = useActionToasts();
-  const { logout } = useAuthContext();
+  const { isAuthenticated, logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
   const { groups, projectByDir, projectSpaces } = useProjectNavigationModel();
   const {
@@ -250,10 +248,8 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
     <div className="relative flex h-full shrink-0">
       {/* Narrow icon rail */}
       <aside className="flex h-full w-12 flex-col items-center border-r border-border/70 bg-surface py-3">
-        {/* Logo */}
-        <Link to="/" className="mb-3 rounded-md transition-opacity hover:opacity-80">
-          <RelayLogo size={24} connected={isConnected} />
-        </Link>
+        {/* Logo placeholder — the real logo is rendered persistently in app-layout */}
+        <div className="mb-3 h-7 w-7" aria-hidden />
 
         {/* Expand button */}
         <Tooltip content="Expand sidebar" side="right">
@@ -301,11 +297,13 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
               {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             </Button>
           </Tooltip>
-          <Tooltip content="Sign out" side="right">
-            <Button variant="icon" onClick={logout}>
-              <LogOut size={13} />
-            </Button>
-          </Tooltip>
+          {isAuthenticated && (
+            <Tooltip content="Sign out" side="right">
+              <Button variant="icon" onClick={logout}>
+                <LogOut size={13} />
+              </Button>
+            </Tooltip>
+          )}
         </div>
       </aside>
 

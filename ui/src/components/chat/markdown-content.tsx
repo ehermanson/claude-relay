@@ -71,7 +71,7 @@ export function ImageThumbnail({
       <img
         src={src}
         alt={alt || "Image"}
-        className="my-1.5 inline-block h-[120px] w-[120px] object-cover cursor-pointer rounded-lg border border-border transition-all hover:border-accent hover:shadow-md"
+        className="inline-block h-[120px] w-[120px] object-cover cursor-pointer rounded-lg border border-border transition-all hover:border-accent hover:shadow-md"
         onClick={() => setLightbox(true)}
         onError={() => setError(true)}
         {...rest}
