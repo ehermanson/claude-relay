@@ -7,31 +7,18 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { ChevronLeft } from "lucide-react";
 import { GitStatusBar } from "@/components/project/git-status-bar";
+
 import { OpenInMenu } from "@/components/project/open-in-menu";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { Tooltip } from "@/components/ui/tooltip";
+import { MobileSidebarToggle } from "@/components/ui/view-header";
 import { ProjectContext } from "@/context/project-context";
 import { useWSState } from "@/context/websocket-context";
-import { useMediaQuery } from "@/hooks/use-media-query";
 import { ApiError, fetchProjectArtifacts } from "@/lib/api";
 import { getProjectName, instanceMatchesProject } from "@/lib/project-route";
 
 const MotionLogo = motion.create(RelayLogo);
-
-function BackButton({ to }: { to: string }) {
-  return (
-    <Tooltip content="Back">
-      <Link
-        to={to}
-        className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
-      >
-        <ChevronLeft size={16} />
-      </Link>
-    </Tooltip>
-  );
-}
 
 function NavTab({
   to,
@@ -52,7 +39,7 @@ function NavTab({
     <Link
       to={to}
       params={params}
-      className={`relative flex items-center gap-1.5 px-3 py-2.5 text-[0.8125rem] font-medium transition-colors ${
+      className={`relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-[0.8125rem] font-medium transition-colors ${
         active ? "text-accent" : "text-muted hover:text-text"
       }`}
     >
@@ -84,7 +71,6 @@ function ProjectLayout() {
     spaceId?: string;
   };
   const location = useLocation();
-  const isMobile = useMediaQuery("(max-width: 768px)");
   const { instances } = useWSState();
 
   const artifacts = Route.useLoaderData();
@@ -141,8 +127,8 @@ function ProjectLayout() {
     <ProjectContext.Provider value={ctxValue}>
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-5 py-2.5">
-          {isMobile && <BackButton to="/" />}
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-4 py-2.5 sm:px-5">
+          <MobileSidebarToggle />
           <Tooltip content={artifacts.directory} side="bottom">
             <h1 className="min-w-0 truncate text-sm font-semibold tracking-tight text-text-bright">
               {dirName}
@@ -171,7 +157,7 @@ function ProjectLayout() {
         </div>
 
         {/* Sub-nav */}
-        <nav className="flex shrink-0 items-center gap-1 border-b border-border/70 px-6">
+        <nav className="scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/70 px-4 sm:px-6">
           <NavTab
             to="/projects/$projectId"
             params={{ projectId }}

@@ -25,6 +25,7 @@ import {
   ViewHeaderTitle,
   BranchBadge,
   TokenBadge,
+  MobileSidebarToggle,
 } from "../ui/view-header";
 import { OpenInMenu } from "../project/open-in-menu";
 import { HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
@@ -230,6 +231,7 @@ export function InstanceHeader({
 
   return (
     <ViewHeader>
+      <MobileSidebarToggle />
       <ViewHeaderBreadcrumb
         to="/projects/$projectId/chats"
         params={{ projectId }}

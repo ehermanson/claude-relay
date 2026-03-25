@@ -26,9 +26,12 @@ interface LayoutState {
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   isResizing: boolean;
+  /** Mobile sidebar overlay open state (not persisted). */
+  mobileSidebarOpen: boolean;
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
   setIsResizing: (resizing: boolean) => void;
+  setMobileSidebarOpen: (open: boolean) => void;
   /** Persist current width to localStorage (call on resize end). */
   persistWidth: () => void;
 }
@@ -37,6 +40,7 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
   sidebarCollapsed: loadCollapsed(),
   sidebarWidth: loadWidth(),
   isResizing: false,
+  mobileSidebarOpen: false,
 
   toggleSidebar: () =>
     set((s) => {
@@ -51,6 +55,8 @@ export const useLayoutStore = create<LayoutState>()((set, get) => ({
     set({ sidebarWidth: Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width)) }),
 
   setIsResizing: (resizing: boolean) => set({ isResizing: resizing }),
+
+  setMobileSidebarOpen: (open: boolean) => set({ mobileSidebarOpen: open }),
 
   persistWidth: () => {
     try {

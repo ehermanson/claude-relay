@@ -27,7 +27,7 @@ export function PageShell({
   return (
     <div className={`flex-1 overflow-y-auto ${className ?? ""}`}>
       {padded ? (
-        <div className={`mx-auto w-full px-6 py-6 ${maxWidthClass}`}>
+        <div className={`mx-auto w-full px-4 py-4 sm:px-6 sm:py-6 ${maxWidthClass}`}>
           {toolbar && <div className="mb-3">{toolbar}</div>}
           {children}
         </div>

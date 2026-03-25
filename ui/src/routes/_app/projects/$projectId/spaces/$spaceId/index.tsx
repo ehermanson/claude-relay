@@ -13,10 +13,12 @@ import {
   FileText,
   FolderOpen,
   GitBranch,
+  LayoutGrid,
   MoreVertical,
   Pencil,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
 import { Group, Panel } from "react-resizable-panels";
 import { useWSState, useWSMethods } from "@/context/websocket-context";
@@ -30,6 +32,7 @@ import {
   ViewHeaderTitle,
   BranchBadge,
   TokenBadge,
+  MobileSidebarToggle,
 } from "@/components/ui/view-header";
 import { Menu } from "@/components/ui/menu";
 import { GitMenu } from "@/components/ui/git-menu";
@@ -51,6 +54,7 @@ import { HeaderContextToggle, HeaderIconSkeleton } from "@/components/chat/heade
 import { FilesPanel } from "@/components/chat/files-panel";
 import { ContextPanel } from "@/components/chat/context-panel";
 import { StatusDot } from "@/components/ui/status-dot";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSidecarPanels, type SidecarTab } from "@/hooks/use-sidecar-store";
 import "@/components/chat/sidecar.css";
 import { OpenInMenu } from "@/components/project/open-in-menu";
@@ -264,15 +268,20 @@ export function SpaceView() {
     return files;
   })();
 
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const hasStats =
     !!aggregatedStats && (aggregatedStats.inputTokens > 0 || aggregatedStats.outputTokens > 0);
   const {
     activePanels,
+    mobileOpen: sidecarMobileOpen,
+    setMobileOpen: setSidecarMobileOpen,
     togglePanel,
+    sidecarContentCount,
+    allContentPanels,
     showDesktopSidecar: showSidebar,
   } = useSidecarPanels({
     instanceId: spaceId,
-    isMobile: false,
+    isMobile,
     hasTasksContent: false,
     hasFilesContent: fileChanges.length > 0,
     hasPlanContent: false,
@@ -503,6 +512,7 @@ export function SpaceView() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Space header ── replaces project header entirely */}
       <ViewHeader>
+        <MobileSidebarToggle />
         <ViewHeaderBreadcrumb
           to="/projects/$projectId"
           params={{ projectId }}
@@ -576,6 +586,21 @@ export function SpaceView() {
                   <HeaderIconSkeleton />
                   <HeaderIconSkeleton />
                 </>
+              ) : isMobile ? (
+                sidecarContentCount > 0 && (
+                  <Tooltip content="Sidecar">
+                    <Button
+                      variant="icon"
+                      onClick={() => setSidecarMobileOpen(true)}
+                      className="relative shrink-0"
+                    >
+                      <LayoutGrid size={15} strokeWidth={2} />
+                      <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
+                        {sidecarContentCount}
+                      </span>
+                    </Button>
+                  </Tooltip>
+                )
               ) : (
                 <>
                   <Tooltip content={activePanels.has("files") ? "Hide files" : "Show files"}>
@@ -609,10 +634,10 @@ export function SpaceView() {
       {/* ── Main content: tabs + chat | sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {activeTab ? (
-          showSidebar ? (
+          showSidebar && !isMobile ? (
             <Group orientation="horizontal" className="flex-1">
               <Panel defaultSize="70" minSize="40">
-                <div className="flex h-full flex-col">
+                <div className="flex h-full flex-col overflow-hidden">
                   {chatTabs}
                   {activeLiveInstance ? (
                     <InstanceView key={activeTab} instanceId={activeTab} compact />
@@ -647,7 +672,7 @@ export function SpaceView() {
               </Panel>
             </Group>
           ) : (
-            <div className="flex h-full flex-1 flex-col">
+            <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
               {chatTabs}
               {activeLiveInstance ? (
                 <InstanceView key={activeTab} instanceId={activeTab} compact />
@@ -707,6 +732,32 @@ export function SpaceView() {
           </div>
         )}
       </div>
+
+      {/* Mobile sidecar overlay */}
+      {isMobile && sidecarMobileOpen && sidecarContentCount > 0 && (
+        <div
+          className="fixed inset-0 z-50 flex justify-end"
+          onClick={() => setSidecarMobileOpen(false)}
+        >
+          <div className="animate-fade-in absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="relative h-full" onClick={(e) => e.stopPropagation()}>
+            <SpaceSidebar
+              space={space}
+              instances={spaceInstances}
+              activePanels={allContentPanels}
+              stats={aggregatedStats}
+              fileChanges={fileChanges}
+              onOpenDiff={(scrollTo) => {
+                setDiffScrollToFile(scrollTo);
+                setShowDiffDrawer(true);
+                setSidecarMobileOpen(false);
+              }}
+              isMobileOverlay
+              onClose={() => setSidecarMobileOpen(false)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Full diff drawer */}
       {showDiffDrawer && spaceDiff != null && (
@@ -1056,6 +1107,8 @@ function SpaceSidebar({
   stats,
   fileChanges,
   onOpenDiff,
+  isMobileOverlay,
+  onClose,
 }: {
   space: SpaceInfo;
   instances: InstanceInfo[];
@@ -1063,6 +1116,8 @@ function SpaceSidebar({
   stats: SessionStats | null;
   fileChanges: FileChange[];
   onOpenDiff: (scrollToFile?: string) => void;
+  isMobileOverlay?: boolean;
+  onClose?: () => void;
 }) {
   const activeCount = instances.filter(
     (i) => i.status === "idle" || i.status === "processing",
@@ -1095,10 +1150,21 @@ function SpaceSidebar({
   }, [activePanels]);
 
   return (
-    <div className="@container/sidecar flex h-full flex-col border-l border-border bg-surface">
+    <div
+      className={
+        isMobileOverlay
+          ? "@container/sidecar animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col overflow-hidden rounded-l-2xl border-l border-border bg-surface shadow-2xl"
+          : "@container/sidecar flex h-full flex-col border-l border-border bg-surface"
+      }
+    >
       {/* Header */}
       <div className="shrink-0 border-b border-border/60">
         <div className="flex items-center justify-between">
+          {isMobileOverlay && onClose && (
+            <Button variant="icon" size="icon-sm" onClick={onClose} className="ml-2 shrink-0">
+              <X size={14} />
+            </Button>
+          )}
           {availableTabs.length > 1 ? (
             <div className="flex min-w-0 flex-1 items-stretch">
               {availableTabs.map((tab) => {

@@ -223,7 +223,7 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
   }, [projectId, invalidate, current]);
 
   return (
-    <div className="hidden items-center gap-1 sm:flex">
+    <div className="flex items-center gap-1">
       <BranchSelector projectId={projectId} current={current} onBranchChanged={invalidate} />
 
       {dirty && (

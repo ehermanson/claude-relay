@@ -265,7 +265,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               <FolderPlus size={14} strokeWidth={2} />
               <span className="sidebar-add-project-label">Add Project</span>
             </Popover.Trigger>
-            <Popover.Content className="w-96" align="end">
+            <Popover.Content className="w-96 max-w-[calc(100vw-2rem)]" align="end">
               <Tabs.Root
                 value={projectTab}
                 onValueChange={(v) => setProjectTab(v as "add" | "create")}

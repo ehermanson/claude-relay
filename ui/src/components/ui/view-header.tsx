@@ -5,8 +5,10 @@
 
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronLeft, Zap } from "lucide-react";
+import { ChevronLeft, Menu as MenuIcon, Zap } from "lucide-react";
 import { Tooltip } from "./tooltip";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { useLayoutStore } from "@/hooks/use-layout-store";
 import { formatTokens } from "@/lib/utils";
 
 // ── Container ────────────────────────────────────────────────────────
@@ -23,6 +25,25 @@ export function ViewHeader({ children }: ViewHeaderProps) {
   );
 }
 
+// ── Mobile sidebar toggle (hamburger) ────────────────────────────────
+
+export function MobileSidebarToggle() {
+  const isMobile = useMediaQuery("(max-width: 768px)");
+  const { setMobileSidebarOpen } = useLayoutStore();
+  if (!isMobile) return null;
+  return (
+    <Tooltip content="Menu">
+      <button
+        type="button"
+        onClick={() => setMobileSidebarOpen(true)}
+        className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
+      >
+        <MenuIcon size={16} strokeWidth={2} />
+      </button>
+    </Tooltip>
+  );
+}
+
 // ── Breadcrumb: [project] > ──────────────────────────────────────────
 
 interface ViewHeaderBreadcrumbProps {
@@ -36,16 +57,6 @@ interface ViewHeaderBreadcrumbProps {
 export function ViewHeaderBreadcrumb({ to, params, label, mobileOnly }: ViewHeaderBreadcrumbProps) {
   return (
     <>
-      {/* Mobile: back arrow */}
-      <Tooltip content="Back">
-        <Link
-          to={to}
-          params={params}
-          className="hidden h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:flex"
-        >
-          <ChevronLeft size={16} strokeWidth={2} />
-        </Link>
-      </Tooltip>
       {/* Desktop: text link + chevron */}
       {!mobileOnly && (
         <>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { Outlet, useParams } from "@tanstack/react-router";
+import { Outlet, useLocation } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import { MiniSidebar } from "@/components/layout/mini-sidebar";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -8,19 +8,18 @@ import { useLayoutStore } from "@/hooks/use-layout-store";
 import { useMediaQuery } from "@/hooks/use-media-query";
 
 export function AppLayout() {
-  const { chatId, projectId } = useParams({ strict: false }) as {
-    chatId?: string;
-    projectId?: string;
-  };
+  const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { theme } = useTheme();
   const {
     sidebarCollapsed: collapsed,
     sidebarWidth,
     isResizing,
+    mobileSidebarOpen,
     toggleSidebar: toggleCollapsed,
     setSidebarWidth,
     setIsResizing,
+    setMobileSidebarOpen,
     persistWidth,
   } = useLayoutStore();
 
@@ -63,10 +62,20 @@ export function AppLayout() {
     };
   }, [setSidebarWidth, setIsResizing, persistWidth]);
 
-  // On mobile: show sidebar only when on / with no instance selected
-  const hasContent = !!chatId || !!projectId;
-  const showSidebar = !isMobile || !hasContent;
-  const showMain = !isMobile || hasContent;
+  // Auto-close mobile sidebar overlay on navigation
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [location.pathname, setMobileSidebarOpen]);
+
+  // Close mobile sidebar overlay on Escape
+  useEffect(() => {
+    if (!isMobile || !mobileSidebarOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobile, mobileSidebarOpen, setMobileSidebarOpen]);
 
   const toaster = (
     <Toaster
@@ -88,11 +97,22 @@ export function AppLayout() {
   if (isMobile) {
     return (
       <div className="flex h-full overflow-hidden">
-        {showSidebar && <Sidebar />}
-        {showMain && (
-          <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
-            <Outlet />
-          </main>
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+          <Outlet />
+        </main>
+        {/* Mobile sidebar overlay */}
+        {mobileSidebarOpen && (
+          <div className="fixed inset-0 z-50 flex">
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 bg-black/50 animate-fade-in"
+              onClick={() => setMobileSidebarOpen(false)}
+            />
+            {/* Sidebar panel */}
+            <div className="relative z-10 h-full w-[85vw] max-w-sm animate-slide-in-left">
+              <Sidebar />
+            </div>
+          </div>
         )}
         {toaster}
       </div>

@@ -4,6 +4,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { BarChart3, CheckCircle2, FolderPlus, MessageSquare, Plus } from "lucide-react";
 import { useWSState, useWSMethods } from "../context/websocket-context";
 import { getInstanceProjectRouteId } from "../lib/project-route";
+import { MobileSidebarToggle } from "../components/ui/view-header";
 import { Tooltip } from "../components/ui/tooltip";
 import { EmptyProjectActions } from "../components/empty-project-actions";
 import { CreateSpaceDialog, useCreateSpaceDialog } from "../components/spaces/create-space-dialog";
@@ -281,10 +282,11 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-6 py-8">
+      <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
         {/* Header */}
-        <div className="mb-6 flex items-baseline justify-between">
-          <div>
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <MobileSidebarToggle />
+          <div className="min-w-0 flex-1">
             <h1 className="text-[1.25rem] font-semibold tracking-tight text-text-bright">
               Projects
             </h1>
