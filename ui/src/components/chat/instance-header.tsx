@@ -296,7 +296,7 @@ export function InstanceHeader({
         </Menu.Root>
       </ViewHeaderTitle>
       <div className="flex items-center gap-1">
-        <OpenInMenu path={instance.workingDirectory} compact className="hidden sm:flex" />
+        <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
         <GitMenu onCommit={() => setCommitDialogOpen(true)} onPush={handlePush} />
         <CommitMessageDialog
           open={commitDialogOpen}

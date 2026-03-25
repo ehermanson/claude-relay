@@ -157,7 +157,7 @@ function ProjectLayout() {
         </div>
 
         {/* Sub-nav */}
-        <nav className="scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/70 px-4 sm:px-6">
+        <nav className="scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/70 px-2">
           <NavTab
             to="/projects/$projectId"
             params={{ projectId }}

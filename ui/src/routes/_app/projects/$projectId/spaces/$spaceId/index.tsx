@@ -555,11 +555,7 @@ export function SpaceView() {
 
         {/* Right actions */}
         <div className="flex items-center gap-1.5">
-          <OpenInMenu
-            path={space.worktreePath || artifacts.directory}
-            compact
-            className="hidden sm:flex"
-          />
+          <OpenInMenu path={space.worktreePath || artifacts.directory} className="hidden sm:flex" />
           <GitMenu
             onCommit={() => setCommitDialogOpen(true)}
             onMerge={() => setMergeDialog({ phase: "confirm" })}
