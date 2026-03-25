@@ -1,5 +1,5 @@
 import { Moon, Sun } from "lucide-react";
-import { useTheme } from "../../context/theme-context";
+import { useTheme } from "@/hooks/use-theme-store";
 import { Tooltip } from "./tooltip";
 
 export function ThemeToggle({ className = "" }: { className?: string }) {

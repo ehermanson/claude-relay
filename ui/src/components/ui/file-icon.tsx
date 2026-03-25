@@ -1,5 +1,5 @@
 import { getFileIconUrl } from "../../lib/file-icons";
-import { useTheme } from "../../context/theme-context";
+import { useTheme } from "@/hooks/use-theme-store";
 
 interface FileIconProps {
   path: string;

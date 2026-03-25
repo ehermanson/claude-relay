@@ -50,7 +50,7 @@ import { HeaderContextToggle, HeaderIconSkeleton } from "@/components/chat/heade
 import { FilesPanel } from "@/components/chat/files-panel";
 import { ContextPanel } from "@/components/chat/context-panel";
 import { StatusDot } from "@/components/ui/status-dot";
-import { useSidecarPanels, type SidecarTab } from "@/hooks/use-sidecar-panels";
+import { useSidecarPanels, type SidecarTab } from "@/hooks/use-sidecar-store";
 import "@/components/chat/sidecar.css";
 import { OpenInMenu } from "@/components/project/open-in-menu";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";

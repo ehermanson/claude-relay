@@ -5,7 +5,7 @@ import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Sun } from "lucide-r
 import { toast } from "sonner";
 import type { InstanceInfo } from "@shared/types";
 import { useAuthContext } from "../../context/auth-context";
-import { useTheme } from "../../context/theme-context";
+import { useTheme } from "@/hooks/use-theme-store";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useActionToasts } from "../../hooks/use-action-toasts";
 import { useProjectNavigationModel } from "../../hooks/use-project-navigation-model";

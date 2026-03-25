@@ -19,7 +19,7 @@ import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useInstanceMessages } from "@/hooks/use-instance-messages";
 import { useConnectionBanner } from "@/hooks/use-connection-banner";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { useSidecarPanels } from "@/hooks/use-sidecar-panels";
+import { useSidecarPanels } from "@/hooks/use-sidecar-store";
 import { createInstance, fetchInstanceHistory } from "@/lib/api";
 import { getInstanceChatRoute, getInstanceProjectRouteId } from "@/lib/project-route";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";

@@ -1,32 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Outlet, useParams } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import { MiniSidebar } from "@/components/layout/mini-sidebar";
 import { Sidebar } from "@/components/layout/sidebar";
-import { useTheme } from "@/context/theme-context";
+import { useTheme } from "@/hooks/use-theme-store";
+import { useLayoutStore } from "@/hooks/use-layout-store";
 import { useMediaQuery } from "@/hooks/use-media-query";
-
-const STORAGE_KEY = "relay-sidebar-collapsed";
-const WIDTH_STORAGE_KEY = "relay-sidebar-width";
-const DEFAULT_WIDTH = 300;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 500;
-
-function readCollapsed(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function readWidth(): number {
-  try {
-    const v = Number(localStorage.getItem(WIDTH_STORAGE_KEY));
-    if (v >= MIN_WIDTH && v <= MAX_WIDTH) return v;
-  } catch {}
-  return DEFAULT_WIDTH;
-}
 
 export function AppLayout() {
   const { chatId, projectId } = useParams({ strict: false }) as {
@@ -35,22 +14,19 @@ export function AppLayout() {
   };
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { theme } = useTheme();
-  const [collapsed, setCollapsed] = useState(readCollapsed);
-  const [sidebarWidth, setSidebarWidth] = useState(readWidth);
-  const [isResizing, setIsResizing] = useState(false);
+  const {
+    sidebarCollapsed: collapsed,
+    sidebarWidth,
+    isResizing,
+    toggleSidebar: toggleCollapsed,
+    setSidebarWidth,
+    setIsResizing,
+    persistWidth,
+  } = useLayoutStore();
+
   const isDragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
-
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
-      } catch {}
-      return next;
-    });
-  };
 
   const onResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -62,15 +38,14 @@ export function AppLayout() {
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     },
-    [sidebarWidth],
+    [sidebarWidth, setIsResizing],
   );
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
       const delta = e.clientX - startX.current;
-      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta));
-      setSidebarWidth(next);
+      setSidebarWidth(startWidth.current + delta);
     };
     const onMouseUp = () => {
       if (!isDragging.current) return;
@@ -78,10 +53,7 @@ export function AppLayout() {
       setIsResizing(false);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      // persist on release
-      try {
-        localStorage.setItem(WIDTH_STORAGE_KEY, String(sidebarWidth));
-      } catch {}
+      persistWidth();
     };
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
@@ -89,7 +61,7 @@ export function AppLayout() {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, [sidebarWidth]);
+  }, [setSidebarWidth, setIsResizing, persistWidth]);
 
   // On mobile: show sidebar only when on / with no instance selected
   const hasContent = !!chatId || !!projectId;

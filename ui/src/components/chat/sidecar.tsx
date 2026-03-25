@@ -139,8 +139,8 @@ const TasksPanel = memo(function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
 // Tab system
 // =============================================================================
 
-import type { SidecarTab } from "@/hooks/use-sidecar-panels";
-export type { SidecarTab } from "@/hooks/use-sidecar-panels";
+import type { SidecarTab } from "@/hooks/use-sidecar-store";
+export type { SidecarTab } from "@/hooks/use-sidecar-store";
 
 function samePanelSets(a: ReadonlySet<SidecarTab>, b: ReadonlySet<SidecarTab>): boolean {
   if (a.size !== b.size) return false;

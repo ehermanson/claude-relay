@@ -32,7 +32,7 @@
     "relay:export-tgz": "node dist/bin.js export-tgz",
     "relay:import-tgz": "node dist/bin.js import-tgz",
     "dev": "tsc && concurrently -n srv,tsc,ui \"DEV=1 node --watch-path=dist dist/bin.js\" \"tsc --watch --preserveWatchOutput\" \"pnpm --filter relay-ui dev\"",
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/*.test.js && pnpm --filter relay-ui test",
     "typecheck": "tsc --noEmit && pnpm --filter relay-ui typecheck",
     "typecheck:ui": "pnpm --filter relay-ui typecheck",
     "fmt": "oxfmt src/ ui/src/",

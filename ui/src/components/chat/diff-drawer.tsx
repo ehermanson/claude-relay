@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { PatchDiff } from "@pierre/diffs/react";
 import { ChevronRight, X } from "lucide-react";
 import type { FileChange } from "@shared/types";
-import { useTheme } from "../../context/theme-context";
+import { useTheme } from "@/hooks/use-theme-store";
 import { fetchInstanceDiff } from "../../lib/api";
 import { Button } from "../ui/button";
 import { FileIcon } from "../ui/file-icon";

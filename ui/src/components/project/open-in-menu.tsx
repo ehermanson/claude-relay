@@ -13,7 +13,7 @@ import {
 } from "simple-icons";
 import type { NativeOpenTarget } from "@shared/types";
 import { fetchOpenTargets, openNativePath } from "../../lib/api";
-import { useTheme } from "../../context/theme-context";
+import { useTheme } from "@/hooks/use-theme-store";
 import { Menu } from "../ui/menu";
 import { Tooltip } from "../ui/tooltip";
 

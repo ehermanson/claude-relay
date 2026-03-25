@@ -1,7 +1,6 @@
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "../context/auth-context";
-import { ThemeProvider } from "../context/theme-context";
 import { DevTools } from "../components/dev-tools";
 
 const queryClient = new QueryClient({
@@ -16,12 +15,10 @@ const queryClient = new QueryClient({
 export const Route = createRootRoute({
   component: () => (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <AuthProvider>
-          <Outlet />
-          {import.meta.env.DEV ? <DevTools /> : null}
-        </AuthProvider>
-      </ThemeProvider>
+      <AuthProvider>
+        <Outlet />
+        {import.meta.env.DEV ? <DevTools /> : null}
+      </AuthProvider>
     </QueryClientProvider>
   ),
 });
