@@ -22,6 +22,7 @@ import type {
   TaskItem,
 } from "./types.js";
 import { createSdkSessionSync } from "./providers/claude-sdk.js";
+import { isClaudeInstalled } from "./providers/claude-cli.js";
 import { isCodexInstalled } from "./providers/codex-cli.js";
 import { discoverCodexModels } from "./providers/codex-models.js";
 import { CodexAppServerSession } from "./providers/codex-app-server.js";
@@ -201,7 +202,7 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
     kind: "claude",
     capabilities: DEFAULT_PROVIDER_CAPABILITIES.claude,
     isAvailable() {
-      return true;
+      return isClaudeInstalled();
     },
     createSession(config, options, context) {
       return createClaudeSession(config, options, context);
@@ -377,6 +378,11 @@ export function isProviderAvailable(
 }
 
 export function listAvailableProviders(context: ProviderDriverContext): ProviderDescriptor[] {
+  // Testing override: set RELAY_HIDE_PROVIDERS=1 to simulate no providers installed
+  if (process.env.RELAY_HIDE_PROVIDERS === "1") {
+    return [];
+  }
+
   return (Object.keys(PROVIDER_DRIVERS) as ProviderKind[])
     .filter((provider) => isProviderAvailable(provider, context))
     .map((provider) => ({

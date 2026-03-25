@@ -3,11 +3,14 @@ import { Outlet, useLocation } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import { MiniSidebar } from "@/components/layout/mini-sidebar";
 import { Sidebar } from "@/components/layout/sidebar";
+import { NoProvidersLanding } from "@/components/no-providers-landing";
+import { useAvailableProviders } from "@/components/chat/input-area/use-available-providers";
 import { useTheme } from "@/hooks/use-theme-store";
 import { useLayoutStore } from "@/hooks/use-layout-store";
 import { useMediaQuery } from "@/hooks/use-media-query";
 
 export function AppLayout() {
+  const { providers, isLoading: providersLoading } = useAvailableProviders();
   const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { theme } = useTheme();
@@ -93,6 +96,10 @@ export function AppLayout() {
       }}
     />
   );
+
+  if (!providersLoading && providers.length === 0) {
+    return <NoProvidersLanding />;
+  }
 
   if (isMobile) {
     return (
