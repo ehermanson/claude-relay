@@ -61,8 +61,8 @@ function CommentList({
   if (comments.length === 0) return null;
 
   return (
-    <div className="border-t border-border/60 px-4 py-3 space-y-2">
-      <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-muted">
+    <div className="border-t border-border/60 px-3.5 py-2.5 space-y-1.5">
+      <p className="text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-muted">
         Comments ({comments.length})
       </p>
       {comments.map((c, idx) => (
@@ -123,7 +123,7 @@ function InlineCommentEditor({
   }, []);
 
   return (
-    <div className="border-t border-accent/20 bg-accent/3 px-4 py-3">
+    <div className="border-t border-accent/20 bg-accent/3 px-3.5 py-2.5">
       {quotedText && (
         <div className="mb-2 rounded-md border-l-2 border-accent/30 bg-surface-hover/50 px-3 py-1.5 text-[0.75rem] leading-relaxed text-muted line-clamp-3">
           &ldquo;{quotedText}&rdquo;
@@ -284,14 +284,14 @@ export function PlanReviewPanel({ plan, onCommentsChange, comments }: PlanReview
   return (
     <div className="border-b border-border/80">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-        <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-accent/70">
+      <div className="flex items-center gap-3 px-3.5 pt-3 pb-2">
+        <p className="text-[0.625rem] font-semibold uppercase tracking-[0.18em] text-accent/70">
           Plan ready
         </p>
         {title && (
           <>
             <span className="h-3 w-px bg-border/60" aria-hidden="true" />
-            <p className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-text-bright">
+            <p className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-text-bright">
               {title}
             </p>
           </>
@@ -301,7 +301,7 @@ export function PlanReviewPanel({ plan, onCommentsChange, comments }: PlanReview
       {/* Plan content — scrollable, selectable */}
       <div
         ref={planRef}
-        className="max-h-[40vh] overflow-y-auto border-t border-border/40 px-4 py-3 text-[0.8125rem] cursor-text"
+        className="max-h-[40vh] overflow-y-auto border-t border-border/40 px-3.5 py-2.5 text-[0.8125rem] cursor-text"
         onMouseUp={handleMouseUp}
       >
         <MarkdownContent text={plan} />
@@ -309,7 +309,7 @@ export function PlanReviewPanel({ plan, onCommentsChange, comments }: PlanReview
 
       {/* Hint for text selection */}
       {comments.length === 0 && !showEditor && (
-        <div className="flex items-center gap-1.5 px-4 pb-2 text-[0.6875rem] text-muted/50">
+        <div className="flex items-center gap-1.5 px-3.5 pb-1.5 text-[0.625rem] text-muted/50">
           <MessageSquarePlus size={11} />
           Select text above to add inline comments
         </div>
