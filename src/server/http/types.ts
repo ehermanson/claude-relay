@@ -18,6 +18,7 @@ export interface HttpDeps {
   instanceManager: InstanceManager;
   startedAt: number;
   packageVersion: string;
+  selfGitInfo: { branch: string; isWorktree: boolean } | null;
   uiDistDir: string;
   indexHtmlPath: string;
   getConnectionCount?: () => number;

@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 
 /**
- * Dev launcher — finds a free port for the backend server, then spawns the
- * normal dev stack. Vite handles its own port automatically (strictPort is
- * off by default), and receives the backend port via env so its proxy targets
- * the right place.
+ * Dev launcher — finds free ports for both the backend server and the Vite
+ * dev server, then spawns the normal dev stack. Each receives its resolved
+ * port via env so the proxy always targets the right backend.
  *
  * This lets multiple instances (e.g. worktrees) run `pnpm run dev` without
  * port conflicts.
  */
 
 import net from "node:net";
-import { execSync, spawn } from "node:child_process";
+import path from "node:path";
+import { execFileSync, execSync, spawn } from "node:child_process";
 
 function isPortFree(port) {
   return new Promise((resolve) => {
@@ -29,17 +29,40 @@ async function findFreePort(start, range = 20) {
   throw new Error(`No free port found in range ${start}–${start + range - 1}`);
 }
 
-const wantPort = parseInt(process.env.PORT || "7777");
-const backendPort = await findFreePort(wantPort);
-
-if (backendPort !== wantPort) {
-  console.log(`Port ${wantPort} in use → backend on ${backendPort}`);
+/** Detect git branch and whether we're in a worktree. */
+function getGitContext() {
+  try {
+    const opts = { encoding: "utf8", timeout: 2000 };
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts).trim();
+    const gitDir = path.resolve(execFileSync("git", ["rev-parse", "--git-dir"], opts).trim());
+    const commonDir = path.resolve(
+      execFileSync("git", ["rev-parse", "--git-common-dir"], opts).trim(),
+    );
+    return { branch, isWorktree: gitDir !== commonDir };
+  } catch {
+    return null;
+  }
 }
+
+const wantBackend = parseInt(process.env.PORT || "7777");
+const wantVite = parseInt(process.env.VITE_PORT || "5173");
+
+const backendPort = await findFreePort(wantBackend);
+const vitePort = await findFreePort(wantVite);
+
+// Print a startup banner so it's clear which instance is which
+const git = getGitContext();
+const context = git ? `${git.branch}${git.isWorktree ? " (worktree)" : ""}` : "unknown";
+console.log();
+console.log(`  Relay Dev  ─  ${context}`);
+console.log(`  Backend    →  http://localhost:${backendPort}`);
+console.log(`  UI         →  http://localhost:${vitePort}`);
+console.log();
 
 // Build TypeScript first
 execSync("pnpm build:server", { stdio: "inherit" });
 
-// Spawn concurrently with the resolved port — Vite reads PORT for its proxy config
+// Spawn concurrently with the resolved ports
 const child = spawn(
   "npx",
   [
@@ -48,9 +71,12 @@ const child = spawn(
     "srv,tsc,ui",
     `DEV=1 PORT=${backendPort} node --watch-path=dist dist/bin.js`,
     "tsc --watch --preserveWatchOutput",
-    `PORT=${backendPort} pnpm --filter relay-ui dev`,
+    `PORT=${backendPort} VITE_PORT=${vitePort} pnpm --filter relay-ui dev`,
   ],
-  { stdio: "inherit", env: { ...process.env, PORT: String(backendPort) } },
+  {
+    stdio: "inherit",
+    env: { ...process.env, PORT: String(backendPort), VITE_PORT: String(vitePort) },
+  },
 );
 
 child.on("exit", (code) => process.exit(code ?? 1));

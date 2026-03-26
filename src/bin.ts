@@ -217,7 +217,7 @@ function startServer(cliArgs: string[]): void {
     .start()
     .then(() => {
       if (process.env.DEV) {
-        console.log(`Relay UI at http://localhost:5173\n`);
+        console.log(`Relay UI at http://localhost:${process.env.VITE_PORT || "5173"}\n`);
       } else if (enableTunnel) {
         startTunnel(port);
       }

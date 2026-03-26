@@ -5,7 +5,7 @@ import type { AppEnv, HttpDeps } from "../types.js";
 import { getSession, readJsonBody } from "../hono-utils.js";
 
 export function registerPublicSystemRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
-  const { auth, config, instanceManager, packageVersion, startedAt } = deps;
+  const { auth, config, instanceManager, packageVersion, selfGitInfo, startedAt } = deps;
 
   app.get("/health", (c) => {
     const uptimeSeconds = Math.floor((Date.now() - startedAt) / 1000);
@@ -15,6 +15,7 @@ export function registerPublicSystemRoutes(app: Hono<AppEnv>, deps: HttpDeps): v
       instances: instanceManager.listInstances().length,
       version: packageVersion,
       authRequired: auth.authRequired,
+      git: selfGitInfo,
     });
   });
 

@@ -8,6 +8,7 @@ import type { Plugin } from "vite";
 
 const BACKEND_PORT = parseInt(process.env.PORT || "7777");
 const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
+const VITE_PORT = parseInt(process.env.VITE_PORT || "5173");
 
 /** Vite plugin to proxy non-HMR WebSocket upgrades to the relay server */
 function wsProxy(): Plugin {
@@ -68,7 +69,8 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
-    port: 5173,
+    port: VITE_PORT,
+    strictPort: true,
     proxy: {
       "/api": BACKEND_URL,
       "/auth": BACKEND_URL,

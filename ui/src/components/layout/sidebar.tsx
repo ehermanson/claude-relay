@@ -14,6 +14,7 @@ import {
   createProject as apiCreateProject,
   completeSpace,
   deleteSpace,
+  fetchHealth,
   fetchProjectIcons,
   removeProject as apiRemoveProject,
 } from "../../lib/api";
@@ -22,6 +23,7 @@ import { AddProjectForm } from "../forms/add-project-form";
 import { CreateProjectForm } from "../forms/create-project-form";
 import { ConfirmMergeDialog } from "../spaces/confirm-merge-dialog";
 import { CreateSpaceDialog, useCreateSpaceDialog } from "../spaces/create-space-dialog";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { ConfirmActionDialog } from "../ui/confirm-action-dialog";
 import { Popover } from "../ui/popover";
@@ -41,6 +43,11 @@ export function Sidebar({
   const { trackInstanceCreate, trackInstanceMerge, trackInstanceRemove } = useActionToasts();
   const { isAuthenticated, logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
+  const { data: health } = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
+    staleTime: Infinity,
+  });
   const {
     groups,
     moveDown,
@@ -256,6 +263,20 @@ export function Sidebar({
           >
             Relay
           </span>
+          {(import.meta.env.DEV || health?.git?.isWorktree) && (
+            <span className="sidebar-logo-text flex items-center gap-1">
+              {import.meta.env.DEV && (
+                <Badge variant="warning" size="xs">
+                  Dev
+                </Badge>
+              )}
+              {health?.git?.isWorktree && (
+                <Badge variant="accent" size="xs">
+                  Worktree
+                </Badge>
+              )}
+            </span>
+          )}
         </Link>
         <div className="flex items-center gap-1">
           {onCollapse && (
