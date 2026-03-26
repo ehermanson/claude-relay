@@ -49,7 +49,7 @@ import {
   pushSpace,
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
-import { formatTokens, instanceStatusVariant } from "@/lib/utils";
+import { formatTokens, getDisplaySessionStats, instanceStatusVariant } from "@/lib/utils";
 import { HeaderContextToggle, HeaderIconSkeleton } from "@/components/chat/header-actions";
 import { FilesPanel } from "@/components/chat/files-panel";
 import { ContextPanel } from "@/components/chat/context-panel";
@@ -231,11 +231,12 @@ export function SpaceView() {
     let cacheReadTokens = 0;
     for (const inst of spaceInstances) {
       if (inst.stats) {
+        const display = getDisplaySessionStats(inst.provider, inst.stats);
         hasAny = true;
-        inputTokens += inst.stats.inputTokens;
-        outputTokens += inst.stats.outputTokens;
-        cacheCreationTokens += inst.stats.cacheCreationTokens;
-        cacheReadTokens += inst.stats.cacheReadTokens;
+        inputTokens += display.inputTokens;
+        outputTokens += display.outputTokens;
+        cacheCreationTokens += display.cacheCreationTokens;
+        cacheReadTokens += display.cacheReadTokens;
       }
     }
     if (!hasAny) return null;
