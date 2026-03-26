@@ -71,6 +71,46 @@ function makeManagedRow(overrides = {}) {
   };
 }
 
+function makeExternalRow(overrides = {}) {
+  return {
+    session_id: "external-1",
+    instance_id: "external-instance-1",
+    provider_name: "claude",
+    name: "External Session",
+    working_directory: "/tmp/test",
+    jsonl_path: "/tmp/test/session.jsonl",
+    created_at: 1000,
+    last_activity_at: 2000,
+    type: "external",
+    archived: 0,
+    custom_title: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    summary: null,
+    first_prompt: null,
+    git_branch: null,
+    message_count: 0,
+    allowed_tools: "[]",
+    worktree_path: null,
+    original_directory: null,
+    parent_session_id: null,
+    preferred_model: null,
+    reasoning_budget: null,
+    skip_permissions: 0,
+    last_message_text: null,
+    last_message_from: null,
+    last_message_at: null,
+    git_info_branch: null,
+    git_info_is_worktree: null,
+    space_id: null,
+    project_id: null,
+    model: null,
+    ...overrides,
+  };
+}
+
 describe("InstanceManager", () => {
   let manager;
 
@@ -198,6 +238,97 @@ describe("InstanceManager", () => {
 
       assert.ok(info);
       assert.equal(info.originalGitBranch, "relay-space/deadbeef");
+    });
+
+    it("restores external sessions as historical until rediscovered live", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const transcriptPath = join(projectDir, "external-session.jsonl");
+      writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: "init",
+          cwd: projectDir,
+          sessionId: "external-1",
+          timestamp: new Date().toISOString(),
+        })}\n`,
+      );
+
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsert(
+          makeExternalRow({
+            working_directory: projectDir,
+            jsonl_path: transcriptPath,
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(manager.baseConfig);
+      restored.projectManager.addProject(projectDir);
+      restored.restoreInstances();
+
+      const info = restored.getInstance("external-instance-1");
+      const instance = restored.instances.get("external-instance-1");
+
+      assert.ok(info);
+      assert.ok(instance);
+      assert.equal(info.status, "stopped");
+      assert.equal(instance.jsonlPath, transcriptPath);
+      assert.equal(instance.externalState, undefined);
+      assert.equal(instance.watchState, undefined);
+    });
+
+    it("upgrades restored historical externals when discovery rediscovers them", async () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const transcriptPath = join(projectDir, "external-redisco.jsonl");
+      writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: "init",
+          cwd: projectDir,
+          sessionId: "external-1",
+          timestamp: new Date().toISOString(),
+        })}\n`,
+      );
+
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsert(
+          makeExternalRow({
+            working_directory: projectDir,
+            jsonl_path: transcriptPath,
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(manager.baseConfig);
+      restored.projectManager.addProject(projectDir);
+      restored.restoreInstances();
+      restored.discoverExternalSessions = async () => [
+        {
+          provider: "claude",
+          cwd: projectDir,
+          transcriptPath,
+          sessionId: "external-1",
+          pid: 1234,
+        },
+      ];
+
+      await restored.discoverExistingInner();
+
+      const info = restored.getInstance("external-instance-1");
+      const instance = restored.instances.get("external-instance-1");
+
+      assert.ok(info);
+      assert.ok(instance);
+      assert.equal(info.status, "idle");
+      assert.equal(instance.externalState?.jsonlPath, transcriptPath);
+      assert.equal(instance.externalState?.pid, 1234);
+      assert.ok(instance.watchState);
     });
 
     it("refreshes the live git branch without waiting for a new message", async () => {

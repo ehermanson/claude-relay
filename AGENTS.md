@@ -17,7 +17,7 @@ Relay is a bridge between remote devices and local AI coding agents. It manages 
 
 ## Architecture Philosophy
 
-In the backend, Relay manages providers through a provider-driver registry (`provider-registry.ts`): each provider declares its capabilities and owns session creation, model lookup, transcript parsing, and managed-session recovery behind the shared `ProviderSession`/`ProviderRuntimeBinding` contract. The UI asks the server for available providers (`GET /api/providers`) and provider-scoped model metadata plus capabilities (`GET /api/provider-models`), then shows or hides toolbar controls and picker options from that metadata.
+In the backend, Relay manages providers through a provider-driver registry (`provider-registry.ts`): each provider declares its capabilities and owns session creation, model lookup, transcript parsing, external-session discovery, and managed-session recovery behind the shared `ProviderSession`/`ProviderRuntimeBinding` contract. The UI asks the server for available providers (`GET /api/providers`) and provider-scoped model metadata plus capabilities (`GET /api/provider-models`), then shows or hides toolbar controls and picker options from that metadata.
 
 **Key architectural invariants:**
 
@@ -66,8 +66,8 @@ Always `pnpm build:server` before `pnpm test` — tests import from `dist/`.
 
 ### External Session Discovery
 
-- InstanceManager polls `ps` + `lsof` every 10s to find running `claude` processes; managed PIDs excluded
-- `scanAllSessions()` walks `~/.claude/projects/` on startup for historical sessions
+- InstanceManager polls provider-specific external discovery every 10s; drivers currently use `ps` + `lsof` and exclude managed PIDs
+- `scanAllSessions()` walks provider transcript roots (`~/.claude/projects/`, `~/.codex/sessions/`) on startup for historical sessions
 - `decodeProjectDir()` uses greedy filesystem-validated decode (not naive `-` → `/`) to handle dashed project names
 - JSONL watchers track incremental changes with dedup: suppressed while process is active, offset advanced to EOF when process finishes
 

@@ -25,10 +25,7 @@ import {
 } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import { execFileSync, execFile } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
+import { execFileSync } from "child_process";
 import type { ProviderSession } from "./provider.js";
 import { resolveQueryFn } from "./providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "./providers/claude-sdk.js";
@@ -70,6 +67,7 @@ import type {
 import {
   captureManagedSessionForProvider,
   createManagedProviderSession,
+  discoverLiveExternalSessions,
   getProviderCapabilities,
   getProviderModels,
   isProviderAvailable,
@@ -77,6 +75,7 @@ import {
   parseTranscriptForProvider,
   resolveManagedTranscriptPathForProvider,
 } from "./provider-registry.js";
+import type { DiscoveredExternalSession } from "./provider-registry.js";
 import {
   AUTO_CONTINUE_MSG,
   buildCustomInstructionsPrompt,
@@ -3044,14 +3043,18 @@ export class InstanceManager extends EventEmitter {
     try {
       await this.discoverExistingInner();
       await Promise.all(
-        Array.from(this.instances.entries()).map(([instanceId, instance]) =>
-          this.refreshGitBranchStateAsync(instanceId, instance).catch((err) => {
-            this.baseConfig.logger.debug(
-              `[Discover] Git branch refresh failed for ${instanceId}:`,
-              err instanceof Error ? err.message : err,
-            );
-          }),
-        ),
+        Array.from(this.instances.entries())
+          .filter(
+            ([, instance]) => instance.externalState || instance.watchState || instance.process,
+          )
+          .map(([instanceId, instance]) =>
+            this.refreshGitBranchStateAsync(instanceId, instance).catch((err) => {
+              this.baseConfig.logger.debug(
+                `[Discover] Git branch refresh failed for ${instanceId}:`,
+                err instanceof Error ? err.message : err,
+              );
+            }),
+          ),
       );
     } catch (err) {
       this.baseConfig.logger.debug(
@@ -3068,27 +3071,15 @@ export class InstanceManager extends EventEmitter {
   }
 
   private async discoverExistingInner(): Promise<void> {
-    const projectsDir = join(this.providerDirs.claude, "projects");
-    if (!existsSync(projectsDir)) return;
-
-    // Collect PIDs of managed instances' active processes so discovery skips them
-    const managedPids = new Set<number>();
-    for (const [, instance] of this.instances) {
-      const pid = instance.process?.pid;
-      if (pid !== undefined) managedPids.add(pid);
-    }
-
-    // Find running claude processes — returns cwds with counts and PIDs
-    const cwdInfoMap = await this.findRunningClaudeCwdsAsync(managedPids);
-    if (cwdInfoMap.size === 0) {
+    const discoveredSessions = await this.discoverExternalSessions();
+    if (discoveredSessions.length === 0) {
       this.removeStaleExternals(new Set());
       return;
     }
 
-    // For each cwd, find N most recently modified JSONLs (N = number of PIDs in that cwd)
-    // Track the first PID per JSONL for external state — scoped to registered projects
-    const activeJsonls = new Map<string, { cwd: string; pid?: number }>(); // jsonlPath → info
-    for (const [cwd, info] of cwdInfoMap) {
+    const activeSessions = new Map<string, DiscoveredExternalSession>();
+    for (const session of discoveredSessions) {
+      const cwd = session.cwd;
       const isRegisteredDir = !!this._projectManager.getProjectByDirectory(cwd);
       const worktreeOrigin =
         !isRegisteredDir && isRelayWorktreePath(cwd) ? resolveWorktreeOrigin(cwd) : null;
@@ -3098,13 +3089,7 @@ export class InstanceManager extends EventEmitter {
       ) {
         continue;
       }
-      const projectDir = this.cwdToProjectDir(cwd, projectsDir);
-      if (!projectDir || !existsSync(projectDir)) continue;
-
-      const jsonlPaths = this.findRecentJsonls(projectDir, info.count);
-      for (let i = 0; i < jsonlPaths.length; i++) {
-        activeJsonls.set(jsonlPaths[i], { cwd, pid: info.pids[i] });
-      }
+      activeSessions.set(session.transcriptPath, session);
     }
 
     // Track known JSONL paths (external + managed)
@@ -3118,12 +3103,12 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Eagerly reserve JSONL paths for managed instances that haven't captured their
-    // session yet. Without this, an external `claude` process in the same CWD causes
-    // findRecentJsonls to pick up the managed instance's JSONL (the most recently
-    // modified), creating a duplicate external instance.
+    // Eagerly reserve Claude JSONL paths for managed instances that haven't captured
+    // their session yet. Without this, an external Claude process in the same CWD can
+    // pick up the managed instance's JSONL (the most recently modified) and duplicate it.
     for (const [instanceId, instance] of this.instances) {
       if (instance.info.external || instance.jsonlPath) continue;
+      if (instance.info.provider !== "claude") continue;
       const cwd = instance.actualCwd || instance.info.workingDirectory;
       const encoded = cwd.replace(/\//g, "-");
       const projectDir = join(this.providerDirs.claude, "projects", encoded);
@@ -3139,13 +3124,10 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Remove external instances that are no longer active
-    this.removeStaleExternals(new Set(activeJsonls.keys()));
+    this.removeStaleExternals(new Set(activeSessions.keys()));
 
     // Discover new sessions (and upgrade restored stopped externals)
-    // Note: SDK-based managed instances don't spawn a `claude` CLI process, so they
-    // won't appear in ps output. Their JSONLs are already in knownJsonls (via
-    // instance.jsonlPath), so the check below naturally prevents duplicates.
-    for (const [jsonlPath, { pid }] of activeJsonls) {
+    for (const [jsonlPath, active] of activeSessions) {
       if (knownJsonls.has(jsonlPath)) {
         // Check if this is a restored stopped external that should be upgraded to active
         const existingId = knownJsonls.get(jsonlPath)!;
@@ -3154,14 +3136,11 @@ export class InstanceManager extends EventEmitter {
           this.upgradeRestoredExternal(existingId, existing, jsonlPath);
         }
         // Update PID on existing external instances (PIDs can change across restarts)
-        if (existing?.externalState && pid !== undefined) {
-          existing.externalState.pid = pid;
+        if (existing?.externalState && active.pid !== undefined) {
+          existing.externalState.pid = active.pid;
         }
         continue;
       }
-
-      const fileName = jsonlPath.split("/").pop() || "";
-      const sessionId = fileName.replace(".jsonl", "");
 
       try {
         // Auto-unarchive: if this session is archived in DB, restore it
@@ -3173,66 +3152,26 @@ export class InstanceManager extends EventEmitter {
         // Check for plan-continuation parent (explicit reference in first message)
         const planParent = this.findPlanParent(jsonlPath);
         const parentSessionId = planParent?.sessionId || planParent?.info.sessionId;
-        this.addExternalInstance(sessionId, jsonlPath, parentSessionId, pid);
+        this.addExternalInstance(
+          active.provider,
+          active.sessionId,
+          jsonlPath,
+          parentSessionId,
+          active.pid,
+        );
       } catch (err) {
         this.baseConfig.logger.debug(`[InstanceManager] Failed to add external session: ${err}`);
       }
     }
   }
 
-  /** Returns a map of cwd → { count, pids } of external claude PIDs running in that directory */
-  private async findRunningClaudeCwdsAsync(
-    excludePids: Set<number>,
-  ): Promise<Map<string, { count: number; pids: number[] }>> {
-    const cwdInfo = new Map<string, { count: number; pids: number[] }>();
-    try {
-      const { stdout: psOutput } = await execFileAsync(
-        "/bin/sh",
-        ["-c", "ps -eo pid,comm 2>/dev/null | grep -E '\\bclaude$' || true"],
-        { encoding: "utf-8", timeout: 5000 },
-      );
-
-      const pids: number[] = [];
-      for (const line of psOutput.split("\n")) {
-        const match = line.trim().match(/^(\d+)\s/);
-        if (match) {
-          const pid = parseInt(match[1]);
-          if (!excludePids.has(pid)) pids.push(pid);
-        }
-      }
-
-      // Resolve CWDs in parallel
-      const results = await Promise.allSettled(
-        pids.map(async (pid) => {
-          const { stdout } = await execFileAsync(
-            "lsof",
-            ["-p", String(pid), "-a", "-d", "cwd", "-Fn"],
-            { encoding: "utf-8", timeout: 5000 },
-          );
-          return { pid, stdout };
-        }),
-      );
-
-      for (const result of results) {
-        if (result.status !== "fulfilled") continue;
-        const { pid, stdout } = result.value;
-        for (const line of stdout.split("\n")) {
-          if (line.startsWith("n/")) {
-            const cwd = line.substring(1);
-            const existing = cwdInfo.get(cwd) || { count: 0, pids: [] };
-            existing.count++;
-            existing.pids.push(pid);
-            cwdInfo.set(cwd, existing);
-          }
-        }
-      }
-    } catch (err) {
-      this.baseConfig.logger.debug(
-        "[Discovery] Failed to resolve CWDs:",
-        err instanceof Error ? err.message : err,
-      );
+  private async discoverExternalSessions(): Promise<DiscoveredExternalSession[]> {
+    const managedPids = new Set<number>();
+    for (const [, instance] of this.instances) {
+      const pid = instance.process?.pid;
+      if (pid !== undefined) managedPids.add(pid);
     }
-    return cwdInfo;
+    return discoverLiveExternalSessions(this.getProviderContext(), managedPids);
   }
 
   private cwdToProjectDir(cwd: string, projectsDir: string): string | null {
@@ -3362,12 +3301,13 @@ export class InstanceManager extends EventEmitter {
   }
 
   private addExternalInstance(
+    provider: ProviderKind,
     sessionId: string,
     jsonlPath: string,
     parentSessionId?: string,
     pid?: number,
   ): void {
-    const { cwd, history, tasks, files, stats } = this.parseJsonl(jsonlPath);
+    const { cwd, history, tasks, files, stats } = this.parseProviderTranscript(provider, jsonlPath);
     if (!cwd) return; // Can't determine working directory
 
     // Detect relay worktree paths and resolve the original project directory
@@ -3398,7 +3338,7 @@ export class InstanceManager extends EventEmitter {
 
     const info: InstanceInfo = {
       id,
-      provider: "claude",
+      provider,
       name,
       workingDirectory,
       status: "idle",
@@ -3426,7 +3366,7 @@ export class InstanceManager extends EventEmitter {
       info,
       process: null,
       providerBinding: {
-        provider: "claude",
+        provider,
         providerSessionId: sessionId,
         resumeCursor: { sessionId },
         runtimePayload: { cwd },
@@ -3469,7 +3409,7 @@ export class InstanceManager extends EventEmitter {
     this.dbSave(instance);
 
     this.baseConfig.logger.info(
-      `[InstanceManager] Discovered external session "${name}" in ${cwd}`,
+      `[InstanceManager] Discovered external ${provider} session "${name}" in ${cwd}`,
     );
   }
 
@@ -5271,7 +5211,7 @@ export class InstanceManager extends EventEmitter {
       info,
       process: null,
       providerBinding: {
-        provider: (entry.provider_name as ProviderKind) || "claude",
+        provider,
         providerSessionId: entry.session_id,
         resumeCursor: { sessionId: entry.session_id },
         runtimePayload: { cwd: entry.working_directory },
@@ -5281,10 +5221,6 @@ export class InstanceManager extends EventEmitter {
       history: [], // deferred until hydration
       sessionId: entry.session_id,
       jsonlPath: entry.jsonl_path,
-      externalState: {
-        jsonlPath: entry.jsonl_path,
-        sessionId: entry.session_id,
-      },
       // tasks and files deferred until hydration
       fileStateRevision: 0,
       worktreePath: extWorktreePath,

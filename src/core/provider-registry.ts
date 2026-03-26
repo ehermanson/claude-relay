@@ -1,6 +1,8 @@
 import { EventEmitter } from "node:events";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { CoreConfig } from "./config.js";
 import { ClaudeProcess } from "./claude-process.js";
 import {
@@ -27,6 +29,8 @@ import { isCodexInstalled } from "./providers/codex-cli.js";
 import { discoverCodexModels } from "./providers/codex-models.js";
 import { CodexAppServerSession } from "./providers/codex-app-server.js";
 import { findCodexTranscriptPath, parseCodexTranscript } from "./providers/codex-transcript.js";
+
+const execFileAsync = promisify(execFile);
 
 type QueryFn = ((params: { prompt: unknown; options?: unknown }) => unknown) | null;
 
@@ -61,6 +65,18 @@ interface ProviderCaptureContext {
   providerDirs: Record<ProviderKind, string>;
 }
 
+export interface DiscoveredExternalSession {
+  provider: ProviderKind;
+  cwd: string;
+  transcriptPath: string;
+  sessionId: string;
+  pid?: number;
+}
+
+interface ProviderExternalDiscoveryContext extends ProviderDriverContext {
+  excludePids: Set<number>;
+}
+
 interface ProviderDriver {
   kind: ProviderKind;
   capabilities: ProviderCapabilities;
@@ -84,6 +100,9 @@ interface ProviderDriver {
   captureManagedSession(
     context: ProviderCaptureContext,
   ): { sessionId: string; transcriptPath?: string } | null;
+  discoverExternalSessions?(
+    context: ProviderExternalDiscoveryContext,
+  ): Promise<DiscoveredExternalSession[]>;
 }
 
 const NO_SESSION_MESSAGE = "Gemini provider support is not implemented in this relay build yet.";
@@ -103,6 +122,190 @@ function resolveClaudeProjectDir(providerRoot: string, workingDirectory: string)
     }
   }
   return join(projectsDir, getClaudeProjectDirCandidates(workingDirectory)[0]);
+}
+
+function findRecentJsonls(projectDir: string, count: number): string[] {
+  try {
+    const files = readdirSync(projectDir)
+      .filter((file) => file.endsWith(".jsonl"))
+      .map((file) => {
+        const fullPath = join(projectDir, file);
+        try {
+          return { path: fullPath, mtime: statSync(fullPath).mtimeMs };
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is { path: string; mtime: number } => entry !== null)
+      .sort((a, b) => b.mtime - a.mtime);
+    return files.slice(0, count).map((entry) => entry.path);
+  } catch {
+    return [];
+  }
+}
+
+async function findRunningProcessCwdsAsync(
+  commandName: string,
+  excludePids: Set<number>,
+): Promise<Map<string, { count: number; pids: number[] }>> {
+  const cwdInfo = new Map<string, { count: number; pids: number[] }>();
+  try {
+    const { stdout: psOutput } = await execFileAsync(
+      "/bin/sh",
+      ["-c", `ps -eo pid,comm 2>/dev/null | grep -E '\\b${commandName}$' || true`],
+      { encoding: "utf-8", timeout: 5000 },
+    );
+
+    const pids: number[] = [];
+    for (const line of psOutput.split("\n")) {
+      const match = line.trim().match(/^(\d+)\s/);
+      if (!match) continue;
+      const pid = parseInt(match[1], 10);
+      if (!excludePids.has(pid)) pids.push(pid);
+    }
+
+    const results = await Promise.allSettled(
+      pids.map(async (pid) => {
+        const { stdout } = await execFileAsync(
+          "lsof",
+          ["-p", String(pid), "-a", "-d", "cwd", "-Fn"],
+          { encoding: "utf-8", timeout: 5000 },
+        );
+        return { pid, stdout };
+      }),
+    );
+
+    for (const result of results) {
+      if (result.status !== "fulfilled") continue;
+      const { pid, stdout } = result.value;
+      for (const line of stdout.split("\n")) {
+        if (!line.startsWith("n/")) continue;
+        const cwd = line.slice(1);
+        const existing = cwdInfo.get(cwd) ?? { count: 0, pids: [] };
+        existing.count++;
+        existing.pids.push(pid);
+        cwdInfo.set(cwd, existing);
+      }
+    }
+  } catch {
+    return cwdInfo;
+  }
+
+  return cwdInfo;
+}
+
+function readCodexSessionMeta(
+  filePath: string,
+): { sessionId: string; cwd: string; mtime: number } | null {
+  try {
+    const stats = statSync(filePath);
+    const firstLine = readFileSync(filePath, "utf-8").split("\n", 1)[0];
+    if (!firstLine) return null;
+    const parsed = JSON.parse(firstLine) as {
+      type?: string;
+      payload?: { id?: string; cwd?: string };
+    };
+    if (parsed.type !== "session_meta") return null;
+    const sessionId = parsed.payload?.id;
+    const cwd = parsed.payload?.cwd;
+    if (!sessionId || !cwd) return null;
+    return { sessionId, cwd, mtime: stats.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+function findRecentCodexTranscriptsForCwd(
+  codexDir: string,
+  cwd: string,
+  count: number,
+): Array<{ path: string; sessionId: string; mtime: number }> {
+  const sessionsDir = join(codexDir, "sessions");
+  if (!existsSync(sessionsDir)) return [];
+
+  const matches: Array<{ path: string; sessionId: string; mtime: number }> = [];
+  const stack = [sessionsDir];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    if (!dir) continue;
+
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry);
+      let isDirectory = false;
+      try {
+        isDirectory = statSync(fullPath).isDirectory();
+      } catch {
+        continue;
+      }
+      if (isDirectory) {
+        stack.push(fullPath);
+        continue;
+      }
+      if (!entry.endsWith(".jsonl")) continue;
+      const meta = readCodexSessionMeta(fullPath);
+      if (!meta || meta.cwd !== cwd) continue;
+      matches.push({ path: fullPath, sessionId: meta.sessionId, mtime: meta.mtime });
+    }
+  }
+
+  matches.sort((a, b) => b.mtime - a.mtime);
+  return matches.slice(0, count);
+}
+
+async function discoverClaudeExternalSessions(
+  context: ProviderExternalDiscoveryContext,
+): Promise<DiscoveredExternalSession[]> {
+  const cwdInfoMap = await findRunningProcessCwdsAsync("claude", context.excludePids);
+  const sessions: DiscoveredExternalSession[] = [];
+  for (const [cwd, info] of cwdInfoMap) {
+    const projectDir = resolveClaudeProjectDir(context.providerDirs.claude, cwd);
+    if (!existsSync(projectDir)) continue;
+    const jsonlPaths = findRecentJsonls(projectDir, info.count);
+    for (let i = 0; i < jsonlPaths.length; i++) {
+      const transcriptPath = jsonlPaths[i];
+      const fileName = transcriptPath.split("/").pop() || "";
+      sessions.push({
+        provider: "claude",
+        cwd,
+        transcriptPath,
+        sessionId: fileName.replace(".jsonl", ""),
+        pid: info.pids[i],
+      });
+    }
+  }
+  return sessions;
+}
+
+async function discoverCodexExternalSessions(
+  context: ProviderExternalDiscoveryContext,
+): Promise<DiscoveredExternalSession[]> {
+  const cwdInfoMap = await findRunningProcessCwdsAsync("codex", context.excludePids);
+  const sessions: DiscoveredExternalSession[] = [];
+  for (const [cwd, info] of cwdInfoMap) {
+    const transcripts = findRecentCodexTranscriptsForCwd(
+      context.providerDirs.codex,
+      cwd,
+      info.count,
+    );
+    for (let i = 0; i < transcripts.length; i++) {
+      const transcript = transcripts[i];
+      sessions.push({
+        provider: "codex",
+        cwd,
+        transcriptPath: transcript.path,
+        sessionId: transcript.sessionId,
+        pid: info.pids[i],
+      });
+    }
+  }
+  return sessions;
 }
 
 function createClaudeSession(
@@ -268,6 +471,9 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
         transcriptPath: newest.path,
       };
     },
+    discoverExternalSessions(context) {
+      return discoverClaudeExternalSessions(context);
+    },
   },
   codex: {
     kind: "codex",
@@ -338,6 +544,9 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
         sessionId,
         transcriptPath: findCodexTranscriptPath(context.providerDirs.codex, sessionId),
       };
+    },
+    discoverExternalSessions(context) {
+      return discoverCodexExternalSessions(context);
     },
   },
   gemini: {
@@ -442,6 +651,20 @@ export function captureManagedSessionForProvider(
   context: ProviderCaptureContext,
 ): { sessionId: string; transcriptPath?: string } | null {
   return getProviderDriver(provider).captureManagedSession(context);
+}
+
+export async function discoverLiveExternalSessions(
+  context: ProviderDriverContext,
+  excludePids: Set<number>,
+): Promise<DiscoveredExternalSession[]> {
+  const sessions = await Promise.all(
+    getRegisteredProviders().map(async (provider) => {
+      const driver = getProviderDriver(provider);
+      if (!driver.discoverExternalSessions || !driver.isAvailable(context)) return [];
+      return driver.discoverExternalSessions({ ...context, excludePids });
+    }),
+  );
+  return sessions.flat();
 }
 
 export function getRegisteredProviders(): ProviderKind[] {
