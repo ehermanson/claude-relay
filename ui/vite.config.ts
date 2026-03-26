@@ -6,12 +6,15 @@ import path from "path";
 import http from "http";
 import type { Plugin } from "vite";
 
+const BACKEND_PORT = parseInt(process.env.PORT || "7777");
+const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
+
 /** Vite plugin to proxy non-HMR WebSocket upgrades to the relay server */
 function wsProxy(): Plugin {
   return {
     name: "ws-proxy",
     configureServer(server) {
-      server.httpServer?.on("upgrade", (req, socket, head) => {
+      server.httpServer?.on("upgrade", (req, socket) => {
         // Let Vite handle its own HMR WebSocket
         if (req.url?.startsWith("/@") || req.url === "/") {
           // Only proxy root-level WS connections (no path = our app WS)
@@ -22,7 +25,7 @@ function wsProxy(): Plugin {
 
         const proxyReq = http.request({
           hostname: "localhost",
-          port: 7777,
+          port: BACKEND_PORT,
           path: req.url || "/",
           method: req.method,
           headers: req.headers,
@@ -67,10 +70,10 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 5173,
     proxy: {
-      "/api": "http://localhost:7777",
-      "/auth": "http://localhost:7777",
-      "/logout": "http://localhost:7777",
-      "/health": "http://localhost:7777",
+      "/api": BACKEND_URL,
+      "/auth": BACKEND_URL,
+      "/logout": BACKEND_URL,
+      "/health": BACKEND_URL,
     },
   },
 });
