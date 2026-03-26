@@ -557,6 +557,29 @@ interface PushSpaceResult {
   ghNotAuthenticated?: boolean;
 }
 
+// ─── Global Settings ──────────────────────────────────────────────────────
+
+export async function fetchGlobalSettings(): Promise<import("@shared/types").GlobalSettings> {
+  const res = await fetch("/api/settings");
+  if (!res.ok) throw new Error("Failed to fetch global settings");
+  return res.json();
+}
+
+export async function updateGlobalSettings(
+  patch: Partial<import("@shared/types").GlobalSettings>,
+): Promise<import("@shared/types").GlobalSettings> {
+  const res = await fetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to update settings" }));
+    throw new Error(data.error || "Failed to update settings");
+  }
+  return res.json();
+}
+
 export async function pushSpace(
   spaceId: string,
   opts?: { createPR?: boolean },

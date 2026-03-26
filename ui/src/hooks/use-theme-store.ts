@@ -1,44 +1,87 @@
 import { create } from "zustand";
 
-type Theme = "dark" | "light";
+export type ThemePreference = "dark" | "light" | "system";
+type ResolvedTheme = "dark" | "light";
 
 const STORAGE_KEY = "relay-theme";
 
-function loadTheme(): Theme {
+function getSystemTheme(): ResolvedTheme {
+  if (typeof window !== "undefined" && window.matchMedia) {
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  return "dark";
+}
+
+function resolveTheme(preference: ThemePreference): ResolvedTheme {
+  return preference === "system" ? getSystemTheme() : preference;
+}
+
+function loadPreference(): ThemePreference {
   try {
-    return localStorage.getItem(STORAGE_KEY) === "light" ? "light" : "dark";
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === "light" || stored === "system") return stored;
+    return "dark";
   } catch {
     return "dark";
   }
 }
 
 /** Apply theme class to <html> and persist to localStorage. */
-function applyTheme(theme: Theme) {
+function applyTheme(resolved: ResolvedTheme) {
   if (typeof document !== "undefined") {
-    document.documentElement.classList.toggle("light", theme === "light");
+    document.documentElement.classList.toggle("light", resolved === "light");
   }
+}
+
+function persistPreference(preference: ThemePreference) {
   try {
-    localStorage.setItem(STORAGE_KEY, theme);
+    localStorage.setItem(STORAGE_KEY, preference);
   } catch {}
 }
 
 interface ThemeState {
-  theme: Theme;
+  /** The user's preference (may be "system"). */
+  preference: ThemePreference;
+  /** The resolved theme actually applied to the DOM. */
+  theme: ResolvedTheme;
   toggle: () => void;
+  setTheme: (preference: ThemePreference) => void;
 }
 
-export const useThemeStore = create<ThemeState>()((set) => {
-  const initial = loadTheme();
-  applyTheme(initial);
+export const useThemeStore = create<ThemeState>()((set, get) => {
+  const initial = loadPreference();
+  const resolved = resolveTheme(initial);
+  applyTheme(resolved);
+
+  // Listen for OS theme changes when preference is "system"
+  if (typeof window !== "undefined" && window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+      if (get().preference === "system") {
+        const newResolved = getSystemTheme();
+        applyTheme(newResolved);
+        set({ theme: newResolved });
+      }
+    });
+  }
 
   return {
-    theme: initial,
+    preference: initial,
+    theme: resolved,
     toggle: () =>
       set((s) => {
         const next = s.theme === "dark" ? "light" : "dark";
         applyTheme(next);
-        return { theme: next };
+        persistPreference(next);
+        return { preference: next, theme: next };
       }),
+    setTheme: (preference: ThemePreference) => {
+      if (get().preference !== preference) {
+        const resolved = resolveTheme(preference);
+        applyTheme(resolved);
+        persistPreference(preference);
+        set({ preference, theme: resolved });
+      }
+    },
   };
 });
 
