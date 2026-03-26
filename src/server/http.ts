@@ -35,6 +35,7 @@ import { registerProviderRoutes } from "./http/routes/providers.js";
 import { registerSpaceRoutes } from "./http/routes/spaces.js";
 import { registerUiRoutes } from "./http/routes/ui.js";
 import { registerUploadRoutes } from "./http/routes/uploads.js";
+import { registerSettingsRoutes } from "./http/routes/settings.js";
 import { registerWorkspaceRoutes } from "./http/routes/workspace.js";
 import type { AppEnv, HttpDeps } from "./http/types.js";
 
@@ -265,6 +266,7 @@ export function createRequestHandler(
   registerProviderRoutes(app, deps);
   registerNativeOpenRoutes(app, deps);
   registerUploadRoutes(app, deps);
+  registerSettingsRoutes(app, deps);
   registerUiRoutes(app, deps);
 
   app.onError((error, c) => {

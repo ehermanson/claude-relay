@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { FolderPlus, Loader2, LogOut, Moon, PanelLeftClose, Plus, Sun } from "lucide-react";
+import { FolderPlus, Loader2, LogOut, PanelLeftClose, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
 import type { InstanceInfo } from "@shared/types";
 import { useAuthContext } from "../../context/auth-context";
-import { useTheme } from "@/hooks/use-theme-store";
 import { useWSMethods, useWSState } from "../../context/websocket-context";
 import { useActionToasts } from "../../hooks/use-action-toasts";
 import { useProjectNavigationModel } from "../../hooks/use-project-navigation-model";
@@ -40,7 +39,6 @@ export function Sidebar({
   const { isConnected, isSyncing, instances } = useWSState();
   const { trackInstanceCreate, trackInstanceMerge, trackInstanceRemove } = useActionToasts();
   const { isAuthenticated, logout } = useAuthContext();
-  const { theme, toggle: toggleTheme } = useTheme();
   const {
     groups,
     moveDown,
@@ -385,10 +383,12 @@ export function Sidebar({
 
       <div className="shrink-0 border-t border-border">
         <div className="sidebar-footer flex items-center justify-between px-4 py-2">
-          <Button variant="ghost" size="sm" onClick={toggleTheme}>
-            {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-            {theme === "dark" ? "Light" : "Dark"}
-          </Button>
+          <Link to="/settings">
+            <Button variant="ghost" size="sm">
+              <Settings size={14} />
+              Settings
+            </Button>
+          </Link>
           {isAuthenticated && (
             <Button variant="ghost" size="sm" onClick={logout}>
               <LogOut size={13} />

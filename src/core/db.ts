@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 18;
+const CURRENT_SCHEMA_VERSION = 19;
 
 export interface ProjectRow {
   id: string;
@@ -61,6 +61,18 @@ export interface SpaceRow {
   status: string;
   created_at: number;
   last_activity_at: number;
+}
+
+export interface GlobalSettingsRow {
+  id: number;
+  theme: string;
+  default_open_target: string | null;
+  default_provider: string | null;
+  default_model: string | null;
+  default_space_branch: string | null;
+  space_branch_source: string;
+  provider_defaults_json: string | null;
+  custom_instructions: string | null;
 }
 
 export interface SessionRow {
@@ -192,6 +204,8 @@ export class SessionDB {
   private stmtDeleteSpace!: Database.Statement;
   private stmtGetSpaceChatCount!: Database.Statement;
   private stmtUpdateSessionSpaceId!: Database.Statement;
+  private stmtGetGlobalSettings!: Database.Statement;
+  private stmtUpdateGlobalSettings!: Database.Statement;
   private stmtUpdateManagedSpaceId!: Database.Statement;
 
   constructor(dbPath: string, logger: Logger) {
@@ -510,6 +524,22 @@ export class SessionDB {
         this.db.exec(`ALTER TABLE projects ADD COLUMN space_branch_source TEXT`);
       }
     }
+
+    // v19: global settings table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS global_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        theme TEXT DEFAULT 'dark',
+        default_open_target TEXT,
+        default_provider TEXT,
+        default_model TEXT,
+        default_space_branch TEXT,
+        space_branch_source TEXT DEFAULT 'local',
+        provider_defaults_json TEXT,
+        custom_instructions TEXT
+      );
+      INSERT OR IGNORE INTO global_settings (id) VALUES (1);
+    `);
 
     // Update version
     if (currentVersion === 0) {
@@ -876,6 +906,21 @@ export class SessionDB {
     this.stmtUpdateManagedSpaceId = this.db.prepare(
       "UPDATE managed_sessions SET space_id = ? WHERE instance_id = ?",
     );
+
+    // Global settings
+    this.stmtGetGlobalSettings = this.db.prepare("SELECT * FROM global_settings WHERE id = 1");
+    this.stmtUpdateGlobalSettings = this.db.prepare(`
+      UPDATE global_settings SET
+        theme = @theme,
+        default_open_target = @default_open_target,
+        default_provider = @default_provider,
+        default_model = @default_model,
+        default_space_branch = @default_space_branch,
+        space_branch_source = @space_branch_source,
+        provider_defaults_json = @provider_defaults_json,
+        custom_instructions = @custom_instructions
+      WHERE id = 1
+    `);
   }
 
   upsert(row: SessionRow): void {
@@ -1174,6 +1219,43 @@ export class SessionDB {
 
   updateManagedSpaceId(instanceId: string, spaceId: string | null): void {
     this.stmtUpdateManagedSpaceId.run(spaceId, instanceId);
+  }
+
+  // =========================================================================
+  // Global Settings
+  // =========================================================================
+
+  getGlobalSettings(): GlobalSettingsRow {
+    const row = this.stmtGetGlobalSettings.get() as GlobalSettingsRow | undefined;
+    if (!row) {
+      this.db.exec("INSERT OR IGNORE INTO global_settings (id) VALUES (1)");
+      return this.stmtGetGlobalSettings.get() as GlobalSettingsRow;
+    }
+    return row;
+  }
+
+  updateGlobalSettings(patch: Partial<Omit<GlobalSettingsRow, "id">>): GlobalSettingsRow {
+    const current = this.getGlobalSettings();
+    // Use "key in patch" checks so explicit null clears the value (vs omitted = keep current)
+    this.stmtUpdateGlobalSettings.run({
+      theme: "theme" in patch ? patch.theme : current.theme,
+      default_open_target:
+        "default_open_target" in patch ? patch.default_open_target : current.default_open_target,
+      default_provider:
+        "default_provider" in patch ? patch.default_provider : current.default_provider,
+      default_model: "default_model" in patch ? patch.default_model : current.default_model,
+      default_space_branch:
+        "default_space_branch" in patch ? patch.default_space_branch : current.default_space_branch,
+      space_branch_source:
+        "space_branch_source" in patch ? patch.space_branch_source : current.space_branch_source,
+      provider_defaults_json:
+        "provider_defaults_json" in patch
+          ? patch.provider_defaults_json
+          : current.provider_defaults_json,
+      custom_instructions:
+        "custom_instructions" in patch ? patch.custom_instructions : current.custom_instructions,
+    });
+    return this.getGlobalSettings();
   }
 
   clear(): void {

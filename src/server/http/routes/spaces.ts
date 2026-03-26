@@ -25,7 +25,13 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
       if (!effectiveBranch && project.defaultSpaceBranch) {
         effectiveBranch = project.defaultSpaceBranch;
       }
-      if (effectiveBranch && project.spaceBranchSource === "remote" && project.repoRoot) {
+      // Fall back to global defaults if no project-level branch configured
+      const globalSettings = instanceManager.sessionDb.getGlobalSettings();
+      if (!effectiveBranch && globalSettings.default_space_branch) {
+        effectiveBranch = globalSettings.default_space_branch;
+      }
+      const branchSource = project.spaceBranchSource ?? globalSettings.space_branch_source;
+      if (effectiveBranch && branchSource === "remote" && project.repoRoot) {
         const remote = getPrimaryRemote(project.repoRoot);
         if (!effectiveBranch.includes("/")) {
           effectiveBranch = `${remote}/${effectiveBranch}`;

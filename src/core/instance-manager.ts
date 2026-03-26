@@ -64,6 +64,7 @@ import type {
   ProviderRequest,
   ProviderRuntimeBinding,
   ProviderRuntimeMode,
+  ReasoningEffort,
   ProviderModelOption,
   UserInputQuestion,
 } from "./types.js";
@@ -1045,6 +1046,11 @@ export class InstanceManager extends EventEmitter {
     return this._projectManager;
   }
 
+  /** Access the session DB for global settings. */
+  get sessionDb(): SessionDB {
+    return this.db;
+  }
+
   /**
    * Assign projectId to instances that don't have one yet but match
    * the given project's directory.
@@ -1189,25 +1195,49 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Resolve provider and model: explicit options > project defaults > system defaults
+    // Resolve provider and model: explicit options > project defaults > global defaults > system defaults
+    const globalSettings = this.db.getGlobalSettings();
     const provider: ProviderKind = options?.provider
       ? options.provider
-      : ((project?.defaultProvider as ProviderKind) ?? "claude");
-    const model = options?.model ?? project?.defaultModel ?? this.baseConfig.defaultModel;
+      : (((project?.defaultProvider ?? globalSettings.default_provider) as ProviderKind) ??
+        "claude");
+
+    // Parse per-provider defaults from global settings
+    let providerDefaults: Record<
+      string,
+      { model?: string; reasoningEffort?: string; runtimeMode?: string }
+    > = {};
+    if (globalSettings.provider_defaults_json) {
+      try {
+        providerDefaults = JSON.parse(globalSettings.provider_defaults_json);
+      } catch {}
+    }
+    const perProvider = providerDefaults[provider];
+
+    const model =
+      options?.model ??
+      project?.defaultModel ??
+      perProvider?.model ??
+      globalSettings.default_model ??
+      this.baseConfig.defaultModel;
 
     const instanceConfig: CoreConfig = {
       ...this.baseConfig,
       workingDirectory,
       dangerouslySkipPermissions:
-        options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
+        options?.dangerouslySkipPermissions ??
+        (perProvider?.runtimeMode === "full-access" ? true : undefined) ??
+        this.baseConfig.dangerouslySkipPermissions,
     };
 
-    // Build canonical modelOptions: explicit modelOptions wins, fall back to legacy reasoningBudget
+    // Build canonical modelOptions: explicit modelOptions wins, then per-provider defaults, then legacy reasoningBudget
     const modelOptions: ProviderModelOptions | undefined =
       options?.modelOptions ??
       (options?.reasoningBudget != null
         ? { reasoningBudgetTokens: options.reasoningBudget }
-        : undefined);
+        : perProvider?.reasoningEffort
+          ? { reasoningEffort: perProvider.reasoningEffort as ReasoningEffort }
+          : undefined);
     const proc = this.createProviderSession(instanceConfig, {
       provider,
       resumeSessionId: resumeId,
@@ -1225,7 +1255,9 @@ export class InstanceManager extends EventEmitter {
     if (!name) name = "New Session";
 
     const skipPerms =
-      options?.dangerouslySkipPermissions ?? this.baseConfig.dangerouslySkipPermissions;
+      options?.dangerouslySkipPermissions ??
+      (perProvider?.runtimeMode === "full-access" ? true : undefined) ??
+      this.baseConfig.dangerouslySkipPermissions;
 
     const initialGitInfo = getGitInfo(workingDirectory) ?? undefined;
     const info: InstanceInfo = {
@@ -1637,28 +1669,39 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    if (!instance.customInstructionsInjected && !internal && instance.info.projectId) {
+    if (!instance.customInstructionsInjected && !internal) {
       instance.customInstructionsInjected = true;
-      const project = this._projectManager.getProject(instance.info.projectId);
-      if (project) {
-        const parts: string[] = [];
-        if (project.customInstructions?.trim()) {
-          parts.push(project.customInstructions.trim());
-        }
-        const instructionsPath = join(project.directory, ".relay", "instructions.md");
-        try {
-          if (existsSync(instructionsPath)) {
-            const fileInstructions = readFileSync(instructionsPath, "utf8").trim();
-            if (fileInstructions) {
-              parts.push(fileInstructions);
-            }
+      const parts: string[] = [];
+
+      // Global custom instructions (apply to all projects)
+      const globalCustomInstructions = this.db.getGlobalSettings().custom_instructions;
+      if (globalCustomInstructions?.trim()) {
+        parts.push(globalCustomInstructions.trim());
+      }
+
+      // Project-level custom instructions
+      if (instance.info.projectId) {
+        const project = this._projectManager.getProject(instance.info.projectId);
+        if (project) {
+          if (project.customInstructions?.trim()) {
+            parts.push(project.customInstructions.trim());
           }
-        } catch {
-          // Non-critical — skip if file can't be read
+          const instructionsPath = join(project.directory, ".relay", "instructions.md");
+          try {
+            if (existsSync(instructionsPath)) {
+              const fileInstructions = readFileSync(instructionsPath, "utf8").trim();
+              if (fileInstructions) {
+                parts.push(fileInstructions);
+              }
+            }
+          } catch {
+            // Non-critical — skip if file can't be read
+          }
         }
-        if (parts.length > 0) {
-          customInstructions = parts.join("\n\n");
-        }
+      }
+
+      if (parts.length > 0) {
+        customInstructions = parts.join("\n\n");
       }
     }
 

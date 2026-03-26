@@ -139,6 +139,23 @@ export interface ProviderModelsResponse {
   capabilities: ProviderCapabilities;
 }
 
+export interface ProviderDefaults {
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  runtimeMode?: ProviderRuntimeMode;
+}
+
+export interface GlobalSettings {
+  theme: "dark" | "light" | "system";
+  defaultOpenTarget: string | null;
+  defaultProvider: string | null;
+  defaultModel: string | null;
+  defaultSpaceBranch: string | null;
+  spaceBranchSource: "local" | "remote";
+  providerDefaults: Record<string, ProviderDefaults>;
+  customInstructions: string | null;
+}
+
 export interface SessionStats {
   inputTokens: number;
   outputTokens: number;
