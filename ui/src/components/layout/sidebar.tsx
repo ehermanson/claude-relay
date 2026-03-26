@@ -408,7 +408,7 @@ export function Sidebar({
       </div>
 
       <div className="shrink-0 border-t border-border">
-        <div className="sidebar-footer flex items-center justify-between px-4 py-2">
+        <div className="sidebar-footer flex items-center justify-between px-2 py-2">
           <Link to="/settings">
             <Button variant="ghost" size="sm">
               <Settings size={14} />

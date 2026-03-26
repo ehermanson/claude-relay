@@ -11,6 +11,7 @@ import {
 import { Input, Textarea, Select } from "../components/ui/input";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import { ProviderLogo } from "@/components/chat/input-area/shared";
+import { SettingsSection, SettingRow } from "@/components/settings/settings-shared";
 import { useThemeStore, type ThemePreference } from "@/hooks/use-theme-store";
 import type { GlobalSettings, ProviderDefaults, ProviderDescriptor } from "@shared/types";
 
@@ -70,59 +71,6 @@ function useAutoSave() {
     },
   });
   return mutation;
-}
-
-// ─── Shared layout components ──────────────────────────────────────────────
-
-export function SettingsSection({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <h2 className="text-base font-semibold text-text-bright">{title}</h2>
-      <p className="mt-0.5 text-[0.8125rem] text-muted">{description}</p>
-      <div className="mt-5 divide-y divide-dashed divide-border/60">{children}</div>
-    </div>
-  );
-}
-
-export function SettingRow({
-  label,
-  description,
-  children,
-  vertical,
-}: {
-  label: string;
-  description: string;
-  children: React.ReactNode;
-  vertical?: boolean;
-}) {
-  if (vertical) {
-    return (
-      <div className="flex flex-col gap-3 py-5">
-        <div className="min-w-0">
-          <div className="text-[0.8125rem] font-medium text-text-bright">{label}</div>
-          <div className="mt-0.5 text-[0.75rem] text-muted">{description}</div>
-        </div>
-        <div>{children}</div>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center justify-between gap-8 py-5">
-      <div className="min-w-0">
-        <div className="text-[0.8125rem] font-medium text-text-bright">{label}</div>
-        <div className="mt-0.5 text-[0.75rem] text-muted">{description}</div>
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
 }
 
 // ─── General Section ───────────────────────────────────────────────────────
