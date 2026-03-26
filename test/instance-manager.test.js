@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -19,6 +19,11 @@ const noopLogger = {
 function makeConfig(overrides = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "relay-im-test-"));
   execSync("git init -q", { cwd: tempDir });
+  execSync("git config user.email test@test.com", { cwd: tempDir });
+  execSync("git config user.name Test", { cwd: tempDir });
+  writeFileSync(join(tempDir, "README.md"), "# Test\n");
+  execSync("git add .", { cwd: tempDir });
+  execSync("git commit -q -m initial", { cwd: tempDir });
   return resolveConfig({
     password: "test",
     logger: noopLogger,
@@ -398,6 +403,41 @@ describe("InstanceManager", () => {
       manager.removeInstance(a.id);
       const d = manager.createInstance(); // should succeed now
       assert.ok(d.id);
+    });
+
+    it("does not remove a shared space worktree when deleting one chat", () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Shared space",
+      });
+      assert.ok(space.worktreePath);
+      assert.equal(existsSync(space.worktreePath), true);
+
+      const info = manager.createInstance({ spaceId: space.id });
+      assert.equal(manager.removeInstance(info.id), true);
+
+      const refreshedSpace = manager.getSpaceManager().getSpace(space.id);
+      assert.ok(refreshedSpace?.worktreePath);
+      assert.equal(existsSync(refreshedSpace.worktreePath), true);
+    });
+
+    it("preserves a shared space worktree even if the instance is missing in-memory spaceId", () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Recovered shared space",
+      });
+      assert.ok(space.worktreePath);
+      assert.equal(existsSync(space.worktreePath), true);
+
+      const info = manager.createInstance({ spaceId: space.id });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      instance.info.spaceId = undefined;
+
+      assert.equal(manager.removeInstance(info.id), true);
+
+      const refreshedSpace = manager.getSpaceManager().getSpace(space.id);
+      assert.ok(refreshedSpace?.worktreePath);
+      assert.equal(existsSync(refreshedSpace.worktreePath), true);
     });
   });
 
