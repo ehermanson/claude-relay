@@ -1221,11 +1221,7 @@ export class InstanceManager extends EventEmitter {
     const perProvider = providerDefaults[provider];
 
     const model =
-      options?.model ??
-      project?.defaultModel ??
-      perProvider?.model ??
-      globalSettings.default_model ??
-      this.baseConfig.defaultModel;
+      options?.model ?? project?.defaultModel ?? perProvider?.model ?? this.baseConfig.defaultModel;
 
     // Resolve permissions: explicit options > per-provider global default > base config
     const resolvedSkipPermissions =
@@ -1251,8 +1247,8 @@ export class InstanceManager extends EventEmitter {
             ? { reasoningEffort: perProvider.reasoningEffort as ReasoningEffort }
             : undefined);
 
-    // Apply per-provider fastMode default if not already set
-    if (perProvider?.fastMode != null && !options?.modelOptions?.fastMode) {
+    // Apply per-provider fastMode default only if caller didn't explicitly set it
+    if (perProvider?.fastMode != null && options?.modelOptions?.fastMode === undefined) {
       modelOptions = { ...modelOptions, fastMode: perProvider.fastMode };
     }
     const proc = this.createProviderSession(instanceConfig, {
