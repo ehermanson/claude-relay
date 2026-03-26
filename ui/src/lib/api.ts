@@ -23,6 +23,21 @@ export class ApiError extends Error {
   }
 }
 
+export interface HealthResponse {
+  status: string;
+  uptime: number;
+  instances: number;
+  version: string;
+  authRequired: boolean;
+  git: { branch: string; isWorktree: boolean } | null;
+}
+
+export async function fetchHealth(): Promise<HealthResponse> {
+  const res = await fetch("/health");
+  if (!res.ok) throw new Error("Failed to fetch health");
+  return res.json();
+}
+
 export async function login(password: string): Promise<{ success: boolean; error?: string }> {
   const res = await fetch("/auth", {
     method: "POST",

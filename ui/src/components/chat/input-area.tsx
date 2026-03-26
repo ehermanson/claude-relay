@@ -754,7 +754,7 @@ export function InputArea({
                   showAttachButton={!isInSpecialMode}
                   controls={isInSpecialMode ? [] : toolbarControls}
                   overflowSections={isInSpecialMode ? [] : overflowSections}
-                  isProcessing={isProcessing}
+                  isProcessing={isInSpecialMode ? false : isProcessing}
                   onCancel={onCancel}
                   onAttachImage={() => fileInputRef.current?.click()}
                   onSend={

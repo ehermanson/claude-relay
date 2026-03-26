@@ -9,7 +9,7 @@
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { execSync, execFileSync } from "child_process";
-import { join } from "path";
+import { basename, join } from "path";
 import { homedir } from "os";
 import { EventEmitter } from "events";
 
@@ -47,6 +47,7 @@ function rowToInfo(row: SpaceRow, chatCount: number): SpaceInfo {
 
 export interface SpaceManagerEvents {
   "space:created": [space: SpaceInfo];
+  "space:updated": [space: SpaceInfo];
   "space:completed": [spaceId: string, projectDirectory: string, targetBranch: string];
   "space:removed": [spaceId: string, projectDirectory: string];
 }
@@ -85,6 +86,33 @@ export class SpaceManager extends EventEmitter {
       },
       this.db.getSpaceChatCount(row.id),
     );
+  }
+
+  private deriveRecoveredSpaceId(row: {
+    space_id: string | null;
+    worktree_path: string | null;
+    git_branch: string | null;
+  }): string | null {
+    if (row.space_id) return row.space_id;
+
+    const worktreeBase = row.worktree_path ? basename(row.worktree_path) : null;
+    if (worktreeBase?.startsWith("space-")) {
+      return `recovered-${worktreeBase}`;
+    }
+
+    const branchSuffix = row.git_branch?.match(/^relay-space\/(.+)$/)?.[1];
+    if (branchSuffix) {
+      return `recovered-space-${branchSuffix}`;
+    }
+
+    return null;
+  }
+
+  private deriveRecoveredSpaceName(row: {
+    git_branch: string | null;
+    worktree_path: string | null;
+  }): string {
+    return row.git_branch ?? row.worktree_path ?? "Recovered space";
   }
 
   /**
@@ -179,8 +207,135 @@ export class SpaceManager extends EventEmitter {
    * List all active spaces for a project.
    */
   listSpaces(projectDirectory: string): SpaceInfo[] {
+    if (isGitRepo(projectDirectory)) {
+      this.getOrCreateDefaultSpace(projectDirectory);
+    }
     const rows = this.db.getSpacesByProject(projectDirectory);
     return rows.map((row) => this.toInfo(row));
+  }
+
+  recoverSpacesFromSessionMetadata(): number {
+    const existingSpaces = new Map<string, SpaceRow>();
+    const defaultSpaces = new Set<string>();
+
+    for (const project of this.db.getAllProjects()) {
+      for (const space of this.db.getSpacesByProject(project.directory)) {
+        existingSpaces.set(space.id, space);
+        if (space.is_default === 1) {
+          defaultSpaces.add(project.directory);
+        }
+      }
+    }
+
+    const activeProjects = new Set<string>();
+    for (const row of this.db.getAllActive()) {
+      activeProjects.add(row.original_directory ?? row.working_directory);
+    }
+    for (const row of this.db.getAllManagedActive()) {
+      activeProjects.add(row.original_directory ?? row.working_directory);
+    }
+
+    let recovered = 0;
+    for (const projectDirectory of activeProjects) {
+      if (!defaultSpaces.has(projectDirectory) && isGitRepo(projectDirectory)) {
+        this.getOrCreateDefaultSpace(projectDirectory);
+        defaultSpaces.add(projectDirectory);
+        recovered++;
+      }
+    }
+
+    const recoveredSpaces = new Map<
+      string,
+      {
+        row: SpaceRow;
+        sessionIds: string[];
+        managedInstanceIds: string[];
+      }
+    >();
+
+    const collect = (
+      row: {
+        session_id?: string;
+        instance_id?: string;
+        working_directory: string;
+        original_directory: string | null;
+        worktree_path: string | null;
+        git_branch: string | null;
+        space_id: string | null;
+        created_at: number;
+        last_activity_at: number;
+        archived: number;
+      },
+      kind: "session" | "managed",
+    ) => {
+      if (row.archived) return;
+      if (!row.worktree_path && !row.git_branch?.startsWith("relay-space/")) return;
+
+      const projectDirectory = row.original_directory ?? row.working_directory;
+      const id = this.deriveRecoveredSpaceId(row);
+      if (!id) return;
+
+      const existing = recoveredSpaces.get(id);
+      if (!existing) {
+        recoveredSpaces.set(id, {
+          row: {
+            id,
+            project_directory: projectDirectory,
+            name: this.deriveRecoveredSpaceName(row),
+            git_branch: row.git_branch,
+            worktree_path: row.worktree_path,
+            is_default: 0,
+            status: "active",
+            created_at: row.created_at,
+            last_activity_at: row.last_activity_at,
+          },
+          sessionIds: kind === "session" && row.session_id ? [row.session_id] : [],
+          managedInstanceIds: kind === "managed" && row.instance_id ? [row.instance_id] : [],
+        });
+        return;
+      }
+
+      existing.row.created_at = Math.min(existing.row.created_at, row.created_at);
+      existing.row.last_activity_at = Math.max(existing.row.last_activity_at, row.last_activity_at);
+      existing.row.project_directory = projectDirectory;
+      existing.row.git_branch = existing.row.git_branch ?? row.git_branch;
+      existing.row.worktree_path = existing.row.worktree_path ?? row.worktree_path;
+
+      if (kind === "session" && row.session_id) {
+        existing.sessionIds.push(row.session_id);
+      }
+      if (kind === "managed" && row.instance_id) {
+        existing.managedInstanceIds.push(row.instance_id);
+      }
+    };
+
+    for (const row of this.db.getAllActive()) {
+      collect(row, "session");
+    }
+    for (const row of this.db.getAllManagedActive()) {
+      collect(row, "managed");
+    }
+
+    for (const { row, sessionIds, managedInstanceIds } of recoveredSpaces.values()) {
+      if (!existingSpaces.has(row.id)) {
+        this.db.upsertSpace(row);
+        existingSpaces.set(row.id, row);
+        recovered++;
+      }
+
+      for (const sessionId of sessionIds) {
+        this.db.updateSessionSpaceId(sessionId, row.id);
+      }
+      for (const instanceId of managedInstanceIds) {
+        this.db.updateManagedSpaceId(instanceId, row.id);
+      }
+    }
+
+    if (recovered > 0) {
+      this.logger.info(`[SpaceManager] Recovered ${recovered} space row(s) from session metadata`);
+    }
+
+    return recovered;
   }
 
   /**
@@ -190,6 +345,31 @@ export class SpaceManager extends EventEmitter {
     const row = this.db.getSpace(id);
     if (!row) return undefined;
     return this.toInfo(row);
+  }
+
+  renameSpace(id: string, name: string): SpaceInfo {
+    const row = this.db.getSpace(id);
+    if (!row) {
+      throw new Error(`Space ${id} not found`);
+    }
+    if (row.is_default) {
+      throw new Error("Cannot rename the default space");
+    }
+
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new Error("Space name cannot be empty");
+    }
+
+    const now = Date.now();
+    this.db.updateSpaceName(id, trimmed, now);
+    const updated = this.db.getSpace(id);
+    if (!updated) {
+      throw new Error(`Space ${id} not found after rename`);
+    }
+    const info = this.toInfo(updated);
+    this.emit("space:updated", info);
+    return info;
   }
 
   /**

@@ -320,6 +320,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
           onApproveTool={handleApproveTool}
           approvedTools={approvedTools}
           isExternal={!!instance.sessionId}
+          pendingInteraction={!!instance.pendingPlan || !!pendingUserInput}
           planChildId={planChild?.id}
           planChildName={planChild?.name}
         />
@@ -356,7 +357,8 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       {isPendingApproval &&
         pendingPermissionTool &&
         pendingPermissionRequestId &&
-        !instance.external && (
+        !instance.external &&
+        !instance.pendingPlan && (
           <PermissionBanner
             key={pendingPermissionRequestId}
             provider={instance.provider}

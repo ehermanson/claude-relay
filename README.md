@@ -195,7 +195,7 @@ Relay's backend is organized around a **provider-driver registry**. Each provide
   └─────────────────────────────────────────────────────────────────────┘
 ```
 
-Each driver implements: `isAvailable()`, `createSession()`, `getModels()`, `parseTranscript()`, `resolveManagedTranscriptPath()`, and `captureManagedSession()`. The UI never hardcodes provider-specific logic — it queries `GET /api/providers` for available providers and `GET /api/provider-models?provider=...` for model lists and capabilities, then shows or hides controls accordingly.
+Each driver implements: `isAvailable()`, `createSession()`, `getModels()`, `parseTranscript()`, `discoverExternalSessions()`, `resolveManagedTranscriptPath()`, and `captureManagedSession()`. The UI never hardcodes provider-specific logic — it queries `GET /api/providers` for available providers and `GET /api/provider-models?provider=...` for model lists and capabilities, then shows or hides controls accordingly.
 
 ### Data Flow
 

@@ -8,6 +8,7 @@ import {
   formatTokens,
   formatModel,
   formatTimestamp,
+  getDisplaySessionStats,
   instanceStatusVariant,
 } from "../../lib/utils";
 import type { SessionStats, HistoryEntry, InstanceInfo } from "@shared/types";
@@ -50,10 +51,11 @@ interface TokenBreakdownSegment {
   color: string;
 }
 
-function computeSegments(stats: SessionStats): TokenBreakdownSegment[] {
-  const cacheRead = stats.cacheReadTokens;
-  const cacheWrite = stats.cacheCreationTokens;
-  const pureInput = stats.inputTokens;
+function computeSegments(stats: SessionStats, provider?: string): TokenBreakdownSegment[] {
+  const display = getDisplaySessionStats(provider, stats);
+  const cacheRead = display.cacheReadTokens;
+  const cacheWrite = display.cacheCreationTokens;
+  const pureInput = display.inputTokens;
   const output = stats.outputTokens;
   const total = pureInput + cacheRead + cacheWrite + output;
   if (total === 0) return [];
@@ -375,13 +377,14 @@ function InstanceContext({
 
   const rawEntries = useMemo(() => extractRawEntries(rawHistory ?? []), [rawHistory]);
 
-  const totalTokens = stats.inputTokens + stats.outputTokens;
+  const displayStats = getDisplaySessionStats(provider, stats);
+  const totalTokens = displayStats.totalTokens;
   const contextTokens = stats.contextTokens ?? 0;
   const contextWindow = stats.contextWindow ?? 0;
   const usagePct = contextWindow > 0 ? (contextTokens / contextWindow) * 100 : 0;
   const reasoning = stats.reasoningTokens ?? 0;
   const displayModel = stats.model ?? preferredModel;
-  const segments = computeSegments(stats);
+  const segments = computeSegments(stats, provider);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -413,14 +416,14 @@ function InstanceContext({
           )}
           <StatRow
             label="Total Tokens"
-            help="Chat total based on the provider's reported input plus output usage. Cache reads may already be folded into input."
+            help="Chat total across input, output, and cache usage, normalized so cache-hit reads are not double-counted as input."
             value={formatTokens(totalTokens)}
           />
           <StatRow label="Messages" value={totalMessages} />
           <StatRow
             label="Input Tokens"
-            help="Tokens sent in requests during this chat. Some providers include cache-hit tokens here."
-            value={formatTokens(stats.inputTokens)}
+            help="Non-cache request tokens sent during this chat. For providers that fold cache-hit reads into input, this view subtracts those reads back out."
+            value={formatTokens(displayStats.inputTokens)}
           />
           <StatRow
             label="Output Tokens"
@@ -437,7 +440,7 @@ function InstanceContext({
           <StatRow
             label="Cache Tokens (read/write)"
             help="Prompt-cache tokens reused from earlier work or written for future reuse. Read tokens may also be counted in input."
-            value={`${formatTokens(stats.cacheReadTokens)} / ${formatTokens(stats.cacheCreationTokens)}`}
+            value={`${formatTokens(displayStats.cacheReadTokens)} / ${formatTokens(displayStats.cacheCreationTokens)}`}
           />
           <StatRow label="User Messages" value={userCount} />
           <StatRow label="Assistant Messages" value={assistantCount} />
@@ -543,7 +546,7 @@ function SpaceContext({
                 </span>
                 {inst.stats && (
                   <span className="shrink-0 text-[0.6875rem] text-muted/50">
-                    {formatTokens(inst.stats.inputTokens + inst.stats.outputTokens)}
+                    {formatTokens(getDisplaySessionStats(inst.provider, inst.stats).totalTokens)}
                   </span>
                 )}
               </div>

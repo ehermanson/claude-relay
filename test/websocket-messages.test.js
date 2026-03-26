@@ -10,7 +10,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { WebSocket } from "ws";
@@ -138,14 +138,14 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Subscribe first
       ws.send(JSON.stringify({ type: "subscribe", instanceId: info.id }));
-      const histMsg = await ws.nextMessageOfType("instance_history");
+      await ws.nextMessageOfType("instance_history");
 
       // Unsubscribe — should not produce any response message
       ws.send(JSON.stringify({ type: "unsubscribe", instanceId: info.id }));
 
       // Send a list_instances to verify the connection still works
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const listMsg = await ws.nextMessageOfType("instance_list");
+      await ws.nextMessageOfType("instance_list");
     });
   });
 
@@ -186,7 +186,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
       // The cancel call shouldn't crash even though the process isn't actually running
       // Send a followup to verify connection is healthy
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessageOfType("instance_list");
+      await ws.nextMessageOfType("instance_list");
     });
   });
 
@@ -208,7 +208,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Verify connection is still healthy
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessageOfType("instance_list");
+      await ws.nextMessageOfType("instance_list");
     });
 
     it("handles refresh_title for unknown instance", async () => {
@@ -226,7 +226,44 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Verify connection is still healthy
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessageOfType("instance_list");
+      await ws.nextMessageOfType("instance_list");
+    });
+  });
+
+  describe("rename_space", () => {
+    it("renames a space and broadcasts the updated space list", async () => {
+      const session = auth.createSession();
+      const ws = await connect(session.id);
+      await ws.waitForHandshake();
+
+      const projectDir = join(tempDir, "repo");
+      mkdirSync(projectDir, { recursive: true });
+      manager.db.upsertSpace({
+        id: "space-rename",
+        project_directory: projectDir,
+        name: "Old Space Name",
+        git_branch: "relay-space/rename",
+        worktree_path: join(projectDir, ".relay", "worktrees", "space-rename"),
+        is_default: 0,
+        status: "active",
+        created_at: Date.now(),
+        last_activity_at: Date.now(),
+      });
+
+      ws.send(
+        JSON.stringify({
+          type: "rename_space",
+          spaceId: "space-rename",
+          name: "New Space Name",
+        }),
+      );
+
+      const msg = await ws.nextMessageOfType("space_list");
+      assert.equal(msg.projectDirectory, projectDir);
+      const renamed = msg.spaces.find((space) => space.id === "space-rename");
+      assert.ok(renamed);
+      assert.equal(renamed.name, "New Space Name");
+      assert.equal(manager.db.getSpace("space-rename")?.name, "New Space Name");
     });
   });
 
@@ -240,7 +277,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Connection should still work
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessageOfType("instance_list");
+      await ws.nextMessageOfType("instance_list");
     });
   });
 
@@ -254,7 +291,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Connection should still work
       ws.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws.nextMessageOfType("instance_list");
+      await ws.nextMessageOfType("instance_list");
     });
   });
 
@@ -287,11 +324,11 @@ describe("WebSocket Messages — Additional Coverage", () => {
 
       // Only ws1 subscribes
       ws1.send(JSON.stringify({ type: "subscribe", instanceId: info.id }));
-      const histMsg = await ws1.nextMessageOfType("instance_history");
+      await ws1.nextMessageOfType("instance_history");
 
       // ws2 should not have received the history
       ws2.send(JSON.stringify({ type: "list_instances" }));
-      const msg = await ws2.nextMessageOfType("instance_list"); // This is the response to list_instances, not history
+      await ws2.nextMessageOfType("instance_list"); // This is the response to list_instances, not history
     });
   });
 

@@ -70,6 +70,7 @@ interface SidebarProjectGroupProps {
   spaces?: SpaceInfo[];
   activeSpaceId?: string;
   onCreateSpace: (dir: string) => void;
+  onRenameSpace?: (spaceId: string, name: string) => void;
   onCompleteSpace?: (spaceId: string) => void;
   onDeleteSpace?: (spaceId: string) => void;
 }
@@ -98,6 +99,7 @@ export function SidebarProjectGroup({
   spaces,
   activeSpaceId,
   onCreateSpace,
+  onRenameSpace,
   onCompleteSpace,
   onDeleteSpace,
 }: SidebarProjectGroupProps) {
@@ -424,6 +426,7 @@ export function SidebarProjectGroup({
                     space={space}
                     projectId={routeProjectId}
                     isActive={activeSpaceId === space.id}
+                    onRename={onRenameSpace ?? (() => {})}
                     onComplete={onCompleteSpace ?? (() => {})}
                     onDelete={onDeleteSpace ?? (() => {})}
                   />

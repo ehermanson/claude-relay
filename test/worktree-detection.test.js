@@ -8,7 +8,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { execSync } from "node:child_process";
 import {
@@ -18,6 +18,7 @@ import {
   removeWorktree,
 } from "../dist/core/git.js";
 import { InstanceManager } from "../dist/core/instance-manager.js";
+import { SessionDB } from "../dist/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
 
 const noopLogger = {
@@ -42,6 +43,7 @@ function createSpaceWorktree(repoDir, shortId = "aabbccdd") {
   const worktreePath = join(homedir(), ".relay", "worktrees", `space-${shortId}`);
   const branchName = `relay-space/${shortId}`;
   mkdirSync(join(homedir(), ".relay", "worktrees"), { recursive: true });
+  rmSync(worktreePath, { recursive: true, force: true });
   execSync(`git worktree add -b "${branchName}" "${worktreePath}" HEAD`, {
     cwd: repoDir,
     stdio: "pipe",
@@ -110,7 +112,7 @@ describe("resolveWorktreeOrigin", () => {
   });
 
   it("resolves space worktree origins to the main repo directory", () => {
-    worktree = createSpaceWorktree(repoDir);
+    worktree = createSpaceWorktree(repoDir, "a1b2c3d4");
     assert.ok(worktree, "space worktree should be created");
     cleanupWorktrees.push(worktree);
 
@@ -293,6 +295,65 @@ describe("scanAllSessions worktree recovery", () => {
     manager.stopAll();
   });
 
+  it("rebuilds relay space sessions from space-prefixed worktree transcript dirs", () => {
+    const wt = createSpaceWorktree(repoDir, "1a2b3c4d");
+    assert.ok(wt, "space worktree should be created");
+    cleanupWorktrees.push(wt);
+
+    const claudeDir = join(tempDir, ".claude");
+    const encoded = wt.worktreePath.replace(/\./g, "-").replace(/\//g, "-");
+    const projectDir = join(claudeDir, "projects", encoded);
+    mkdirSync(projectDir, { recursive: true });
+
+    const sessionId = "00000000-0000-0000-0000-00000000000a";
+    const jsonlPath = join(projectDir, `${sessionId}.jsonl`);
+    writeFileSync(
+      jsonlPath,
+      JSON.stringify({
+        type: "system",
+        cwd: wt.worktreePath,
+        timestamp: new Date().toISOString(),
+      }) + "\n",
+    );
+
+    const config = resolveConfig({
+      password: "test",
+      logger: noopLogger,
+      maxProcesses: 3,
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir,
+      codexDir: join(tempDir, ".codex"),
+    });
+    const manager = new InstanceManager(config);
+    manager.projectManager.addProject(repoDir);
+    manager.restoreAndScan();
+
+    const instances = manager.listInstances();
+    assert.equal(instances.length, 1, "should restore the space-backed session");
+    assert.equal(realpathSync(instances[0].workingDirectory), realpathSync(repoDir));
+    assert.equal(instances[0].spaceId, "recovered-space-1a2b3c4d");
+
+    const spaces = manager.getSpaceManager().listSpaces(repoDir);
+    const recoveredSpace = spaces.find((space) => space.id === "recovered-space-1a2b3c4d");
+    assert.ok(recoveredSpace, "should recover a non-default space row");
+    assert.equal(recoveredSpace.gitBranch, wt.branchName);
+    assert.equal(realpathSync(recoveredSpace.worktreePath), realpathSync(wt.worktreePath));
+
+    const db = new SessionDB(config.dbPath, noopLogger);
+    try {
+      const row = db.getByJsonlPath(jsonlPath);
+      assert.ok(row, "scanned session row should exist");
+      assert.equal(row.git_branch, wt.branchName);
+      assert.equal(row.space_id, "recovered-space-1a2b3c4d");
+      assert.equal(realpathSync(row.worktree_path), realpathSync(wt.worktreePath));
+      assert.equal(realpathSync(row.original_directory), realpathSync(repoDir));
+    } finally {
+      db.close();
+    }
+
+    manager.stopAll();
+  });
+
   it("archives gracefully when worktree no longer exists on disk", () => {
     const wt = createWorktree(repoDir, "aabbccdd");
     assert.ok(wt, "worktree should be created");
@@ -419,6 +480,77 @@ describe("scanAllSessions archive protection", () => {
     assert.equal(instances.length, 1, "instance should survive re-scan after worktree removal");
     manager2.stopAll();
   });
+
+  it("relinks restored instances when session metadata rebuilds their missing spaces", () => {
+    const wt = createSpaceWorktree(repoDir, "9f8e7d6c");
+    assert.ok(wt, "space worktree should be created");
+    cleanupWorktrees.push(wt);
+
+    const config = resolveConfig({
+      password: "test",
+      logger: noopLogger,
+      maxProcesses: 3,
+      dbPath: join(tempDir, "sessions.db"),
+      claudeDir: join(tempDir, ".claude"),
+      codexDir: join(tempDir, ".codex"),
+    });
+    const manager1 = new InstanceManager(config);
+    const project = manager1.projectManager.addProject(repoDir);
+    manager1.db.upsert({
+      session_id: "external-space-row",
+      instance_id: "external-space-instance",
+      provider_name: "claude",
+      name: "Recovered Space Session",
+      working_directory: repoDir,
+      jsonl_path: join(tempDir, "existing.jsonl"),
+      created_at: 1000,
+      last_activity_at: 2000,
+      type: "external",
+      archived: 0,
+      custom_title: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      summary: null,
+      first_prompt: null,
+      git_branch: wt.branchName,
+      message_count: 0,
+      allowed_tools: "[]",
+      worktree_path: wt.worktreePath,
+      original_directory: repoDir,
+      parent_session_id: null,
+      preferred_model: null,
+      reasoning_budget: null,
+      skip_permissions: 0,
+      last_message_text: null,
+      last_message_from: null,
+      last_message_at: null,
+      git_info_branch: wt.branchName,
+      git_info_is_worktree: 1,
+      space_id: null,
+      project_id: project.id,
+      model: null,
+    });
+    writeFileSync(join(tempDir, "existing.jsonl"), "{}\n");
+    manager1.restoreInstances();
+
+    const before = manager1.getInstance("external-space-instance");
+    assert.ok(before);
+    assert.equal(before.spaceId, undefined);
+
+    manager1["scanAllSessions"] = () => {};
+    manager1["scanAndRestoreNew"]();
+
+    const after = manager1.getInstance("external-space-instance");
+    assert.ok(after);
+    assert.equal(after.spaceId, "recovered-space-9f8e7d6c");
+
+    const spaces = manager1.getSpaceManager().listSpaces(repoDir);
+    assert.ok(spaces.some((space) => space.id === "recovered-space-9f8e7d6c"));
+
+    manager1.stopAll();
+  });
 });
 
 describe("live discovery worktree recovery", () => {
@@ -477,8 +609,16 @@ describe("live discovery worktree recovery", () => {
     const manager = new InstanceManager(config);
     manager.projectManager.addProject(repoDir);
 
-    manager["findRunningClaudeCwdsAsync"] = () =>
-      Promise.resolve(new Map([[wt.worktreePath, { count: 1, pids: [99999] }]]));
+    manager["discoverExternalSessions"] = () =>
+      Promise.resolve([
+        {
+          provider: "claude",
+          cwd: wt.worktreePath,
+          transcriptPath: jsonlPath,
+          sessionId,
+          pid: 99999,
+        },
+      ]);
 
     await manager["discoverExisting"]();
 

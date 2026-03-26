@@ -2,235 +2,18 @@ import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { ActivityGroup } from "@/components/chat/activity-group";
 import { AgentTranscript } from "@/components/chat/agent-transcript";
 import { ClaudeMessage } from "@/components/chat/claude-message";
 import { LiveStatusStrip } from "@/components/chat/live-status-strip";
+import { ResponseDivider } from "@/components/chat/response-divider";
 import { SystemMessage } from "@/components/chat/system-message";
 import { ThinkingBlock } from "@/components/chat/thinking-block";
+import { ToolContainer } from "@/components/chat/tool-container";
 import { UserMessage } from "@/components/chat/user-message";
+import { buildRows, estimateRowHeight } from "@/components/chat/build-rows";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
-import type { ChatItem, LiveActivity } from "@/hooks/use-instance-messages";
-import { INTERACTIVE_TOOLS } from "@shared/tools";
-import type { ActivityMessage, UserInputAnswer } from "@shared/types";
-
-// ── Row types ────────────────────────────────────────────────────────
-
-interface ToolGroupData {
-  activities: ActivityMessage[];
-  originalIndex: number;
-  isLastActivityGroup: boolean;
-  trailingResolution?: "approved" | "dismissed" | "feedback";
-  skipLeadingResult?: boolean;
-}
-
-type RenderRow =
-  | { id: string; kind: "user"; text: string; timestamp?: number }
-  | {
-      id: string;
-      kind: "assistant";
-      text: string;
-      timestamp?: number;
-      isLast: boolean;
-    }
-  | { id: string; kind: "system"; text: string; isError?: boolean }
-  | { id: string; kind: "thinking-block"; text: string }
-  | {
-      id: string;
-      kind: "agent-transcript";
-      title: string;
-      result: string;
-      timestamp?: number;
-    }
-  | { id: string; kind: "response-divider"; durationLabel: string }
-  | {
-      id: string;
-      kind: "tool-container";
-      groups: ToolGroupData[];
-      totalActivities: number;
-    };
-
-// ── Build render rows from ChatItems ─────────────────────────────────
-
-function buildRows(items: ChatItem[]): RenderRow[] {
-  const isManagedComposerPrompt = (activity: ActivityMessage | undefined) =>
-    activity?.tool === "AskUserQuestion" &&
-    typeof activity.input === "object" &&
-    activity.input !== null &&
-    typeof (activity.input as Record<string, unknown>).requestId === "string";
-
-  // Pre-compute last indices for interactivity
-  let lastActivityGroupIndex = -1;
-  let lastAssistantIndex = -1;
-  for (let i = items.length - 1; i >= 0; i--) {
-    if (lastActivityGroupIndex === -1 && items[i].kind === "activity-group")
-      lastActivityGroupIndex = i;
-    if (lastAssistantIndex === -1 && items[i].kind === "assistant") lastAssistantIndex = i;
-    if (lastActivityGroupIndex !== -1 && lastAssistantIndex !== -1) break;
-  }
-
-  // Detect cross-group interactive tool resolutions
-  const crossGroupResolution = new Map<number, "approved" | "dismissed" | "feedback">();
-  const skipLeadingResultGroups = new Set<number>();
-  for (let i = 0; i < items.length; i++) {
-    const curr = items[i];
-    if (curr.kind !== "activity-group") continue;
-    const lastAct = curr.activities[curr.activities.length - 1];
-    if (isManagedComposerPrompt(lastAct)) continue;
-    if (lastAct?.activity !== "tool_use" || !INTERACTIVE_TOOLS.has(lastAct.tool || "")) continue;
-    for (let j = i + 1; j < items.length; j++) {
-      const next = items[j];
-      if (next.kind !== "activity-group") continue;
-      const firstAct = next.activities[0];
-      if (isManagedComposerPrompt(firstAct)) continue;
-      if (firstAct?.activity === "tool_result" && firstAct.resolution) {
-        crossGroupResolution.set(i, firstAct.resolution!);
-        skipLeadingResultGroups.add(j);
-      }
-      break;
-    }
-  }
-
-  const rows: RenderRow[] = [];
-  let lastRenderedKind: string | null = null;
-  let i = 0;
-
-  while (i < items.length) {
-    const item = items[i];
-
-    if (item.kind === "activity-group") {
-      // Collect consecutive activity-groups into one tool container
-      const runStart = i;
-      const groups: ToolGroupData[] = [];
-      while (i < items.length && items[i].kind === "activity-group") {
-        const g = items[i] as ChatItem & { kind: "activity-group" };
-        const visibleActivities = g.activities.filter(
-          (activity) => !isManagedComposerPrompt(activity),
-        );
-        if (visibleActivities.length > 0) {
-          groups.push({
-            activities: visibleActivities,
-            originalIndex: i,
-            isLastActivityGroup: i === lastActivityGroupIndex,
-            trailingResolution: crossGroupResolution.get(i),
-            skipLeadingResult: skipLeadingResultGroups.has(i),
-          });
-        }
-        i++;
-      }
-      if (groups.length === 0) continue;
-      const totalActivities = groups.reduce(
-        (sum, g) =>
-          sum +
-          g.activities.filter((a) => a.activity !== "tool_result" || !!a.permissionDenied).length,
-        0,
-      );
-      rows.push({
-        id: `tools-${runStart}`,
-        kind: "tool-container",
-        groups,
-        totalActivities,
-      });
-      lastRenderedKind = "tool-container";
-    } else {
-      // Insert response divider when assistant text follows tool calls
-      if (item.kind === "assistant" && lastRenderedKind === "tool-container") {
-        let durationLabel = "";
-        for (let j = i - 1; j >= 0; j--) {
-          if (items[j].kind === "user") {
-            const userTs = (items[j] as ChatItem & { kind: "user" }).timestamp;
-            if (userTs && item.timestamp) {
-              const seconds = Math.round((item.timestamp - userTs) / 1000);
-              if (seconds >= 1) {
-                durationLabel =
-                  seconds >= 60
-                    ? ` \u00b7 ${Math.floor(seconds / 60)}m ${seconds % 60}s`
-                    : ` \u00b7 ${seconds}s`;
-              }
-            }
-            break;
-          }
-        }
-        rows.push({
-          id: `divider-${i}`,
-          kind: "response-divider",
-          durationLabel,
-        });
-      }
-
-      switch (item.kind) {
-        case "user":
-          rows.push({
-            id: `user-${i}`,
-            kind: "user",
-            text: item.text,
-            timestamp: item.timestamp,
-          });
-          break;
-        case "assistant":
-          rows.push({
-            id: `assistant-${i}`,
-            kind: "assistant",
-            text: item.text,
-            timestamp: item.timestamp,
-            isLast: i === lastAssistantIndex,
-          });
-          break;
-        case "system":
-          rows.push({
-            id: `system-${i}`,
-            kind: "system",
-            text: item.text,
-            isError: item.isError,
-          });
-          break;
-        case "thinking-block":
-          rows.push({
-            id: `thinking-${i}`,
-            kind: "thinking-block",
-            text: item.text,
-          });
-          break;
-        case "agent-transcript":
-          rows.push({
-            id: `transcript-${i}`,
-            kind: "agent-transcript",
-            title: item.title,
-            result: item.result,
-            timestamp: item.timestamp,
-          });
-          break;
-      }
-      lastRenderedKind = item.kind;
-      i++;
-    }
-  }
-
-  return rows;
-}
-
-// ── Height estimation (corrected by measureElement after render) ──────
-
-function estimateRowHeight(row: RenderRow): number {
-  switch (row.kind) {
-    case "user":
-      return 72 + Math.ceil(row.text.length / 80) * 20;
-    case "assistant":
-      return Math.max(80, Math.min(500, 60 + Math.ceil(row.text.length / 60) * 20));
-    case "system":
-      return 44;
-    case "thinking-block":
-      return 60 + Math.ceil(row.text.length / 80) * 16;
-    case "agent-transcript":
-      return 80;
-    case "response-divider":
-      return 36;
-    case "tool-container": {
-      const activityCount = row.groups.reduce((s, g) => s + g.activities.length, 0);
-      return 40 + activityCount * 40;
-    }
-  }
-}
+import type { ChatItem, LiveActivity, RenderRow } from "@/components/chat/types";
+import type { UserInputAnswer } from "@shared/types";
 
 // ── Threshold for "near bottom" detection ────────────────────────────
 
@@ -256,6 +39,7 @@ interface MessageListProps {
   onApproveTool?: (tool: string) => void;
   approvedTools?: Set<string>;
   isExternal?: boolean;
+  pendingInteraction?: boolean;
   planChildId?: string;
   planChildName?: string;
 }
@@ -273,6 +57,7 @@ export function MessageList({
   onApproveTool,
   approvedTools,
   isExternal,
+  pendingInteraction,
   planChildId,
   planChildName,
 }: MessageListProps) {
@@ -287,13 +72,9 @@ export function MessageList({
   const rows = useMemo(() => buildRows(items), [items]);
 
   // ── Hybrid split ─────────────────────────────────────────────────
-  // Always keep the last N rows non-virtualized so the bottom of the
-  // chat has real DOM measurements. During processing, extend that to
-  // include the full current turn (from last user message onward).
   const firstUnvirtualizedRowIndex = useMemo(() => {
     const tailStart = Math.max(rows.length - ALWAYS_UNVIRTUALIZED_TAIL_ROWS, 0);
     if (!isProcessing) return tailStart;
-    // Find the last user message to include the full current turn
     for (let i = rows.length - 1; i >= 0; i--) {
       if (rows[i].kind === "user") return Math.min(i, tailStart);
     }
@@ -312,8 +93,6 @@ export function MessageList({
     overscan: 8,
   });
 
-  // Prevent viewport jumping when items above the viewport resize.
-  // Only adjust scroll position when NOT near the bottom.
   useEffect(() => {
     rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta, instance) => {
       const viewportHeight = instance.scrollRect?.height ?? 0;
@@ -340,7 +119,9 @@ export function MessageList({
   }, [items, forceStickToBottom, onContentChange]);
 
   // ── Thinking indicator ───────────────────────────────────────────
-  const showThinking = !!showThinkingIndicator || !!isProcessing || instanceStatus === "processing";
+  const showThinking =
+    !pendingInteraction &&
+    (!!showThinkingIndicator || !!isProcessing || instanceStatus === "processing");
 
   // ── Row renderer ─────────────────────────────────────────────────
   const renderRow = (row: RenderRow) => {
@@ -356,45 +137,21 @@ export function MessageList({
       case "agent-transcript":
         return <AgentTranscript title={row.title} result={row.result} />;
       case "response-divider":
-        return (
-          <div className="my-1 flex items-center gap-3">
-            <span className="h-px flex-1 bg-border/50" />
-            <span className="rounded-lg bg-bg px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted/80">
-              Response{row.durationLabel}
-            </span>
-            <span className="h-px flex-1 bg-border/50" />
-          </div>
-        );
+        return <ResponseDivider durationLabel={row.durationLabel} />;
       case "tool-container":
         return (
-          <div className="rounded-lg border border-border/60 bg-surface/40">
-            {row.totalActivities > 0 && (
-              <div className="px-3 pt-2.5 pb-1">
-                <span className="text-[10px] uppercase tracking-[0.12em] text-muted/50">
-                  Tool call
-                  {row.totalActivities > 1 ? `s (${row.totalActivities})` : ""}
-                </span>
-              </div>
-            )}
-            <div className="flex flex-col px-1 pb-1.5">
-              {row.groups.map((g) => (
-                <ActivityGroup
-                  key={g.originalIndex}
-                  activities={g.activities}
-                  onSendMessage={g.isLastActivityGroup ? onSendMessage : undefined}
-                  onAnswerUserInput={g.isLastActivityGroup ? onAnswerUserInput : undefined}
-                  isInteractive={g.isLastActivityGroup ? isInteractive : undefined}
-                  onApproveTool={g.isLastActivityGroup ? onApproveTool : undefined}
-                  approvedTools={approvedTools}
-                  isExternal={g.isLastActivityGroup ? isExternal : undefined}
-                  trailingResolution={g.trailingResolution}
-                  skipLeadingResult={g.skipLeadingResult}
-                  planChildId={planChildId}
-                  planChildName={planChildName}
-                />
-              ))}
-            </div>
-          </div>
+          <ToolContainer
+            groups={row.groups}
+            allActivities={row.allActivities}
+            onSendMessage={onSendMessage}
+            onAnswerUserInput={onAnswerUserInput}
+            isInteractive={isInteractive}
+            onApproveTool={onApproveTool}
+            approvedTools={approvedTools}
+            isExternal={isExternal}
+            planChildId={planChildId}
+            planChildName={planChildName}
+          />
         );
     }
   };

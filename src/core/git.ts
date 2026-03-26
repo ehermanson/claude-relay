@@ -6,7 +6,7 @@
  */
 
 import { execSync, execFileSync, execFile as execFileCb } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, openSync, readSync, closeSync, readFileSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { homedir } from "os";
 import { promisify } from "util";
@@ -17,6 +17,22 @@ const WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
 const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const RELAY_GIT_FALLBACK_NAME = "Relay";
 const RELAY_GIT_FALLBACK_EMAIL = "relay@local";
+
+/** Check if a file is likely binary by reading the first 8KB and looking for null bytes. */
+function isBinaryFile(absPath: string): boolean {
+  try {
+    const fd = openSync(absPath, "r");
+    const buf = Buffer.alloc(8192);
+    const bytesRead = readSync(fd, buf, 0, 8192, 0);
+    closeSync(fd);
+    for (let i = 0; i < bytesRead; i++) {
+      if (buf[i] === 0) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 function normalizeBranchName(branch: string): string | null {
   const trimmed = branch.trim();
@@ -543,17 +559,38 @@ export function enrichDiffStats(
       encoding: "utf8" as const,
     }).trim();
 
-    if (!output) return;
+    if (output) {
+      for (const line of output.split("\n")) {
+        if (!line) continue;
+        const parts = line.split("\t");
+        if (parts.length < 3 || parts[0] === "-") continue; // binary file
+        const absPath = join(repoRoot, parts[2]);
+        const file = files.get(absPath);
+        if (file) {
+          file.additions = parseInt(parts[0], 10);
+          file.deletions = parseInt(parts[1], 10);
+        }
+      }
+    }
 
-    for (const line of output.split("\n")) {
-      if (!line) continue;
-      const parts = line.split("\t");
-      if (parts.length < 3 || parts[0] === "-") continue; // binary file
-      const absPath = join(repoRoot, parts[2]);
+    // Also count lines in untracked files that are in our file map
+    const untracked = getUntrackedFiles(cwd);
+    for (const relPath of untracked) {
+      const absPath = join(repoRoot, relPath);
       const file = files.get(absPath);
       if (file) {
-        file.additions = parseInt(parts[0], 10);
-        file.deletions = parseInt(parts[1], 10);
+        try {
+          if (isBinaryFile(absPath)) continue;
+          const content = readFileSync(absPath, "utf8");
+          const lineCount =
+            content.length === 0
+              ? 0
+              : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+          file.additions = lineCount;
+          file.deletions = 0;
+        } catch {
+          // skip unreadable files
+        }
       }
     }
   } catch {
@@ -631,6 +668,74 @@ export async function hasWorktreeChangesAsync(
 }
 
 /**
+ * List untracked files in the repo (files not known to git).
+ * Returns paths relative to the repo root.
+ */
+function getUntrackedFiles(cwd: string): string[] {
+  try {
+    const output = execFileSync("git", ["ls-files", "--others", "--exclude-standard"], {
+      cwd,
+      timeout: 5000,
+      encoding: "utf8" as const,
+    }).trim();
+    if (!output) return [];
+    return output.split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Generate a unified diff patch for an untracked (new) file.
+ * Mimics git diff output format so it can be concatenated with tracked diffs.
+ * Returns null for binary files or unreadable files.
+ */
+function diffForNewFile(repoRoot: string, relPath: string): string | null {
+  try {
+    const absPath = join(repoRoot, relPath);
+    if (isBinaryFile(absPath)) {
+      // Emit a binary stub like git does
+      return [
+        `diff --git a/${relPath} b/${relPath}`,
+        "new file mode 100644",
+        `Binary files /dev/null and b/${relPath} differ`,
+        "",
+      ].join("\n");
+    }
+    const content = readFileSync(absPath, "utf8");
+
+    // Empty file — valid diff with no hunks
+    if (content.length === 0) {
+      return [
+        `diff --git a/${relPath} b/${relPath}`,
+        "new file mode 100644",
+        "--- /dev/null",
+        `+++ b/${relPath}`,
+        "",
+      ].join("\n");
+    }
+
+    const lines = content.split("\n");
+    const hasTrailingNewline = content.endsWith("\n");
+    const displayLines = hasTrailingNewline ? lines.slice(0, -1) : lines;
+    const count = displayLines.length;
+
+    const header = [
+      `diff --git a/${relPath} b/${relPath}`,
+      "new file mode 100644",
+      "--- /dev/null",
+      `+++ b/${relPath}`,
+      `@@ -0,0 +1,${count} @@`,
+    ];
+    const body = displayLines.map((l) => `+${l}`);
+    if (!hasTrailingNewline) body.push("\\ No newline at end of file");
+    return header.join("\n") + "\n" + body.join("\n") + "\n";
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve the base ref for diffing an instance's changes.
  * Reuses the same logic as enrichDiffStats:
  * - Worktree: merge-base with original branch
@@ -661,6 +766,7 @@ function resolveBaseRef(
 
 /**
  * Get the unified diff for all changed files relative to the session baseline.
+ * Includes both tracked modifications and untracked (new) files.
  * Returns the raw `git diff` output string, or null if not a git repo.
  */
 export function getFullDiff(
@@ -668,14 +774,24 @@ export function getFullDiff(
   opts?: { originalBranch?: string; sessionCreatedAt?: number },
 ): string | null {
   try {
-    if (!getRepoRoot(cwd)) return null;
+    const repoRoot = getRepoRoot(cwd);
+    if (!repoRoot) return null;
     const baseRef = resolveBaseRef(cwd, opts);
-    return execFileSync("git", ["diff", baseRef], {
+    let diff = execFileSync("git", ["diff", baseRef], {
       cwd,
       timeout: 10000,
       encoding: "utf8" as const,
       maxBuffer: 10 * 1024 * 1024,
     });
+
+    // Append diffs for untracked (new) files
+    const untracked = getUntrackedFiles(cwd);
+    for (const relPath of untracked) {
+      const patch = diffForNewFile(repoRoot, relPath);
+      if (patch) diff += patch;
+    }
+
+    return diff;
   } catch {
     return null;
   }
@@ -683,6 +799,7 @@ export function getFullDiff(
 
 /**
  * Get the unified diff for a single file relative to the session baseline.
+ * Handles both tracked files and untracked (new) files.
  * Returns the raw `git diff` output string, or null if not a git repo.
  */
 export function getFileDiff(
@@ -691,14 +808,28 @@ export function getFileDiff(
   opts?: { originalBranch?: string; sessionCreatedAt?: number },
 ): string | null {
   try {
-    if (!getRepoRoot(cwd)) return null;
+    const repoRoot = getRepoRoot(cwd);
+    if (!repoRoot) return null;
     const baseRef = resolveBaseRef(cwd, opts);
-    return execFileSync("git", ["diff", baseRef, "--", filePath], {
+    const diff = execFileSync("git", ["diff", baseRef, "--", filePath], {
       cwd,
       timeout: 10000,
       encoding: "utf8" as const,
       maxBuffer: 10 * 1024 * 1024,
     });
+
+    // If git diff returned nothing, check if it's an untracked file
+    if (!diff.trim()) {
+      const relPath = filePath.startsWith(repoRoot)
+        ? filePath.slice(repoRoot.length + 1)
+        : filePath;
+      const untracked = getUntrackedFiles(cwd);
+      if (untracked.includes(relPath)) {
+        return diffForNewFile(repoRoot, relPath) ?? "";
+      }
+    }
+
+    return diff;
   } catch {
     return null;
   }
@@ -773,17 +904,39 @@ export async function enrichDiffStatsAsync(
       timeout: 5000,
     });
     const output = stdout.trim();
-    if (!output) return;
 
-    for (const line of output.split("\n")) {
-      if (!line) continue;
-      const parts = line.split("\t");
-      if (parts.length < 3 || parts[0] === "-") continue;
-      const absPath = join(repoRoot, parts[2]);
+    if (output) {
+      for (const line of output.split("\n")) {
+        if (!line) continue;
+        const parts = line.split("\t");
+        if (parts.length < 3 || parts[0] === "-") continue;
+        const absPath = join(repoRoot, parts[2]);
+        const file = files.get(absPath);
+        if (file) {
+          file.additions = parseInt(parts[0], 10);
+          file.deletions = parseInt(parts[1], 10);
+        }
+      }
+    }
+
+    // Also count lines in untracked files that are in our file map
+    const untracked = getUntrackedFiles(cwd);
+    for (const relPath of untracked) {
+      const absPath = join(repoRoot, relPath);
       const file = files.get(absPath);
       if (file) {
-        file.additions = parseInt(parts[0], 10);
-        file.deletions = parseInt(parts[1], 10);
+        try {
+          if (isBinaryFile(absPath)) continue;
+          const content = readFileSync(absPath, "utf8");
+          const lineCount =
+            content.length === 0
+              ? 0
+              : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+          file.additions = lineCount;
+          file.deletions = 0;
+        } catch {
+          // skip unreadable files
+        }
       }
     }
   } catch {

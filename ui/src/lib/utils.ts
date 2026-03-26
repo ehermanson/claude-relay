@@ -73,6 +73,37 @@ export function getDisplayTokenBreakdown(usage: {
   };
 }
 
+export function getDisplaySessionStats(
+  providerName: ProviderKind | string | undefined,
+  stats: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+  },
+): {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  totalTokens: number;
+} {
+  const display = getDisplayTokenBreakdown({
+    providerName,
+    inputTokens: stats.inputTokens,
+    outputTokens: stats.outputTokens,
+    cacheCreationTokens: stats.cacheCreationTokens,
+    cacheReadTokens: stats.cacheReadTokens,
+  });
+  return {
+    inputTokens: display.inputTokens,
+    outputTokens: display.outputTokens,
+    cacheCreationTokens: stats.cacheCreationTokens,
+    cacheReadTokens: stats.cacheReadTokens,
+    totalTokens: display.totalTokens,
+  };
+}
+
 /** Turn a model ID like "claude-opus-4-6" into a short display name like "Opus 4.6" */
 export function formatModel(model: string): string {
   // Match "claude-{family}-{major}-{minor}" or "claude-{family}-{major}"

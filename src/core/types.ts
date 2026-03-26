@@ -317,6 +317,12 @@ export interface RenameInstancePayload {
   name: string;
 }
 
+export interface RenameSpacePayload {
+  type: "rename_space";
+  spaceId: string;
+  name: string;
+}
+
 export interface MergeInstancePayload {
   type: "merge_instance";
   instanceId: string;
@@ -390,6 +396,7 @@ export type ClientMessage =
   | InstanceCancelPayload
   | RespondToRequestPayload
   | RenameInstancePayload
+  | RenameSpacePayload
   | MergeInstancePayload
   | SetModelPayload
   | SetPermissionsPayload

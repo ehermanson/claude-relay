@@ -5,6 +5,7 @@
  * Separated from server creation so consumers can compose their own server.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import { homedir } from "node:os";
@@ -43,6 +44,28 @@ const uiDistDir = path.join(import.meta.dirname, "..", "..", "ui", "dist");
 const indexHtmlPath = path.join(uiDistDir, "index.html");
 const packageJsonPath = path.join(import.meta.dirname, "..", "..", "package.json");
 const packageVersion: string = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")).version;
+
+/** Detect whether the relay server itself is running from a git worktree. */
+function getSelfGitInfo(): { branch: string; isWorktree: boolean } | null {
+  try {
+    const repoRoot = path.join(import.meta.dirname, "..", "..");
+    const opts = { cwd: repoRoot, timeout: 2000, encoding: "utf8" as const };
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts).trim();
+    const gitDir = path.resolve(
+      repoRoot,
+      execFileSync("git", ["rev-parse", "--git-dir"], opts).trim(),
+    );
+    const gitCommonDir = path.resolve(
+      repoRoot,
+      execFileSync("git", ["rev-parse", "--git-common-dir"], opts).trim(),
+    );
+    return { branch, isWorktree: gitDir !== gitCommonDir };
+  } catch {
+    return null;
+  }
+}
+
+const selfGitInfo = getSelfGitInfo();
 
 interface RequestHandlerOverrides {
   getProviderModels?: (provider: ProviderKind) => Promise<ProviderModelOption[]>;
@@ -236,6 +259,7 @@ export function createRequestHandler(
     instanceManager,
     startedAt,
     packageVersion,
+    selfGitInfo,
     uiDistDir,
     indexHtmlPath,
     getConnectionCount,

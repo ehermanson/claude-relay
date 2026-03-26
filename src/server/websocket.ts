@@ -163,6 +163,10 @@ export function createWebSocketServer(
     broadcastSpaceList(space.projectDirectory);
   });
 
+  spaceManager.on("space:updated", (space) => {
+    broadcastSpaceList(space.projectDirectory);
+  });
+
   spaceManager.on("space:completed", (spaceId, projectDirectory, targetBranch) => {
     broadcast({ type: "space_completed", spaceId, targetBranch });
     broadcastSpaceList(projectDirectory);
@@ -359,6 +363,18 @@ export function createWebSocketServer(
 
           case "rename_instance": {
             await instanceManager.renameInstance(message.instanceId, message.name);
+            break;
+          }
+
+          case "rename_space": {
+            try {
+              instanceManager.getSpaceManager().renameSpace(message.spaceId, message.name);
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to rename space",
+              });
+            }
             break;
           }
 

@@ -47,6 +47,21 @@ function makeRow(overrides = {}) {
   };
 }
 
+function makeSpaceRow(overrides = {}) {
+  return {
+    id: "space-1",
+    project_directory: "/tmp/test",
+    name: "My Space",
+    git_branch: "relay-space/abcd1234",
+    worktree_path: "/tmp/worktree",
+    is_default: 0,
+    status: "active",
+    created_at: 1000,
+    last_activity_at: 2000,
+    ...overrides,
+  };
+}
+
 describe("SessionDB", () => {
   let tempDir;
   let db;
@@ -243,6 +258,56 @@ describe("SessionDB", () => {
     it("returns empty set when no rows exist", () => {
       const paths = db.getJsonlPaths();
       assert.equal(paths.size, 0);
+    });
+  });
+
+  describe("updateSpaceName", () => {
+    it("updates the persisted space name and activity timestamp", () => {
+      db.upsertSpace(makeSpaceRow());
+      db.updateSpaceName("space-1", "Renamed Space", 99999);
+      const row = db.getSpace("space-1");
+      assert.equal(row?.name, "Renamed Space");
+      assert.equal(row?.last_activity_at, 99999);
+    });
+  });
+
+  describe("reassignSpacesToProjectDirectory", () => {
+    it("merges duplicate default spaces without violating the unique index", () => {
+      db.upsertSpace(
+        makeSpaceRow({
+          id: "default-target",
+          project_directory: "/tmp/canonical",
+          name: "main",
+          is_default: 1,
+          git_branch: null,
+          worktree_path: null,
+        }),
+      );
+      db.upsertSpace(
+        makeSpaceRow({
+          id: "default-previous",
+          project_directory: "/tmp/worktree-project",
+          name: "main",
+          is_default: 1,
+          git_branch: null,
+          worktree_path: null,
+        }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "sess-default-merge",
+          instance_id: "inst-default-merge",
+          jsonl_path: "/tmp/default-merge.jsonl",
+          space_id: "default-previous",
+        }),
+      );
+
+      db.reassignSpacesToProjectDirectory("/tmp/canonical", "/tmp/worktree-project");
+
+      const canonicalSpaces = db.getSpacesByProject("/tmp/canonical");
+      assert.equal(canonicalSpaces.filter((space) => space.is_default === 1).length, 1);
+      assert.equal(db.getSpace("default-previous"), undefined);
+      assert.equal(db.getBySessionId("sess-default-merge")?.space_id, "default-target");
     });
   });
 

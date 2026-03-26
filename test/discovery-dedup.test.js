@@ -53,6 +53,7 @@ function injectManagedInstance(manager, instanceId, workingDirectory) {
   const instances = manager["instances"];
   const info = {
     id: instanceId,
+    provider: "claude",
     name: "New Session",
     workingDirectory,
     status: "processing",
@@ -117,11 +118,18 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
     // 3. Inject a managed instance WITHOUT jsonlPath (pre-captureSessionId)
     injectManagedInstance(manager, "managed-1", fakeCwd);
 
-    // 4. Override findRunningClaudeCwdsAsync to simulate one external `claude` process in fakeCwd
-    //    (the managed process's PID would already be excluded, so only the external remains)
-    manager["findRunningClaudeCwdsAsync"] = () => {
-      return Promise.resolve(new Map([[fakeCwd, { count: 1, pids: [99999] }]]));
-    };
+    // 4. Simulate discovery returning the newest JSONL for this CWD. The managed
+    //    reservation should claim it before Relay can import it as an external.
+    manager["discoverExternalSessions"] = () =>
+      Promise.resolve([
+        {
+          provider: "claude",
+          cwd: fakeCwd,
+          transcriptPath: managedJsonl,
+          sessionId: "zzzz-managed-session",
+          pid: 99999,
+        },
+      ]);
 
     // 5. Run discovery
     await manager["discoverExisting"]();
@@ -173,10 +181,17 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
       jsonlPath: managedJsonl, // Already captured
     });
 
-    // 4. Override findRunningClaudeCwdsAsync — 1 external process
-    manager["findRunningClaudeCwdsAsync"] = () => {
-      return Promise.resolve(new Map([[fakeCwd, { count: 1, pids: [99999] }]]));
-    };
+    // 4. Simulate discovery returning the external transcript explicitly.
+    manager["discoverExternalSessions"] = () =>
+      Promise.resolve([
+        {
+          provider: "claude",
+          cwd: fakeCwd,
+          transcriptPath: externalJsonl,
+          sessionId: "cccc-external",
+          pid: 99999,
+        },
+      ]);
 
     // 5. Run discovery
     await manager["discoverExisting"]();
@@ -209,10 +224,18 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
     injectManagedInstance(manager, "managed-1", fakeCwd);
     injectManagedInstance(manager, "managed-2", fakeCwd);
 
-    // 1 external process found
-    manager["findRunningClaudeCwdsAsync"] = () => {
-      return Promise.resolve(new Map([[fakeCwd, { count: 1, pids: [99999] }]]));
-    };
+    // Simulate discovery surfacing only the newest JSONL, which should be
+    // reserved for a pending managed instance before Relay can import it.
+    manager["discoverExternalSessions"] = () =>
+      Promise.resolve([
+        {
+          provider: "claude",
+          cwd: fakeCwd,
+          transcriptPath: jsonl3,
+          sessionId: "ccc-newest",
+          pid: 99999,
+        },
+      ]);
 
     await manager["discoverExisting"]();
 
@@ -222,5 +245,115 @@ describe("Discovery deduplication — managed instance JSONL reservation", () =>
     // 2 managed instances reserve the 2 newest JSONLs, discovery finds 1 JSONL (count=1)
     // which is the newest — already reserved. No external created.
     assert.equal(externalInstances.length, 0, "No external duplicates should be created");
+  });
+});
+
+describe("Scan deduplication — managed sessions stay authoritative", () => {
+  let manager;
+  let tempDir;
+  let claudeDir;
+  let fakeCwd;
+  let projectDir;
+
+  beforeEach(() => {
+    const setup = makeConfig();
+    manager = new InstanceManager(setup.config);
+    tempDir = setup.tempDir;
+    claudeDir = join(tempDir, ".claude");
+
+    fakeCwd = join(tempDir, "projects", "scan-repo");
+    mkdirSync(fakeCwd, { recursive: true });
+    execSync("git init", { cwd: fakeCwd, stdio: "pipe" });
+    const encoded = fakeCwd.replace(/\//g, "-");
+    projectDir = join(claudeDir, "projects", encoded);
+    mkdirSync(projectDir, { recursive: true });
+
+    manager.projectManager.addProject(fakeCwd);
+  });
+
+  afterEach(() => {
+    manager.stopAll();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("does not index an external row when a managed session already owns the provider session id", () => {
+    const sessionId = "shared-managed-session";
+    const managedJsonl = join(projectDir, `${sessionId}.jsonl`);
+    writeMinimalJsonl(managedJsonl, fakeCwd);
+
+    const managed = injectManagedInstance(manager, "managed-1", fakeCwd);
+    managed.providerBinding = {
+      provider: "claude",
+      providerSessionId: sessionId,
+    };
+    manager["dbSave"](managed);
+
+    manager["scanAllSessions"]();
+
+    assert.equal(
+      manager["db"].getBySessionId(sessionId),
+      undefined,
+      "scanAllSessions should not add a duplicate external row for the managed transcript",
+    );
+  });
+
+  it("archives an existing external duplicate when it matches a managed provider session id", () => {
+    const sessionId = "shared-managed-session";
+    const managedJsonl = join(projectDir, `${sessionId}.jsonl`);
+    writeMinimalJsonl(managedJsonl, fakeCwd);
+
+    const managed = injectManagedInstance(manager, "managed-1", fakeCwd);
+    managed.providerBinding = {
+      provider: "claude",
+      providerSessionId: sessionId,
+    };
+    manager["dbSave"](managed);
+
+    manager["db"].upsert({
+      session_id: sessionId,
+      instance_id: "external-dup",
+      provider_name: "claude",
+      name: "Duplicate external",
+      working_directory: fakeCwd,
+      jsonl_path: managedJsonl,
+      created_at: Date.now(),
+      last_activity_at: Date.now(),
+      type: "external",
+      archived: 0,
+      custom_title: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      summary: null,
+      first_prompt: null,
+      git_branch: null,
+      message_count: 0,
+      allowed_tools: "[]",
+      worktree_path: null,
+      original_directory: null,
+      parent_session_id: null,
+      preferred_model: null,
+      reasoning_budget: null,
+      skip_permissions: 0,
+      last_message_text: null,
+      last_message_from: null,
+      last_message_at: null,
+      git_info_branch: null,
+      git_info_is_worktree: null,
+      project_id: manager.projectManager.getProjectByDirectory(fakeCwd)?.id ?? null,
+      model: null,
+      space_id: null,
+    });
+
+    manager["scanAllSessions"]();
+
+    const duplicateRow = manager["db"].getBySessionId(sessionId);
+    assert.ok(duplicateRow, "The external row should still exist in the DB");
+    assert.equal(
+      duplicateRow.archived,
+      1,
+      "scanAllSessions should archive the stale external duplicate",
+    );
   });
 });
