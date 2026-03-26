@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { AlertTriangle, Brain, Clock, Cog, File, Globe, Terminal, User } from "lucide-react";
-import type { LiveActivity } from "../../hooks/use-instance-messages";
+import { AlertTriangle, Brain, Clock, Cog } from "lucide-react";
+import type { LiveActivity } from "@/components/chat/types";
+import { getToolIcon } from "@/components/chat/shared";
 
 function formatElapsed(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -12,7 +13,6 @@ function formatElapsed(ms: number): string {
 
 /** Icon for the current activity type */
 function ActivityIcon({ activity }: { activity: LiveActivity | null; stale: boolean }) {
-  const tool = activity?.tool;
   const desc = activity?.description ?? "";
 
   // Thinking — brain icon
@@ -20,30 +20,10 @@ function ActivityIcon({ activity }: { activity: LiveActivity | null; stale: bool
     return <Brain size={14} className="shrink-0 text-claude" />;
   }
 
-  // Bash / terminal
-  if (tool === "Bash" || tool === "bash") {
-    return <Terminal size={14} className="shrink-0 text-accent" />;
-  }
-
-  // Read / file operations
-  if (
-    tool === "Read" ||
-    tool === "Edit" ||
-    tool === "Write" ||
-    tool === "Glob" ||
-    tool === "Grep"
-  ) {
-    return <File size={14} className="shrink-0 text-accent" />;
-  }
-
-  // Agent / subagent
-  if (tool === "Agent" || tool === "Task" || desc.toLowerCase().includes("agent")) {
-    return <User size={14} className="shrink-0 text-claude" />;
-  }
-
-  // Web fetch
-  if (tool === "WebFetch" || tool === "WebSearch") {
-    return <Globe size={14} className="shrink-0 text-accent" />;
+  // Known tool — use shared icon registry
+  if (activity?.tool) {
+    const Icon = getToolIcon(activity.tool);
+    return <Icon size={14} className="shrink-0 text-accent" />;
   }
 
   // Default — spinning gear
