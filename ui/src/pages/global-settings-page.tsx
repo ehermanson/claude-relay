@@ -12,12 +12,7 @@ import { Input, Textarea, Select } from "../components/ui/input";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import { ProviderLogo } from "@/components/chat/input-area/shared";
 import { useThemeStore, type ThemePreference } from "@/hooks/use-theme-store";
-import type {
-  GlobalSettings,
-  ProviderDefaults,
-  ProviderKind,
-  ProviderDescriptor,
-} from "@shared/types";
+import type { GlobalSettings, ProviderDefaults, ProviderDescriptor } from "@shared/types";
 
 // ─── Defaults & hooks ──────────────────────────────────────────────────────
 
@@ -45,11 +40,32 @@ function useAutoSave() {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (patch: Partial<GlobalSettings>) => updateGlobalSettings(patch),
+    onMutate: async (patch) => {
+      // Cancel outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ["global-settings"] });
+      const previous = queryClient.getQueryData<GlobalSettings>(["global-settings"]);
+      // Optimistically merge the patch into cached settings
+      if (previous) {
+        queryClient.setQueryData<GlobalSettings>(["global-settings"], {
+          ...previous,
+          ...patch,
+          // Deep-merge providerDefaults if present
+          providerDefaults: patch.providerDefaults
+            ? { ...previous.providerDefaults, ...patch.providerDefaults }
+            : previous.providerDefaults,
+        });
+      }
+      return { previous };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["global-settings"] });
       toast.success("Settings saved");
     },
-    onError: (err) => {
+    onError: (err, _patch, context) => {
+      // Roll back to previous value on failure
+      if (context?.previous) {
+        queryClient.setQueryData(["global-settings"], context.previous);
+      }
       toast.error(err instanceof Error ? err.message : "Failed to save settings");
     },
   });
@@ -183,26 +199,10 @@ export function ProvidersSettingsSection() {
   });
 
   const defaultProvider = settings?.defaultProvider ?? "";
-  const defaultModel = settings?.defaultModel ?? "";
   const providerDefaults = settings?.providerDefaults ?? {};
 
-  // Fetch models for selected default provider
-  const { data: providerModels } = useQuery({
-    queryKey: ["provider-models", defaultProvider],
-    queryFn: () => fetchProviderModels(defaultProvider as ProviderKind),
-    enabled: !!defaultProvider,
-  });
-  const models = providerModels?.models ?? [];
-
   const handleProviderChange = (provider: string) => {
-    save.mutate({
-      defaultProvider: provider || null,
-      defaultModel: null, // reset model when provider changes
-    });
-  };
-
-  const handleModelChange = (model: string) => {
-    save.mutate({ defaultModel: model || null });
+    save.mutate({ defaultProvider: provider || null });
   };
 
   const handleProviderDefaultChange = (
@@ -210,9 +210,15 @@ export function ProvidersSettingsSection() {
     field: keyof ProviderDefaults,
     value: string,
   ) => {
+    let parsed: string | number | boolean | undefined = value || undefined;
+    if (field === "reasoningBudget" && value) {
+      parsed = Number(value);
+    } else if (field === "fastMode" && value) {
+      parsed = value === "true";
+    }
     const updated = {
       ...providerDefaults,
-      [provider]: { ...providerDefaults[provider], [field]: value || undefined },
+      [provider]: { ...providerDefaults[provider], [field]: parsed },
     };
     save.mutate({ providerDefaults: updated });
   };
@@ -236,30 +242,6 @@ export function ProvidersSettingsSection() {
                 {p.label}
               </option>
             ))}
-          </Select>
-        </SettingRow>
-      )}
-
-      {/* Default Model (only when provider selected) */}
-      {defaultProvider && (
-        <SettingRow
-          label="Default Model"
-          description={`Default model when using ${providers.find((p) => p.provider === defaultProvider)?.label ?? defaultProvider}.`}
-        >
-          <Select
-            inputSize="md"
-            value={defaultModel}
-            onChange={(e) => handleModelChange(e.target.value)}
-            className="w-48"
-          >
-            <option value="">Provider default</option>
-            {models
-              .filter((m) => !m.hidden)
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
           </Select>
         </SettingRow>
       )}
@@ -296,10 +278,16 @@ function ProviderDefaultsRow({
   const models = providerModels?.models ?? [];
   const caps = providerModels?.capabilities ?? provider.capabilities;
 
+  // Find actual defaults to show in placeholder text
+  const defaultModel = models.find((m) => m.isDefault);
+  const defaultPermLabel = caps.permissionModes?.restricted.label; // restricted is always the default
+
   const hasAnyControls =
     caps.supportsModelSelection ||
     (caps.supportsReasoningEffort && caps.reasoningEffortLevels) ||
-    caps.permissionModes;
+    (caps.supportsReasoningBudget && caps.reasoningBudgetLevels) ||
+    caps.permissionModes ||
+    (caps.supportsFastMode && caps.fastModes);
 
   if (!hasAnyControls) return null;
 
@@ -326,7 +314,9 @@ function ProviderDefaultsRow({
               value={defaults.model ?? ""}
               onChange={(e) => onChange("model", e.target.value)}
             >
-              <option value="">Provider default</option>
+              <option value="">
+                {defaultModel ? `${defaultModel.label} (default)` : "Provider default"}
+              </option>
               {models
                 .filter((m) => !m.hidden)
                 .map((m) => (
@@ -345,9 +335,26 @@ function ProviderDefaultsRow({
               value={defaults.reasoningEffort ?? ""}
               onChange={(e) => onChange("reasoningEffort", e.target.value)}
             >
-              <option value="">Default</option>
+              <option value="">Medium (default)</option>
               {caps.reasoningEffortLevels.map((level) => (
                 <option key={level.effort} value={level.effort}>
+                  {level.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+        {caps.supportsReasoningBudget && caps.reasoningBudgetLevels && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[0.6875rem] font-medium text-muted">Reasoning</label>
+            <Select
+              inputSize="md"
+              value={defaults.reasoningBudget != null ? String(defaults.reasoningBudget) : ""}
+              onChange={(e) => onChange("reasoningBudget", e.target.value)}
+            >
+              <option value="">Medium (default)</option>
+              {caps.reasoningBudgetLevels.map((level) => (
+                <option key={level.budget} value={String(level.budget)}>
                   {level.label}
                 </option>
               ))}
@@ -362,9 +369,25 @@ function ProviderDefaultsRow({
               value={defaults.runtimeMode ?? ""}
               onChange={(e) => onChange("runtimeMode", e.target.value)}
             >
-              <option value="">Default</option>
+              <option value="">
+                {defaultPermLabel ? `${defaultPermLabel} (default)` : "Default"}
+              </option>
               <option value="approval-required">{caps.permissionModes.restricted.label}</option>
               <option value="full-access">{caps.permissionModes.fullAccess.label}</option>
+            </Select>
+          </div>
+        )}
+        {caps.supportsFastMode && caps.fastModes && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[0.6875rem] font-medium text-muted">Speed</label>
+            <Select
+              inputSize="md"
+              value={defaults.fastMode != null ? String(defaults.fastMode) : ""}
+              onChange={(e) => onChange("fastMode", e.target.value)}
+            >
+              <option value="">{caps.fastModes.off.label} (default)</option>
+              <option value="true">{caps.fastModes.on.label}</option>
+              <option value="false">{caps.fastModes.off.label}</option>
             </Select>
           </div>
         )}
@@ -434,16 +457,15 @@ export function GitSettingsSection() {
 export function InstructionsSettingsSection() {
   const { data: settings } = useGlobalSettings();
   const save = useAutoSave();
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const handleChange = useCallback(
-    (value: string) => {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        save.mutate({ customInstructions: value.trim() || null });
-      }, 800);
+  const handleBlur = useCallback(
+    (e: React.FocusEvent<HTMLTextAreaElement>) => {
+      const value = e.target.value.trim() || null;
+      if (value !== (settings?.customInstructions ?? null)) {
+        save.mutate({ customInstructions: value });
+      }
     },
-    [save],
+    [save, settings?.customInstructions],
   );
 
   return (
@@ -455,7 +477,7 @@ export function InstructionsSettingsSection() {
         <Textarea
           rows={10}
           defaultValue={settings?.customInstructions ?? ""}
-          onChange={(e) => handleChange(e.target.value)}
+          onBlur={handleBlur}
           placeholder="e.g. Always respond concisely. Use American English spelling..."
           className="min-h-[160px] resize-y font-mono text-xs leading-relaxed"
         />

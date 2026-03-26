@@ -1205,7 +1205,13 @@ export class InstanceManager extends EventEmitter {
     // Parse per-provider defaults from global settings
     let providerDefaults: Record<
       string,
-      { model?: string; reasoningEffort?: string; runtimeMode?: string }
+      {
+        model?: string;
+        reasoningEffort?: string;
+        reasoningBudget?: number;
+        runtimeMode?: string;
+        fastMode?: boolean;
+      }
     > = {};
     if (globalSettings.provider_defaults_json) {
       try {
@@ -1221,23 +1227,34 @@ export class InstanceManager extends EventEmitter {
       globalSettings.default_model ??
       this.baseConfig.defaultModel;
 
+    // Resolve permissions: explicit options > per-provider global default > base config
+    const resolvedSkipPermissions =
+      options?.dangerouslySkipPermissions ??
+      (perProvider?.runtimeMode
+        ? perProvider.runtimeMode === "full-access"
+        : this.baseConfig.dangerouslySkipPermissions);
+
     const instanceConfig: CoreConfig = {
       ...this.baseConfig,
       workingDirectory,
-      dangerouslySkipPermissions:
-        options?.dangerouslySkipPermissions ??
-        (perProvider?.runtimeMode === "full-access" ? true : undefined) ??
-        this.baseConfig.dangerouslySkipPermissions,
+      dangerouslySkipPermissions: resolvedSkipPermissions,
     };
 
     // Build canonical modelOptions: explicit modelOptions wins, then per-provider defaults, then legacy reasoningBudget
-    const modelOptions: ProviderModelOptions | undefined =
+    let modelOptions: ProviderModelOptions | undefined =
       options?.modelOptions ??
       (options?.reasoningBudget != null
         ? { reasoningBudgetTokens: options.reasoningBudget }
-        : perProvider?.reasoningEffort
-          ? { reasoningEffort: perProvider.reasoningEffort as ReasoningEffort }
-          : undefined);
+        : perProvider?.reasoningBudget != null
+          ? { reasoningBudgetTokens: perProvider.reasoningBudget }
+          : perProvider?.reasoningEffort
+            ? { reasoningEffort: perProvider.reasoningEffort as ReasoningEffort }
+            : undefined);
+
+    // Apply per-provider fastMode default if not already set
+    if (perProvider?.fastMode != null && !options?.modelOptions?.fastMode) {
+      modelOptions = { ...modelOptions, fastMode: perProvider.fastMode };
+    }
     const proc = this.createProviderSession(instanceConfig, {
       provider,
       resumeSessionId: resumeId,
@@ -1253,11 +1270,6 @@ export class InstanceManager extends EventEmitter {
       name = this.getSessionSummary(resumeId, workingDirectory) || "";
     }
     if (!name) name = "New Session";
-
-    const skipPerms =
-      options?.dangerouslySkipPermissions ??
-      (perProvider?.runtimeMode === "full-access" ? true : undefined) ??
-      this.baseConfig.dangerouslySkipPermissions;
 
     const initialGitInfo = getGitInfo(workingDirectory) ?? undefined;
     const info: InstanceInfo = {
@@ -1275,7 +1287,7 @@ export class InstanceManager extends EventEmitter {
       reasoningBudget: modelOptions?.reasoningBudgetTokens ?? options?.reasoningBudget,
       modelOptions,
       planMode: options?.planMode,
-      skipPermissions: skipPerms,
+      skipPermissions: resolvedSkipPermissions,
       originalDirectory: spaceOriginalDirectory,
       projectId: project?.id,
       spaceId,
@@ -1315,7 +1327,7 @@ export class InstanceManager extends EventEmitter {
         providerSessionId: resumeId,
         resumeCursor: { sessionId: resumeId },
         transcriptPath,
-        runtimeMode: normalizeRuntimeMode(skipPerms, info.planMode),
+        runtimeMode: normalizeRuntimeMode(resolvedSkipPermissions, info.planMode),
       };
       proc.setSessionId?.(resumeId);
 

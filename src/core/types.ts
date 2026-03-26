@@ -142,7 +142,9 @@ export interface ProviderModelsResponse {
 export interface ProviderDefaults {
   model?: string;
   reasoningEffort?: ReasoningEffort;
+  reasoningBudget?: number;
   runtimeMode?: ProviderRuntimeMode;
+  fastMode?: boolean;
 }
 
 export interface GlobalSettings {
