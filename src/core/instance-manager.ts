@@ -1080,6 +1080,20 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
+  private isSpaceOwnedWorktree(instance: Instance): boolean {
+    if (!instance.worktreePath || !instance.originalDirectory) return false;
+
+    if (instance.info.spaceId) return true;
+
+    const spaces = this.spaceManager.listSpaces(instance.originalDirectory);
+    return spaces.some(
+      (space) =>
+        !space.isDefault &&
+        (space.worktreePath === instance.worktreePath ||
+          (!!instance.gitBranch && space.gitBranch === instance.gitBranch)),
+    );
+  }
+
   private isRegisteredProjectPath(directory: string): boolean {
     if (this._projectManager.getProjectByDirectory(directory)) {
       return true;
@@ -1420,8 +1434,15 @@ export class InstanceManager extends EventEmitter {
     if (instance.sessionId) this.db.archive(instance.sessionId);
     this.db.archiveManaged(instance.info.id);
 
-    // Clean up git worktree if this instance used one
-    if (instance.worktreePath && instance.gitBranch && instance.originalDirectory) {
+    // Only standalone worktree chats own their worktree lifecycle.
+    // Space chats share a worktree owned by SpaceManager, so removing one chat
+    // must not tear down the entire space's git metadata.
+    if (
+      !this.isSpaceOwnedWorktree(instance) &&
+      instance.worktreePath &&
+      instance.gitBranch &&
+      instance.originalDirectory
+    ) {
       const repoRoot = getRepoRoot(instance.originalDirectory);
       if (repoRoot) {
         try {
