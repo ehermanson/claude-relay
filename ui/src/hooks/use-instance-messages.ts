@@ -6,29 +6,15 @@ import type {
   TaskItem,
   FileChange,
 } from "@shared/types";
+import type { ChatItem, LiveActivity } from "@/components/chat/types";
+
+// Re-export for consumers
+export type { ChatItem, LiveActivity };
 
 const IMAGE_ONLY_PATTERN = /^\s*(\[Image: source: [^\]]+\]\s*)+$/;
 
 function isImageOnly(text: string): boolean {
   return IMAGE_ONLY_PATTERN.test(text);
-}
-
-// A rendered item in the message list
-export type ChatItem =
-  | { kind: "user"; text: string; timestamp?: number }
-  | { kind: "assistant"; text: string; timestamp?: number }
-  | { kind: "system"; text: string; isError?: boolean }
-  | { kind: "thinking-block"; text: string }
-  | { kind: "activity-group"; activities: ActivityMessage[] }
-  | { kind: "agent-transcript"; title: string; result: string; timestamp?: number };
-
-export interface LiveActivity {
-  /** Human-readable description of what's happening */
-  description: string;
-  /** Tool name if applicable */
-  tool?: string;
-  /** When this specific activity started */
-  startedAt: number;
 }
 
 interface State {
