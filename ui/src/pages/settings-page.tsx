@@ -1,13 +1,19 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Save, FileText } from "lucide-react";
-import { fetchProject, updateProject, fetchProviders, fetchProviderModels } from "../lib/api";
+import { Save, FileText, Info } from "lucide-react";
+import {
+  fetchProject,
+  updateProject,
+  fetchProviders,
+  fetchProviderModels,
+  fetchGlobalSettings,
+} from "../lib/api";
 import { useProjectContext } from "../context/project-context";
 import { Input, Textarea, Select } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
-import type { Project, ProviderKind } from "@shared/types";
+import type { GlobalSettings, Project, ProviderKind } from "@shared/types";
 import { PageShell } from "@/components/ui/page-shell";
 
 // ─── Settings Page (data loader) ────────────────────────────────────────────
@@ -40,6 +46,11 @@ function SettingsForm({ project }: { project: Project }) {
   const { data: providers = [] } = useQuery({
     queryKey: ["providers"],
     queryFn: fetchProviders,
+  });
+
+  const { data: globalSettings } = useQuery({
+    queryKey: ["globalSettings"],
+    queryFn: fetchGlobalSettings,
   });
 
   // Form state — initialized directly from project props (no useEffect sync)
@@ -208,6 +219,12 @@ function SettingsForm({ project }: { project: Project }) {
               </Select>
             </div>
           </div>
+          <OverrideIndicator
+            providers={providers}
+            globalSettings={globalSettings}
+            projectProvider={defaultProvider}
+            projectModel={defaultModel}
+          />
         </section>
 
         {/* Save */}
@@ -224,5 +241,49 @@ function SettingsForm({ project }: { project: Project }) {
         </div>
       </div>
     </PageShell>
+  );
+}
+
+// ─── Override Indicator ──────────────────────────────────────────────────
+
+function OverrideIndicator({
+  providers,
+  globalSettings,
+  projectProvider,
+  projectModel,
+}: {
+  providers: { provider: string; label: string }[];
+  globalSettings: GlobalSettings | undefined;
+  projectProvider: string;
+  projectModel: string;
+}) {
+  if (!globalSettings) return null;
+
+  const globalProvider = globalSettings.defaultProvider ?? "";
+  const globalModel = globalSettings.defaultModel ?? "";
+
+  const hasProviderOverride = projectProvider !== "" && projectProvider !== globalProvider;
+  // Only compare models when the provider is the same — models from different providers aren't comparable
+  const sameProvider = !hasProviderOverride || projectProvider === "";
+  const hasModelOverride = sameProvider && projectModel !== "" && projectModel !== globalModel;
+
+  if (!hasProviderOverride && !hasModelOverride) return null;
+
+  const globalProviderLabel =
+    providers.find((p) => p.provider === globalProvider)?.label ?? (globalProvider || "none");
+
+  const parts: string[] = [];
+  if (hasProviderOverride) {
+    parts.push(`provider (global default: ${globalProviderLabel})`);
+  }
+  if (hasModelOverride) {
+    parts.push(`model (global default: ${globalModel || "auto"})`);
+  }
+
+  return (
+    <div className="flex items-start gap-2 rounded-md bg-accent/5 px-3 py-2 text-[0.75rem] text-accent">
+      <Info size={14} className="mt-0.5 shrink-0" />
+      <span>Overriding global default {parts.join(" and ")}</span>
+    </div>
   );
 }
