@@ -13,6 +13,11 @@ export function useAutoScroll<T extends HTMLElement>() {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const showScrollToBottomRef = useRef(false);
 
+  // Track real user interaction so we can distinguish user scroll-up from
+  // programmatic scroll shifts (virtualizer remeasuring, layout reflow, etc.)
+  const userInteracting = useRef(false);
+  const userInteractingTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
   const setShowScrollToBottomIfChanged = useCallback((next: boolean) => {
     if (showScrollToBottomRef.current === next) return;
     showScrollToBottomRef.current = next;
@@ -99,7 +104,11 @@ export function useAutoScroll<T extends HTMLElement>() {
 
       if (nearBottom) {
         stickToBottom.current = true;
-      } else if (!forcingBottom && scrollTop < lastScrollTop - 1) {
+      } else if (!forcingBottom && userInteracting.current && scrollTop < lastScrollTop - 1) {
+        // Only detach when the user actually scrolled (wheel / touch / pointer).
+        // Programmatic scroll-position shifts (virtualizer remeasuring, layout
+        // reflow, ResizeObserver adjustments) also decrease scrollTop but should
+        // NOT flip stickToBottom off.
         stickToBottom.current = false;
       }
 
@@ -112,6 +121,11 @@ export function useAutoScroll<T extends HTMLElement>() {
 
     const onUserIntent = () => {
       cancelForcedScroll();
+      userInteracting.current = true;
+      clearTimeout(userInteractingTimer.current);
+      userInteractingTimer.current = setTimeout(() => {
+        userInteracting.current = false;
+      }, 200);
     };
 
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -123,6 +137,7 @@ export function useAutoScroll<T extends HTMLElement>() {
       el.removeEventListener("wheel", onUserIntent);
       el.removeEventListener("touchstart", onUserIntent);
       el.removeEventListener("pointerdown", onUserIntent);
+      clearTimeout(userInteractingTimer.current);
     };
   }, [cancelForcedScroll, setShowScrollToBottomIfChanged]);
 
