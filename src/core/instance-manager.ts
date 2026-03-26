@@ -1061,6 +1061,72 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
+  private refreshInstanceSpaceIdsFromDb(): void {
+    for (const instance of this.instances.values()) {
+      if (instance.info.spaceId) continue;
+
+      if (instance.info.external) {
+        const row = this.db.getByInstanceId(instance.info.id);
+        if (row?.space_id) {
+          instance.info.spaceId = row.space_id;
+        }
+        continue;
+      }
+
+      const row = this.db.getManagedByInstanceId(instance.info.id);
+      if (row?.space_id) {
+        instance.info.spaceId = row.space_id;
+      }
+    }
+  }
+
+  private isRegisteredProjectPath(directory: string): boolean {
+    if (this._projectManager.getProjectByDirectory(directory)) {
+      return true;
+    }
+
+    if (isRelayWorktreePath(directory)) {
+      const origin = resolveWorktreeOrigin(directory);
+      if (origin && this._projectManager.getProjectByDirectory(origin)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private shouldScanClaudeProjectDir(projectsDir: string, name: string): boolean {
+    if (!name.startsWith("-")) return false;
+
+    const fullProjDir = join(projectsDir, name);
+    try {
+      if (!statSync(fullProjDir).isDirectory()) return false;
+    } catch {
+      return false;
+    }
+
+    const decoded = decodeProjectDir(name);
+    if (this.isRegisteredProjectPath(decoded)) {
+      return true;
+    }
+
+    // Claude's encoded directory names are lossy for some worktree paths
+    // (notably ~/.relay/worktrees/space-<id>). Fall back to transcript cwd.
+    try {
+      const jsonlFiles = readdirSync(fullProjDir).filter((file) => file.endsWith(".jsonl"));
+      for (const jsonlFile of jsonlFiles) {
+        const cwd = readCwdFromJsonl(join(fullProjDir, jsonlFile));
+        if (cwd && this.isRegisteredProjectPath(cwd)) {
+          return true;
+        }
+      }
+    } catch {
+      return false;
+    }
+
+    return false;
+  }
+
   /**
    * Eagerly resolve the Agent SDK's query function.
    * Call this once at startup before creating instances.
@@ -4676,23 +4742,9 @@ export class InstanceManager extends EventEmitter {
     if (!existsSync(projectsDir)) return;
 
     try {
-      const projectDirs = readdirSync(projectsDir).filter((name) => {
-        if (!name.startsWith("-")) return false;
-        try {
-          if (!statSync(join(projectsDir, name)).isDirectory()) return false;
-        } catch {
-          return false;
-        }
-        // Only scan directories matching registered projects (or worktrees thereof)
-        const decoded = decodeProjectDir(name);
-        if (this._projectManager.getProjectByDirectory(decoded)) return true;
-        // Worktree paths resolve to the original repo — check if that's registered
-        if (isRelayWorktreePath(decoded)) {
-          const origin = resolveWorktreeOrigin(decoded);
-          if (origin && this._projectManager.getProjectByDirectory(origin)) return true;
-        }
-        return false;
-      });
+      const projectDirs = readdirSync(projectsDir).filter((name) =>
+        this.shouldScanClaudeProjectDir(projectsDir, name),
+      );
 
       const rows: SessionRow[] = [];
 
@@ -4809,7 +4861,7 @@ export class InstanceManager extends EventEmitter {
               scanWorktreePath = cwd;
               scanOriginalDir = origin;
               cwd = origin; // Use original dir as working_directory
-              const gitInfo = getGitInfo(cwd);
+              const gitInfo = getGitInfo(scanWorktreePath);
               if (gitInfo) scanGitBranch = gitInfo.branch;
             }
           }
@@ -5447,6 +5499,8 @@ export class InstanceManager extends EventEmitter {
   private scanAndRestoreNew(): number {
     this.scanAllSessions();
     this._projectManager.recoverProjectsFromSessionDirectories();
+    this.spaceManager.recoverSpacesFromSessionMetadata();
+    this.refreshInstanceSpaceIdsFromDb();
 
     let discovered = 0;
     for (const entry of this.db.getAllActive()) {
