@@ -6,7 +6,7 @@
  */
 
 import { execSync, execFileSync, execFile as execFileCb } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, openSync, readSync, closeSync, readFileSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { homedir } from "os";
 import { promisify } from "util";
@@ -17,6 +17,22 @@ const WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
 const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const RELAY_GIT_FALLBACK_NAME = "Relay";
 const RELAY_GIT_FALLBACK_EMAIL = "relay@local";
+
+/** Check if a file is likely binary by reading the first 8KB and looking for null bytes. */
+function isBinaryFile(absPath: string): boolean {
+  try {
+    const fd = openSync(absPath, "r");
+    const buf = Buffer.alloc(8192);
+    const bytesRead = readSync(fd, buf, 0, 8192, 0);
+    closeSync(fd);
+    for (let i = 0; i < bytesRead; i++) {
+      if (buf[i] === 0) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 function normalizeBranchName(branch: string): string | null {
   const trimmed = branch.trim();
@@ -564,8 +580,12 @@ export function enrichDiffStats(
       const file = files.get(absPath);
       if (file) {
         try {
+          if (isBinaryFile(absPath)) continue;
           const content = readFileSync(absPath, "utf8");
-          const lineCount = content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+          const lineCount =
+            content.length === 0
+              ? 0
+              : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
           file.additions = lineCount;
           file.deletions = 0;
         } catch {
@@ -668,13 +688,34 @@ function getUntrackedFiles(cwd: string): string[] {
 /**
  * Generate a unified diff patch for an untracked (new) file.
  * Mimics git diff output format so it can be concatenated with tracked diffs.
+ * Returns null for binary files or unreadable files.
  */
 function diffForNewFile(repoRoot: string, relPath: string): string | null {
   try {
     const absPath = join(repoRoot, relPath);
+    if (isBinaryFile(absPath)) {
+      // Emit a binary stub like git does
+      return [
+        `diff --git a/${relPath} b/${relPath}`,
+        "new file mode 100644",
+        `Binary files /dev/null and b/${relPath} differ`,
+        "",
+      ].join("\n");
+    }
     const content = readFileSync(absPath, "utf8");
+
+    // Empty file — valid diff with no hunks
+    if (content.length === 0) {
+      return [
+        `diff --git a/${relPath} b/${relPath}`,
+        "new file mode 100644",
+        "--- /dev/null",
+        `+++ b/${relPath}`,
+        "",
+      ].join("\n");
+    }
+
     const lines = content.split("\n");
-    // If file ends with newline, the last split element is empty
     const hasTrailingNewline = content.endsWith("\n");
     const displayLines = hasTrailingNewline ? lines.slice(0, -1) : lines;
     const count = displayLines.length;
@@ -885,8 +926,12 @@ export async function enrichDiffStatsAsync(
       const file = files.get(absPath);
       if (file) {
         try {
+          if (isBinaryFile(absPath)) continue;
           const content = readFileSync(absPath, "utf8");
-          const lineCount = content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+          const lineCount =
+            content.length === 0
+              ? 0
+              : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
           file.additions = lineCount;
           file.deletions = 0;
         } catch {

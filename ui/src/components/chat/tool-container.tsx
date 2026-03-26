@@ -29,13 +29,15 @@ export function ToolContainer({
   planChildId,
   planChildName,
 }: ToolContainerProps) {
+  const label = getToolGroupLabel(allActivities);
+
   return (
     <div className="rounded-lg border border-border/60 bg-surface/40">
-      <div className="px-3 pt-2.5 pb-1">
-        <span className="text-[10px] uppercase tracking-[0.12em] text-muted/50">
-          {getToolGroupLabel(allActivities)}
-        </span>
-      </div>
+      {label && (
+        <div className="px-3 pt-2.5 pb-1">
+          <span className="text-[10px] uppercase tracking-[0.12em] text-muted/50">{label}</span>
+        </div>
+      )}
       <div className="flex flex-col px-1 pb-1.5">
         {groups.map((g) => (
           <ActivityGroup

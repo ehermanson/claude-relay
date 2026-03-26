@@ -41,7 +41,7 @@ const OTHER_CATEGORY: ToolCategory = { singular: "tool call", plural: "tool call
  *   "2 reads, 1 edit"
  *   "3 commands, 2 reads, 1 search"
  */
-export function getToolGroupLabel(activities: ActivityMessage[]): string {
+export function getToolGroupLabel(activities: ActivityMessage[]): string | null {
   const counts = new Map<string, { category: ToolCategory; count: number }>();
   const order: string[] = [];
 
@@ -62,7 +62,7 @@ export function getToolGroupLabel(activities: ActivityMessage[]): string {
     }
   }
 
-  if (order.length === 0) return "Tool calls";
+  if (order.length === 0) return null;
 
   return order
     .map((key) => {
