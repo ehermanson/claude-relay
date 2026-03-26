@@ -180,7 +180,7 @@ export class SessionDB {
   private stmtUpdateProjectActivity!: Database.Statement;
   private stmtUpdateSessionProjectId!: Database.Statement;
   private stmtUpdateManagedSessionProjectId!: Database.Statement;
-  private stmtUpdateSpaceProjectDirectory!: Database.Statement;
+  private stmtUpdateSpaceProjectDirectoryById!: Database.Statement;
   private stmtGetDistinctSessionDirs!: Database.Statement;
   private stmtGetProjectModelStats!: Database.Statement;
   private stmtUpsertSpace!: Database.Statement;
@@ -189,6 +189,7 @@ export class SessionDB {
   private stmtGetDefaultSpace!: Database.Statement;
   private stmtUpdateSpaceStatus!: Database.Statement;
   private stmtUpdateSpaceActivity!: Database.Statement;
+  private stmtUpdateSpaceName!: Database.Statement;
   private stmtDeleteSpace!: Database.Statement;
   private stmtGetSpaceChatCount!: Database.Statement;
   private stmtUpdateSessionSpaceId!: Database.Statement;
@@ -805,8 +806,8 @@ export class SessionDB {
     this.stmtUpdateManagedSessionProjectId = this.db.prepare(
       "UPDATE managed_sessions SET project_id = ? WHERE working_directory = ?",
     );
-    this.stmtUpdateSpaceProjectDirectory = this.db.prepare(
-      "UPDATE spaces SET project_directory = ? WHERE project_directory = ?",
+    this.stmtUpdateSpaceProjectDirectoryById = this.db.prepare(
+      "UPDATE spaces SET project_directory = ? WHERE id = ?",
     );
     this.stmtGetDistinctSessionDirs = this.db.prepare(`
       SELECT DISTINCT working_directory FROM (
@@ -862,6 +863,9 @@ export class SessionDB {
     this.stmtUpdateSpaceStatus = this.db.prepare("UPDATE spaces SET status = ? WHERE id = ?");
     this.stmtUpdateSpaceActivity = this.db.prepare(
       "UPDATE spaces SET last_activity_at = ? WHERE id = ?",
+    );
+    this.stmtUpdateSpaceName = this.db.prepare(
+      "UPDATE spaces SET name = ?, last_activity_at = ? WHERE id = ?",
     );
     this.stmtDeleteSpace = this.db.prepare("DELETE FROM spaces WHERE id = ?");
     this.stmtGetSpaceChatCount = this.db.prepare(`
@@ -1092,7 +1096,29 @@ export class SessionDB {
   }
 
   reassignSpacesToProjectDirectory(nextDirectory: string, previousDirectory: string): void {
-    this.stmtUpdateSpaceProjectDirectory.run(nextDirectory, previousDirectory);
+    const existingDefault = this.getDefaultSpace(nextDirectory);
+    const previousSpaces = this.getSpacesByProject(previousDirectory);
+
+    const tx = this.db.transaction(
+      (spaces: SpaceRow[], targetDirectory: string, targetDefaultId: string | null) => {
+        for (const space of spaces) {
+          if (space.is_default === 1 && targetDefaultId && space.id !== targetDefaultId) {
+            this.db
+              .prepare("UPDATE sessions SET space_id = ? WHERE space_id = ?")
+              .run(targetDefaultId, space.id);
+            this.db
+              .prepare("UPDATE managed_sessions SET space_id = ? WHERE space_id = ?")
+              .run(targetDefaultId, space.id);
+            this.stmtDeleteSpace.run(space.id);
+            continue;
+          }
+
+          this.stmtUpdateSpaceProjectDirectoryById.run(targetDirectory, space.id);
+        }
+      },
+    );
+
+    tx(previousSpaces, nextDirectory, existingDefault?.id ?? null);
   }
 
   /** Get token usage breakdown by model for a project directory */
@@ -1157,6 +1183,10 @@ export class SessionDB {
 
   updateSpaceActivity(id: string, timestamp: number): void {
     this.stmtUpdateSpaceActivity.run(timestamp, id);
+  }
+
+  updateSpaceName(id: string, name: string, timestamp: number): void {
+    this.stmtUpdateSpaceName.run(name, timestamp, id);
   }
 
   deleteSpace(id: string): void {

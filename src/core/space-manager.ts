@@ -47,6 +47,7 @@ function rowToInfo(row: SpaceRow, chatCount: number): SpaceInfo {
 
 export interface SpaceManagerEvents {
   "space:created": [space: SpaceInfo];
+  "space:updated": [space: SpaceInfo];
   "space:completed": [spaceId: string, projectDirectory: string, targetBranch: string];
   "space:removed": [spaceId: string, projectDirectory: string];
 }
@@ -344,6 +345,31 @@ export class SpaceManager extends EventEmitter {
     const row = this.db.getSpace(id);
     if (!row) return undefined;
     return this.toInfo(row);
+  }
+
+  renameSpace(id: string, name: string): SpaceInfo {
+    const row = this.db.getSpace(id);
+    if (!row) {
+      throw new Error(`Space ${id} not found`);
+    }
+    if (row.is_default) {
+      throw new Error("Cannot rename the default space");
+    }
+
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new Error("Space name cannot be empty");
+    }
+
+    const now = Date.now();
+    this.db.updateSpaceName(id, trimmed, now);
+    const updated = this.db.getSpace(id);
+    if (!updated) {
+      throw new Error(`Space ${id} not found after rename`);
+    }
+    const info = this.toInfo(updated);
+    this.emit("space:updated", info);
+    return info;
   }
 
   /**

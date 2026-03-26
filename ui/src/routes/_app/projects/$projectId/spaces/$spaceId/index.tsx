@@ -97,6 +97,8 @@ export function SpaceView() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
+  const [editingSpaceName, setEditingSpaceName] = useState(false);
+  const [spaceNameDraft, setSpaceNameDraft] = useState("");
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const [ghCliDialogOpen, setGhCliDialogOpen] = useState(false);
   const [ghCliReason, setGhCliReason] = useState<"not-installed" | "not-authenticated">(
@@ -111,6 +113,7 @@ export function SpaceView() {
     | { phase: "error"; message: string }
     | null
   >(null);
+  const spaceNameInputRef = useRef<HTMLInputElement>(null);
 
   const { data: space } = useQuery({
     queryKey: spaceQueryKey,
@@ -339,6 +342,28 @@ export function SpaceView() {
     send({ type: "rename_instance", instanceId, name });
   };
 
+  useEffect(() => {
+    if (editingSpaceName) {
+      spaceNameInputRef.current?.focus();
+      spaceNameInputRef.current?.select();
+    }
+  }, [editingSpaceName]);
+
+  const startRenamingSpace = () => {
+    if (!space || space.isDefault) return;
+    setSpaceNameDraft(space.name);
+    setEditingSpaceName(true);
+  };
+
+  const commitSpaceRename = () => {
+    if (!space) return;
+    const trimmed = spaceNameDraft.trim();
+    if (trimmed && trimmed !== space.name) {
+      send({ type: "rename_space", spaceId: space.id, name: trimmed });
+    }
+    setEditingSpaceName(false);
+  };
+
   const handleComplete = async () => {
     setMergeDialog({ phase: "merging" });
     try {
@@ -521,7 +546,21 @@ export function SpaceView() {
         />
         <GitBranch size={14} className="shrink-0 text-accent" />
         <ViewHeaderTitle>
-          <span className="truncate text-sm font-semibold text-text-bright">{space.name}</span>
+          {editingSpaceName ? (
+            <input
+              ref={spaceNameInputRef}
+              value={spaceNameDraft}
+              onChange={(e) => setSpaceNameDraft(e.target.value)}
+              onBlur={commitSpaceRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitSpaceRename();
+                if (e.key === "Escape") setEditingSpaceName(false);
+              }}
+              className="w-[12rem] max-w-[40vw] rounded border border-border bg-surface px-2 py-0.5 text-sm font-semibold text-text-bright outline-none focus:border-accent"
+            />
+          ) : (
+            <span className="truncate text-sm font-semibold text-text-bright">{space.name}</span>
+          )}
           {space.gitBranch && <BranchBadge branch={space.gitBranch} />}
           <TokenBadge
             tokens={spaceInstances.reduce(
@@ -541,15 +580,25 @@ export function SpaceView() {
               <EllipsisVertical size={14} />
             </Menu.Trigger>
             <Menu.Content>
+              {!space.isDefault && (
+                <Menu.Item onClick={startRenamingSpace}>
+                  <Pencil size={13} strokeWidth={2} className="text-muted" />
+                  Rename
+                </Menu.Item>
+              )}
               <Menu.Item onClick={() => setShowDebug(true)}>
                 <Bug size={13} strokeWidth={2} className="text-muted" />
                 Debug
               </Menu.Item>
-              <Menu.Separator />
-              <Menu.Item danger onClick={handleDelete}>
-                <Trash2 size={13} />
-                Delete space
-              </Menu.Item>
+              {!space.isDefault && (
+                <>
+                  <Menu.Separator />
+                  <Menu.Item danger onClick={handleDelete}>
+                    <Trash2 size={13} />
+                    Delete space
+                  </Menu.Item>
+                </>
+              )}
             </Menu.Content>
           </Menu.Root>
         </ViewHeaderTitle>

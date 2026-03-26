@@ -178,6 +178,10 @@ export function Sidebar({
     });
   };
 
+  const handleRenameSpace = (spaceId: string, name: string) => {
+    send({ type: "rename_space", spaceId, name });
+  };
+
   const confirmRemoveAction = async () => {
     const project = confirmRemoveProject;
     const projectId = project?.id;
@@ -389,6 +393,7 @@ export function Sidebar({
                 spaces={projectSpaces[dir]}
                 activeSpaceId={currentSpaceId}
                 onCreateSpace={handleCreateSpace}
+                onRenameSpace={handleRenameSpace}
                 onCompleteSpace={handleCompleteSpace}
                 onDeleteSpace={handleDeleteSpace}
               />
