@@ -3172,20 +3172,11 @@ export class InstanceManager extends EventEmitter {
     // Eagerly reserve Claude JSONL paths for managed instances that haven't captured
     // their session yet. Without this, an external Claude process in the same CWD can
     // pick up the managed instance's JSONL (the most recently modified) and duplicate it.
-    for (const [instanceId, instance] of this.instances) {
-      if (instance.info.external || instance.jsonlPath) continue;
-      if (instance.info.provider !== "claude") continue;
-      const cwd = instance.actualCwd || instance.info.workingDirectory;
-      const encoded = cwd.replace(/\//g, "-");
-      const projectDir = join(this.providerDirs.claude, "projects", encoded);
-      if (!existsSync(projectDir)) continue;
-      // Find the newest JSONL in the managed instance's project dir that isn't already known
-      const candidates = this.findRecentJsonls(projectDir, 5);
-      for (const candidate of candidates) {
-        if (!knownJsonls.has(candidate)) {
-          knownJsonls.set(candidate, instanceId);
-          break; // Reserve one JSONL per managed instance
-        }
+    const reservedKnownJsonls = new Set(knownJsonls.keys());
+    this.reservePendingManagedClaudeJsonls(reservedKnownJsonls);
+    for (const reservedPath of reservedKnownJsonls) {
+      if (!knownJsonls.has(reservedPath)) {
+        knownJsonls.set(reservedPath, "__reserved_managed__");
       }
     }
 
@@ -3265,6 +3256,48 @@ export class InstanceManager extends EventEmitter {
       return files.slice(0, count).map((f) => f.path);
     } catch {
       return [];
+    }
+  }
+
+  private collectManagedSessionKeys(): {
+    providerSessionIds: Set<string>;
+    transcriptPaths: Set<string>;
+  } {
+    const providerSessionIds = new Set<string>();
+    const transcriptPaths = new Set<string>();
+
+    for (const row of this.db.getAllManagedActive()) {
+      if (row.provider_session_id) providerSessionIds.add(row.provider_session_id);
+      if (row.transcript_path) transcriptPaths.add(row.transcript_path);
+    }
+
+    for (const instance of this.instances.values()) {
+      if (instance.info.external) continue;
+      const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
+      const providerSessionId =
+        binding?.providerSessionId ?? instance.sessionId ?? instance.info.sessionId;
+      const transcriptPath = binding?.transcriptPath ?? instance.jsonlPath;
+      if (providerSessionId) providerSessionIds.add(providerSessionId);
+      if (transcriptPath) transcriptPaths.add(transcriptPath);
+    }
+
+    return { providerSessionIds, transcriptPaths };
+  }
+
+  private reservePendingManagedClaudeJsonls(knownJsonls: Set<string>): void {
+    for (const instance of this.instances.values()) {
+      if (instance.info.external || instance.jsonlPath) continue;
+      if (instance.info.provider !== "claude") continue;
+      const cwd = instance.actualCwd || instance.info.workingDirectory;
+      const encoded = cwd.replace(/\//g, "-");
+      const projectDir = join(this.providerDirs.claude, "projects", encoded);
+      if (!existsSync(projectDir)) continue;
+      for (const candidate of this.findRecentJsonls(projectDir, 5)) {
+        if (!knownJsonls.has(candidate)) {
+          knownJsonls.add(candidate);
+          break;
+        }
+      }
     }
   }
 
@@ -4731,10 +4764,14 @@ export class InstanceManager extends EventEmitter {
     const projectsDir = join(this.providerDirs.claude, "projects");
 
     const knownPaths = this.db.getJsonlPaths();
+    const managedKeys = this.collectManagedSessionKeys();
+    const reservedManagedJsonls = new Set(managedKeys.transcriptPaths);
+    this.reservePendingManagedClaudeJsonls(reservedManagedJsonls);
     const diskPaths = new Set<string>();
     /** Project subdirs under ~/.claude/projects/ that were actually scanned */
     const scannedProjectDirs = new Set<string>();
     let discovered = 0;
+    let archived = 0;
 
     // --- Scan Codex sessions (~/.codex/sessions/) ---
     this.scanCodexSessions(knownPaths, diskPaths);
@@ -4788,12 +4825,20 @@ export class InstanceManager extends EventEmitter {
         for (const jsonlFile of jsonlFiles) {
           const jsonlPath = join(fullProjDir, jsonlFile);
           diskPaths.add(jsonlPath);
+          const sessionId = jsonlFile.replace(".jsonl", "");
+          const matchesManagedSession =
+            managedKeys.providerSessionIds.has(sessionId) || reservedManagedJsonls.has(jsonlPath);
 
           if (knownPaths.has(jsonlPath)) {
             // Already in DB — update last_activity_at and repair working_directory if needed
             try {
-              const mtime = Math.floor(statSync(jsonlPath).mtimeMs);
               const existing = this.db.getByJsonlPath(jsonlPath);
+              if (matchesManagedSession && existing && !existing.archived) {
+                this.db.archive(existing.session_id);
+                archived++;
+                continue;
+              }
+              const mtime = Math.floor(statSync(jsonlPath).mtimeMs);
               if (existing) {
                 if (mtime > existing.last_activity_at) {
                   this.db.updateLastActivity(existing.session_id, mtime);
@@ -4831,8 +4876,16 @@ export class InstanceManager extends EventEmitter {
             continue;
           }
 
+          if (matchesManagedSession) {
+            const existing = this.db.getBySessionId(sessionId);
+            if (existing && !existing.archived) {
+              this.db.archive(existing.session_id);
+              archived++;
+            }
+            continue;
+          }
+
           // New file — discover session
-          const sessionId = jsonlFile.replace(".jsonl", "");
           const indexEntry = sessionsIndex?.get(sessionId);
 
           // Try to resolve CWD from JSONL, with filesystem-validated fallback
@@ -4948,7 +5001,6 @@ export class InstanceManager extends EventEmitter {
     // Only consider paths under directories we actually scanned — don't archive
     // sessions from unregistered projects that were simply skipped.
     const codexSessionsDir = join(this.providerDirs.codex, "sessions");
-    let archived = 0;
     for (const knownPath of knownPaths) {
       // Codex sessions: always check
       if (knownPath.startsWith(codexSessionsDir)) {
