@@ -6,7 +6,7 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { InstanceManager } from "../dist/core/instance-manager.js";
@@ -76,7 +76,6 @@ function seedDB(tempDir, entries) {
       space_id: null,
       project_id: null,
       model: entry.model || null,
-      space_id: null,
     });
   }
   db.close();
@@ -137,7 +136,6 @@ function seedManagedDB(tempDir, entries) {
       space_id: null,
       project_id: null,
       model: entry.model || null,
-      space_id: null,
     });
   }
   db.close();
@@ -516,7 +514,7 @@ describe("History Parsing via DB Restore", () => {
       assert.equal(info.stats.cacheReadTokens, 45);
       assert.equal(info.stats.outputTokens, 30);
       assert.equal(info.stats.model, "gpt-5.4");
-      assert.equal(info.stats.contextTokens, 120);
+      assert.equal(info.stats.contextTokens, 150);
       assert.equal(info.stats.contextWindow, 258400);
       assert.equal(manager.instances.get("codex-managed-id").process?.provider, "codex");
 

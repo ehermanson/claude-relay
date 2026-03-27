@@ -116,6 +116,11 @@ function makeExternalRow(overrides = {}) {
   };
 }
 
+function createBrokenWorktree(worktreePath) {
+  mkdirSync(worktreePath, { recursive: true });
+  writeFileSync(worktreePath + "/.git", "gitdir: /tmp/relay-missing-worktree-admin\n");
+}
+
 describe("InstanceManager", () => {
   let manager;
 
@@ -220,6 +225,42 @@ describe("InstanceManager", () => {
       assert.equal(instance.actualCwd, undefined);
     });
 
+    it("restores managed sessions with broken linked worktrees into the original directory", () => {
+      const originalDirectory = manager.baseConfig.workingDirectory;
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      const brokenWorktree = join(originalDirectory, ".relay", "worktrees", "space-badbeef");
+      createBrokenWorktree(brokenWorktree);
+
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-broken-worktree",
+            working_directory: brokenWorktree,
+            worktree_path: brokenWorktree,
+            original_directory: originalDirectory,
+            git_branch: "relay-space/badbeef",
+            space_id: "space-badbeef",
+            runtime_payload_json: JSON.stringify({ cwd: brokenWorktree }),
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(manager.baseConfig);
+      restored.restoreInstances();
+      const info = restored.getInstance("managed-broken-worktree");
+      const instance = restored.instances.get("managed-broken-worktree");
+
+      assert.ok(info);
+      assert.ok(instance);
+      assert.equal(info.workingDirectory, originalDirectory);
+      assert.equal(instance.worktreePath, undefined);
+      assert.equal(instance.originalDirectory, originalDirectory);
+      assert.equal(instance.actualCwd, undefined);
+      assert.deepEqual(instance.providerBinding?.runtimePayload, { cwd: originalDirectory });
+    });
+
     it("falls back to persisted git metadata for originalGitBranch on restored managed sessions", () => {
       const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
 
@@ -283,6 +324,54 @@ describe("InstanceManager", () => {
       assert.equal(instance.jsonlPath, transcriptPath);
       assert.equal(instance.externalState, undefined);
       assert.equal(instance.watchState, undefined);
+    });
+
+    it("restores external sessions with broken linked worktrees into the original directory", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const transcriptPath = join(projectDir, "external-broken-worktree.jsonl");
+      const brokenWorktree = join(projectDir, ".relay", "worktrees", "space-feedface");
+      createBrokenWorktree(brokenWorktree);
+      writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: "init",
+          cwd: brokenWorktree,
+          sessionId: "external-broken",
+          timestamp: new Date().toISOString(),
+        })}\n`,
+      );
+
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsert(
+          makeExternalRow({
+            session_id: "external-broken",
+            instance_id: "external-broken-instance",
+            working_directory: brokenWorktree,
+            jsonl_path: transcriptPath,
+            worktree_path: brokenWorktree,
+            original_directory: projectDir,
+            git_branch: "relay-space/feedface",
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(manager.baseConfig);
+      restored.projectManager.addProject(projectDir);
+      restored.restoreInstances();
+
+      const info = restored.getInstance("external-broken-instance");
+      const instance = restored.instances.get("external-broken-instance");
+
+      assert.ok(info);
+      assert.ok(instance);
+      assert.equal(info.workingDirectory, projectDir);
+      assert.equal(instance.worktreePath, undefined);
+      assert.equal(instance.originalDirectory, projectDir);
+      assert.equal(instance.actualCwd, undefined);
+      assert.deepEqual(instance.providerBinding?.runtimePayload, { cwd: projectDir });
     });
 
     it("upgrades restored historical externals when discovery rediscovers them", async () => {

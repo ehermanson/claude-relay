@@ -98,6 +98,7 @@ import {
   FILE_WRITE_GROUP,
 } from "./tools.js";
 import {
+  isGitRepo,
   getRepoRoot,
   getRemoteUrl,
   getCurrentBranch,
@@ -144,6 +145,12 @@ interface WatchState {
   pendingTaskCreates: Map<string, { subject: string; activeForm?: string }>;
   pendingProviderCalls: Map<string, { name: string; arguments?: string }>;
   stats: SessionStats;
+}
+
+function isUsableStoredWorktreePath(
+  worktreePath: string | null | undefined,
+): worktreePath is string {
+  return Boolean(worktreePath && existsSync(worktreePath) && isGitRepo(worktreePath));
 }
 
 interface Instance {
@@ -671,8 +678,14 @@ function readCodexStatsFromJsonl(jsonlPath: string): SessionStats | undefined {
             stats.reasoningTokens = total.reasoning_output_tokens;
           }
         }
-        if (last && typeof last.input_tokens === "number") {
-          stats.contextTokens = last.input_tokens;
+        if (last) {
+          if (typeof last.total_tokens === "number") {
+            stats.contextTokens = last.total_tokens;
+          } else if (typeof last.input_tokens === "number") {
+            stats.contextTokens =
+              last.input_tokens +
+              (typeof last.cached_input_tokens === "number" ? last.cached_input_tokens : 0);
+          }
         }
         if (info && typeof info.model_context_window === "number") {
           stats.contextWindow = info.model_context_window;
@@ -5348,9 +5361,24 @@ export class InstanceManager extends EventEmitter {
       return false;
     }
 
-    const extWorktreePath = entry.worktree_path ?? undefined;
+    let restoreWorkingDirectory = entry.working_directory;
+    let extWorktreePath = entry.worktree_path ?? undefined;
     const extOriginalDir = entry.original_directory ?? undefined;
     const extGitBranch = entry.git_branch ?? undefined;
+    let repairedStaleWorktree = false;
+
+    if (
+      entry.worktree_path &&
+      entry.original_directory &&
+      !isUsableStoredWorktreePath(entry.worktree_path)
+    ) {
+      restoreWorkingDirectory = entry.original_directory;
+      extWorktreePath = undefined;
+      repairedStaleWorktree = true;
+      this.baseConfig.logger.warn(
+        `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable, using original directory`,
+      );
+    }
 
     // Detect provider from JSONL path if mismatched (legacy migration fix)
     let provider = (entry.provider_name as ProviderKind) || "claude";
@@ -5363,7 +5391,7 @@ export class InstanceManager extends EventEmitter {
       id: entry.instance_id,
       provider,
       name: entry.name,
-      workingDirectory: entry.working_directory,
+      workingDirectory: restoreWorkingDirectory,
       status: "stopped",
       createdAt: entry.created_at,
       lastActivityAt: entry.last_activity_at,
@@ -5391,7 +5419,7 @@ export class InstanceManager extends EventEmitter {
         provider,
         providerSessionId: entry.session_id,
         resumeCursor: { sessionId: entry.session_id },
-        runtimePayload: { cwd: entry.working_directory },
+        runtimePayload: { cwd: restoreWorkingDirectory },
         transcriptPath: entry.jsonl_path,
         runtimeMode: normalizeRuntimeMode(entry.skip_permissions === 1, false),
       },
@@ -5408,6 +5436,9 @@ export class InstanceManager extends EventEmitter {
     };
 
     this.instances.set(entry.instance_id, instance);
+    if (repairedStaleWorktree) {
+      this.dbSave(instance);
+    }
     this.emit("instance:created", entry.instance_id, { ...info });
     return true;
   }
@@ -5424,8 +5455,9 @@ export class InstanceManager extends EventEmitter {
     let restoreGitBranch: string | undefined;
     let restoreOriginalDirectory: string | undefined;
 
+    let repairedStaleWorktree = false;
     if (entry.worktree_path && entry.original_directory) {
-      if (existsSync(entry.worktree_path)) {
+      if (isUsableStoredWorktreePath(entry.worktree_path)) {
         restoreActualCwd = entry.worktree_path;
         restoreWorktreePath = entry.worktree_path;
         restoreGitBranch = entry.git_branch ?? undefined;
@@ -5434,8 +5466,9 @@ export class InstanceManager extends EventEmitter {
         restoreActualCwd = entry.original_directory;
         restoreOriginalDirectory = entry.original_directory;
         restoreGitBranch = entry.git_branch ?? undefined;
+        repairedStaleWorktree = true;
         this.baseConfig.logger.warn(
-          `[InstanceManager] Worktree ${entry.worktree_path} no longer exists, using original directory`,
+          `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable, using original directory`,
         );
       }
     }
@@ -5453,6 +5486,9 @@ export class InstanceManager extends EventEmitter {
         : undefined;
     } catch {
       runtimePayload = undefined;
+    }
+    if (repairedStaleWorktree) {
+      runtimePayload = { ...runtimePayload, cwd: restoreActualCwd };
     }
 
     const resumeSessionId = entry.provider_session_id ?? extractResumeSessionId(resumeCursor);
@@ -5535,7 +5571,7 @@ export class InstanceManager extends EventEmitter {
     };
 
     this.instances.set(entry.instance_id, instance);
-    if (transcriptPath !== (entry.transcript_path ?? undefined)) {
+    if (transcriptPath !== (entry.transcript_path ?? undefined) || repairedStaleWorktree) {
       this.dbSave(instance);
     }
     this.emit("instance:created", entry.instance_id, { ...info });
