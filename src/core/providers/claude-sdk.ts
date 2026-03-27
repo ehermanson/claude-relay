@@ -32,6 +32,7 @@ import {
   describeToolDetail,
   extractInputDescription,
   getContextWindow,
+  capDetail,
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
 } from "../tools.js";
@@ -846,7 +847,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
           type: "activity",
           activity: "thinking",
           description: "Reasoning...",
-          detail: block.thinking.slice(0, 500) + (block.thinking.length > 500 ? "..." : ""),
+          detail: capDetail(block.thinking),
         };
         this.emit("activity", activity);
       } else if (block.type === "tool_use" && block.name) {
@@ -1163,7 +1164,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       activity: "tool_result",
       description: isError ? "Tool error" : "Tool completed",
       tool: toolName,
-      detail: content.slice(0, 200) || undefined,
+      detail: content ? capDetail(content) : undefined,
       raw: { tool_use_id: toolUseId, tool: toolName, content: block.content, is_error: isError },
     };
     this.emit("activity", activity);

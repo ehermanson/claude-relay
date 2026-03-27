@@ -4,12 +4,7 @@
  */
 
 import { useState } from "react";
-import {
-  ActivityCodeBlock,
-  DiffView,
-  langFromPath,
-  truncateContent,
-} from "@/components/chat/activity-code";
+import { ActivityCodeBlock, DiffView, langFromPath } from "@/components/chat/activity-code";
 import type { UserInputAnswer } from "@shared/types";
 
 // ── AskUserQuestion ──────────────────────────────────────────────────
@@ -299,11 +294,7 @@ export function ToolContent({
       const filePath = (input.file_path as string) || undefined;
       if (content) {
         return (
-          <ActivityCodeBlock
-            content={truncateContent(content)}
-            label={filePath}
-            lang={langFromPath(filePath)}
-          />
+          <ActivityCodeBlock content={content} label={filePath} lang={langFromPath(filePath)} />
         );
       }
       return null;

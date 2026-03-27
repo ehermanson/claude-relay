@@ -90,7 +90,9 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
   const { crossGroupResolution, skipLeadingResultGroups } = detectCrossGroupResolutions(items);
 
   const rows: RenderRow[] = [];
-  let lastRenderedKind: string | null = null;
+  /** Tracks the most recent non-thinking row kind, so we can detect
+   *  tool-container → thinking-block → assistant sequences for the divider. */
+  let lastNonThinkingKind: string | null = null;
   let i = 0;
 
   while (i < items.length) {
@@ -125,10 +127,11 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
         groups,
         allActivities,
       });
-      lastRenderedKind = "tool-container";
+      lastNonThinkingKind = "tool-container";
     } else {
       // Insert response divider when assistant text follows tool calls
-      if (item.kind === "assistant" && lastRenderedKind === "tool-container") {
+      // (thinking-blocks can sit between the tool-container and assistant)
+      if (item.kind === "assistant" && lastNonThinkingKind === "tool-container") {
         rows.push({
           id: `divider-${i}`,
           kind: "response-divider",
@@ -179,7 +182,7 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
           });
           break;
       }
-      lastRenderedKind = item.kind;
+      if (item.kind !== "thinking-block") lastNonThinkingKind = item.kind;
       i++;
     }
   }
@@ -198,7 +201,7 @@ export function estimateRowHeight(row: RenderRow): number {
     case "system":
       return 44;
     case "thinking-block":
-      return 60 + Math.ceil(row.text.length / 80) * 16;
+      return Math.min(420, 60 + Math.ceil(row.text.length / 80) * 16);
     case "agent-transcript":
       return 80;
     case "response-divider":

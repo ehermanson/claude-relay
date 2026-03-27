@@ -28,6 +28,7 @@ import {
   extractToolResultText,
   buildToolResultActivity,
   getContextWindow,
+  capDetail,
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
 } from "./tools.js";
@@ -505,7 +506,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
                   type: "activity",
                   activity: "thinking",
                   description: "Reasoning...",
-                  detail: block.thinking.slice(0, 500) + (block.thinking.length > 500 ? "..." : ""),
+                  detail: capDetail(block.thinking),
                 };
                 this.emit("activity", activity);
                 hasEmittedContent = true;

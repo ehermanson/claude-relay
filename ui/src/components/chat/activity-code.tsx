@@ -62,17 +62,6 @@ function highlightCode(code: string, lang?: string): string | undefined {
   }
 }
 
-const MAX_CONTENT_LINES = 80;
-
-export function truncateContent(text: string): string {
-  const lines = text.split("\n");
-  if (lines.length <= MAX_CONTENT_LINES) return text;
-  return (
-    lines.slice(0, MAX_CONTENT_LINES).join("\n") +
-    `\n... (${lines.length - MAX_CONTENT_LINES} more lines)`
-  );
-}
-
 export function DiffView({
   oldStr,
   newStr,

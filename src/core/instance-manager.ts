@@ -92,6 +92,7 @@ import {
   extractToolResultText,
   INTERACTIVE_TOOLS,
   buildToolResultActivity,
+  capDetail,
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
   FILE_WRITE_GROUP,
@@ -4046,7 +4047,7 @@ export class InstanceManager extends EventEmitter {
               type: "activity",
               activity: "thinking",
               description: "Reasoning...",
-              detail: block.thinking.slice(0, 500) + (block.thinking.length > 500 ? "..." : ""),
+              detail: capDetail(block.thinking),
             } as ActivityMessage,
           });
         } else if (block.type === "tool_use") {

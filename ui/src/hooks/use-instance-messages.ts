@@ -150,6 +150,10 @@ function reducer(state: State, action: Action): State {
               currentTasks = msg.tasks;
             } else if (msg.activity === "file_list" && msg.files) {
               currentFiles = msg.files;
+            } else if (msg.activity === "thinking") {
+              flushAssistant();
+              flushActivities();
+              items.push({ kind: "thinking-block", text: msg.detail || "" });
             } else {
               flushAssistant();
               currentActivities.push(msg);
@@ -295,6 +299,22 @@ function reducer(state: State, action: Action): State {
           showThinkingIndicator: true,
           currentFiles: action.message.files,
           lastActivity: { description: "Writing files...", startedAt: now },
+        };
+      } else if (action.message.activity === "thinking") {
+        const items = [...state.items];
+        items.push({ kind: "thinking-block", text: action.message.detail || "" });
+        return {
+          ...state,
+          items,
+          isProcessing: true,
+          showThinkingIndicator: true,
+          lastActivity: {
+            description: "Thinking...",
+            startedAt:
+              state.lastActivity?.description === "Thinking..."
+                ? state.lastActivity.startedAt
+                : now,
+          },
         };
       } else {
         const items = [...state.items];

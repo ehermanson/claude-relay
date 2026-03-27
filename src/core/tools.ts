@@ -11,6 +11,15 @@ import type { ActivityMessage, TaskItem } from "./types.js";
 // Shared tool sets
 // =============================================================================
 
+/** Safety cap for activity detail strings to prevent unbounded memory growth. */
+export const MAX_DETAIL_LENGTH = 50_000;
+
+/** Cap a detail string to MAX_DETAIL_LENGTH, appending a truncation indicator. */
+export function capDetail(text: string): string {
+  if (text.length <= MAX_DETAIL_LENGTH) return text;
+  return text.slice(0, MAX_DETAIL_LENGTH) + "\n\u2026 (truncated)";
+}
+
 /** Tools that manage tasks/todos — intercepted for sidecar task tracking. */
 export const TASK_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite"]);
 
@@ -101,7 +110,7 @@ export function buildToolResultActivity(
           ? "Tool error"
           : "Tool completed",
     tool: deniedTool,
-    detail: resolution ? undefined : content.slice(0, 200) || undefined,
+    detail: resolution ? undefined : content ? capDetail(content) : undefined,
     permissionDenied: deniedTool,
     resolution: resolution ?? undefined,
   };
