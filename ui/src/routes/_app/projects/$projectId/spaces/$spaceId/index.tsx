@@ -1,6 +1,6 @@
 import { lazy, useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate, useParams } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -249,6 +249,7 @@ export function SpaceView() {
   const activeLiveInstance = activeTab
     ? instances.find((instance) => instance.id === activeTab)
     : null;
+  const isResolvingChatSelection = chatSummariesLoading && !activeTab;
 
   // Auto-redirect to first chat when landing on space without a valid chatId
   useEffect(() => {
@@ -860,6 +861,16 @@ export function SpaceView() {
                 )}
               </div>
             )
+          ) : isResolvingChatSelection ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+              <Spinner size={18} />
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium text-text-bright">Opening space</p>
+                <p className="max-w-xs text-[0.8125rem] text-muted">
+                  Resolving the most recent chat in this space.
+                </p>
+              </div>
+            </div>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
               <GitBranch size={32} className="text-muted/30" />
@@ -1407,5 +1418,23 @@ function SpaceSidebar({
 }
 
 export const Route = createFileRoute("/_app/projects/$projectId/spaces/$spaceId/")({
+  loader: async ({ params }) => {
+    const chats = await fetchProjectChats(params.projectId);
+    const fallbackChat = chats
+      .filter((chat) => chat.spaceId === params.spaceId)
+      .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0))[0];
+
+    if (fallbackChat) {
+      throw redirect({
+        to: "/projects/$projectId/spaces/$spaceId/$chatId",
+        params: {
+          projectId: params.projectId,
+          spaceId: params.spaceId,
+          chatId: fallbackChat.id,
+        },
+        replace: true,
+      });
+    }
+  },
   component: SpaceView,
 });

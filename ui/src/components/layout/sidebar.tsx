@@ -48,6 +48,7 @@ export function Sidebar({
   });
   const {
     groups,
+    latestChatIdBySpace,
     moveDown,
     moveToBottom,
     moveToTop,
@@ -389,6 +390,7 @@ export function Sidebar({
                 onMoveDown={() => moveDown(dir)}
                 onMoveToBottom={() => moveToBottom(dir)}
                 spaces={projectSpaces[dir]}
+                latestChatIdBySpace={latestChatIdBySpace}
                 activeSpaceId={currentSpaceId}
                 onCreateSpace={handleCreateSpace}
                 onRenameSpace={handleRenameSpace}

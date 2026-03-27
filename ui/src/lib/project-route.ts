@@ -23,7 +23,16 @@ type SpaceChatRoute = {
   };
 };
 
+type BareSpaceRoute = {
+  to: "/projects/$projectId/spaces/$spaceId";
+  params: {
+    projectId: string;
+    spaceId: string;
+  };
+};
+
 type InstanceChatRoute = StandaloneChatRoute | SpaceChatRoute;
+type SpaceRoute = BareSpaceRoute | SpaceChatRoute;
 
 export function getProjectName(directory: string): string {
   return directory.split("/").pop() || directory;
@@ -60,6 +69,31 @@ export function getInstanceChatRoute(
     params: {
       projectId,
       chatId: instance.id,
+    },
+  };
+}
+
+export function getSpaceRoute(
+  projectId: string,
+  spaceId: string,
+  chatId?: string | null,
+): SpaceRoute {
+  if (chatId) {
+    return {
+      to: "/projects/$projectId/spaces/$spaceId/$chatId",
+      params: {
+        projectId,
+        spaceId,
+        chatId,
+      },
+    };
+  }
+
+  return {
+    to: "/projects/$projectId/spaces/$spaceId",
+    params: {
+      projectId,
+      spaceId,
     },
   };
 }

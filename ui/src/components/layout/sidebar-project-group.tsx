@@ -69,6 +69,7 @@ interface SidebarProjectGroupProps {
   onMoveDown?: () => void;
   onMoveToBottom?: () => void;
   spaces?: SpaceInfo[];
+  latestChatIdBySpace?: Record<string, string>;
   activeSpaceId?: string;
   onCreateSpace: (dir: string) => void;
   onRenameSpace?: (spaceId: string, name: string) => void;
@@ -98,6 +99,7 @@ export function SidebarProjectGroup({
   onMoveDown,
   onMoveToBottom,
   spaces,
+  latestChatIdBySpace,
   activeSpaceId,
   onCreateSpace,
   onRenameSpace,
@@ -427,6 +429,7 @@ export function SidebarProjectGroup({
                     key={space.id}
                     space={space}
                     projectId={routeProjectId}
+                    latestChatId={latestChatIdBySpace?.[space.id]}
                     isActive={activeSpaceId === space.id}
                     onRename={onRenameSpace ?? (() => {})}
                     onComplete={onCompleteSpace ?? (() => {})}
@@ -452,6 +455,7 @@ export function SidebarProjectGroup({
             <SidebarClosedSpaces
               spaces={spaces}
               projectId={routeProjectId}
+              latestChatIdBySpace={latestChatIdBySpace}
               activeSpaceId={activeSpaceId}
               onRenameSpace={onRenameSpace}
               onCompleteSpace={onCompleteSpace}
@@ -480,6 +484,7 @@ export function SidebarProjectGroup({
 function SidebarClosedSpaces({
   spaces,
   projectId,
+  latestChatIdBySpace,
   activeSpaceId,
   onRenameSpace,
   onCompleteSpace,
@@ -487,6 +492,7 @@ function SidebarClosedSpaces({
 }: {
   spaces?: SpaceInfo[];
   projectId: string;
+  latestChatIdBySpace?: Record<string, string>;
   activeSpaceId?: string;
   onRenameSpace?: (spaceId: string, name: string) => void;
   onCompleteSpace?: (spaceId: string) => void;
@@ -520,6 +526,7 @@ function SidebarClosedSpaces({
             key={space.id}
             space={space}
             projectId={projectId}
+            latestChatId={latestChatIdBySpace?.[space.id]}
             isActive={activeSpaceId === space.id}
             onRename={onRenameSpace ?? (() => {})}
             onComplete={onCompleteSpace ?? (() => {})}

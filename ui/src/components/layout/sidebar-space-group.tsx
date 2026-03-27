@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { getSpaceRoute } from "@/lib/project-route";
 import { Archive, GitBranch, GitMerge, MoreVertical, Pencil } from "lucide-react";
 import { Menu } from "../ui/menu";
 import { Badge } from "../ui/badge";
@@ -15,6 +16,7 @@ import type { SpaceInfo } from "@shared/types";
 interface SidebarSpaceGroupProps {
   space: SpaceInfo;
   projectId: string;
+  latestChatId?: string;
   isActive: boolean;
   onRename: (spaceId: string, name: string) => void;
   onComplete: (spaceId: string) => void;
@@ -24,6 +26,7 @@ interface SidebarSpaceGroupProps {
 export function SidebarSpaceGroup({
   space,
   projectId,
+  latestChatId,
   isActive,
   onRename,
   onComplete,
@@ -36,6 +39,7 @@ export function SidebarSpaceGroup({
   const hasMenu = !space.isDefault;
   const isSpaceActive = space.status === "active";
   const isClosed = space.status === "completed" || space.status === "archived";
+  const spaceRoute = getSpaceRoute(projectId, space.id, latestChatId);
 
   useEffect(() => {
     if (editing) {
@@ -59,8 +63,8 @@ export function SidebarSpaceGroup({
 
   return (
     <Link
-      to="/projects/$projectId/spaces/$spaceId"
-      params={{ projectId, spaceId: space.id }}
+      to={spaceRoute.to}
+      params={spaceRoute.params}
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}

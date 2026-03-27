@@ -29,6 +29,18 @@ export function useProjectNavigationModel() {
     groupInstancesByProject(Array.from(mergedInstances.values()), projects),
   );
 
+  const latestChatIdBySpace: Record<string, string> = {};
+  const latestActivityBySpace = new Map<string, number>();
+  for (const instance of mergedInstances.values()) {
+    if (!instance.spaceId) continue;
+    const activityAt = instance.lastActivityAt ?? 0;
+    const previous = latestActivityBySpace.get(instance.spaceId) ?? Number.NEGATIVE_INFINITY;
+    if (activityAt >= previous) {
+      latestActivityBySpace.set(instance.spaceId, activityAt);
+      latestChatIdBySpace[instance.spaceId] = instance.id;
+    }
+  }
+
   useEffect(() => {
     projectOrder.syncVisibleDirs(groups.map(([dir]) => dir));
     // deps: instances/projects drive the group list; avoid `groups` (new ref every render)
@@ -43,6 +55,7 @@ export function useProjectNavigationModel() {
 
   return {
     groups,
+    latestChatIdBySpace,
     projectByDir,
     projectSpaces,
     projects,

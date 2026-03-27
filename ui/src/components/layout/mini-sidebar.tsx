@@ -10,7 +10,7 @@ import { useWSMethods } from "@/context/websocket-context";
 import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useProjectNavigationModel } from "@/hooks/use-project-navigation-model";
 import { fetchProjectIcons } from "@/lib/api";
-import { getInstanceProjectRouteId, getProjectName } from "@/lib/project-route";
+import { getInstanceProjectRouteId, getProjectName, getSpaceRoute } from "@/lib/project-route";
 import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
 // ── Project flyout (sessions for one project) ────────────────────────
@@ -20,6 +20,7 @@ function ProjectFlyout({
   projectId,
   instances,
   spaces,
+  latestChatIdBySpace,
   currentId,
   activeSpaceId,
   onNewChat,
@@ -28,6 +29,7 @@ function ProjectFlyout({
   projectId: string;
   instances: InstanceInfo[];
   spaces?: SpaceInfo[];
+  latestChatIdBySpace: Record<string, string>;
   currentId?: string;
   activeSpaceId?: string;
   onNewChat: (dir: string) => void;
@@ -70,8 +72,7 @@ function ProjectFlyout({
               {visibleSpaces.map((space) => (
                 <Link
                   key={space.id}
-                  to="/projects/$projectId/spaces/$spaceId"
-                  params={{ projectId, spaceId: space.id }}
+                  {...getSpaceRoute(projectId, space.id, latestChatIdBySpace[space.id])}
                   className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-[0.75rem] transition-colors ${
                     activeSpaceId === space.id
                       ? "bg-accent-dim text-accent"
@@ -181,7 +182,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   const { trackInstanceCreate } = useActionToasts();
   const { isAuthenticated, logout } = useAuthContext();
   const { theme, toggle: toggleTheme } = useTheme();
-  const { groups, projectByDir, projectSpaces } = useProjectNavigationModel();
+  const { groups, latestChatIdBySpace, projectByDir, projectSpaces } = useProjectNavigationModel();
   const {
     chatId: currentId,
     projectId: currentProjectId,
@@ -324,6 +325,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
             projectId={projectByDir.get(flyoutGroup[0])?.id ?? getProjectName(flyoutGroup[0])}
             instances={flyoutGroup[1]}
             spaces={projectSpaces[flyoutGroup[0]]}
+            latestChatIdBySpace={latestChatIdBySpace}
             currentId={currentId}
             activeSpaceId={currentSpaceId}
             onNewChat={handleNewChat}
