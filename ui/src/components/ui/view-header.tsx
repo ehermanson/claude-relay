@@ -98,14 +98,16 @@ export function BranchBadge({ branch, tooltip }: BranchBadgeProps) {
 
 interface TokenBadgeProps {
   tokens: number;
+  label?: string;
   tooltip?: ReactNode;
 }
 
-export function TokenBadge({ tokens, tooltip }: TokenBadgeProps) {
+export function TokenBadge({ tokens, label, tooltip }: TokenBadgeProps) {
   if (tokens <= 0) return null;
   const badge = (
     <span className="hidden shrink-0 items-center gap-1 text-[0.6875rem] text-muted sm:inline-flex">
       <Zap size={10} />
+      {label && <span className="text-muted/80">{label}</span>}
       {formatTokens(tokens)}
     </span>
   );

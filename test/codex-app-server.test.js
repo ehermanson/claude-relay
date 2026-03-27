@@ -685,6 +685,7 @@ describe("CodexAppServerSession", () => {
     assert.equal(lastStats.inputTokens, 60);
     assert.equal(lastStats.cacheReadTokens, 10);
     assert.equal(lastStats.outputTokens, 30);
+    assert.equal(lastStats.contextTokens, 100);
     assert.equal(lastStats.contextWindow, 200000);
   });
 

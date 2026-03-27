@@ -310,7 +310,9 @@ describe("convertCodexTranscriptEntry", () => {
                 cached_input_tokens: 200,
               },
               last_token_usage: {
+                total_tokens: 1000,
                 input_tokens: 800,
+                cached_input_tokens: 200,
               },
               model_context_window: 128000,
             },
@@ -321,7 +323,7 @@ describe("convertCodexTranscriptEntry", () => {
       assert.equal(ctx.stats.inputTokens, 1000);
       assert.equal(ctx.stats.outputTokens, 500);
       assert.equal(ctx.stats.cacheReadTokens, 200);
-      assert.equal(ctx.stats.contextTokens, 800);
+      assert.equal(ctx.stats.contextTokens, 1000);
       assert.equal(ctx.stats.contextWindow, 128000);
     });
 

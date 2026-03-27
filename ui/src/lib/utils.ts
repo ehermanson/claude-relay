@@ -104,6 +104,29 @@ export function getDisplaySessionStats(
   };
 }
 
+export function getContextWindowUsage(stats: { contextTokens?: number; contextWindow?: number }): {
+  contextTokens: number;
+  contextWindow: number;
+  usagePct: number;
+} {
+  const contextWindow = stats.contextWindow && stats.contextWindow > 0 ? stats.contextWindow : 0;
+  const rawContextTokens = stats.contextTokens ?? 0;
+  if (!contextWindow || rawContextTokens <= 0) {
+    return {
+      contextTokens: 0,
+      contextWindow,
+      usagePct: 0,
+    };
+  }
+
+  const contextTokens = Math.min(rawContextTokens, contextWindow);
+  return {
+    contextTokens,
+    contextWindow,
+    usagePct: Math.min(contextTokens / contextWindow, 1) * 100,
+  };
+}
+
 /** Turn a model ID like "claude-opus-4-6" into a short display name like "Opus 4.6" */
 export function formatModel(model: string): string {
   // Match "claude-{family}-{major}-{minor}" or "claude-{family}-{major}"

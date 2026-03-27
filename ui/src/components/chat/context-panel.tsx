@@ -8,6 +8,7 @@ import {
   formatTokens,
   formatModel,
   formatTimestamp,
+  getContextWindowUsage,
   getDisplaySessionStats,
   instanceStatusVariant,
 } from "../../lib/utils";
@@ -379,9 +380,7 @@ function InstanceContext({
 
   const displayStats = getDisplaySessionStats(provider, stats);
   const totalTokens = displayStats.totalTokens;
-  const contextTokens = stats.contextTokens ?? 0;
-  const contextWindow = stats.contextWindow ?? 0;
-  const usagePct = contextWindow > 0 ? (contextTokens / contextWindow) * 100 : 0;
+  const contextUsage = getContextWindowUsage(stats);
   const reasoning = stats.reasoningTokens ?? 0;
   const displayModel = stats.model ?? preferredModel;
   const segments = computeSegments(stats, provider);
@@ -396,7 +395,7 @@ function InstanceContext({
             value={provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "—"}
           />
           <StatRow label="Model" value={displayModel ? formatModel(displayModel) : "—"} />
-          {contextWindow > 0 && (
+          {contextUsage.contextWindow > 0 && (
             <>
               <StatRow
                 label="Context Limit"
@@ -405,18 +404,18 @@ function InstanceContext({
                     ? "Maximum context window for the current model. Claude limits are based on documented model limits."
                     : "Maximum context window reported by the current model."
                 }
-                value={formatTokens(contextWindow)}
+                value={formatTokens(contextUsage.contextWindow)}
               />
               <StatRow
-                label="Usage"
-                help="Estimated share of the context window currently occupied by the latest prompt state."
-                value={`${usagePct.toFixed(1)}%`}
+                label="Context Usage"
+                help="Estimated share of the context window occupied by the latest prompt state, not the whole session."
+                value={`${contextUsage.usagePct.toFixed(1)}%`}
               />
             </>
           )}
           <StatRow
-            label="Total Tokens"
-            help="Chat total across input, output, and cache usage, normalized so cache-hit reads are not double-counted as input."
+            label="Session Tokens"
+            help="Cumulative chat total across input, output, and cache usage, normalized so cache-hit reads are not double-counted as input."
             value={formatTokens(totalTokens)}
           />
           <StatRow label="Messages" value={totalMessages} />
@@ -452,20 +451,25 @@ function InstanceContext({
         <TokenBreakdownBar segments={segments} />
 
         {/* Context window usage bar */}
-        {contextWindow > 0 && (
+        {contextUsage.contextWindow > 0 && (
           <div className="mt-4">
             <div className="mb-1.5 flex items-center justify-between text-[0.6875rem] text-muted">
-              <span>Context Window</span>
+              <span>Current Context</span>
               <span className="tabular-nums">
-                {formatTokens(contextTokens)} / {formatTokens(contextWindow)}
+                {formatTokens(contextUsage.contextTokens)} /{" "}
+                {formatTokens(contextUsage.contextWindow)}
               </span>
             </div>
             <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-hover">
               <div
                 className={`h-full rounded-full transition-all ${
-                  usagePct > 90 ? "bg-red-400" : usagePct > 70 ? "bg-amber-400" : "bg-accent"
+                  contextUsage.usagePct > 90
+                    ? "bg-red-400"
+                    : contextUsage.usagePct > 70
+                      ? "bg-amber-400"
+                      : "bg-accent"
                 }`}
-                style={{ width: `${Math.min(usagePct, 100)}%` }}
+                style={{ width: `${Math.min(contextUsage.usagePct, 100)}%` }}
               />
             </div>
           </div>
@@ -502,7 +506,9 @@ function SpaceContext({
   stoppedCount,
   createdAt,
 }: SpaceContextProps) {
-  const totalTokens = stats ? stats.inputTokens + stats.outputTokens : 0;
+  const totalTokens = stats
+    ? stats.inputTokens + stats.outputTokens + stats.cacheCreationTokens + stats.cacheReadTokens
+    : 0;
   const segments = stats ? computeSegments(stats) : [];
 
   return (

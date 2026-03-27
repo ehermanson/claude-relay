@@ -2,7 +2,7 @@ import type { ProviderKind, ProviderModelOption, SessionStats } from "@shared/ty
 import { siClaude } from "simple-icons";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { formatTokens } from "../../../lib/utils";
+import { formatTokens, getContextWindowUsage } from "../../../lib/utils";
 
 const CONTEXT_WINDOW = 1_000_000;
 const OPENAI_BLOSSOM_PATH =
@@ -99,15 +99,14 @@ export function ContextRing({
   active?: boolean;
   onClick?: () => void;
 }) {
-  const contextWindow =
-    stats.contextWindow && stats.contextWindow > 0 ? stats.contextWindow : CONTEXT_WINDOW;
-  const rawContextTokens = stats.contextTokens ?? 0;
-  if (!rawContextTokens) return null;
+  const usage = getContextWindowUsage({
+    contextTokens: stats.contextTokens,
+    contextWindow: stats.contextWindow ?? CONTEXT_WINDOW,
+  });
+  if (!usage.contextTokens) return null;
 
-  // Guard against stale or provider-misaligned snapshots that exceed the known window.
-  const contextTokens = Math.min(rawContextTokens, contextWindow);
-  const pct = Math.min(contextTokens / contextWindow, 1);
-  const used = Math.round(pct * 100);
+  const pct = usage.usagePct / 100;
+  const used = Math.round(usage.usagePct);
   const r = 5;
   const size = 14;
   const cx = size / 2;
@@ -120,14 +119,15 @@ export function ContextRing({
     <Tooltip
       content={
         <div className="space-y-0.5 text-center">
-          <div className="font-semibold text-text">Context window</div>
+          <div className="font-semibold text-text">Current context</div>
           <div>
             {used}% used &middot; {100 - used}% left
           </div>
           <div>
-            {formatTokens(contextTokens)} / {formatTokens(contextWindow)} tokens
+            {formatTokens(usage.contextTokens)} / {formatTokens(usage.contextWindow)} tokens
           </div>
-          <div className="pt-1 text-muted">Auto-compacts when full</div>
+          <div className="pt-1 text-muted">Latest prompt footprint, not session total</div>
+          <div className="text-muted">Auto-compacts when full</div>
         </div>
       }
       delay={200}

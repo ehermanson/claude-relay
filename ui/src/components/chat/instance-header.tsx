@@ -33,7 +33,7 @@ import { HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
 import { CommitMessageDialog } from "../git/commit-message-dialog";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
 import { gitCommitInstance, gitPushInstance } from "../../lib/api";
-import { formatTokens } from "../../lib/utils";
+import { formatTokens, getDisplaySessionStats } from "../../lib/utils";
 import type { InstanceInfo, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
 
@@ -210,7 +210,10 @@ export function InstanceHeader({
   }
 
   const projectId = getInstanceProjectRouteId(instance);
-  const totalTokens = instance.stats ? instance.stats.inputTokens + instance.stats.outputTokens : 0;
+  const displayStats = instance.stats
+    ? getDisplaySessionStats(instance.provider, instance.stats)
+    : null;
+  const totalTokens = displayStats?.totalTokens ?? 0;
   const displayBranchName = displayBranch || undefined;
 
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
@@ -263,11 +266,14 @@ export function InstanceHeader({
         )}
         <TokenBadge
           tokens={totalTokens}
+          label="Session"
           tooltip={
             instance.stats ? (
               <div className="flex flex-col gap-0.5">
-                <div className="font-medium">{instance.stats.model ?? "Unknown model"}</div>
-                <div>Input: {formatTokens(instance.stats.inputTokens)}</div>
+                <div className="font-medium">Session usage</div>
+                <div className="text-muted">{instance.stats.model ?? "Unknown model"}</div>
+                <div>Total: {formatTokens(totalTokens)}</div>
+                <div>Input: {formatTokens(displayStats?.inputTokens ?? 0)}</div>
                 <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
                 <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
                 <div>Cache read: {formatTokens(instance.stats.cacheReadTokens)}</div>

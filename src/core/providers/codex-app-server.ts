@@ -1041,7 +1041,11 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           this._stats.cacheReadTokens = usage.total.cachedInputTokens;
           this._stats.outputTokens = usage.total.outputTokens;
           this._stats.reasoningTokens = usage.total.reasoningOutputTokens;
-          this._stats.contextTokens = usage.last?.inputTokens;
+          this._stats.contextTokens =
+            usage.last?.totalTokens ??
+            (typeof usage.last?.inputTokens === "number"
+              ? usage.last.inputTokens + (usage.last.cachedInputTokens ?? 0)
+              : undefined);
           if (typeof usage.modelContextWindow === "number") {
             this._stats.contextWindow = usage.modelContextWindow;
           }

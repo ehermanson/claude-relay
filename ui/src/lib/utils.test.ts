@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getDisplaySessionStats, getDisplayTokenBreakdown } from "./utils";
+import { getContextWindowUsage, getDisplaySessionStats, getDisplayTokenBreakdown } from "./utils";
 
 describe("token display normalization", () => {
   it("keeps Claude input tokens unchanged", () => {
@@ -50,6 +50,19 @@ describe("token display normalization", () => {
       outputTokens: 500,
       cacheTokens: 200,
       totalTokens: 1500,
+    });
+  });
+
+  it("clamps context usage to the reported window", () => {
+    expect(
+      getContextWindowUsage({
+        contextTokens: 1200000,
+        contextWindow: 1000000,
+      }),
+    ).toEqual({
+      contextTokens: 1000000,
+      contextWindow: 1000000,
+      usagePct: 100,
     });
   });
 });

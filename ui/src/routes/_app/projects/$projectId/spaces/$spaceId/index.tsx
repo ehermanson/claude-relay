@@ -643,17 +643,38 @@ export function SpaceView() {
             </Badge>
           )}
           <TokenBadge
-            tokens={spaceInstances.reduce(
-              (sum, inst) => sum + (inst.stats?.inputTokens ?? 0) + (inst.stats?.outputTokens ?? 0),
-              0,
-            )}
-            tooltip={`${formatTokens(
-              spaceInstances.reduce(
-                (sum, inst) =>
-                  sum + (inst.stats?.inputTokens ?? 0) + (inst.stats?.outputTokens ?? 0),
-                0,
-              ),
-            )} tokens across ${spaceInstances.length} chat${spaceInstances.length !== 1 ? "s" : ""}`}
+            tokens={
+              aggregatedStats
+                ? aggregatedStats.inputTokens +
+                  aggregatedStats.outputTokens +
+                  aggregatedStats.cacheCreationTokens +
+                  aggregatedStats.cacheReadTokens
+                : 0
+            }
+            label="Session"
+            tooltip={
+              aggregatedStats ? (
+                <div className="flex flex-col gap-0.5">
+                  <div className="font-medium">Space usage</div>
+                  <div className="text-muted">
+                    Across {spaceInstances.length} chat{spaceInstances.length !== 1 ? "s" : ""}
+                  </div>
+                  <div>
+                    Total:{" "}
+                    {formatTokens(
+                      aggregatedStats.inputTokens +
+                        aggregatedStats.outputTokens +
+                        aggregatedStats.cacheCreationTokens +
+                        aggregatedStats.cacheReadTokens,
+                    )}
+                  </div>
+                  <div>Input: {formatTokens(aggregatedStats.inputTokens)}</div>
+                  <div>Output: {formatTokens(aggregatedStats.outputTokens)}</div>
+                  <div>Cache write: {formatTokens(aggregatedStats.cacheCreationTokens)}</div>
+                  <div>Cache read: {formatTokens(aggregatedStats.cacheReadTokens)}</div>
+                </div>
+              ) : undefined
+            }
           />
           <Menu.Root>
             <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">

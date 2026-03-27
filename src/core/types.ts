@@ -192,8 +192,9 @@ export interface SessionStats {
   /** Model identifier from the most recent API response (e.g. "claude-opus-4-6") */
   model?: string;
   /**
-   * Total input tokens from the most recent API call (input + cache_read + cache_creation).
-   * Represents current context window utilization — NOT a cumulative sum.
+   * Most recent context footprint reported by the provider for the current thread/request.
+   * Represents current context window utilization — NOT a cumulative session total.
+   * When available, this should include cached input that still occupies context.
    */
   contextTokens?: number;
   /** Provider-reported context window size when available. */

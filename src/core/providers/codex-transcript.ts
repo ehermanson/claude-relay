@@ -434,9 +434,14 @@ export function convertCodexTranscriptEntry(
         }
 
         if (last) {
-          const inputTokens = typeof last.input_tokens === "number" ? last.input_tokens : 0;
-          // Codex cached_input_tokens are already included in input_tokens.
-          ctx.stats.contextTokens = inputTokens;
+          if (typeof last.total_tokens === "number") {
+            ctx.stats.contextTokens = last.total_tokens;
+          } else {
+            const inputTokens = typeof last.input_tokens === "number" ? last.input_tokens : 0;
+            const cachedInputTokens =
+              typeof last.cached_input_tokens === "number" ? last.cached_input_tokens : 0;
+            ctx.stats.contextTokens = inputTokens + cachedInputTokens;
+          }
         }
         if (info && typeof info.model_context_window === "number") {
           ctx.stats.contextWindow = info.model_context_window;

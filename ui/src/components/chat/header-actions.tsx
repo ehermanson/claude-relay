@@ -29,7 +29,7 @@ export function HeaderContextToggle({
   }
 
   return (
-    <Tooltip content={tooltip ?? (active ? "Hide context" : "Show context")}>
+    <Tooltip content={tooltip ?? (active ? "Hide current context" : "Show current context")}>
       <Button variant="icon" toggled={active} onClick={onClick} className="shrink-0">
         <Info size={15} strokeWidth={2} />
       </Button>

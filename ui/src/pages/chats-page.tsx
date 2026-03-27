@@ -14,7 +14,13 @@ import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { fetchProjectChats, fetchAllSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
-import { formatModel, formatTimeAgo, formatTokens, instanceStatusVariant } from "@/lib/utils";
+import {
+  formatModel,
+  formatTimeAgo,
+  formatTokens,
+  getDisplaySessionStats,
+  instanceStatusVariant,
+} from "@/lib/utils";
 import { PageShell } from "@/components/ui/page-shell";
 import { StatusDot } from "@/components/ui/status-dot";
 import type { InstanceInfo, SpaceInfo } from "@shared/types";
@@ -29,6 +35,9 @@ function SessionCard({
   isMobile: boolean;
 }) {
   const route = getInstanceChatRoute(instance);
+  const displayStats = instance.stats
+    ? getDisplaySessionStats(instance.provider, instance.stats)
+    : null;
 
   return (
     <Link
@@ -83,7 +92,8 @@ function SessionCard({
           <Tooltip
             content={
               <div className="flex flex-col gap-0.5">
-                <div>Input: {formatTokens(instance.stats.inputTokens)}</div>
+                <div>Total: {formatTokens(displayStats?.totalTokens ?? 0)}</div>
+                <div>Input: {formatTokens(displayStats?.inputTokens ?? 0)}</div>
                 <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
                 {instance.stats.cacheCreationTokens > 0 && (
                   <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
@@ -95,7 +105,7 @@ function SessionCard({
             }
           >
             <div className="text-[0.6875rem] text-muted">
-              {formatTokens(instance.stats.inputTokens + instance.stats.outputTokens)} tokens
+              {formatTokens(displayStats?.totalTokens ?? 0)} tokens
             </div>
           </Tooltip>
         </div>
