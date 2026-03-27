@@ -59,6 +59,8 @@ interface InputAreaProps {
   hasMessages?: boolean;
   pendingUserInput?: ProviderRequest | null;
   pendingPlan?: string;
+  /** Extra content rendered inside the composer container, above the text input. */
+  topSlot?: React.ReactNode;
 }
 
 function buildPromptPlaceholder(
@@ -92,6 +94,7 @@ export function InputArea({
   hasMessages,
   pendingUserInput,
   pendingPlan,
+  topSlot,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
   const composerContainerRef = useRef<HTMLDivElement>(null);
@@ -689,6 +692,7 @@ export function InputArea({
             ref={composerContainerRef}
             className="@container/toolbar relative rounded-2xl border border-border/60 bg-surface"
           >
+            {topSlot}
             {!isInSpecialMode ? (
               <ImageAttachmentStrip images={images} onRemove={removeImage} />
             ) : null}

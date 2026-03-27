@@ -6,6 +6,25 @@
  */
 
 // =============================================================================
+// Terminal Types
+// =============================================================================
+
+export type TerminalScope =
+  | { type: "space"; spaceId: string }
+  | { type: "instance"; instanceId: string };
+
+export interface TerminalInfo {
+  id: string;
+  scope: TerminalScope;
+  cwd: string;
+  cols: number;
+  rows: number;
+  createdAt: number;
+  exited: boolean;
+  exitCode?: number;
+}
+
+// =============================================================================
 // Space Types
 // =============================================================================
 
@@ -393,6 +412,51 @@ export interface DeleteSpacePayload {
   spaceId: string;
 }
 
+// ── Terminal client messages ──────────────────────────────────────────
+
+export interface TerminalCreatePayload {
+  type: "terminal_create";
+  scope: TerminalScope;
+  cwd?: string;
+  cols?: number;
+  rows?: number;
+  /** When true, the server will only create a terminal if none exist for this scope. */
+  ifEmpty?: boolean;
+}
+
+export interface TerminalInputPayload {
+  type: "terminal_input";
+  terminalId: string;
+  data: string;
+}
+
+export interface TerminalResizePayload {
+  type: "terminal_resize";
+  terminalId: string;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalClosePayload {
+  type: "terminal_close";
+  terminalId: string;
+}
+
+export interface TerminalSubscribePayload {
+  type: "terminal_subscribe";
+  terminalId: string;
+}
+
+export interface TerminalUnsubscribePayload {
+  type: "terminal_unsubscribe";
+  terminalId: string;
+}
+
+export interface TerminalListPayload {
+  type: "terminal_list";
+  scope: TerminalScope;
+}
+
 export type ClientMessage =
   | MessagePayload
   | CancelPayload
@@ -414,7 +478,14 @@ export type ClientMessage =
   | SetProviderPayload
   | CreateSpacePayload
   | CompleteSpacePayload
-  | DeleteSpacePayload;
+  | DeleteSpacePayload
+  | TerminalCreatePayload
+  | TerminalInputPayload
+  | TerminalResizePayload
+  | TerminalClosePayload
+  | TerminalSubscribePayload
+  | TerminalUnsubscribePayload
+  | TerminalListPayload;
 
 // =============================================================================
 // Server -> Client Messages
@@ -573,6 +644,43 @@ export interface SpaceListMessage {
   spaces: SpaceInfo[];
 }
 
+// ── Terminal server messages ──────────────────────────────────────────
+
+export interface TerminalCreatedMessage {
+  type: "terminal_created";
+  terminal: TerminalInfo;
+}
+
+export interface TerminalOutputMessage {
+  type: "terminal_output";
+  terminalId: string;
+  data: string;
+}
+
+export interface TerminalExitMessage {
+  type: "terminal_exit";
+  terminalId: string;
+  code: number;
+  signal?: string;
+}
+
+export interface TerminalRemovedMessage {
+  type: "terminal_removed";
+  terminalId: string;
+}
+
+export interface TerminalScrollbackMessage {
+  type: "terminal_scrollback";
+  terminalId: string;
+  data: string;
+}
+
+export interface TerminalListResponse {
+  type: "terminal_list_response";
+  scope: TerminalScope;
+  terminals: TerminalInfo[];
+}
+
 export type ServerMessage =
   | ConnectedMessage
   | OutputMessage
@@ -593,7 +701,13 @@ export type ServerMessage =
   | SpaceCreatedMessage
   | SpaceCompletedMessage
   | SpaceRemovedMessage
-  | SpaceListMessage;
+  | SpaceListMessage
+  | TerminalCreatedMessage
+  | TerminalOutputMessage
+  | TerminalExitMessage
+  | TerminalRemovedMessage
+  | TerminalScrollbackMessage
+  | TerminalListResponse;
 
 // =============================================================================
 // Session Types

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { ConnectionStatusBanner } from "@/components/chat/connection-status-banner";
@@ -11,6 +11,8 @@ import { PermissionBanner } from "@/components/chat/permission-banner";
 import { BranchChangeBanner } from "@/components/chat/branch-change-banner";
 import { Sidecar } from "@/components/chat/sidecar";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
+import { TerminalPanel } from "@/components/terminal/terminal-panel";
+import { TerminalContextStrip } from "@/components/terminal/terminal-context-strip";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -20,10 +22,12 @@ import { useConnectionBanner } from "@/hooks/use-connection-banner";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { useSidecarPanels } from "@/hooks/use-sidecar-store";
+import { useTerminalStore, scopeKey } from "@/hooks/use-terminal-store";
+import { useVerticalResize } from "@/hooks/use-vertical-resize";
 import { createInstance, fetchInstanceHistory } from "@/lib/api";
 import { getInstanceChatRoute, getInstanceProjectRouteId } from "@/lib/project-route";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
-import type { ServerMessage, ProviderKind, UserInputAnswer } from "@shared/types";
+import type { ServerMessage, ProviderKind, TerminalScope, UserInputAnswer } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
 
@@ -99,7 +103,16 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
 
   const handleSend = (text: string, images?: string[], internal?: boolean) => {
     if (!id) return;
-    send({ type: "instance_message", instanceId: id, text, images, internal });
+    // Prepend terminal context if attached
+    let finalText = text;
+    if (terminalContexts.length > 0 && !internal) {
+      const blocks = terminalContexts
+        .map((c) => `<terminal_context source="${c.terminalName}">\n${c.text}\n</terminal_context>`)
+        .join("\n\n");
+      finalText = `${blocks}\n\n${text}`;
+      clearTerminalContexts(id);
+    }
+    send({ type: "instance_message", instanceId: id, text: finalText, images, internal });
     showThinking();
   };
 
@@ -158,6 +171,49 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       ...nextRoute,
     });
   };
+
+  // ── Terminal panel state ──────────────────────────────────────────
+  const terminalScope: TerminalScope = useMemo(
+    () =>
+      instance?.spaceId
+        ? { type: "space", spaceId: instance.spaceId }
+        : { type: "instance", instanceId: id! },
+    [instance?.spaceId, id],
+  );
+  const terminalScopeKey = terminalScope ? scopeKey(terminalScope) : "";
+  const {
+    isPanelOpen: isTerminalPanelOpen,
+    togglePanel: toggleTerminalPanel,
+    removeTerminalContext,
+    clearTerminalContexts,
+    getTerminalContexts,
+  } = useTerminalStore();
+  const terminalContexts = id ? getTerminalContexts(id) : [];
+  const showTerminalPanel = !!terminalScope && isTerminalPanelOpen(terminalScope);
+  const { height: terminalHeight, onResizeStart: handleTerminalResizeStart } = useVerticalResize();
+
+  const handleToggleTerminal = () => {
+    if (terminalScopeKey) {
+      toggleTerminalPanel(terminalScopeKey);
+    }
+  };
+
+  // Ctrl+` keyboard shortcut to toggle terminal (skip in compact mode —
+  // compact InstanceViews never render the terminal panel; the parent
+  // space page owns the shortcut instead).
+  const handleToggleTerminalRef = useRef(handleToggleTerminal);
+  handleToggleTerminalRef.current = handleToggleTerminal;
+  useEffect(() => {
+    if (compact) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "`" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        handleToggleTerminalRef.current();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [compact]);
 
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
@@ -422,6 +478,12 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
               hasMessages={items.length > 0}
               pendingUserInput={pendingUserInput}
               pendingPlan={instance.pendingPlan}
+              topSlot={
+                <TerminalContextStrip
+                  attachments={terminalContexts}
+                  onRemove={(attachmentId) => id && removeTerminalContext(id, attachmentId)}
+                />
+              }
             />
           </ErrorBoundary>
         ))}
@@ -453,10 +515,24 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         onDelete={() => setConfirmDelete(true)}
         onOpenMobileSidecar={() => setSidecarMobileOpen(true)}
         onSplit={() => navigate({ search: { split: "pick" } })}
+        onToggleTerminal={handleToggleTerminal}
+        terminalOpen={showTerminalPanel}
       />
 
       <div ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{chatContent}</div>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{chatContent}</div>
+          {showTerminalPanel && !isMobile && (
+            <ErrorBoundary name="Terminal panel">
+              <TerminalPanel
+                scope={terminalScope}
+                height={terminalHeight}
+                onResizeStart={handleTerminalResizeStart}
+                activeInstanceId={id}
+              />
+            </ErrorBoundary>
+          )}
+        </div>
         {!isMobile && (
           <div
             className={`relative flex h-full shrink-0 overflow-hidden ${
