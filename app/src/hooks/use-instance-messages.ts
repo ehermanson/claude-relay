@@ -226,6 +226,11 @@ function coreReducer(state: State, action: Action): State {
               items.push({ kind: "system", text, isError: true });
             }
             break;
+          case "error":
+            flushActivities();
+            flushAssistant();
+            items.push({ kind: "system", text: `Error: ${msg.message}`, isError: true });
+            break;
         }
       }
 

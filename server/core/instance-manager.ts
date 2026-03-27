@@ -238,6 +238,7 @@ export interface InstanceManagerEvents {
   "instance:status": [instanceId: string, info: InstanceInfo];
   "instance:created": [instanceId: string, info: InstanceInfo];
   "instance:removed": [instanceId: string];
+  "instance:error": [instanceId: string, message: string];
   "instance:user": [instanceId: string, message: UserMessage];
   "instance:transcript": [instanceId: string, message: TranscriptMessage];
   "scan:complete": [];
@@ -6614,6 +6615,24 @@ export class InstanceManager extends EventEmitter {
         }
       }).catch((err) => this.logQueuedMutationError("exit handler", id, err));
     });
+
+    // Provider-level errors (e.g. auth failures) — surface to the UI
+    proc.on(
+      "providerError" as keyof import("./provider.js").ProviderSessionEvents,
+      ((errorMsg: string) => {
+        void this.enqueueInstanceMutation(id, (live) => {
+          if (this.shuttingDown || live.process !== proc) return;
+          const errorMessage: import("./types.js").ErrorMessage = {
+            type: "error",
+            message: errorMsg,
+          };
+          this.pushHistory(live, errorMessage);
+          live.info.lastActivityAt = Date.now();
+          this.dbSave(live);
+          this.emit("instance:error", id, errorMsg);
+        }).catch((err) => this.logQueuedMutationError("providerError handler", id, err));
+      }) as (...args: unknown[]) => void,
+    );
 
     // SDK permission requests — set pending state without creating a chat activity
     proc.on(

@@ -273,6 +273,10 @@ export function createWebSocketServer(
     sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
   });
 
+  instanceManager.on("instance:error", (instanceId: string, message: string) => {
+    sendToSubscribers(instanceId, { type: "error", message, instanceId });
+  });
+
   instanceManager.on("instance:status", (instanceId: string, info: InstanceInfo) => {
     broadcast({ type: "instance_status", instanceId, instance: info });
   });

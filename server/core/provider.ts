@@ -31,6 +31,8 @@ export interface ProviderSessionEvents {
   stats: [SessionStats];
   /** Emitted when the provider needs a user decision outside normal chat input. */
   permissionRequest: [ProviderRequest];
+  /** Emitted when the provider encounters a non-fatal error that should be surfaced to the user. */
+  providerError: [string];
   /** Emitted when the provider generates a title for the session (e.g. Codex thread/name/updated). */
   titleUpdate: [string];
 }

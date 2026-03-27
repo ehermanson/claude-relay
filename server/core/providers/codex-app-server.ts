@@ -1060,8 +1060,10 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       case "error": {
         const error = params.error as { message?: string } | undefined;
         const willRetry = params.willRetry as boolean | undefined;
+        const errorMessage = error?.message ?? "unknown";
         if (!willRetry) {
-          this.logger.error(`[CodexAppServer] Error: ${error?.message ?? "unknown"}`);
+          this.logger.error(`[CodexAppServer] Error: ${errorMessage}`);
+          this.emit("providerError", errorMessage);
         }
         break;
       }
