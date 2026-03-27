@@ -85,9 +85,7 @@ export function ActivityEntry({
 }: ActivityEntryProps) {
   const hasRichContent = !!input && !!tool;
   const isPermDenied = !!permissionDenied;
-  const defaultExpanded =
-    isPermDenied ||
-    (hasRichContent && (tool === "Edit" || tool === "AskUserQuestion" || tool === "Write"));
+  const defaultExpanded = isPermDenied || (hasRichContent && tool === "AskUserQuestion");
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const isError = description === "Tool error";
