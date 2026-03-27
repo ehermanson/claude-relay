@@ -5,6 +5,7 @@
  * - instance-manager.ts: addExternalInstance() / scanAllSessions() worktree path recovery
  */
 
+import { TEST_WORKTREE_BASE } from "./test-env.js";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
@@ -40,9 +41,10 @@ function createTempRepo() {
 }
 
 function createSpaceWorktree(repoDir, shortId = "aabbccdd") {
-  const worktreePath = join(homedir(), ".relay", "worktrees", `space-${shortId}`);
+  const base = TEST_WORKTREE_BASE;
+  const worktreePath = join(base, `space-${shortId}`);
   const branchName = `relay-space/${shortId}`;
-  mkdirSync(join(homedir(), ".relay", "worktrees"), { recursive: true });
+  mkdirSync(base, { recursive: true });
   rmSync(worktreePath, { recursive: true, force: true });
   execSync(`git worktree add -b "${branchName}" "${worktreePath}" HEAD`, {
     cwd: repoDir,

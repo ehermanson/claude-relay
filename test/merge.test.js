@@ -6,6 +6,7 @@
  * - websocket.ts: merge_instance message
  */
 
+import "./test-env.js";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -20,7 +21,6 @@ import {
   mergeWorktreeBranch,
   createWorktree,
   removeWorktree,
-  getRepoRoot,
   getCurrentBranch,
 } from "../dist/core/git.js";
 import { InstanceManager } from "../dist/core/instance-manager.js";

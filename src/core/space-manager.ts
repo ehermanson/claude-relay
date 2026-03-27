@@ -10,7 +10,6 @@ import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { execSync, execFileSync } from "child_process";
 import { basename, join } from "path";
-import { homedir } from "os";
 import { EventEmitter } from "events";
 
 import type { SessionDB } from "./db.js";
@@ -29,6 +28,7 @@ import {
   squashMergeBranch,
   getWorktreeDiff,
   gitPush,
+  getWorktreeBase,
 } from "./git.js";
 
 function rowToInfo(row: SpaceRow, chatCount: number): SpaceInfo {
@@ -87,7 +87,7 @@ export class SpaceManager extends EventEmitter {
 
   private getExistingWorktreePath(worktreePath: string | null): string | null {
     if (!worktreePath) return null;
-    return existsSync(worktreePath) ? worktreePath : null;
+    return existsSync(worktreePath) && isGitRepo(worktreePath) ? worktreePath : null;
   }
 
   private toInfo(row: SpaceRow): SpaceInfo {
@@ -183,7 +183,7 @@ export class SpaceManager extends EventEmitter {
     const branchName = `relay-space/${shortId}`;
 
     // Create the worktree
-    const worktreeBase = join(homedir(), ".relay", "worktrees");
+    const worktreeBase = getWorktreeBase();
     const worktreePath = join(worktreeBase, `space-${shortId}`);
 
     try {

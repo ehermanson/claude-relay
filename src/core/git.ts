@@ -13,7 +13,15 @@ import { promisify } from "util";
 
 import type { FileChange } from "./types.js";
 
-const WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
+const DEFAULT_WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
+
+/**
+ * Return the worktree base directory.
+ * Respects RELAY_WORKTREE_BASE env var so tests can redirect to a temp dir.
+ */
+export function getWorktreeBase(): string {
+  return process.env.RELAY_WORKTREE_BASE || DEFAULT_WORKTREE_BASE;
+}
 const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const RELAY_GIT_FALLBACK_NAME = "Relay";
 const RELAY_GIT_FALLBACK_EMAIL = "relay@local";
@@ -45,9 +53,19 @@ const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][^/\\]+\/?$/;
 
 /**
  * Check if a directory path is a relay-managed worktree.
+ * Matches the canonical ~/.relay/worktrees/<name> pattern and also any
+ * custom base set via RELAY_WORKTREE_BASE (used in tests).
  */
 export function isRelayWorktreePath(dir: string): boolean {
-  return RELAY_WORKTREE_RE.test(dir);
+  if (RELAY_WORKTREE_RE.test(dir)) return true;
+  const base = getWorktreeBase();
+  if (base === DEFAULT_WORKTREE_BASE) return false;
+  const normalized = dir.replace(/[/\\]+$/, "");
+  return (
+    normalized.startsWith(base) &&
+    normalized.length > base.length &&
+    !normalized.slice(base.length + 1).includes("/")
+  );
 }
 
 /**
@@ -309,7 +327,7 @@ export function createWorktree(
   repoRoot: string,
   shortId: string,
 ): { worktreePath: string; branchName: string } | null {
-  const worktreePath = join(WORKTREE_BASE, shortId);
+  const worktreePath = join(getWorktreeBase(), shortId);
   const branchName = `relay/${shortId}`;
 
   try {
