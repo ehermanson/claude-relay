@@ -458,14 +458,14 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
               isResizing ? "" : "transition-[width,opacity] duration-200 ease-out"
             } ${showDesktopSidecar ? "opacity-100" : "w-0 opacity-0"}`}
             ref={sidecarRef}
-            style={showDesktopSidecar ? { width: sidecarWidth ?? "30%" } : undefined}
+            style={showDesktopSidecar ? { width: sidecarWidth ?? "max(280px, 30%)" } : undefined}
           >
             {/* Resize handle */}
             <div
               onMouseDown={handleResizeStart}
               className="absolute inset-y-0 left-0 z-10 w-px cursor-col-resize bg-border/50 after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:content-['']"
             />
-            <div className="h-full min-w-[280px] flex-1 pl-px">
+            <div className="h-full flex-1 pl-px">
               <Sidecar
                 tasks={currentTasks}
                 files={currentFiles}
