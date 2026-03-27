@@ -81,12 +81,18 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 
 - `SpaceManager` (`src/core/space-manager.ts`) owns space lifecycle: create, list, complete (merge + cleanup), delete (archive + cleanup)
 - `spaces` table in SQLite with `space_id` FK on `sessions` and `managed_sessions`
-- Space completion auto-commits dirty worktrees, merges into the default branch, and removes the worktree
-- REST API: `GET/POST /api/projects/:dir/spaces`, `GET/DELETE /api/spaces/:id`, `POST /api/spaces/:id/complete`, `GET /api/spaces/:id/diff`
+- Space completion auto-commits dirty worktrees, merges into the default branch, and removes the worktree; local branch is kept for recoverability
+- `MergeMethod` type: `"squash" | "merge-commit"` — passed per-merge via `completeSpace(id, { mergeMethod, squashMessage? })`; default is `"squash"`
+- `spaces` table stores merge metadata (`merge_commit`, `merge_method`, `merged_at`, `target_branch`) and remote tracking (`remote_status`, `pr_url`)
+- Lifecycle states: `active` → `completed` (merged) or `archived` (closed without merge); completed/archived spaces are read-only in the UI
+- UI terminology: "Complete" (action label), "Merged"/"Archived" (status badges), "Archive" (replaces "Delete" in UI)
+- Sidebar shows Active spaces → Chats → Closed spaces (collapsed); mini-sidebar shows active only
+- REST API: `GET/POST /api/projects/:dir/spaces`, `GET /api/projects/:dir/spaces/all`, `GET/DELETE /api/spaces/:id`, `POST /api/spaces/:id/complete`, `GET /api/spaces/:id/diff`
 - WS messages: `create_space`, `complete_space`, `delete_space` (client); `space_created`, `space_completed`, `space_removed`, `space_list` (server)
+- `space_list` broadcast includes all spaces (active + closed) so the sidebar can render the closed section
 - Non-default spaces render as clickable items in the sidebar; selecting one opens a tab-based view with horizontal tabs per chat
 - Non-git projects fall back to flat Chat[] model (spaces require git)
-- `pushSpace()` pushes the space branch and optionally creates a PR via `gh pr create` — all git args use `execFileSync` array form to prevent shell injection
+- `pushSpace()` pushes the space branch and optionally creates a PR via `gh pr create` — all git args use `execFileSync` array form to prevent shell injection; persists `remote_status`/`pr_url` on the space
 
 ### Git Integration
 

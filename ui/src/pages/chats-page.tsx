@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "@tanstack/react-router";
-import { GitBranch, MessageSquare, Search } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, GitBranch, MessageSquare, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { EmptyProjectActions } from "@/components/empty-project-actions";
@@ -12,7 +12,7 @@ import { useProjectContext } from "@/context/project-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useActionToasts } from "@/hooks/use-action-toasts";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { fetchProjectChats, fetchSpaces } from "@/lib/api";
+import { fetchProjectChats, fetchAllSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
 import { formatModel, formatTimeAgo, formatTokens, instanceStatusVariant } from "@/lib/utils";
 import { PageShell } from "@/components/ui/page-shell";
@@ -149,8 +149,18 @@ function SpaceCard({
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[0.8125rem] font-semibold text-text-bright">
+          <div className="flex items-center gap-1.5 truncate text-[0.8125rem] font-semibold text-text-bright">
             {space.name}
+            {space.status === "completed" && (
+              <Badge variant="success" size="xs">
+                Merged
+              </Badge>
+            )}
+            {space.status === "archived" && (
+              <Badge variant="default" size="xs">
+                Archived
+              </Badge>
+            )}
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[0.6875rem] text-muted">
             {space.gitBranch && <span className="truncate">{space.gitBranch}</span>}
@@ -226,7 +236,7 @@ export function ChatsPage() {
 
   const { data: spaces = [] } = useQuery({
     queryKey: spacesQueryKey,
-    queryFn: () => fetchSpaces(projectId),
+    queryFn: () => fetchAllSpaces(projectId),
     enabled: !!projectId,
   });
   const { data: chatSummaries = [] } = useQuery({
@@ -287,17 +297,29 @@ export function ChatsPage() {
     chats.sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
   }
 
-  const visibleSpaces = spaces
-    .filter((space) => !space.isDefault)
-    .map((space) => ({
-      space,
-      chats: chatsBySpace.get(space.id) ?? [],
-      lastActivity: Math.max(
-        space.lastActivityAt || 0,
-        ...(chatsBySpace.get(space.id) ?? []).map((chat) => chat.lastActivityAt || 0),
-      ),
-    }))
+  const enrichSpace = (space: SpaceInfo) => ({
+    space,
+    chats: chatsBySpace.get(space.id) ?? [],
+    lastActivity: Math.max(
+      space.lastActivityAt || 0,
+      ...(chatsBySpace.get(space.id) ?? []).map((chat) => chat.lastActivityAt || 0),
+    ),
+  });
+
+  const activeSpaces = spaces
+    .filter((s) => !s.isDefault && s.status === "active")
+    .map(enrichSpace)
     .sort((a, b) => b.lastActivity - a.lastActivity);
+
+  const closedSpaces = spaces
+    .filter((s) => !s.isDefault && (s.status === "completed" || s.status === "archived"))
+    .map(enrichSpace)
+    .sort((a, b) => b.lastActivity - a.lastActivity);
+
+  const matchesSearch = (q: string, space: SpaceInfo, chats: InstanceInfo[]) =>
+    space.name.toLowerCase().includes(q) ||
+    space.gitBranch?.toLowerCase().includes(q) ||
+    chats.some((c) => c.name.toLowerCase().includes(q));
 
   const filteredStandalone = searchQuery
     ? standaloneInstances.filter(
@@ -308,17 +330,17 @@ export function ChatsPage() {
       )
     : standaloneInstances;
 
-  const filteredSpaces = searchQuery
-    ? visibleSpaces.filter(
-        ({ space, chats }) =>
-          space.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          space.gitBranch?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          chats.some((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase())),
-      )
-    : visibleSpaces;
+  const lq = searchQuery?.toLowerCase() || "";
+  const filteredActiveSpaces = searchQuery
+    ? activeSpaces.filter(({ space, chats }) => matchesSearch(lq, space, chats))
+    : activeSpaces;
+
+  const filteredClosedSpaces = searchQuery
+    ? closedSpaces.filter(({ space, chats }) => matchesSearch(lq, space, chats))
+    : closedSpaces;
 
   const hasMainChats = standaloneInstances.length > 0;
-  const hasSpaces = visibleSpaces.length > 0;
+  const hasSpaces = activeSpaces.length > 0;
 
   const handleNewChat = () => {
     if (artifacts.directory) {
@@ -334,7 +356,7 @@ export function ChatsPage() {
   };
 
   const searchToolbar =
-    standaloneInstances.length > 0 || visibleSpaces.length > 0 ? (
+    standaloneInstances.length > 0 || activeSpaces.length > 0 || closedSpaces.length > 0 ? (
       <div className="relative">
         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
         <Input
@@ -359,14 +381,17 @@ export function ChatsPage() {
             <EmptyProjectActions onNewChat={handleNewChat} onNewSpace={handleNewSpace} />
           </div>
         </EmptyState>
-      ) : filteredStandalone.length === 0 && filteredSpaces.length === 0 ? (
+      ) : filteredStandalone.length === 0 &&
+        filteredActiveSpaces.length === 0 &&
+        filteredClosedSpaces.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <p className="text-sm text-muted">No chats match "{searchQuery}"</p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {filteredSpaces.length > 0 &&
-            filteredSpaces.map(({ space, chats }, index) => (
+          {/* Active Spaces */}
+          {filteredActiveSpaces.length > 0 &&
+            filteredActiveSpaces.map(({ space, chats }, index) => (
               <div
                 key={space.id}
                 className="opacity-0 animate-stagger-fade-in"
@@ -376,6 +401,7 @@ export function ChatsPage() {
               </div>
             ))}
 
+          {/* Main workspace chats */}
           {filteredStandalone.length > 0 &&
             filteredStandalone.map((inst, index) => (
               <div
@@ -390,6 +416,16 @@ export function ChatsPage() {
                 />
               </div>
             ))}
+
+          {/* Closed Spaces */}
+          {filteredClosedSpaces.length > 0 && (
+            <ClosedSpacesSection
+              spaces={filteredClosedSpaces}
+              projectId={projectId}
+              isMobile={isMobile}
+              defaultOpen={!!searchQuery}
+            />
+          )}
         </div>
       )}
 
@@ -400,5 +436,42 @@ export function ChatsPage() {
         onOpenChange={(open) => !open && spaceDialog.close()}
       />
     </PageShell>
+  );
+}
+
+function ClosedSpacesSection({
+  spaces,
+  projectId,
+  isMobile,
+  defaultOpen,
+}: {
+  spaces: Array<{ space: SpaceInfo; chats: InstanceInfo[]; lastActivity: number }>;
+  projectId: string;
+  isMobile: boolean;
+  defaultOpen: boolean;
+}) {
+  const [manualToggle, setManualToggle] = useState<boolean | null>(null);
+  // Reset manual override when search state changes
+  useEffect(() => setManualToggle(null), [defaultOpen]);
+  // Auto-open when search is active (defaultOpen=true), but respect manual toggle
+  const open = manualToggle ?? defaultOpen;
+
+  return (
+    <div>
+      <button
+        onClick={() => setManualToggle(!open)}
+        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium uppercase tracking-wide text-muted transition-colors hover:text-text"
+      >
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <Archive size={12} className="text-muted" />
+        Closed spaces ({spaces.length})
+      </button>
+      {open &&
+        spaces.map(({ space, chats }) => (
+          <div key={space.id} className="opacity-75">
+            <SpaceCard projectId={projectId} space={space} chats={chats} isMobile={isMobile} />
+          </div>
+        ))}
+    </div>
   );
 }

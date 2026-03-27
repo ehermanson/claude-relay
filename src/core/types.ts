@@ -10,6 +10,7 @@
 // =============================================================================
 
 export type SpaceStatus = "active" | "completed" | "archived";
+export type MergeMethod = "squash" | "merge-commit";
 
 export interface SpaceInfo {
   id: string;
@@ -22,6 +23,12 @@ export interface SpaceInfo {
   createdAt: number;
   lastActivityAt: number;
   chatCount: number;
+  mergeCommit?: string | null;
+  mergeMethod?: MergeMethod | null;
+  mergedAt?: number | null;
+  targetBranch?: string | null;
+  remoteStatus?: string | null;
+  prUrl?: string | null;
 }
 
 // =============================================================================
@@ -377,6 +384,8 @@ export interface CreateSpacePayload {
 export interface CompleteSpacePayload {
   type: "complete_space";
   spaceId: string;
+  mergeMethod?: MergeMethod;
+  squashMessage?: string;
 }
 
 export interface DeleteSpacePayload {
@@ -549,6 +558,8 @@ export interface SpaceCompletedMessage {
   type: "space_completed";
   spaceId: string;
   targetBranch: string;
+  mergeMethod?: string;
+  mergeCommit?: string;
 }
 
 export interface SpaceRemovedMessage {

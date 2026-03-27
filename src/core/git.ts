@@ -419,6 +419,100 @@ export function mergeWorktreeBranch(
 }
 
 /**
+ * Squash-merge a branch into the current branch of repoRoot.
+ *
+ * Stages all branch changes as a single commit with the given message.
+ * On failure: runs `git reset --hard HEAD && git clean -fd` to restore the
+ * repo to its pre-merge state, including removal of any new files the
+ * squashed branch introduced.
+ *
+ * `git merge --squash` does not create a MERGE_HEAD, so `git merge --abort`
+ * is ineffective — the reset+clean approach is the reliable cleanup path.
+ */
+export function squashMergeBranch(
+  repoRoot: string,
+  branchName: string,
+  commitMessage: string,
+): { success: true } | { success: false; error: string } {
+  const opts = { cwd: repoRoot, stdio: "pipe" as const, timeout: 30000 };
+
+  // Step 1: squash-merge (stages changes but does not commit)
+  try {
+    execFileSync("git", ["merge", "--squash", branchName], opts);
+  } catch (err) {
+    // Squash itself failed (conflict or other error) — clean up staged changes
+    resetHard(repoRoot);
+    return { success: false, error: extractMergeError(err) };
+  }
+
+  // Step 2: commit the staged squash
+  try {
+    try {
+      execFileSync("git", ["commit", "-m", commitMessage], opts);
+    } catch (error) {
+      if (!isMissingGitIdentityError(error)) {
+        throw error;
+      }
+      execFileSync(
+        "git",
+        [
+          "-c",
+          `user.name=${RELAY_GIT_FALLBACK_NAME}`,
+          "-c",
+          `user.email=${RELAY_GIT_FALLBACK_EMAIL}`,
+          "commit",
+          "-m",
+          commitMessage,
+        ],
+        opts,
+      );
+    }
+    return { success: true };
+  } catch (err) {
+    // Commit failed — reset so the main workspace is not left dirty
+    resetHard(repoRoot);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Squash commit failed",
+    };
+  }
+}
+
+/**
+ * Reset the working tree to HEAD and remove any untracked files/directories.
+ *
+ * `git reset --hard` handles tracked content (staged + modified files), but
+ * a squash-merge that introduces new files may leave them untracked after the
+ * reset if they weren't fully indexed. `git clean -fd` catches those.
+ *
+ * Safe to call when the workspace was verified clean before the operation.
+ */
+function resetHard(repoRoot: string): void {
+  const opts = { cwd: repoRoot, stdio: "pipe" as const, timeout: 10000 };
+  try {
+    execFileSync("git", ["reset", "--hard", "HEAD"], opts);
+  } catch {
+    // best-effort
+  }
+  try {
+    execFileSync("git", ["clean", "-fd"], opts);
+  } catch {
+    // best-effort
+  }
+}
+
+/** Extract a human-readable error from a git merge failure. */
+function extractMergeError(err: unknown): string {
+  const stderr =
+    (err as { stderr?: Buffer })?.stderr?.toString().trim() ||
+    (err as { stdout?: Buffer })?.stdout?.toString().trim() ||
+    "";
+  if (stderr.includes("CONFLICT")) return "CONFLICT";
+  if (stderr) return stderr;
+  return err instanceof Error ? err.message : "Unknown merge error";
+}
+
+/**
  * Stage all changes and commit in a worktree directory.
  * Safe for relay worktrees since they are isolated — everything in them is Claude's work.
  */
@@ -458,11 +552,17 @@ export function commitAll(
 }
 
 /**
- * Remove a git worktree and its branch.
+ * Remove a git worktree and optionally its branch.
  *
  * Safe to call when the worktree or branch has already been removed.
+ * Pass `keepBranch: true` to preserve the branch for recoverability.
  */
-export function removeWorktree(repoRoot: string, worktreePath: string, branchName: string): void {
+export function removeWorktree(
+  repoRoot: string,
+  worktreePath: string,
+  branchName: string,
+  opts?: { keepBranch?: boolean },
+): void {
   // Remove the worktree
   try {
     execSync(`git worktree remove --force "${worktreePath}"`, {
@@ -483,15 +583,17 @@ export function removeWorktree(repoRoot: string, worktreePath: string, branchNam
     }
   }
 
-  // Delete the branch
-  try {
-    execSync(`git branch -D "${branchName}"`, {
-      cwd: repoRoot,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
-    });
-  } catch {
-    // Branch may already be gone — ignore
+  // Delete the branch unless caller wants to keep it
+  if (!opts?.keepBranch) {
+    try {
+      execSync(`git branch -D "${branchName}"`, {
+        cwd: repoRoot,
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 5000,
+      });
+    } catch {
+      // Branch may already be gone — ignore
+    }
   }
 }
 

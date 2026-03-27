@@ -20,7 +20,7 @@ export function useCreateSpaceDialog() {
 
 export function CreateSpaceDialog({
   dir,
-  projectName,
+  projectName: _projectName,
   projectId,
   defaultBaseBranch,
   spaceBranchSource,
@@ -83,10 +83,8 @@ export function CreateSpaceDialog({
         </Dialog.Header>
         <div className="space-y-3">
           <p className="text-[0.8125rem] text-muted">
-            Create an isolated branch and working copy of{" "}
-            <span className="font-medium text-text">{projectName}</span>. Changes in a space
-            won&apos;t affect your main project directory — to run a dev server against the space,
-            you&apos;ll need to open a terminal at its path.
+            A space is an isolated workspace for focused work. Changes here won&apos;t affect your
+            main workspace until you complete the space.
           </p>
           <div className="space-y-1.5">
             <label className="text-[0.75rem] font-medium text-muted" htmlFor="create-space-name">

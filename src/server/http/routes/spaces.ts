@@ -47,6 +47,14 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
     }
   });
 
+  app.get("/api/projects/:id/spaces/all", (c) => {
+    const project = instanceManager.projectManager.getProject(c.req.param("id"));
+    if (!project) {
+      return c.json({ error: "Project not found" }, 404);
+    }
+    return c.json(instanceManager.getSpaceManager().listAllSpaces(project.directory));
+  });
+
   app.get("/api/spaces/:id", (c) => {
     const space = instanceManager.getSpaceManager().getSpace(c.req.param("id"));
     if (!space) {
@@ -55,9 +63,17 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
     return c.json(space);
   });
 
-  app.post("/api/spaces/:id/complete", (c) => {
+  app.post("/api/spaces/:id/complete", async (c) => {
     try {
-      const result = instanceManager.getSpaceManager().completeSpace(c.req.param("id"));
+      const body = await readJsonBody<{ mergeMethod?: string; squashMessage?: string }>(c);
+      const validMethods = ["squash", "merge-commit"];
+      if (body.mergeMethod && !validMethods.includes(body.mergeMethod)) {
+        return c.json({ error: `Invalid merge method: ${body.mergeMethod}` }, 400);
+      }
+      const result = instanceManager.getSpaceManager().completeSpace(c.req.param("id"), {
+        mergeMethod: body.mergeMethod as "squash" | "merge-commit" | undefined,
+        squashMessage: body.squashMessage,
+      });
       return c.json({ success: true, ...result });
     } catch (err) {
       return c.json(

@@ -2,13 +2,14 @@
  * SidebarSpaceGroup — A space entry in the project sidebar.
  *
  * Shows the space name + branch badge, and a context menu for
- * Complete (merge), Delete, and View Diff actions.
+ * Complete, Archive, and Rename actions.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { Archive, GitBranch, GitMerge, MoreVertical, Pencil } from "lucide-react";
 import { Menu } from "../ui/menu";
+import { Badge } from "../ui/badge";
 import type { SpaceInfo } from "@shared/types";
 
 interface SidebarSpaceGroupProps {
@@ -33,6 +34,8 @@ export function SidebarSpaceGroup({
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const hasMenu = !space.isDefault;
+  const isSpaceActive = space.status === "active";
+  const isClosed = space.status === "completed" || space.status === "archived";
 
   useEffect(() => {
     if (editing) {
@@ -62,7 +65,11 @@ export function SidebarSpaceGroup({
         if (editing) e.preventDefault();
       }}
       className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-3 py-1.5 transition-all duration-150 ${
-        isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"
+        isActive
+          ? "bg-accent-dim text-accent"
+          : isClosed
+            ? "text-muted hover:bg-surface-hover"
+            : "text-text hover:bg-surface-hover"
       }`}
     >
       {/* Branch icon */}
@@ -91,10 +98,28 @@ export function SidebarSpaceGroup({
             className="w-full rounded border border-border bg-surface px-1 py-0.5 text-[0.8125rem] font-medium leading-tight text-text-bright outline-none focus:border-accent"
           />
         ) : (
-          <div
-            className={`min-w-0 truncate text-[0.8125rem] leading-tight ${isActive ? "font-semibold text-accent" : "font-medium text-text"}`}
-          >
-            {space.name}
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`min-w-0 truncate text-[0.8125rem] leading-tight ${
+                isActive
+                  ? "font-semibold text-accent"
+                  : isClosed
+                    ? "font-medium text-muted"
+                    : "font-medium text-text"
+              }`}
+            >
+              {space.name}
+            </span>
+            {space.status === "completed" && (
+              <Badge variant="success" size="xs">
+                Merged
+              </Badge>
+            )}
+            {space.status === "archived" && (
+              <Badge variant="default" size="xs">
+                Archived
+              </Badge>
+            )}
           </div>
         )}
         {!editing && space.gitBranch && (
@@ -104,8 +129,8 @@ export function SidebarSpaceGroup({
         )}
       </div>
 
-      {/* Context menu */}
-      {hasMenu && (
+      {/* Context menu — only for active spaces */}
+      {hasMenu && isSpaceActive && (
         <span className="relative ml-auto flex w-12 shrink-0 items-center justify-end self-start">
           {menuOpen ? (
             <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
@@ -135,7 +160,7 @@ export function SidebarSpaceGroup({
                   }}
                 >
                   <GitMerge size={13} strokeWidth={2} className="text-muted" />
-                  Complete & merge
+                  Complete
                 </Menu.Item>
                 <Menu.Separator />
                 <Menu.Item
@@ -145,8 +170,8 @@ export function SidebarSpaceGroup({
                     onDelete(space.id);
                   }}
                 >
-                  <Trash2 size={13} strokeWidth={2} />
-                  Delete
+                  <Archive size={13} strokeWidth={2} />
+                  Archive
                 </Menu.Item>
               </Menu.Content>
             </Menu.Root>

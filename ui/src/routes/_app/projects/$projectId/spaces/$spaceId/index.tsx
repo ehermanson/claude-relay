@@ -4,12 +4,14 @@ import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router"
 import { toast } from "sonner";
 import {
   AlertTriangle,
+  Archive,
   Bug,
   Check,
   ChevronLeft,
   ChevronRight,
   Copy,
   EllipsisVertical,
+  ExternalLink,
   FileText,
   FolderOpen,
   GitBranch,
@@ -54,6 +56,7 @@ import { HeaderContextToggle, HeaderIconSkeleton } from "@/components/chat/heade
 import { FilesPanel } from "@/components/chat/files-panel";
 import { ContextPanel } from "@/components/chat/context-panel";
 import { StatusDot } from "@/components/ui/status-dot";
+import { Badge } from "@/components/ui/badge";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSidecarPanels, type SidecarTab } from "@/hooks/use-sidecar-store";
 import "@/components/chat/sidecar.css";
@@ -109,7 +112,7 @@ export function SpaceView() {
   const [mergeDialog, setMergeDialog] = useState<
     | { phase: "confirm" }
     | { phase: "merging" }
-    | { phase: "success"; targetBranch: string; mergeCommit?: string }
+    | { phase: "success"; targetBranch: string; mergeCommit?: string; mergeMethod?: string }
     | { phase: "error"; message: string }
     | null
   >(null);
@@ -140,15 +143,18 @@ export function SpaceView() {
         }
         return;
       }
-      if (
-        (message.type === "space_completed" || message.type === "space_removed") &&
-        message.spaceId === spaceId
-      ) {
+      // On archive/delete, redirect to project — but not on complete,
+      // because the success dialog handles post-merge navigation.
+      if (message.type === "space_removed" && message.spaceId === spaceId) {
         navigate({
           to: "/projects/$projectId",
           params: { projectId },
           replace: true,
         });
+      }
+      // Refresh space data when completed so the detail page can show read-only state
+      if (message.type === "space_completed" && message.spaceId === spaceId) {
+        void queryClient.invalidateQueries({ queryKey: spaceQueryKey });
       }
     });
   }, [
@@ -161,6 +167,10 @@ export function SpaceView() {
     spaceId,
     spaceQueryKey,
   ]);
+
+  const isActive = space?.status === "active";
+  const isMerged = space?.status === "completed";
+  const isArchived = space?.status === "archived";
 
   const spaceChatMap = new Map<string, InstanceInfo>();
   for (const chat of chatSummaries) {
@@ -364,15 +374,20 @@ export function SpaceView() {
     setEditingSpaceName(false);
   };
 
-  const handleComplete = async () => {
+  const handleComplete = async (mergeMethod?: string, squashMessage?: string) => {
     setMergeDialog({ phase: "merging" });
     try {
-      const result = await completeSpace(spaceId);
+      const result = await completeSpace(spaceId, {
+        mergeMethod: mergeMethod as "squash" | "merge-commit" | "rebase-ff" | undefined,
+        squashMessage,
+      });
       setMergeDialog({
         phase: "success",
         targetBranch: result.targetBranch,
         mergeCommit: result.mergeCommit,
+        mergeMethod: result.mergeMethod,
       });
+      toast.success(`Merged "${space?.name}" into ${result.targetBranch}`);
     } catch (err) {
       setMergeDialog({
         phase: "error",
@@ -562,6 +577,37 @@ export function SpaceView() {
             <span className="truncate text-sm font-semibold text-text-bright">{space.name}</span>
           )}
           {space.gitBranch && <BranchBadge branch={space.gitBranch} />}
+          {isMerged && (
+            <Badge variant="success" size="sm">
+              Merged
+            </Badge>
+          )}
+          {isArchived && (
+            <Badge variant="default" size="sm">
+              Archived
+            </Badge>
+          )}
+          {isActive && space.remoteStatus === "pr-open" && (
+            <Badge
+              variant="accent"
+              size="sm"
+              className={space.prUrl ? "cursor-pointer" : ""}
+              onClick={space.prUrl ? () => window.open(space.prUrl!, "_blank") : undefined}
+            >
+              PR open
+              {space.prUrl && <ExternalLink size={10} />}
+            </Badge>
+          )}
+          {isActive && space.remoteStatus === "pushed" && (
+            <Badge variant="accent" size="sm">
+              Pushed
+            </Badge>
+          )}
+          {isActive && !space.remoteStatus && (
+            <Badge variant="default" size="sm">
+              Local only
+            </Badge>
+          )}
           <TokenBadge
             tokens={spaceInstances.reduce(
               (sum, inst) => sum + (inst.stats?.inputTokens ?? 0) + (inst.stats?.outputTokens ?? 0),
@@ -580,7 +626,7 @@ export function SpaceView() {
               <EllipsisVertical size={14} />
             </Menu.Trigger>
             <Menu.Content>
-              {!space.isDefault && (
+              {!space.isDefault && isActive && (
                 <Menu.Item onClick={startRenamingSpace}>
                   <Pencil size={13} strokeWidth={2} className="text-muted" />
                   Rename
@@ -590,12 +636,12 @@ export function SpaceView() {
                 <Bug size={13} strokeWidth={2} className="text-muted" />
                 Debug
               </Menu.Item>
-              {!space.isDefault && (
+              {!space.isDefault && isActive && (
                 <>
                   <Menu.Separator />
                   <Menu.Item danger onClick={handleDelete}>
-                    <Trash2 size={13} />
-                    Delete space
+                    <Archive size={13} />
+                    Archive space
                   </Menu.Item>
                 </>
               )}
@@ -605,15 +651,22 @@ export function SpaceView() {
 
         {/* Right actions */}
         <div className="flex items-center gap-1.5">
-          <OpenInMenu path={space.worktreePath || artifacts.directory} className="hidden sm:flex" />
-          <GitMenu
-            onCommit={() => setCommitDialogOpen(true)}
-            onMerge={() => setMergeDialog({ phase: "confirm" })}
-            mergeDisabled={spaceInstances.length === 0}
-            onPush={() => void handlePush(false)}
-            onPushAndCreatePR={() => void handlePush(true)}
-            worktreePath={space.worktreePath || undefined}
-          />
+          {isActive && (
+            <>
+              <OpenInMenu
+                path={space.worktreePath || artifacts.directory}
+                className="hidden sm:flex"
+              />
+              <GitMenu
+                onCommit={() => setCommitDialogOpen(true)}
+                onMerge={() => setMergeDialog({ phase: "confirm" })}
+                mergeDisabled={spaceInstances.length === 0}
+                onPush={() => void handlePush(false)}
+                onPushAndCreatePR={() => void handlePush(true)}
+                worktreePath={space.worktreePath || undefined}
+              />
+            </>
+          )}
           <CommitMessageDialog
             open={commitDialogOpen}
             onOpenChange={setCommitDialogOpen}
@@ -676,6 +729,30 @@ export function SpaceView() {
           )}
         </div>
       </ViewHeader>
+
+      {/* ── Read-only banner for merged/archived spaces ── */}
+      {isMerged && (
+        <div className="flex items-center gap-2 border-b border-border bg-surface-dim px-4 py-2 text-xs text-text-muted">
+          <span>
+            This space has been merged into{" "}
+            <span className="font-medium text-text">{space.targetBranch || "the main branch"}</span>
+            .
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate({ to: "/projects/$projectId", params: { projectId } })}
+            className="ml-auto text-xs"
+          >
+            Go to main workspace
+          </Button>
+        </div>
+      )}
+      {isArchived && (
+        <div className="flex items-center gap-2 border-b border-border bg-surface-dim px-4 py-2 text-xs text-text-muted">
+          This space has been archived. Chats and history are still available.
+        </div>
+      )}
 
       {/* ── Main content: tabs + chat | sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -820,7 +897,8 @@ export function SpaceView() {
       <ConfirmMergeDialog
         open={mergeDialog?.phase === "confirm"}
         spaceName={space?.name}
-        onConfirm={handleComplete}
+        targetBranch={space?.targetBranch || undefined}
+        onConfirm={(mergeMethod, squashMessage) => handleComplete(mergeMethod, squashMessage)}
         onCancel={() => setMergeDialog(null)}
       />
 
@@ -920,18 +998,19 @@ export function SpaceView() {
         onConfirm={confirmCloseTab}
       />
 
-      {/* Delete space confirmation */}
+      {/* Archive space confirmation */}
       <ConfirmActionDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title="Delete space?"
+        title="Archive this space?"
         description={
           <>
-            <span className="font-medium text-text">{space?.name}</span> will be deleted and its
-            worktree removed without merging.
+            This removes <span className="font-medium text-text">{space?.name}</span> from active
+            work and deletes its separate working copy without merging it into the main workspace.
+            Chats and history remain available in Closed spaces.
           </>
         }
-        confirmLabel="Delete"
+        confirmLabel="Archive space"
         onConfirm={confirmDeleteSpace}
       />
 

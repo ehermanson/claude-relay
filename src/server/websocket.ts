@@ -97,7 +97,7 @@ export function createWebSocketServer(
     broadcast({
       type: "space_list",
       projectDirectory,
-      spaces: spaceManager.listSpaces(projectDirectory),
+      spaces: spaceManager.listAllSpaces(projectDirectory),
     });
   }
 
@@ -167,10 +167,13 @@ export function createWebSocketServer(
     broadcastSpaceList(space.projectDirectory);
   });
 
-  spaceManager.on("space:completed", (spaceId, projectDirectory, targetBranch) => {
-    broadcast({ type: "space_completed", spaceId, targetBranch });
-    broadcastSpaceList(projectDirectory);
-  });
+  spaceManager.on(
+    "space:completed",
+    (spaceId, projectDirectory, targetBranch, mergeMethod, mergeCommit) => {
+      broadcast({ type: "space_completed", spaceId, targetBranch, mergeMethod, mergeCommit });
+      broadcastSpaceList(projectDirectory);
+    },
+  );
 
   spaceManager.on("space:removed", (spaceId, projectDirectory) => {
     broadcast({ type: "space_removed", spaceId });
@@ -442,7 +445,10 @@ export function createWebSocketServer(
             try {
               const { targetBranch } = instanceManager
                 .getSpaceManager()
-                .completeSpace(message.spaceId);
+                .completeSpace(message.spaceId, {
+                  mergeMethod: message.mergeMethod,
+                  squashMessage: message.squashMessage,
+                });
               sendMessage(ws, {
                 type: "notification",
                 message: `Space merged into ${targetBranch} successfully`,

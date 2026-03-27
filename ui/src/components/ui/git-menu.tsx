@@ -66,7 +66,7 @@ export function GitMenu({
           <>
             <Menu.Item onClick={() => void onMerge()} disabled={mergeDisabled}>
               <GitMerge size={13} className="text-muted" />
-              Complete & merge
+              Complete
             </Menu.Item>
             <Menu.Separator />
           </>

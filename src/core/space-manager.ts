@@ -16,7 +16,7 @@ import { EventEmitter } from "events";
 import type { SessionDB } from "./db.js";
 import type { SpaceRow } from "./db.js";
 import type { Logger } from "./logger.js";
-import type { SpaceInfo, SpaceStatus } from "./types.js";
+import type { SpaceInfo, SpaceStatus, MergeMethod } from "./types.js";
 import {
   isGitRepo,
   getRepoRoot,
@@ -26,6 +26,7 @@ import {
   isWorktreeDirty,
   commitAll,
   mergeWorktreeBranch,
+  squashMergeBranch,
   getWorktreeDiff,
   gitPush,
 } from "./git.js";
@@ -42,13 +43,25 @@ function rowToInfo(row: SpaceRow, chatCount: number): SpaceInfo {
     createdAt: row.created_at,
     lastActivityAt: row.last_activity_at,
     chatCount,
+    mergeCommit: row.merge_commit,
+    mergeMethod: row.merge_method as MergeMethod | null,
+    mergedAt: row.merged_at,
+    targetBranch: row.target_branch,
+    remoteStatus: row.remote_status,
+    prUrl: row.pr_url,
   };
 }
 
 export interface SpaceManagerEvents {
   "space:created": [space: SpaceInfo];
   "space:updated": [space: SpaceInfo];
-  "space:completed": [spaceId: string, projectDirectory: string, targetBranch: string];
+  "space:completed": [
+    spaceId: string,
+    projectDirectory: string,
+    targetBranch: string,
+    mergeMethod: string,
+    mergeCommit?: string,
+  ];
   "space:removed": [spaceId: string, projectDirectory: string];
 }
 
@@ -136,6 +149,12 @@ export class SpaceManager extends EventEmitter {
       status: "active",
       created_at: now,
       last_activity_at: now,
+      merge_commit: null,
+      merge_method: null,
+      merged_at: null,
+      target_branch: null,
+      remote_status: null,
+      pr_url: null,
     };
     this.db.upsertSpace(row);
     this.logger.info(`[SpaceManager] Created default space for ${projectDirectory}`);
@@ -193,6 +212,12 @@ export class SpaceManager extends EventEmitter {
       status: "active",
       created_at: now,
       last_activity_at: now,
+      merge_commit: null,
+      merge_method: null,
+      merged_at: null,
+      target_branch: null,
+      remote_status: null,
+      pr_url: null,
     };
     this.db.upsertSpace(row);
     this.logger.info(
@@ -211,6 +236,17 @@ export class SpaceManager extends EventEmitter {
       this.getOrCreateDefaultSpace(projectDirectory);
     }
     const rows = this.db.getSpacesByProject(projectDirectory);
+    return rows.map((row) => this.toInfo(row));
+  }
+
+  /**
+   * List all non-default spaces including closed (completed/archived).
+   */
+  listAllSpaces(projectDirectory: string): SpaceInfo[] {
+    if (isGitRepo(projectDirectory)) {
+      this.getOrCreateDefaultSpace(projectDirectory);
+    }
+    const rows = this.db.getSpacesByProjectAll(projectDirectory);
     return rows.map((row) => this.toInfo(row));
   }
 
@@ -288,6 +324,12 @@ export class SpaceManager extends EventEmitter {
             status: "active",
             created_at: row.created_at,
             last_activity_at: row.last_activity_at,
+            merge_commit: null,
+            merge_method: null,
+            merged_at: null,
+            target_branch: null,
+            remote_status: null,
+            pr_url: null,
           },
           sessionIds: kind === "session" && row.session_id ? [row.session_id] : [],
           managedInstanceIds: kind === "managed" && row.instance_id ? [row.instance_id] : [],
@@ -375,7 +417,10 @@ export class SpaceManager extends EventEmitter {
   /**
    * Complete a space: auto-commit, merge branch into default, archive, cleanup worktree.
    */
-  completeSpace(id: string): { targetBranch: string; mergeCommit?: string } {
+  completeSpace(
+    id: string,
+    opts?: { mergeMethod?: MergeMethod; squashMessage?: string },
+  ): { targetBranch: string; mergeCommit?: string; mergeMethod: MergeMethod } {
     const row = this.db.getSpace(id);
     if (!row) throw new Error(`Space ${id} not found`);
     if (row.is_default) throw new Error("Cannot complete the default space");
@@ -389,7 +434,7 @@ export class SpaceManager extends EventEmitter {
     // Pre-check: refuse to merge if the main worktree has uncommitted changes
     if (isWorktreeDirty(repoRoot)) {
       throw new Error(
-        "Your main branch has uncommitted changes. Please commit or stash them before merging a space.",
+        "Your main workspace has uncommitted changes. Commit or stash them before completing this space.",
       );
     }
 
@@ -401,14 +446,39 @@ export class SpaceManager extends EventEmitter {
       }
     }
 
-    const defaultBranch = getDefaultBranch(repoRoot) || getCurrentBranch(repoRoot) || "main";
+    const mergeMethod: MergeMethod = opts?.mergeMethod || "squash";
+    if (mergeMethod !== "squash" && mergeMethod !== "merge-commit") {
+      throw new Error(`Unsupported merge method: ${mergeMethod}`);
+    }
 
-    const mergeResult = mergeWorktreeBranch(repoRoot, row.git_branch);
+    // Record the actual branch that will receive the merge — this is the
+    // branch currently checked out in the main worktree, not the heuristic
+    // "default branch". The merge helpers operate on the checked-out branch,
+    // so this must match what we persist and display.
+    const currentBranch = getCurrentBranch(repoRoot);
+    const targetBranch = currentBranch || getDefaultBranch(repoRoot) || "main";
+
+    // Execute the merge using the selected strategy
+    let mergeResult: { success: true } | { success: false; error: string };
+
+    switch (mergeMethod) {
+      case "squash": {
+        const message = opts?.squashMessage || `Space: ${row.name}`;
+        mergeResult = squashMergeBranch(repoRoot, row.git_branch, message);
+        break;
+      }
+      case "merge-commit":
+        mergeResult = mergeWorktreeBranch(repoRoot, row.git_branch);
+        break;
+    }
+
     if (!mergeResult.success) {
       if (mergeResult.error === "CONFLICT") {
-        throw new Error(
-          `Merge conflicts — the space and main branch have overlapping changes.\n\nTo resolve, run:\n  cd ${row.worktree_path}\n  git rebase ${defaultBranch}\n\nFix any conflicts, then try completing the space again.`,
-        );
+        const methodHint =
+          mergeMethod === "squash"
+            ? `Squash merge has conflicts — the space and main workspace have overlapping changes.\n\nTo resolve, run:\n  cd ${row.worktree_path}\n  git rebase ${targetBranch}\n\nFix any conflicts, then try completing the space again.`
+            : `Merge conflicts — the space and main workspace have overlapping changes.\n\nTo resolve, run:\n  cd ${row.worktree_path}\n  git rebase ${targetBranch}\n\nFix any conflicts, then try completing the space again.`;
+        throw new Error(methodHint);
       }
       throw new Error(`Merge failed: ${mergeResult.error}`);
     }
@@ -422,19 +492,19 @@ export class SpaceManager extends EventEmitter {
     }
 
     this.logger.info(
-      `[SpaceManager] Merged space "${row.name}" (${row.git_branch}) into ${defaultBranch}`,
+      `[SpaceManager] Merged space "${row.name}" (${row.git_branch}) into ${targetBranch} via ${mergeMethod}`,
     );
 
-    // Cleanup worktree
+    // Cleanup worktree (keep local branch for recoverability)
     if (existsSync(row.worktree_path)) {
-      removeWorktree(repoRoot, row.worktree_path, row.git_branch);
+      removeWorktree(repoRoot, row.worktree_path, row.git_branch, { keepBranch: true });
     }
 
-    // Mark as completed
-    this.db.updateSpaceStatus(id, "completed");
-    this.emit("space:completed", id, row.project_directory, defaultBranch);
+    // Store merge metadata
+    this.db.updateSpaceMergeMetadata(id, mergeCommit, mergeMethod, Date.now(), targetBranch);
+    this.emit("space:completed", id, row.project_directory, targetBranch, mergeMethod, mergeCommit);
 
-    return { targetBranch: defaultBranch, mergeCommit };
+    return { targetBranch, mergeCommit, mergeMethod };
   }
 
   /**
@@ -516,6 +586,10 @@ export class SpaceManager extends EventEmitter {
 
     this.logger.info(`[SpaceManager] Pushed space "${row.name}" branch ${row.git_branch}`);
 
+    // Persist remote status
+    this.db.updateSpaceRemoteStatus(id, "pushed");
+    this.emit("space:updated", this.toInfo(this.db.getSpace(id)!));
+
     // Optionally create PR via gh CLI
     if (opts?.createPR) {
       // Check if gh is available
@@ -557,6 +631,8 @@ export class SpaceManager extends EventEmitter {
 
         // gh pr create outputs the PR URL on success
         const prUrl = prOutput.match(/https?:\/\/\S+/)?.[0];
+        this.db.updateSpaceRemoteStatus(id, "pr-open", prUrl);
+        this.emit("space:updated", this.toInfo(this.db.getSpace(id)!));
         return { pushed: true, prUrl };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

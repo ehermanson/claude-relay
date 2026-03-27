@@ -2,7 +2,7 @@
  * A collapsible project directory group in the sidebar header plus session items.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDown,
@@ -20,6 +20,7 @@ import {
   Plus,
   Settings,
   Toolbox,
+  Archive,
 } from "lucide-react";
 import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 import {
@@ -416,10 +417,11 @@ export function SidebarProjectGroup({
 
         <Collapsible.Content>
           <div className="px-2">
+            {/* Active spaces */}
             {spaces &&
-              spaces.filter((space) => !space.isDefault).length > 0 &&
+              spaces.filter((s) => !s.isDefault && s.status === "active").length > 0 &&
               spaces
-                .filter((space) => !space.isDefault)
+                .filter((s) => !s.isDefault && s.status === "active")
                 .map((space) => (
                   <SidebarSpaceGroup
                     key={space.id}
@@ -432,6 +434,7 @@ export function SidebarProjectGroup({
                   />
                 ))}
 
+            {/* Chats */}
             {visible.map(renderSessionItem)}
 
             {hiddenCount > 0 && (
@@ -445,8 +448,19 @@ export function SidebarProjectGroup({
               </Link>
             )}
 
+            {/* Closed spaces */}
+            <SidebarClosedSpaces
+              spaces={spaces}
+              projectId={routeProjectId}
+              activeSpaceId={activeSpaceId}
+              onRenameSpace={onRenameSpace}
+              onCompleteSpace={onCompleteSpace}
+              onDeleteSpace={onDeleteSpace}
+            />
+
             {visible.length === 0 &&
-              (!spaces || spaces.filter((s) => !s.isDefault).length === 0) &&
+              (!spaces ||
+                spaces.filter((s) => !s.isDefault && s.status === "active").length === 0) &&
               onCreateSpace && (
                 <div className="px-2 py-1">
                   <EmptyProjectActions
@@ -460,5 +474,58 @@ export function SidebarProjectGroup({
         </Collapsible.Content>
       </div>
     </Collapsible.Root>
+  );
+}
+
+function SidebarClosedSpaces({
+  spaces,
+  projectId,
+  activeSpaceId,
+  onRenameSpace,
+  onCompleteSpace,
+  onDeleteSpace,
+}: {
+  spaces?: SpaceInfo[];
+  projectId: string;
+  activeSpaceId?: string;
+  onRenameSpace?: (spaceId: string, name: string) => void;
+  onCompleteSpace?: (spaceId: string) => void;
+  onDeleteSpace?: (spaceId: string) => void;
+}) {
+  const closedSpaces = spaces?.filter(
+    (s) => !s.isDefault && (s.status === "completed" || s.status === "archived"),
+  );
+  // Auto-expand when the active space is in the closed list
+  const hasActiveChild = closedSpaces?.some((s) => s.id === activeSpaceId) ?? false;
+  const [open, setOpen] = useState(hasActiveChild);
+  // If the active space changes to a closed space, expand
+  useEffect(() => {
+    if (hasActiveChild) setOpen(true);
+  }, [hasActiveChild]);
+  if (!closedSpaces || closedSpaces.length === 0) return null;
+
+  return (
+    <div className="mt-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-1 rounded-md py-1 pl-3 pr-2 text-left text-[0.6875rem] font-medium uppercase tracking-wide text-muted transition-colors hover:text-text"
+      >
+        {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        <Archive size={10} className="text-muted" />
+        Closed ({closedSpaces.length})
+      </button>
+      {open &&
+        closedSpaces.map((space) => (
+          <SidebarSpaceGroup
+            key={space.id}
+            space={space}
+            projectId={projectId}
+            isActive={activeSpaceId === space.id}
+            onRename={onRenameSpace ?? (() => {})}
+            onComplete={onCompleteSpace ?? (() => {})}
+            onDelete={onDeleteSpace ?? (() => {})}
+          />
+        ))}
+    </div>
   );
 }

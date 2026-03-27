@@ -34,7 +34,8 @@ function ProjectFlyout({
 }) {
   const name = getProjectName(dir);
   const mainInstances = instances.filter((inst) => !inst.spaceId);
-  const visibleSpaces = spaces?.filter((space) => !space.isDefault) ?? [];
+  const visibleSpaces =
+    spaces?.filter((space) => !space.isDefault && space.status === "active") ?? [];
 
   return (
     <div className="flex max-h-full flex-col overflow-hidden">

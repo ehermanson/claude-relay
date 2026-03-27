@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useWSMethods } from "@/context/websocket-context";
-import { fetchSpaces } from "@/lib/api";
+import { fetchAllSpaces } from "@/lib/api";
 import type { Project, SpaceInfo } from "@shared/types";
 
 export function useProjectSpaces(projects: Project[]) {
@@ -25,7 +25,7 @@ export function useProjectSpaces(projects: Project[]) {
   const spaceResults = useQueries({
     queries: projects.map((project) => ({
       queryKey: ["spaces", project.id],
-      queryFn: () => fetchSpaces(project.id),
+      queryFn: () => fetchAllSpaces(project.id),
       staleTime: 60_000,
     })),
   });

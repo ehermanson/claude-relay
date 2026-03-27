@@ -58,6 +58,12 @@ function makeSpaceRow(overrides = {}) {
     status: "active",
     created_at: 1000,
     last_activity_at: 2000,
+    merge_commit: null,
+    merge_method: null,
+    merged_at: null,
+    target_branch: null,
+    remote_status: null,
+    pr_url: null,
     ...overrides,
   };
 }

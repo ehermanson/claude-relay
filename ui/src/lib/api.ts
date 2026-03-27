@@ -443,14 +443,23 @@ export async function fetchSpaceDetail(spaceId: string): Promise<SpaceInfo> {
 
 export async function completeSpace(
   spaceId: string,
-): Promise<{ success: boolean; targetBranch: string; mergeCommit?: string }> {
+  opts?: { mergeMethod?: string; squashMessage?: string },
+): Promise<{ success: boolean; targetBranch: string; mergeCommit?: string; mergeMethod?: string }> {
   const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/complete`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: "Failed to complete space" }));
     throw new Error(data.error || "Failed to complete space");
   }
+  return res.json();
+}
+
+export async function fetchAllSpaces(projectId: string): Promise<SpaceInfo[]> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/spaces/all`);
+  if (!res.ok) throw new Error("Failed to fetch spaces");
   return res.json();
 }
 

@@ -113,6 +113,7 @@ export type {
 export type {
   SpaceStatus,
   SpaceInfo,
+  MergeMethod,
   SkillInfo,
   SessionStats,
   ProviderKind,

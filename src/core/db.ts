@@ -10,7 +10,7 @@ import { dirname } from "path";
 import Database from "better-sqlite3";
 import type { Logger } from "./logger.js";
 
-const CURRENT_SCHEMA_VERSION = 19;
+const CURRENT_SCHEMA_VERSION = 20;
 
 export interface ProjectRow {
   id: string;
@@ -61,6 +61,12 @@ export interface SpaceRow {
   status: string;
   created_at: number;
   last_activity_at: number;
+  merge_commit: string | null;
+  merge_method: string | null;
+  merged_at: number | null;
+  target_branch: string | null;
+  remote_status: string | null;
+  pr_url: string | null;
 }
 
 export interface GlobalSettingsRow {
@@ -208,6 +214,9 @@ export class SessionDB {
   private stmtGetGlobalSettings!: Database.Statement;
   private stmtUpdateGlobalSettings!: Database.Statement;
   private stmtUpdateManagedSpaceId!: Database.Statement;
+  private stmtUpdateSpaceMergeMetadata!: Database.Statement;
+  private stmtUpdateSpaceRemoteStatus!: Database.Statement;
+  private stmtGetSpacesByProjectAll!: Database.Statement;
 
   constructor(dbPath: string, logger: Logger) {
     // Ensure the directory exists
@@ -542,6 +551,19 @@ export class SessionDB {
       INSERT OR IGNORE INTO global_settings (id) VALUES (1);
     `);
 
+    // v20: space merge metadata + remote tracking
+    {
+      const spaceCols = this.db.pragma("table_info(spaces)") as Array<{ name: string }>;
+      if (!spaceCols.some((c) => c.name === "merge_commit")) {
+        this.db.exec(`ALTER TABLE spaces ADD COLUMN merge_commit TEXT`);
+        this.db.exec(`ALTER TABLE spaces ADD COLUMN merge_method TEXT`);
+        this.db.exec(`ALTER TABLE spaces ADD COLUMN merged_at INTEGER`);
+        this.db.exec(`ALTER TABLE spaces ADD COLUMN target_branch TEXT`);
+        this.db.exec(`ALTER TABLE spaces ADD COLUMN remote_status TEXT`);
+        this.db.exec(`ALTER TABLE spaces ADD COLUMN pr_url TEXT`);
+      }
+    }
+
     // Update version
     if (currentVersion === 0) {
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
@@ -874,8 +896,10 @@ export class SessionDB {
 
     // Space statements
     this.stmtUpsertSpace = this.db.prepare(`
-      INSERT INTO spaces (id, project_directory, name, git_branch, worktree_path, is_default, status, created_at, last_activity_at)
-      VALUES (@id, @project_directory, @name, @git_branch, @worktree_path, @is_default, @status, @created_at, @last_activity_at)
+      INSERT INTO spaces (id, project_directory, name, git_branch, worktree_path, is_default, status, created_at, last_activity_at,
+        merge_commit, merge_method, merged_at, target_branch, remote_status, pr_url)
+      VALUES (@id, @project_directory, @name, @git_branch, @worktree_path, @is_default, @status, @created_at, @last_activity_at,
+        @merge_commit, @merge_method, @merged_at, @target_branch, @remote_status, @pr_url)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         git_branch = excluded.git_branch,
@@ -909,6 +933,15 @@ export class SessionDB {
     );
     this.stmtUpdateManagedSpaceId = this.db.prepare(
       "UPDATE managed_sessions SET space_id = ? WHERE instance_id = ?",
+    );
+    this.stmtUpdateSpaceMergeMetadata = this.db.prepare(
+      "UPDATE spaces SET status = 'completed', merge_commit = ?, merge_method = ?, merged_at = ?, target_branch = ? WHERE id = ?",
+    );
+    this.stmtUpdateSpaceRemoteStatus = this.db.prepare(
+      "UPDATE spaces SET remote_status = ?, pr_url = COALESCE(?, pr_url) WHERE id = ?",
+    );
+    this.stmtGetSpacesByProjectAll = this.db.prepare(
+      "SELECT * FROM spaces WHERE project_directory = ? AND is_default = 0 ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, last_activity_at DESC",
     );
 
     // Global settings
@@ -1249,6 +1282,30 @@ export class SessionDB {
 
   updateManagedSpaceId(instanceId: string, spaceId: string | null): void {
     this.stmtUpdateManagedSpaceId.run(spaceId, instanceId);
+  }
+
+  updateSpaceMergeMetadata(
+    id: string,
+    mergeCommit: string | undefined,
+    mergeMethod: string,
+    mergedAt: number,
+    targetBranch: string,
+  ): void {
+    this.stmtUpdateSpaceMergeMetadata.run(
+      mergeCommit ?? null,
+      mergeMethod,
+      mergedAt,
+      targetBranch,
+      id,
+    );
+  }
+
+  updateSpaceRemoteStatus(id: string, remoteStatus: string, prUrl?: string | null): void {
+    this.stmtUpdateSpaceRemoteStatus.run(remoteStatus, prUrl ?? null, id);
+  }
+
+  getSpacesByProjectAll(projectDirectory: string): SpaceRow[] {
+    return this.stmtGetSpacesByProjectAll.all(projectDirectory) as SpaceRow[];
   }
 
   // =========================================================================
