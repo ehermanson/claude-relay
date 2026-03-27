@@ -1,5 +1,4 @@
 import { useContext, useEffect, useRef, useState } from "react";
-import { ArrowUp, Loader2 } from "lucide-react";
 import type {
   ProviderKind,
   ProviderModelOption,
@@ -431,11 +430,6 @@ export function InputArea({
   const composerDisabled = disabled || (hasPendingPrompt && !allowPromptTextInput);
 
   const hasPlanFeedback = planFeedbackText.trim().length > 0 || planComments.length > 0;
-  const sendIcon = uploading ? (
-    <Loader2 size={18} className="animate-spin" />
-  ) : (
-    <ArrowUp size={18} strokeWidth={2.5} />
-  );
   const composerPlaceholder = hasPendingPrompt
     ? buildPromptPlaceholder(primaryPromptQuestion, allowPromptTextInput)
     : hasPendingPlan
@@ -764,7 +758,6 @@ export function InputArea({
                         ? handleApprovePlan
                         : handleSend
                   }
-                  sendIcon={sendIcon}
                   sendLabel={sendLabel}
                   sendTooltip={sendTooltip}
                   secondaryActionLabel={

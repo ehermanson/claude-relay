@@ -1,7 +1,8 @@
 import { Children, type ReactNode, useEffect, useRef, useState } from "react";
-import { Check, Ellipsis, ImagePlus, Square } from "lucide-react";
+import { Check, Ellipsis, ImagePlus } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Tooltip } from "../../ui/tooltip";
+import { ActionButton } from "./action-button";
 import "./input-toolbar.css";
 
 export interface OverflowSection {
@@ -19,7 +20,6 @@ interface InputToolbarProps {
   onCancel: () => void;
   onAttachImage: () => void;
   onSend: () => void;
-  sendIcon: ReactNode;
   sendLabel?: string;
   sendTooltip?: string;
   isSendDisabled: boolean;
@@ -27,8 +27,6 @@ interface InputToolbarProps {
   onSecondaryAction?: () => void;
   isSecondaryActionDisabled?: boolean;
 }
-
-const roundPrimary = "h-8 w-8 shrink-0 !rounded-full !p-0";
 
 export function InputToolbar({
   isMobile,
@@ -40,7 +38,6 @@ export function InputToolbar({
   onCancel,
   onAttachImage,
   onSend,
-  sendIcon,
   sendLabel,
   sendTooltip,
   isSendDisabled,
@@ -166,18 +163,8 @@ export function InputToolbar({
         ) : null}
       </div>
 
-      {/* Right section: cancel + send */}
+      {/* Right section: secondary action + morphing send/stop button */}
       <div className="flex items-center gap-2">
-        {isProcessing ? (
-          <Tooltip content={isMobile ? "Cancel" : "Cancel (Esc)"}>
-            <button
-              onClick={onCancel}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
-            >
-              <Square size={16} />
-            </button>
-          </Tooltip>
-        ) : null}
         {hasSecondaryAction ? (
           <Button
             variant="ghost"
@@ -188,20 +175,15 @@ export function InputToolbar({
             {secondaryActionLabel}
           </Button>
         ) : null}
-        <Tooltip content={sendTooltip ?? (isMobile ? "Send" : "Send (Enter)")}>
-          <Button
-            variant="primary"
-            onClick={onSend}
-            disabled={isSendDisabled}
-            className={
-              sendLabel
-                ? "h-9 shrink-0 rounded-full px-4 text-[0.875rem] font-semibold tracking-[-0.02em]"
-                : roundPrimary
-            }
-          >
-            {sendLabel ?? sendIcon}
-          </Button>
-        </Tooltip>
+        <ActionButton
+          isStop={isProcessing}
+          onClick={onSend}
+          onStopClick={onCancel}
+          disabled={isSendDisabled}
+          label={sendLabel}
+          tooltip={sendTooltip ?? (isMobile ? "Send" : "Send (Enter)")}
+          stopTooltip={isMobile ? "Cancel" : "Cancel (Esc)"}
+        />
       </div>
     </div>
   );

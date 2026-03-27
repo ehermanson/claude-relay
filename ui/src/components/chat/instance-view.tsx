@@ -13,6 +13,7 @@ import { Sidecar } from "@/components/chat/sidecar";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useInstanceMessages } from "@/hooks/use-instance-messages";
 import { useConnectionBanner } from "@/hooks/use-connection-banner";
@@ -306,24 +307,26 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       {isLoadingSession ? (
         loadingContent
       ) : (
-        <MessageList
-          key={id}
-          items={items}
-          isProcessing={isActive}
-          showThinkingIndicator={showThinkingIndicator}
-          instanceStatus={instance.status}
-          lastActivity={lastActivity}
-          processingStartedAt={processingStartedAt}
-          onSendMessage={handleSend}
-          onAnswerUserInput={handleAnswerUserInput}
-          isInteractive={!isStopped}
-          onApproveTool={handleApproveTool}
-          approvedTools={approvedTools}
-          isExternal={!!instance.sessionId}
-          pendingInteraction={!!instance.pendingPlan || !!pendingUserInput}
-          planChildId={planChild?.id}
-          planChildName={planChild?.name}
-        />
+        <ErrorBoundary name="Message list">
+          <MessageList
+            key={id}
+            items={items}
+            isProcessing={isActive}
+            showThinkingIndicator={showThinkingIndicator}
+            instanceStatus={instance.status}
+            lastActivity={lastActivity}
+            processingStartedAt={processingStartedAt}
+            onSendMessage={handleSend}
+            onAnswerUserInput={handleAnswerUserInput}
+            isInteractive={!isStopped}
+            onApproveTool={handleApproveTool}
+            approvedTools={approvedTools}
+            isExternal={!!instance.sessionId}
+            pendingInteraction={!!instance.pendingPlan || !!pendingUserInput}
+            planChildId={planChild?.id}
+            planChildName={planChild?.name}
+          />
+        </ErrorBoundary>
       )}
       {showDebugPaste && (
         <DebugModal
@@ -399,26 +402,28 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
             model={instance.stats?.model}
           />
         ) : (
-          <InputArea
-            onSend={handleSend}
-            onAnswerUserInput={handleAnswerUserInput}
-            onCancel={handleCancel}
-            onSwitchProvider={handleSwitchProvider}
-            isProcessing={isActive}
-            isConnected={isConnected}
-            instanceId={id!}
-            isStopped={isStopped}
-            provider={instance.provider}
-            preferredModel={instance.preferredModel}
-            reasoningBudget={instance.reasoningBudget}
-            modelOptions={instance.modelOptions}
-            planMode={instance.planMode}
-            activeModel={instance.stats?.model}
-            skipPermissions={instance.skipPermissions}
-            hasMessages={items.length > 0}
-            pendingUserInput={pendingUserInput}
-            pendingPlan={instance.pendingPlan}
-          />
+          <ErrorBoundary name="Input area" inline>
+            <InputArea
+              onSend={handleSend}
+              onAnswerUserInput={handleAnswerUserInput}
+              onCancel={handleCancel}
+              onSwitchProvider={handleSwitchProvider}
+              isProcessing={isActive}
+              isConnected={isConnected}
+              instanceId={id!}
+              isStopped={isStopped}
+              provider={instance.provider}
+              preferredModel={instance.preferredModel}
+              reasoningBudget={instance.reasoningBudget}
+              modelOptions={instance.modelOptions}
+              planMode={instance.planMode}
+              activeModel={instance.stats?.model}
+              skipPermissions={instance.skipPermissions}
+              hasMessages={items.length > 0}
+              pendingUserInput={pendingUserInput}
+              pendingPlan={instance.pendingPlan}
+            />
+          </ErrorBoundary>
         ))}
     </>
   );
@@ -466,43 +471,47 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
               className="absolute inset-y-0 left-0 z-10 w-px cursor-col-resize bg-border/50 after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:content-['']"
             />
             <div className="h-full flex-1 pl-px">
-              <Sidecar
-                tasks={currentTasks}
-                files={currentFiles}
-                planContent={instance.planContent}
-                stats={instance.stats}
-                items={items}
-                rawHistory={rawHistory}
-                provider={instance.provider}
-                preferredModel={instance.preferredModel}
-                instanceId={id}
-                createdAt={instance.createdAt}
-                lastActivityAt={instance.lastActivityAt}
-                workingDirectory={instance.workingDirectory}
-                activePanels={activePanels}
-              />
+              <ErrorBoundary name="Sidecar">
+                <Sidecar
+                  tasks={currentTasks}
+                  files={currentFiles}
+                  planContent={instance.planContent}
+                  stats={instance.stats}
+                  items={items}
+                  rawHistory={rawHistory}
+                  provider={instance.provider}
+                  preferredModel={instance.preferredModel}
+                  instanceId={id}
+                  createdAt={instance.createdAt}
+                  lastActivityAt={instance.lastActivityAt}
+                  workingDirectory={instance.workingDirectory}
+                  activePanels={activePanels}
+                />
+              </ErrorBoundary>
             </div>
           </div>
         )}
       </div>
       {isMobile && sidecarMobileOpen && sidecarContentCount > 0 && (
-        <Sidecar
-          tasks={currentTasks}
-          files={currentFiles}
-          planContent={instance.planContent}
-          stats={instance.stats}
-          items={items}
-          rawHistory={rawHistory}
-          provider={instance.provider}
-          preferredModel={instance.preferredModel}
-          instanceId={id}
-          createdAt={instance.createdAt}
-          lastActivityAt={instance.lastActivityAt}
-          workingDirectory={instance.workingDirectory}
-          activePanels={allContentPanels}
-          onClose={() => setSidecarMobileOpen(false)}
-          isMobileOverlay
-        />
+        <ErrorBoundary name="Sidecar">
+          <Sidecar
+            tasks={currentTasks}
+            files={currentFiles}
+            planContent={instance.planContent}
+            stats={instance.stats}
+            items={items}
+            rawHistory={rawHistory}
+            provider={instance.provider}
+            preferredModel={instance.preferredModel}
+            instanceId={id}
+            createdAt={instance.createdAt}
+            lastActivityAt={instance.lastActivityAt}
+            workingDirectory={instance.workingDirectory}
+            activePanels={allContentPanels}
+            onClose={() => setSidecarMobileOpen(false)}
+            isMobileOverlay
+          />
+        </ErrorBoundary>
       )}
     </div>
   );
