@@ -55,6 +55,13 @@ export type { InstanceManagerEvents } from "./instance-manager.js";
 
 export { SpaceManager } from "./space-manager.js";
 
+export { TerminalManager } from "./terminal-manager.js";
+export type { TerminalManagerEvents } from "./terminal-manager.js";
+
+export type { PtyProcess, PtyAdapterFactory, PtySpawnOptions } from "./pty-adapter.js";
+export { BasePtyProcess } from "./pty-adapter.js";
+export { createNodePtyFactory } from "./pty-adapters/node-pty.js";
+
 export type { CoreConfig, CoreOptions } from "./config.js";
 export { resolveCoreConfig } from "./config.js";
 
@@ -164,6 +171,21 @@ export type {
   SpaceRemovedMessage,
   SpaceListMessage,
   ProjectsChangedMessage,
+  TerminalInfo,
+  TerminalScope,
+  TerminalCreatePayload,
+  TerminalInputPayload,
+  TerminalResizePayload,
+  TerminalClosePayload,
+  TerminalSubscribePayload,
+  TerminalUnsubscribePayload,
+  TerminalListPayload,
+  TerminalCreatedMessage,
+  TerminalOutputMessage,
+  TerminalExitMessage,
+  TerminalRemovedMessage,
+  TerminalScrollbackMessage,
+  TerminalListResponse,
   ProjectPlan,
   ProjectStats,
   ModelUsageStats,

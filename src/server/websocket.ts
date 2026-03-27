@@ -14,6 +14,7 @@ import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AuthManager } from "./auth.js";
 import type { InstanceManager } from "../core/instance-manager.js";
+import type { TerminalManager } from "../core/terminal-manager.js";
 import type { InstanceInfo } from "../core/types.js";
 import { getPrimaryRemote } from "../core/git.js";
 import type { RelayConfig } from "./config.js";
@@ -51,13 +52,58 @@ export function createWebSocketServer(
   instanceManager: InstanceManager,
   auth: AuthManager,
   config: RelayConfig,
+  getTerminalManager?: () => TerminalManager | undefined,
 ): WebSocketServerHandle {
   const wss = new WebSocketServer({ server });
   const log = config.logger;
   const spaceManager = instanceManager.getSpaceManager();
 
-  // Per-client subscription sets
+  // Per-client subscription sets (instance subscriptions)
   const subscriptions = new Map<WebSocket, Set<string>>();
+
+  // Per-client terminal subscriptions (terminalId sets)
+  const terminalSubscriptions = new Map<WebSocket, Set<string>>();
+
+  function sendToTerminalSubscribers(terminalId: string, message: ServerMessage): void {
+    for (const [ws, subs] of terminalSubscriptions) {
+      if (subs.has(terminalId)) {
+        sendMessage(ws, message);
+      }
+    }
+  }
+
+  function canAccessTerminalScope(
+    ws: WebSocket,
+    scope: { type: "space"; spaceId: string } | { type: "instance"; instanceId: string },
+  ): boolean {
+    const subs = subscriptions.get(ws);
+    if (!subs) return false;
+
+    if (scope.type === "instance") {
+      return subs.has(scope.instanceId);
+    }
+
+    for (const instanceId of subs) {
+      const instance = instanceManager.listInstances().find((item) => item.id === instanceId);
+      if (instance?.spaceId === scope.spaceId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getAuthorizedTerminal(ws: WebSocket, tm: TerminalManager, terminalId: string) {
+    const terminal = tm.getTerminal(terminalId);
+    if (!terminal) {
+      sendMessage(ws, { type: "error", message: `Terminal ${terminalId} not found` });
+      return undefined;
+    }
+    if (!canAccessTerminalScope(ws, terminal.scope)) {
+      sendMessage(ws, { type: "error", message: "Unauthorized terminal access" });
+      return undefined;
+    }
+    return terminal;
+  }
 
   // Ping/pong heartbeat to detect dead connections (e.g. network drops)
   const PING_INTERVAL = 30_000;
@@ -128,6 +174,11 @@ export function createWebSocketServer(
     for (const [, subs] of subscriptions) {
       subs.delete(instanceId);
     }
+    // Clean up any terminals scoped to this instance
+    const tm = getTerminalManager?.();
+    if (tm) {
+      tm.closeAllForScope({ type: "instance", instanceId });
+    }
     broadcast({ type: "instance_removed", instanceId });
   });
 
@@ -170,15 +221,56 @@ export function createWebSocketServer(
   spaceManager.on(
     "space:completed",
     (spaceId, projectDirectory, targetBranch, mergeMethod, mergeCommit) => {
+      // Clean up terminals — the worktree is gone after completion
+      const tm = getTerminalManager?.();
+      if (tm) {
+        tm.closeAllForScope({ type: "space", spaceId });
+      }
       broadcast({ type: "space_completed", spaceId, targetBranch, mergeMethod, mergeCommit });
       broadcastSpaceList(projectDirectory);
     },
   );
 
   spaceManager.on("space:removed", (spaceId, projectDirectory) => {
+    // Clean up any terminals scoped to this space
+    const tm = getTerminalManager?.();
+    if (tm) {
+      tm.closeAllForScope({ type: "space", spaceId });
+    }
     broadcast({ type: "space_removed", spaceId });
     broadcastSpaceList(projectDirectory);
   });
+
+  // Wire up TerminalManager events — deferred since the manager may not be
+  // available until after start() completes.
+  let terminalManagerBound = false;
+
+  function bindTerminalManager(): TerminalManager | undefined {
+    const tm = getTerminalManager?.();
+    if (tm && !terminalManagerBound) {
+      terminalManagerBound = true;
+      tm.on("terminal:output", (terminalId, data) => {
+        sendToTerminalSubscribers(terminalId, { type: "terminal_output", terminalId, data });
+      });
+      tm.on("terminal:exit", (terminalId, code, signal) => {
+        sendToTerminalSubscribers(terminalId, { type: "terminal_exit", terminalId, code, signal });
+      });
+      tm.on("terminal:created", (terminal) => {
+        for (const [ws] of subscriptions) {
+          if (canAccessTerminalScope(ws, terminal.scope)) {
+            sendMessage(ws, { type: "terminal_created", terminal });
+          }
+        }
+      });
+      tm.on("terminal:removed", (terminalId) => {
+        for (const [, subs] of terminalSubscriptions) {
+          subs.delete(terminalId);
+        }
+        broadcast({ type: "terminal_removed", terminalId });
+      });
+    }
+    return tm;
+  }
 
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
     let connectionLabel = "open-mode";
@@ -201,6 +293,7 @@ export function createWebSocketServer(
 
     // Initialize subscription tracking and heartbeat
     subscriptions.set(ws, new Set());
+    terminalSubscriptions.set(ws, new Set());
     alive.set(ws, true);
     ws.on("pong", () => {
       alive.set(ws, true);
@@ -496,6 +589,144 @@ export function createWebSocketServer(
             break;
           }
 
+          // ── Terminal messages ──────────────────────────────────────
+          case "terminal_create": {
+            const tm = bindTerminalManager();
+            if (!tm) {
+              sendMessage(ws, { type: "error", message: "Terminal support is not available" });
+              break;
+            }
+            try {
+              if (!canAccessTerminalScope(ws, message.scope)) {
+                sendMessage(ws, { type: "error", message: "Unauthorized terminal access" });
+                break;
+              }
+              let cwd = message.cwd;
+              if (!cwd) {
+                const scope = message.scope;
+                if (scope.type === "space") {
+                  cwd = instanceManager.getSpaceManager().getSpaceWorkingDirectory(scope.spaceId);
+                  if (!cwd) {
+                    sendMessage(ws, {
+                      type: "error",
+                      message: `Space ${scope.spaceId} not found or has no working directory`,
+                    });
+                    break;
+                  }
+                } else {
+                  // Instance-scoped: use the instance's working directory
+                  const inst = instanceManager
+                    .listInstances()
+                    .find((i) => i.id === scope.instanceId);
+                  cwd = inst?.workingDirectory;
+                  if (!cwd) {
+                    sendMessage(ws, {
+                      type: "error",
+                      message: `Instance ${scope.instanceId} not found or has no working directory`,
+                    });
+                    break;
+                  }
+                }
+              }
+              // If ifEmpty is set, skip creation when terminals already exist for this scope
+              if (message.ifEmpty && tm.listTerminals(message.scope).length > 0) {
+                break;
+              }
+              const terminal = tm.createTerminal({
+                scope: message.scope,
+                cwd,
+                cols: message.cols,
+                rows: message.rows,
+              });
+              // Auto-subscribe the creator
+              const tsubs = terminalSubscriptions.get(ws);
+              if (tsubs) tsubs.add(terminal.id);
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to create terminal",
+              });
+            }
+            break;
+          }
+
+          case "terminal_input": {
+            const tm = bindTerminalManager();
+            if (tm && getAuthorizedTerminal(ws, tm, message.terminalId)) {
+              tm.writeTerminal(message.terminalId, message.data);
+            }
+            break;
+          }
+
+          case "terminal_resize": {
+            const tm = bindTerminalManager();
+            if (tm && getAuthorizedTerminal(ws, tm, message.terminalId)) {
+              tm.resizeTerminal(message.terminalId, message.cols, message.rows);
+            }
+            break;
+          }
+
+          case "terminal_close": {
+            const tm = bindTerminalManager();
+            if (tm && getAuthorizedTerminal(ws, tm, message.terminalId)) {
+              tm.closeTerminal(message.terminalId);
+            }
+            break;
+          }
+
+          case "terminal_subscribe": {
+            const tm = bindTerminalManager();
+            if (tm) {
+              if (!getAuthorizedTerminal(ws, tm, message.terminalId)) {
+                break;
+              }
+              const tsubs = terminalSubscriptions.get(ws);
+              if (tsubs) {
+                tsubs.add(message.terminalId);
+              }
+              // Send scrollback for reconnect
+              const scrollback = tm.getScrollback(message.terminalId);
+              if (scrollback) {
+                sendMessage(ws, {
+                  type: "terminal_scrollback",
+                  terminalId: message.terminalId,
+                  data: scrollback,
+                });
+              }
+            }
+            break;
+          }
+
+          case "terminal_unsubscribe": {
+            const tunsubs = terminalSubscriptions.get(ws);
+            if (tunsubs) {
+              tunsubs.delete(message.terminalId);
+            }
+            break;
+          }
+
+          case "terminal_list": {
+            const tm = bindTerminalManager();
+            if (!canAccessTerminalScope(ws, message.scope)) {
+              sendMessage(ws, { type: "error", message: "Unauthorized terminal access" });
+              break;
+            }
+            if (tm) {
+              sendMessage(ws, {
+                type: "terminal_list_response",
+                scope: message.scope,
+                terminals: tm.listTerminals(message.scope),
+              });
+            } else {
+              sendMessage(ws, {
+                type: "terminal_list_response",
+                scope: message.scope,
+                terminals: [],
+              });
+            }
+            break;
+          }
+
           default:
             log.warn("Unknown message type:", (message as { type: string }).type);
         }
@@ -511,6 +742,7 @@ export function createWebSocketServer(
     ws.on("close", () => {
       log.debug(`WebSocket disconnected: ${connectionLabel}`);
       subscriptions.delete(ws);
+      terminalSubscriptions.delete(ws);
       alive.delete(ws);
     });
   });

@@ -12,6 +12,7 @@ import {
   LayoutGrid,
   ListChecks,
   ScrollText,
+  TerminalSquare,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -162,6 +163,10 @@ interface InstanceHeaderProps {
   onDelete?: () => void;
   onOpenMobileSidecar: () => void;
   onSplit?: () => void;
+  /** Toggle embedded terminal panel. */
+  onToggleTerminal?: () => void;
+  /** Whether the terminal panel is currently open. */
+  terminalOpen?: boolean;
 }
 
 export function InstanceHeader({
@@ -179,6 +184,8 @@ export function InstanceHeader({
   onDelete,
   onOpenMobileSidecar,
   onSplit,
+  onToggleTerminal,
+  terminalOpen,
 }: InstanceHeaderProps) {
   const isStopped = instance.status === "stopped";
   const displayBranch = instance.gitInfo?.branch || instance.gitBranch;
@@ -298,6 +305,18 @@ export function InstanceHeader({
       <div className="flex items-center gap-1">
         <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
         <GitMenu onCommit={() => setCommitDialogOpen(true)} onPush={handlePush} />
+        {onToggleTerminal && !isMobile && (
+          <Tooltip content={terminalOpen ? "Hide terminal" : "Show terminal"}>
+            <Button
+              variant="icon"
+              toggled={terminalOpen}
+              onClick={onToggleTerminal}
+              className="shrink-0"
+            >
+              <TerminalSquare size={15} strokeWidth={2} />
+            </Button>
+          </Tooltip>
+        )}
         <CommitMessageDialog
           open={commitDialogOpen}
           onOpenChange={setCommitDialogOpen}

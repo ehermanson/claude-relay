@@ -19,6 +19,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  TerminalSquare,
   Trash2,
   X,
 } from "lucide-react";
@@ -68,7 +69,17 @@ import { GhCliRequiredDialog } from "@/components/git/gh-cli-required-dialog";
 const DiffDrawer = lazy(() =>
   import("@/components/chat/diff-drawer").then((m) => ({ default: m.DiffDrawer })),
 );
-import type { SpaceInfo, InstanceInfo, SessionStats, FileChange } from "@shared/types";
+import { useTerminalStore } from "@/hooks/use-terminal-store";
+import { useVerticalResize } from "@/hooks/use-vertical-resize";
+import { TerminalPanel } from "@/components/terminal/terminal-panel";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import type {
+  SpaceInfo,
+  InstanceInfo,
+  SessionStats,
+  FileChange,
+  TerminalScope,
+} from "@shared/types";
 
 // =============================================================================
 // Space view — owns the full viewport below the sidebar
@@ -117,6 +128,28 @@ export function SpaceView() {
     | null
   >(null);
   const spaceNameInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Terminal panel state ──────────────────────────────────────────
+  const terminalScope: TerminalScope = { type: "space", spaceId };
+  const terminalScopeKey = `space:${spaceId}`;
+  const { isPanelOpen: isTerminalPanelOpen, togglePanel: toggleTerminalPanel } = useTerminalStore();
+  const showTerminalPanel = isTerminalPanelOpen(terminalScope);
+  const { height: terminalHeight, onResizeStart: handleTerminalResizeStart } = useVerticalResize();
+  const handleToggleTerminal = () => toggleTerminalPanel(terminalScopeKey);
+
+  // Ctrl+` keyboard shortcut to toggle terminal
+  const handleToggleTerminalRef = useRef(handleToggleTerminal);
+  handleToggleTerminalRef.current = handleToggleTerminal;
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "`" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        handleToggleTerminalRef.current();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const { data: space } = useQuery({
     queryKey: spaceQueryKey,
@@ -665,6 +698,18 @@ export function SpaceView() {
                 onPushAndCreatePR={() => void handlePush(true)}
                 worktreePath={space.worktreePath || undefined}
               />
+              {!isMobile && (
+                <Tooltip content={showTerminalPanel ? "Hide terminal" : "Show terminal"}>
+                  <Button
+                    variant="icon"
+                    toggled={showTerminalPanel}
+                    onClick={handleToggleTerminal}
+                    className="shrink-0"
+                  >
+                    <TerminalSquare size={15} strokeWidth={2} />
+                  </Button>
+                </Tooltip>
+              )}
             </>
           )}
           <CommitMessageDialog
@@ -755,104 +800,116 @@ export function SpaceView() {
       )}
 
       {/* ── Main content: tabs + chat | sidebar ── */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        {activeTab ? (
-          showSidebar && !isMobile ? (
-            <Group orientation="horizontal" className="flex-1">
-              <Panel defaultSize="70" minSize="40">
-                <div className="flex h-full flex-col overflow-hidden">
-                  {chatTabs}
-                  {activeLiveInstance ? (
-                    <InstanceView key={activeTab} instanceId={activeTab} compact />
-                  ) : (
-                    <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
-                      <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
-                        <Spinner size={18} />
-                        <p className="mt-4 text-[0.875rem] font-medium text-text-bright">
-                          Restoring chat
-                        </p>
-                        <p className="mt-1 text-[0.75rem] text-muted">
-                          Waiting for the live chat state to reconnect.
-                        </p>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          {activeTab ? (
+            showSidebar && !isMobile ? (
+              <Group orientation="horizontal" className="flex-1">
+                <Panel defaultSize="70" minSize="40">
+                  <div className="flex h-full flex-col overflow-hidden">
+                    {chatTabs}
+                    {activeLiveInstance ? (
+                      <InstanceView key={activeTab} instanceId={activeTab} compact />
+                    ) : (
+                      <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+                        <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
+                          <Spinner size={18} />
+                          <p className="mt-4 text-[0.875rem] font-medium text-text-bright">
+                            Restoring chat
+                          </p>
+                          <p className="mt-1 text-[0.75rem] text-muted">
+                            Waiting for the live chat state to reconnect.
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              </Panel>
-              <ResizableHandle />
-              <Panel defaultSize="30" minSize="15" maxSize="45">
-                <SpaceSidebar
-                  space={space}
-                  instances={spaceInstances}
-                  activePanels={activePanels}
-                  stats={aggregatedStats}
-                  fileChanges={fileChanges}
-                  onOpenDiff={(scrollTo) => {
-                    setDiffScrollToFile(scrollTo);
-                    setShowDiffDrawer(true);
-                  }}
-                />
-              </Panel>
-            </Group>
-          ) : (
-            <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-              {chatTabs}
-              {activeLiveInstance ? (
-                <InstanceView key={activeTab} instanceId={activeTab} compact />
-              ) : (
-                <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
-                  <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
-                    <Spinner size={18} />
-                    <p className="mt-4 text-[0.875rem] font-medium text-text-bright">
-                      Restoring chat
-                    </p>
-                    <p className="mt-1 text-[0.75rem] text-muted">
-                      Waiting for the live chat state to reconnect.
-                    </p>
+                    )}
                   </div>
+                </Panel>
+                <ResizableHandle />
+                <Panel defaultSize="30" minSize="15" maxSize="45">
+                  <SpaceSidebar
+                    space={space}
+                    instances={spaceInstances}
+                    activePanels={activePanels}
+                    stats={aggregatedStats}
+                    fileChanges={fileChanges}
+                    onOpenDiff={(scrollTo) => {
+                      setDiffScrollToFile(scrollTo);
+                      setShowDiffDrawer(true);
+                    }}
+                  />
+                </Panel>
+              </Group>
+            ) : (
+              <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+                {chatTabs}
+                {activeLiveInstance ? (
+                  <InstanceView key={activeTab} instanceId={activeTab} compact />
+                ) : (
+                  <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+                    <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
+                      <Spinner size={18} />
+                      <p className="mt-4 text-[0.875rem] font-medium text-text-bright">
+                        Restoring chat
+                      </p>
+                      <p className="mt-1 text-[0.75rem] text-muted">
+                        Waiting for the live chat state to reconnect.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+              <GitBranch size={32} className="text-muted/30" />
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium text-text-bright">Space ready</p>
+                <p className="max-w-xs text-[0.8125rem] text-muted">
+                  This space has its own branch and working copy. Start a chat to begin working.
+                </p>
+              </div>
+              {space.worktreePath && (
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-hover/50 px-3 py-2 text-xs">
+                  <FolderOpen size={13} className="shrink-0 text-muted/70" />
+                  <code
+                    className="max-w-[20rem] truncate font-mono text-[0.6875rem] text-muted"
+                    title={space.worktreePath}
+                  >
+                    {space.worktreePath}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(space.worktreePath!).then(() => {
+                        setPathCopied(true);
+                        setTimeout(() => setPathCopied(false), 1500);
+                        toast.success("Copied to clipboard");
+                      });
+                    }}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  >
+                    {pathCopied ? <Check size={11} /> : <Copy size={11} />}
+                    {pathCopied ? "Copied" : "Copy"}
+                  </button>
                 </div>
               )}
+              <Button variant="primary" size="sm" onClick={handleNewChat} className="gap-1.5">
+                <Plus size={14} />
+                New Chat
+              </Button>
             </div>
-          )
-        ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-            <GitBranch size={32} className="text-muted/30" />
-            <div className="flex flex-col gap-1">
-              <p className="text-sm font-medium text-text-bright">Space ready</p>
-              <p className="max-w-xs text-[0.8125rem] text-muted">
-                This space has its own branch and working copy. Start a chat to begin working.
-              </p>
-            </div>
-            {space.worktreePath && (
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-hover/50 px-3 py-2 text-xs">
-                <FolderOpen size={13} className="shrink-0 text-muted/70" />
-                <code
-                  className="max-w-[20rem] truncate font-mono text-[0.6875rem] text-muted"
-                  title={space.worktreePath}
-                >
-                  {space.worktreePath}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(space.worktreePath!).then(() => {
-                      setPathCopied(true);
-                      setTimeout(() => setPathCopied(false), 1500);
-                      toast.success("Copied to clipboard");
-                    });
-                  }}
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                >
-                  {pathCopied ? <Check size={11} /> : <Copy size={11} />}
-                  {pathCopied ? "Copied" : "Copy"}
-                </button>
-              </div>
-            )}
-            <Button variant="primary" size="sm" onClick={handleNewChat} className="gap-1.5">
-              <Plus size={14} />
-              New Chat
-            </Button>
-          </div>
+          )}
+        </div>
+        {showTerminalPanel && !isMobile && (
+          <ErrorBoundary name="Terminal panel">
+            <TerminalPanel
+              scope={terminalScope}
+              height={terminalHeight}
+              onResizeStart={handleTerminalResizeStart}
+              activeInstanceId={activeTab}
+            />
+          </ErrorBoundary>
         )}
       </div>
 

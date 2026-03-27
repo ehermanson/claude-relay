@@ -389,6 +389,17 @@ export class SpaceManager extends EventEmitter {
     return this.toInfo(row);
   }
 
+  /**
+   * Get the working directory for a space (worktree path if available, else project dir).
+   * Returns undefined if the space is not found.
+   */
+  getSpaceWorkingDirectory(spaceId?: string): string | undefined {
+    if (!spaceId) return undefined;
+    const space = this.getSpace(spaceId);
+    if (!space) return undefined;
+    return space.worktreePath ?? space.projectDirectory;
+  }
+
   renameSpace(id: string, name: string): SpaceInfo {
     const row = this.db.getSpace(id);
     if (!row) {

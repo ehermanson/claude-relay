@@ -28,6 +28,7 @@ import type { WebSocketServer } from "ws";
 import { resolveConfig, type RelayOptions, type RelayConfig } from "./config.js";
 import { AuthManager } from "./auth.js";
 import { InstanceManager } from "../core/instance-manager.js";
+import { TerminalManager } from "../core/terminal-manager.js";
 import { createWebSocketServer } from "./websocket.js";
 import { createRequestHandler } from "./http.js";
 
@@ -38,6 +39,7 @@ export class Relay {
   private wss: WebSocketServer;
   private auth: AuthManager;
   private instanceManager: InstanceManager;
+  private terminalManager: TerminalManager | null = null;
   private sockets = new Set<import("node:net").Socket>();
 
   constructor(options: RelayOptions) {
@@ -60,11 +62,16 @@ export class Relay {
       socket.on("close", () => this.sockets.delete(socket));
     });
 
+    // Terminal manager is initialized lazily in start() — pass a getter so the WSS
+    // can reference it once available.
+    const getTerminalManager = () => this.terminalManager ?? undefined;
+
     const wsHandle = createWebSocketServer(
       this.server,
       this.instanceManager,
       this.auth,
       this.config,
+      getTerminalManager,
     );
     this.wss = wsHandle.wss;
     // Prevent WSS from crashing on HTTP server errors (e.g. EADDRINUSE during restart)
@@ -84,6 +91,19 @@ export class Relay {
   async start(): Promise<void> {
     await this.instanceManager.initSdkProvider();
     this.instanceManager.restoreInstances(); // DB-only, fast
+
+    // Initialize terminal support (non-fatal if node-pty is unavailable)
+    try {
+      const { createNodePtyFactory } = await import("../core/pty-adapters/node-pty.js");
+      const factory = await createNodePtyFactory();
+      this.terminalManager = new TerminalManager(factory, this.config.logger);
+      this.config.logger.info("Terminal support enabled (node-pty)");
+    } catch (err) {
+      this.config.logger.warn(
+        "Terminal support unavailable:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
 
     await this.listenWithRetry();
 
@@ -116,6 +136,7 @@ export class Relay {
             return;
           }
 
+          this.terminalManager?.closeAll();
           this.instanceManager.stopAllGracefully().then(resolve, reject);
         });
       });
