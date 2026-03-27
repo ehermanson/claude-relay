@@ -413,12 +413,6 @@ export async function removeProject(id: string): Promise<void> {
 // Space API
 // =========================================================================
 
-export async function fetchSpaces(projectId: string): Promise<SpaceInfo[]> {
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/spaces`);
-  if (!res.ok) throw new Error("Failed to fetch spaces");
-  return res.json();
-}
-
 export async function createSpace(
   projectId: string,
   opts?: { name?: string; baseBranch?: string },
