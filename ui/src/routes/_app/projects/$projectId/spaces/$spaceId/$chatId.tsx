@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_app/projects/$projectId/spaces/$spaceId/
     const chats = await fetchProjectChats(params.projectId);
     const spaceChats = chats
       .filter((chat) => chat.spaceId === params.spaceId)
-      .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
     const activeChat = spaceChats.find((chat) => chat.id === params.chatId);
     if (activeChat) return;

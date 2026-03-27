@@ -184,7 +184,7 @@ export function SpaceView() {
     }
   }
   const spaceInstances = Array.from(spaceChatMap.values()).sort(
-    (a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0),
+    (a, b) => (a.createdAt || 0) - (b.createdAt || 0),
   );
 
   const hasActiveChats = spaceInstances.some(
