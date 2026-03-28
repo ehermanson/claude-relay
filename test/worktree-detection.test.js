@@ -546,6 +546,7 @@ describe("scanAllSessions archive protection", () => {
       preferred_model: null,
       reasoning_budget: null,
       skip_permissions: 0,
+      runtime_mode: "approval-required",
       last_message_text: null,
       last_message_from: null,
       last_message_at: null,
@@ -573,6 +574,89 @@ describe("scanAllSessions archive protection", () => {
     assert.ok(spaces.some((space) => space.id === "recovered-space-9f8e7d6c"));
 
     manager1.stopAll();
+  });
+
+  it("rebuilds merged relay spaces as completed when only session metadata survives", () => {
+    const wt = createSpaceWorktree(repoDir, "9abc1234");
+    assert.ok(wt, "space worktree should be created");
+    cleanupWorktrees.push(wt);
+
+    writeFileSync(join(wt.worktreePath, "merged.txt"), "done\n");
+    execSync("git add merged.txt && git commit -m 'space work'", {
+      cwd: wt.worktreePath,
+      stdio: "pipe",
+    });
+    execSync(`git merge --squash "${wt.branchName}"`, { cwd: repoDir, stdio: "pipe" });
+    execSync("git commit -m 'merge space'", { cwd: repoDir, stdio: "pipe" });
+    removeWorktree(repoDir, wt.worktreePath, wt.branchName, { keepBranch: true });
+    cleanupWorktrees.length = 0;
+
+    const config = resolveConfig({
+      password: "test",
+      logger: noopLogger,
+      maxProcesses: 3,
+      dbPath: join(tempDir, "sessions.db"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
+    });
+    const manager = new InstanceManager(config);
+    manager.projectManager.addProject(repoDir);
+
+    manager.db.upsertManaged({
+      instance_id: "managed-space-instance",
+      provider_name: "claude",
+      provider_session_id: "provider-session",
+      name: "Merged space session",
+      working_directory: repoDir,
+      created_at: 1000,
+      last_activity_at: 2000,
+      archived: 0,
+      custom_title: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      model: null,
+      transcript_path: join(tempDir, "managed-transcript.jsonl"),
+      runtime_payload_json: null,
+      runtime_mode: "approval-required",
+      model_options_json: null,
+      resume_cursor_json: null,
+      git_branch: wt.branchName,
+      worktree_path: wt.worktreePath,
+      original_directory: repoDir,
+      parent_session_id: null,
+      preferred_model: null,
+      reasoning_budget: null,
+      skip_permissions: 0,
+      last_message_text: null,
+      last_message_from: null,
+      last_message_at: null,
+      git_info_branch: "main",
+      git_info_is_worktree: 1,
+      space_id: null,
+      project_id: null,
+      original_git_branch: wt.branchName,
+    });
+    writeFileSync(join(tempDir, "managed-transcript.jsonl"), "{}\n");
+
+    const recovered = manager.getSpaceManager().recoverSpacesFromSessionMetadata();
+    assert.equal(recovered, 2, "should create default + recovered completed space");
+
+    const spaces = manager.getSpaceManager().listSpaces(repoDir);
+    const recoveredSpace = spaces.find((space) => space.id === "recovered-space-9abc1234");
+    assert.ok(recoveredSpace, "should recover a space row from managed metadata");
+    assert.equal(recoveredSpace.status, "completed");
+    assert.equal(recoveredSpace.targetBranch, "main");
+    assert.equal(recoveredSpace.worktreePath, null);
+
+    const row = manager.db.getManagedByInstanceId("managed-space-instance");
+    assert.equal(row?.space_id, "recovered-space-9abc1234");
+
+    manager.stopAll();
   });
 });
 

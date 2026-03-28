@@ -128,6 +128,86 @@ export class SpaceManager extends EventEmitter {
     return row.git_branch ?? row.worktree_path ?? "Recovered space";
   }
 
+  private findMatchingSpaceRow(
+    existingSpaces: Iterable<SpaceRow>,
+    row: { project_directory: string; git_branch: string | null; worktree_path: string | null },
+  ): SpaceRow | null {
+    for (const existing of existingSpaces) {
+      if (existing.project_directory !== row.project_directory) continue;
+      if (row.git_branch && existing.git_branch === row.git_branch) return existing;
+      if (row.worktree_path && existing.worktree_path === row.worktree_path) return existing;
+    }
+    return null;
+  }
+
+  private inferRecoveredSpaceStatus(row: {
+    project_directory: string;
+    git_branch: string | null;
+    worktree_path: string | null;
+    git_info_branch: string | null;
+    last_activity_at: number;
+  }): Pick<SpaceRow, "status" | "worktree_path" | "merged_at" | "target_branch"> {
+    const worktreePath = this.getExistingWorktreePath(row.worktree_path);
+    if (worktreePath) {
+      return {
+        status: "active",
+        worktree_path: worktreePath,
+        merged_at: null,
+        target_branch: null,
+      };
+    }
+
+    if (row.git_info_branch && row.git_branch && row.git_info_branch !== row.git_branch) {
+      return {
+        status: "completed",
+        worktree_path: null,
+        merged_at: row.last_activity_at,
+        target_branch: row.git_info_branch,
+      };
+    }
+
+    const repoRoot = getRepoRoot(row.project_directory);
+    if (!repoRoot || !row.git_branch) {
+      return {
+        status: "active",
+        worktree_path: null,
+        merged_at: null,
+        target_branch: null,
+      };
+    }
+
+    const targetBranch = getDefaultBranch(repoRoot) || getCurrentBranch(repoRoot);
+    if (!targetBranch || targetBranch === row.git_branch) {
+      return {
+        status: "active",
+        worktree_path: null,
+        merged_at: null,
+        target_branch: null,
+      };
+    }
+
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", row.git_branch, targetBranch], {
+        cwd: repoRoot,
+        stdio: "pipe",
+        timeout: 5000,
+      });
+      return {
+        status: "completed",
+        worktree_path: null,
+        merged_at: row.last_activity_at,
+        target_branch: targetBranch,
+      };
+    } catch {
+      return {
+        status: "active",
+        worktree_path: null,
+        merged_at: null,
+        target_branch: null,
+      };
+    }
+  }
+
   /**
    * Get or lazily create the implicit default space for a project.
    * The default space has no worktree — it represents the main branch.
@@ -283,7 +363,7 @@ export class SpaceManager extends EventEmitter {
     const recoveredSpaces = new Map<
       string,
       {
-        row: SpaceRow;
+        row: SpaceRow & { git_info_branch: string | null };
         sessionIds: string[];
         managedInstanceIds: string[];
       }
@@ -297,6 +377,8 @@ export class SpaceManager extends EventEmitter {
         original_directory: string | null;
         worktree_path: string | null;
         git_branch: string | null;
+        git_info_branch: string | null;
+        original_git_branch?: string | null;
         space_id: string | null;
         created_at: number;
         last_activity_at: number;
@@ -305,10 +387,14 @@ export class SpaceManager extends EventEmitter {
       kind: "session" | "managed",
     ) => {
       if (row.archived) return;
-      if (!row.worktree_path && !row.git_branch?.startsWith("relay-space/")) return;
+      const spaceBranch = row.git_branch ?? row.original_git_branch ?? null;
+      if (!row.worktree_path && !spaceBranch?.startsWith("relay-space/")) return;
 
       const projectDirectory = row.original_directory ?? row.working_directory;
-      const id = this.deriveRecoveredSpaceId(row);
+      const id = this.deriveRecoveredSpaceId({
+        ...row,
+        git_branch: spaceBranch,
+      });
       if (!id) return;
 
       const existing = recoveredSpaces.get(id);
@@ -317,8 +403,11 @@ export class SpaceManager extends EventEmitter {
           row: {
             id,
             project_directory: projectDirectory,
-            name: this.deriveRecoveredSpaceName(row),
-            git_branch: row.git_branch,
+            name: this.deriveRecoveredSpaceName({
+              ...row,
+              git_branch: spaceBranch,
+            }),
+            git_branch: spaceBranch,
             worktree_path: row.worktree_path,
             is_default: 0,
             status: "active",
@@ -330,6 +419,7 @@ export class SpaceManager extends EventEmitter {
             target_branch: null,
             remote_status: null,
             pr_url: null,
+            git_info_branch: row.git_info_branch,
           },
           sessionIds: kind === "session" && row.session_id ? [row.session_id] : [],
           managedInstanceIds: kind === "managed" && row.instance_id ? [row.instance_id] : [],
@@ -340,8 +430,9 @@ export class SpaceManager extends EventEmitter {
       existing.row.created_at = Math.min(existing.row.created_at, row.created_at);
       existing.row.last_activity_at = Math.max(existing.row.last_activity_at, row.last_activity_at);
       existing.row.project_directory = projectDirectory;
-      existing.row.git_branch = existing.row.git_branch ?? row.git_branch;
+      existing.row.git_branch = existing.row.git_branch ?? spaceBranch;
       existing.row.worktree_path = existing.row.worktree_path ?? row.worktree_path;
+      existing.row.git_info_branch = existing.row.git_info_branch ?? row.git_info_branch;
 
       if (kind === "session" && row.session_id) {
         existing.sessionIds.push(row.session_id);
@@ -359,17 +450,35 @@ export class SpaceManager extends EventEmitter {
     }
 
     for (const { row, sessionIds, managedInstanceIds } of recoveredSpaces.values()) {
-      if (!existingSpaces.has(row.id)) {
-        this.db.upsertSpace(row);
-        existingSpaces.set(row.id, row);
+      const matching = this.findMatchingSpaceRow(existingSpaces.values(), row);
+      const linkedSpaceId = matching?.id ?? row.id;
+      const recoveredMeta = this.inferRecoveredSpaceStatus(row);
+      const upsertRow: SpaceRow = matching
+        ? {
+            ...matching,
+            git_branch: matching.git_branch ?? row.git_branch,
+            worktree_path: recoveredMeta.worktree_path,
+            status: recoveredMeta.status,
+            last_activity_at: Math.max(matching.last_activity_at, row.last_activity_at),
+            merged_at: matching.merged_at ?? recoveredMeta.merged_at,
+            target_branch: matching.target_branch ?? recoveredMeta.target_branch,
+          }
+        : {
+            ...row,
+            ...recoveredMeta,
+          };
+
+      this.db.upsertSpace(upsertRow);
+      if (!matching) {
+        existingSpaces.set(upsertRow.id, upsertRow);
         recovered++;
       }
 
       for (const sessionId of sessionIds) {
-        this.db.updateSessionSpaceId(sessionId, row.id);
+        this.db.updateSessionSpaceId(sessionId, linkedSpaceId);
       }
       for (const instanceId of managedInstanceIds) {
-        this.db.updateManagedSpaceId(instanceId, row.id);
+        this.db.updateManagedSpaceId(instanceId, linkedSpaceId);
       }
     }
 

@@ -732,7 +732,13 @@ export class SessionDB {
         git_branch = excluded.git_branch,
         worktree_path = excluded.worktree_path,
         status = excluded.status,
-        last_activity_at = excluded.last_activity_at
+        last_activity_at = excluded.last_activity_at,
+        merge_commit = COALESCE(excluded.merge_commit, merge_commit),
+        merge_method = COALESCE(excluded.merge_method, merge_method),
+        merged_at = COALESCE(excluded.merged_at, merged_at),
+        target_branch = COALESCE(excluded.target_branch, target_branch),
+        remote_status = COALESCE(excluded.remote_status, remote_status),
+        pr_url = COALESCE(excluded.pr_url, pr_url)
     `);
     this.stmtGetSpace = this.db.prepare("SELECT * FROM spaces WHERE id = ?");
     this.stmtGetSpacesByProject = this.db.prepare(
