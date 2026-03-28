@@ -28,8 +28,11 @@ function makeManager(tempDir, overrides = {}) {
     logger: noopLogger,
     maxProcesses: 20,
     dbPath: join(tempDir, "sessions.db"),
-    claudeDir: join(tempDir, ".claude"),
-    codexDir: join(tempDir, ".codex"),
+    providerDirs: {
+      claude: join(tempDir, ".claude"),
+      codex: join(tempDir, ".codex"),
+      gemini: join(tempDir, ".gemini"),
+    },
     ...overrides,
   });
   return new InstanceManager(config);
@@ -73,7 +76,6 @@ function seedDB(tempDir, entries) {
       git_info_branch: entry.gitInfoBranch || null,
       git_info_is_worktree:
         entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
-      space_id: null,
       project_id: null,
       model: entry.model || null,
     });
@@ -133,7 +135,6 @@ function seedManagedDB(tempDir, entries) {
       git_info_branch: entry.gitInfoBranch || null,
       git_info_is_worktree:
         entry.gitInfoIsWorktree === undefined ? null : entry.gitInfoIsWorktree ? 1 : 0,
-      space_id: null,
       project_id: null,
       model: entry.model || null,
     });

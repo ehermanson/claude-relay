@@ -29,8 +29,11 @@ function makeConfig(overrides = {}) {
     logger: noopLogger,
     maxProcesses: 3,
     dbPath: join(tempDir, "sessions.db"),
-    claudeDir: join(tempDir, ".claude"),
-    codexDir: join(tempDir, ".codex"),
+    providerDirs: {
+      claude: join(tempDir, ".claude"),
+      codex: join(tempDir, ".codex"),
+      gemini: join(tempDir, ".gemini"),
+    },
     workingDirectory: tempDir,
     ...overrides,
   });
@@ -1072,60 +1075,6 @@ describe("InstanceManager", () => {
       assert.deepEqual(info.modelOptions, modelOptions);
       assert.equal(info.reasoningBudget, 8192);
       assert.equal(info.preferredModel, "claude-opus-4-6");
-    });
-
-    it("synthesizes modelOptions from legacy reasoning_budget when model_options_json is absent", () => {
-      const config = makeConfig();
-      const db = new SessionDB(config.dbPath, noopLogger);
-      try {
-        db.upsertManaged(
-          makeManagedRow({
-            instance_id: "legacy-1",
-            working_directory: config.workingDirectory,
-            provider_session_id: "session-legacy-1",
-            resume_cursor_json: JSON.stringify({ sessionId: "session-legacy-1" }),
-            reasoning_budget: 4096,
-            model_options_json: null,
-          }),
-        );
-      } finally {
-        db.close();
-      }
-
-      const restored = new InstanceManager(config);
-      restored.restoreInstances();
-      const info = restored.getInstance("legacy-1");
-
-      assert.ok(info);
-      assert.deepEqual(info.modelOptions, { reasoningBudgetTokens: 4096 });
-      assert.equal(info.reasoningBudget, 4096);
-    });
-
-    it("prefers model_options_json over legacy reasoning_budget on restore", () => {
-      const config = makeConfig();
-      const db = new SessionDB(config.dbPath, noopLogger);
-      try {
-        db.upsertManaged(
-          makeManagedRow({
-            instance_id: "pref-1",
-            working_directory: config.workingDirectory,
-            provider_session_id: "session-pref-1",
-            resume_cursor_json: JSON.stringify({ sessionId: "session-pref-1" }),
-            reasoning_budget: 1000,
-            model_options_json: JSON.stringify({ reasoningBudgetTokens: 9999 }),
-          }),
-        );
-      } finally {
-        db.close();
-      }
-
-      const restored = new InstanceManager(config);
-      restored.restoreInstances();
-      const info = restored.getInstance("pref-1");
-
-      assert.ok(info);
-      assert.equal(info.modelOptions.reasoningBudgetTokens, 9999);
-      assert.equal(info.reasoningBudget, 9999);
     });
 
     it("setModelOptions sparse-merges and null clears individual fields", async () => {

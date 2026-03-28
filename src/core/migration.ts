@@ -671,8 +671,8 @@ export function createMigrationConfigFromCore(config: CoreConfig): MigrationConf
   return {
     dbPath: config.dbPath,
     providerDirs: {
-      claude: config.providerDirs?.claude ?? config.claudeDir,
-      codex: config.providerDirs?.codex ?? config.codexDir,
+      claude: config.providerDirs.claude,
+      codex: config.providerDirs.codex,
     },
     logger: config.logger,
   };

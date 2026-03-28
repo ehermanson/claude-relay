@@ -36,8 +36,11 @@ function makeConfig(overrides = {}) {
       logger: noopLogger,
       maxProcesses: 10,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir: join(tempDir, ".claude"),
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
       ...overrides,
     }),
     tempDir,

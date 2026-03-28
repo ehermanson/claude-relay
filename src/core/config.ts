@@ -29,14 +29,8 @@ export interface CoreConfig {
   dbPath: string;
   /** Default model for new managed instances (e.g. "claude-opus-4-6"). Omit to use Claude's default. */
   defaultModel?: string;
-  /** Legacy manifest file path — used only for one-time migration to SQLite */
-  manifestFile?: string;
   /** Provider-specific data directories (e.g. { claude: "~/.claude", codex: "~/.codex" }) */
-  providerDirs?: Partial<Record<ProviderKind, string>>;
-  /** @deprecated Use providerDirs.claude instead */
-  claudeDir?: string;
-  /** @deprecated Use providerDirs.codex instead */
-  codexDir?: string;
+  providerDirs: Partial<Record<ProviderKind, string>>;
 }
 
 /**
@@ -57,13 +51,10 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
     logger: options.logger ?? defaultLogger,
     dbPath: options.dbPath ?? join(home, ".relay", "sessions.db"),
     defaultModel: options.defaultModel,
-    manifestFile: options.manifestFile,
     providerDirs: options.providerDirs ?? {
-      claude: options.claudeDir ?? join(home, ".claude"),
-      codex: options.codexDir ?? join(home, ".codex"),
+      claude: join(home, ".claude"),
+      codex: join(home, ".codex"),
       gemini: join(home, ".gemini"),
     },
-    claudeDir: options.claudeDir,
-    codexDir: options.codexDir,
   };
 }

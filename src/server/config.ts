@@ -59,13 +59,10 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     sessionFile: options.sessionFile ?? join(home, ".relay", "sessions.json"),
     dbPath: options.dbPath ?? join(home, ".relay", "sessions.db"),
     defaultModel: options.defaultModel,
-    manifestFile: options.manifestFile,
     providerDirs: options.providerDirs ?? {
-      claude: options.claudeDir ?? join(home, ".claude"),
-      codex: options.codexDir ?? join(home, ".codex"),
+      claude: join(home, ".claude"),
+      codex: join(home, ".codex"),
       gemini: join(home, ".gemini"),
     },
-    claudeDir: options.claudeDir,
-    codexDir: options.codexDir,
   };
 }

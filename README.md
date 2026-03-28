@@ -363,6 +363,7 @@ Notes:
 | `DB_PATH`         | `~/.relay/sessions.db`   | Relay SQLite database path                 |
 | `CLAUDE_DIR`      | `~/.claude`              | Claude data directory                      |
 | `CODEX_DIR`       | `~/.codex`               | Codex data directory                       |
+| `GEMINI_DIR`      | `~/.gemini`              | Gemini data directory                      |
 
 ## Development
 

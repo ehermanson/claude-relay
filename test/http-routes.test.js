@@ -81,8 +81,11 @@ describe("HTTP Routes — Additional Coverage", () => {
       rateLimitWindow: 60_000,
       sessionFile: join(tempDir, "sessions.json"),
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir: join(tempDir, ".claude"),
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
@@ -245,8 +248,11 @@ describe("HTTP Routes — Additional Coverage", () => {
         rateLimitWindow: 60_000,
         sessionFile: join(tempDir, "sessions.json"),
         dbPath: join(tempDir, "sessions.db"),
-        claudeDir: join(tempDir, ".claude"),
-        codexDir: join(tempDir, ".codex"),
+        providerDirs: {
+          claude: join(tempDir, ".claude"),
+          codex: join(tempDir, ".codex"),
+          gemini: join(tempDir, ".gemini"),
+        },
       });
       const handler = createRequestHandler(config, auth, manager, undefined, {
         getProviderModels,
@@ -314,8 +320,11 @@ describe("HTTP Routes — Additional Coverage", () => {
         rateLimitWindow: 60_000,
         sessionFile: join(tempDir, "sessions.json"),
         dbPath: join(tempDir, "sessions.db"),
-        claudeDir: join(tempDir, ".claude"),
-        codexDir: join(tempDir, ".codex"),
+        providerDirs: {
+          claude: join(tempDir, ".claude"),
+          codex: join(tempDir, ".codex"),
+          gemini: join(tempDir, ".gemini"),
+        },
       });
       const handler = createRequestHandler(config, auth, manager, undefined, {
         getProviderModels,

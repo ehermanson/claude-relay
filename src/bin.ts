@@ -28,6 +28,7 @@
  *   DEFAULT_MODEL               Default model for new sessions
  *   CLAUDE_DIR                  Claude data directory, default ~/.claude
  *   CODEX_DIR                   Codex data directory, default ~/.codex
+ *   GEMINI_DIR                  Gemini data directory, default ~/.gemini
  */
 
 import { join } from "node:path";
@@ -112,8 +113,11 @@ async function runCliCommand(commandName: string | undefined, args: string[]): P
 
   const config = resolveCoreConfig({
     dbPath: process.env.DB_PATH,
-    claudeDir: process.env.CLAUDE_DIR,
-    codexDir: process.env.CODEX_DIR,
+    providerDirs: {
+      claude: process.env.CLAUDE_DIR ?? join(homedir(), ".claude"),
+      codex: process.env.CODEX_DIR ?? join(homedir(), ".codex"),
+      gemini: process.env.GEMINI_DIR ?? join(homedir(), ".gemini"),
+    },
   });
 
   if (commandName === "export") {
@@ -185,32 +189,16 @@ function startServer(cliArgs: string[]): void {
     sessionMaxAge: parseInt(process.env.SESSION_MAX_AGE || String(7 * 24 * 60 * 60 * 1000)),
     processTimeout: parseInt(process.env.PROCESS_TIMEOUT || String(5 * 60 * 1000)),
     workingDirectory: process.env.WORKING_DIR || process.cwd(),
-    maxProcesses: parseInt(
-      process.env.MAX_PROCESSES ||
-        (() => {
-          if (process.env.MAX_INSTANCES) {
-            console.warn("Warning: MAX_INSTANCES is deprecated, use MAX_PROCESSES instead");
-            return process.env.MAX_INSTANCES;
-          }
-          return "15";
-        })(),
-    ),
+    maxProcesses: parseInt(process.env.MAX_PROCESSES || "15"),
     defaultModel: process.env.DEFAULT_MODEL || "claude-opus-4-6",
     serveUI: true,
     ...(process.env.SESSION_FILE ? { sessionFile: process.env.SESSION_FILE } : {}),
     ...(process.env.DB_PATH ? { dbPath: process.env.DB_PATH } : {}),
-    ...(process.env.MANIFEST_FILE ? { manifestFile: process.env.MANIFEST_FILE } : {}),
-    ...(process.env.CLAUDE_DIR
-      ? {
-          providerDirs: {
-            claude: process.env.CLAUDE_DIR,
-            codex: process.env.CODEX_DIR ?? join(home, ".codex"),
-          },
-        }
-      : {}),
-    ...(process.env.CODEX_DIR && !process.env.CLAUDE_DIR
-      ? { providerDirs: { claude: join(home, ".claude"), codex: process.env.CODEX_DIR } }
-      : {}),
+    providerDirs: {
+      claude: process.env.CLAUDE_DIR ?? join(home, ".claude"),
+      codex: process.env.CODEX_DIR ?? join(home, ".codex"),
+      gemini: process.env.GEMINI_DIR ?? join(home, ".gemini"),
+    },
   });
 
   relay

@@ -171,8 +171,11 @@ describe("getGitInfo worktree detection", () => {
       logger: noopLogger,
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir: join(tempDir, ".claude"),
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     const manager = new InstanceManager(config);
 
@@ -193,8 +196,11 @@ describe("getGitInfo worktree detection", () => {
       logger: noopLogger,
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir: join(tempDir, ".claude"),
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     const manager = new InstanceManager(config);
 
@@ -250,7 +256,7 @@ describe("scanAllSessions worktree recovery", () => {
 
     // Simulate a JSONL file whose cwd field is the worktree path
     const claudeDir = join(tempDir, ".claude");
-    const encoded = wt.worktreePath.replace(/\//g, "-");
+    const encoded = wt.worktreePath.replace(/[^A-Za-z0-9_-]/g, "-");
     const projectDir = join(claudeDir, "projects", encoded);
     mkdirSync(projectDir, { recursive: true });
 
@@ -270,8 +276,11 @@ describe("scanAllSessions worktree recovery", () => {
       logger: noopLogger,
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir,
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: claudeDir,
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     const manager = new InstanceManager(config);
     manager.projectManager.addProject(repoDir);
@@ -303,7 +312,7 @@ describe("scanAllSessions worktree recovery", () => {
     cleanupWorktrees.push(wt);
 
     const claudeDir = join(tempDir, ".claude");
-    const encoded = wt.worktreePath.replace(/\./g, "-").replace(/\//g, "-");
+    const encoded = wt.worktreePath.replace(/[^A-Za-z0-9_-]/g, "-");
     const projectDir = join(claudeDir, "projects", encoded);
     mkdirSync(projectDir, { recursive: true });
 
@@ -323,8 +332,11 @@ describe("scanAllSessions worktree recovery", () => {
       logger: noopLogger,
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir,
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: claudeDir,
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     const manager = new InstanceManager(config);
     manager.projectManager.addProject(repoDir);
@@ -367,7 +379,7 @@ describe("scanAllSessions worktree recovery", () => {
 
     // Simulate a JSONL file whose cwd field is the now-deleted worktree path
     const claudeDir = join(tempDir, ".claude");
-    const encoded = worktreePath.replace(/\//g, "-");
+    const encoded = worktreePath.replace(/[^A-Za-z0-9_-]/g, "-");
     const projectDir = join(claudeDir, "projects", encoded);
     mkdirSync(projectDir, { recursive: true });
 
@@ -387,8 +399,11 @@ describe("scanAllSessions worktree recovery", () => {
       logger: noopLogger,
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir,
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: claudeDir,
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     const manager = new InstanceManager(config);
     manager.restoreAndScan();
@@ -436,7 +451,7 @@ describe("scanAllSessions archive protection", () => {
     cleanupWorktrees.push(wt);
 
     const claudeDir = join(tempDir, ".claude");
-    const encoded = wt.worktreePath.replace(/\//g, "-");
+    const encoded = wt.worktreePath.replace(/[^A-Za-z0-9_-]/g, "-");
     const projectDir = join(claudeDir, "projects", encoded);
     mkdirSync(projectDir, { recursive: true });
 
@@ -456,8 +471,11 @@ describe("scanAllSessions archive protection", () => {
       logger: noopLogger,
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir,
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: claudeDir,
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
 
     // First scan discovers the session and resolves worktree
@@ -493,8 +511,11 @@ describe("scanAllSessions archive protection", () => {
       logger: noopLogger,
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir: join(tempDir, ".claude"),
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     const manager1 = new InstanceManager(config);
     const project = manager1.projectManager.addProject(repoDir);
@@ -585,7 +606,7 @@ describe("live discovery worktree recovery", () => {
     cleanupWorktrees.push(wt);
 
     const claudeDir = join(tempDir, ".claude");
-    const encoded = wt.worktreePath.replace(/\//g, "-");
+    const encoded = wt.worktreePath.replace(/[^A-Za-z0-9_-]/g, "-");
     const projectDir = join(claudeDir, "projects", encoded);
     mkdirSync(projectDir, { recursive: true });
 
@@ -605,8 +626,11 @@ describe("live discovery worktree recovery", () => {
       logger: noopLogger,
       maxProcesses: 3,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir,
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: claudeDir,
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     const manager = new InstanceManager(config);
     manager.projectManager.addProject(repoDir);

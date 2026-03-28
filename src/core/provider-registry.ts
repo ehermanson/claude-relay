@@ -107,21 +107,9 @@ interface ProviderDriver {
 
 const NO_SESSION_MESSAGE = "Gemini provider support is not implemented in this relay build yet.";
 
-function getClaudeProjectDirCandidates(workingDirectory: string): string[] {
-  const modern = workingDirectory.replace(/[^A-Za-z0-9_-]/g, "-");
-  const legacy = workingDirectory.replace(/\//g, "-");
-  return modern === legacy ? [modern] : [modern, legacy];
-}
-
 function resolveClaudeProjectDir(providerRoot: string, workingDirectory: string): string {
   const projectsDir = join(providerRoot, "projects");
-  for (const encoded of getClaudeProjectDirCandidates(workingDirectory)) {
-    const projectDir = join(projectsDir, encoded);
-    if (existsSync(projectDir)) {
-      return projectDir;
-    }
-  }
-  return join(projectsDir, getClaudeProjectDirCandidates(workingDirectory)[0]);
+  return join(projectsDir, workingDirectory.replace(/[^A-Za-z0-9_-]/g, "-"));
 }
 
 function findRecentJsonls(projectDir: string, count: number): string[] {

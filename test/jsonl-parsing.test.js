@@ -1,14 +1,14 @@
 /**
  * Tests for JSONL parsing, utility functions, and plan-parent linking.
  * Covers: parseJsonl, convertJsonlEntry, stripInternalTags, generateTitle,
- *         findPlanParent, linkPlanSessions, manifest persistence.
+ *         findPlanParent and linkPlanSessions.
  */
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { InstanceManager } from "../dist/core/instance-manager.js";
 import { SessionDB } from "../dist/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
@@ -28,8 +28,11 @@ function makeConfig(tempDir, overrides = {}) {
     logger: noopLogger,
     maxProcesses: 20,
     dbPath: join(tempDir, "sessions.db"),
-    claudeDir: join(tempDir, ".claude"),
-    codexDir: join(tempDir, ".codex"),
+    providerDirs: {
+      claude: join(tempDir, ".claude"),
+      codex: join(tempDir, ".codex"),
+      gemini: join(tempDir, ".gemini"),
+    },
     ...overrides,
   });
 }
@@ -287,7 +290,7 @@ describe("DB Persistence", () => {
   it("creates DB on first use without errors", () => {
     const config = makeConfig(tempDir);
     const manager = new InstanceManager(config);
-    const info = manager.createInstance({ name: "Persist Test" });
+    manager.createInstance({ name: "Persist Test" });
     const list = manager.listInstances();
     assert.equal(list.length, 1);
     assert.equal(list[0].name, "Persist Test");
@@ -772,77 +775,6 @@ describe("DB Persistence", () => {
     assert.equal(manager.listInstances().length, 5);
     manager.stopAll();
   });
-
-  it("migrates from legacy manifest on first run", () => {
-    const jsonlPath = join(fixturesDir, "basic-session.jsonl");
-    const manifestFile = join(tempDir, "instances.json");
-
-    const entries = [
-      {
-        id: "migrated-id",
-        name: "Migrated Session",
-        workingDirectory: "/Users/test/projects/my-app",
-        sessionId: "migrated-session-123",
-        jsonlPath,
-        dangerouslySkipPermissions: false,
-        createdAt: Date.now() - 3600000,
-        type: "external",
-        lastActivityAt: Date.now() - 60000,
-      },
-    ];
-    writeFileSync(manifestFile, JSON.stringify(entries));
-
-    // Pre-register the project so listInstances() includes migrated sessions
-    const db = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
-    db.upsertProject({
-      id: "proj-manifest",
-      name: "my-app",
-      directory: "/Users/test/projects/my-app",
-      repo_root: null,
-      remote_url: null,
-      target_branch: null,
-      created_at: Date.now(),
-      last_activity_at: null,
-    });
-    db.close();
-
-    const config = makeConfig(tempDir, { manifestFile });
-    const manager = new InstanceManager(config);
-    manager.restoreAndScan();
-
-    const list = manager.listInstances();
-    assert.equal(list.length, 1);
-    assert.equal(list[0].name, "Migrated Session");
-    assert.equal(list[0].external, true);
-
-    // Manifest should be renamed to .migrated
-    assert.ok(!existsSync(manifestFile), "Original manifest should be gone");
-    assert.ok(existsSync(`${manifestFile}.migrated`), "Migrated file should exist");
-    manager.stopAll();
-  });
-
-  it("handles malformed manifest JSON gracefully during migration", () => {
-    const manifestFile = join(tempDir, "instances.json");
-    writeFileSync(manifestFile, "not valid json{{{");
-
-    const config = makeConfig(tempDir, { manifestFile });
-    const manager = new InstanceManager(config);
-    // Should not throw
-    manager.restoreAndScan();
-    assert.equal(manager.listInstances().length, 0);
-    manager.stopAll();
-  });
-
-  it("handles empty manifest array during migration", () => {
-    const manifestFile = join(tempDir, "instances.json");
-    writeFileSync(manifestFile, "[]");
-
-    const config = makeConfig(tempDir, { manifestFile });
-    const manager = new InstanceManager(config);
-    manager.restoreAndScan();
-    assert.equal(manager.listInstances().length, 0);
-    manager.stopAll();
-  });
 });
 
 describe("Plan Parent Linking", () => {
@@ -966,7 +898,7 @@ describe("Plan Discovery", () => {
   }
 
   it("discovers plans by session slug", () => {
-    const { claudeDir, projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
+    const { projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
 
     writeJsonl(projectDir, "session-a.jsonl", [
       {
@@ -993,7 +925,7 @@ describe("Plan Discovery", () => {
   });
 
   it("discovers plans with custom filenames via JSONL content scan", () => {
-    const { claudeDir, projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
+    const { projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
 
     // Session slug doesn't match the plan filename
     writeJsonl(projectDir, "session-b.jsonl", [
@@ -1043,7 +975,7 @@ describe("Plan Discovery", () => {
   });
 
   it("discovers both slug-matched and custom-named plans", () => {
-    const { claudeDir, projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
+    const { plansDir } = setupProject("-Users-test-projects-my-app");
 
     // Session 1: slug matches a plan file
     writeJsonl(projectDir, "session-1.jsonl", [
@@ -1097,7 +1029,7 @@ describe("Plan Discovery", () => {
   });
 
   it("does not discover plans unreferenced by any JSONL in the project", () => {
-    const { claudeDir, projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
+    const { projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
 
     writeJsonl(projectDir, "session-a.jsonl", [
       {
@@ -1204,7 +1136,7 @@ describe("Plan Discovery", () => {
   });
 
   it("returns empty plans when no JSONL files exist", () => {
-    const { claudeDir, projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
+    const { plansDir } = setupProject("-Users-test-projects-my-app");
 
     writeFileSync(join(plansDir, "orphan-plan.md"), "# Orphan\nNo sessions at all.");
 

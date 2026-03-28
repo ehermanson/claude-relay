@@ -194,9 +194,6 @@ export function createRelay(options: RelayOptions): Relay {
   return new Relay(options);
 }
 
-/** @deprecated Use `Relay` instead. */
-export const ClaudeRelay = Relay;
-
 // Re-export everything from core for convenience
 export * from "../core/index.js";
 

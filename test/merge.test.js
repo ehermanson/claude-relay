@@ -172,8 +172,11 @@ describe("InstanceManager.mergeInstance", () => {
       logger: noopLogger,
       maxProcesses: 5,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir: join(tempDir, ".claude"),
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     manager = new InstanceManager(config);
   });
@@ -235,8 +238,11 @@ describe("POST /api/instances/:id/merge", () => {
       rateLimitWindow: 60_000,
       sessionFile: join(tempDir, "sessions.json"),
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir: join(tempDir, ".claude"),
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
@@ -350,8 +356,11 @@ describe("WebSocket merge_instance", () => {
       rateLimitWindow: 60_000,
       sessionFile: join(tempDir, "sessions.json"),
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir: join(tempDir, ".claude"),
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
     });
     auth = new AuthManager(config);
     manager = new InstanceManager(config);

@@ -28,29 +28,6 @@ export interface ProjectRow {
   last_activity_at: number | null;
 }
 
-/**
- * Normalize a ProjectRow, filling in null defaults for any missing columns.
- * Protects against old DB rows (e.g. from pre-v17 backups) that lack the
- * newer settings columns, which would otherwise cause a RangeError on upsert.
- */
-function normalizeProjectRow(row: ProjectRow): ProjectRow {
-  return {
-    id: row.id,
-    name: row.name,
-    directory: row.directory,
-    repo_root: row.repo_root ?? null,
-    remote_url: row.remote_url ?? null,
-    target_branch: row.target_branch ?? null,
-    custom_instructions: row.custom_instructions ?? null,
-    default_space_branch: row.default_space_branch ?? null,
-    space_branch_source: row.space_branch_source ?? null,
-    default_provider: row.default_provider ?? null,
-    default_model: row.default_model ?? null,
-    created_at: row.created_at,
-    last_activity_at: row.last_activity_at ?? null,
-  };
-}
-
 export interface SpaceRow {
   id: string;
   project_directory: string;
@@ -156,6 +133,7 @@ export interface ManagedInstanceRow {
 }
 
 export class SessionDB {
+  private readonly dbPath: string;
   private db: Database.Database;
 
   /** Set to true if the DB was corrupt and had to be recreated */
@@ -219,6 +197,8 @@ export class SessionDB {
   private stmtGetSpacesByProjectAll!: Database.Statement;
 
   constructor(dbPath: string, logger: Logger) {
+    this.dbPath = dbPath;
+
     // Ensure the directory exists
     mkdirSync(dirname(dbPath), { recursive: true });
 
@@ -244,7 +224,6 @@ export class SessionDB {
   }
 
   private migrate(): void {
-    // Create schema_version table if it doesn't exist
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_version (
         version INTEGER NOT NULL
@@ -257,102 +236,72 @@ export class SessionDB {
 
     const currentVersion = versionRow?.version ?? 0;
 
-    if (currentVersion < 1) {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS sessions (
-          session_id TEXT PRIMARY KEY,
-          instance_id TEXT NOT NULL UNIQUE,
-          provider_name TEXT NOT NULL DEFAULT 'claude',
-          name TEXT NOT NULL,
-          working_directory TEXT NOT NULL,
-          jsonl_path TEXT NOT NULL UNIQUE,
-          created_at INTEGER NOT NULL,
-          last_activity_at INTEGER NOT NULL,
-          type TEXT NOT NULL DEFAULT 'external',
-          archived INTEGER NOT NULL DEFAULT 0,
-          custom_title INTEGER NOT NULL DEFAULT 0,
-          input_tokens INTEGER NOT NULL DEFAULT 0,
-          output_tokens INTEGER NOT NULL DEFAULT 0,
-          cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-          cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-          summary TEXT,
-          first_prompt TEXT,
-          git_branch TEXT,
-          message_count INTEGER NOT NULL DEFAULT 0
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_sessions_working_directory ON sessions(working_directory);
-        CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
-        CREATE INDEX IF NOT EXISTS idx_sessions_last_activity_at ON sessions(last_activity_at);
-        CREATE INDEX IF NOT EXISTS idx_sessions_jsonl_path ON sessions(jsonl_path);
-      `);
+    if (currentVersion === 0) {
+      this.createSchema();
+      this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
+      return;
     }
 
-    {
-      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!cols.some((c) => c.name === "provider_name")) {
-        this.db.exec(
-          `ALTER TABLE sessions ADD COLUMN provider_name TEXT NOT NULL DEFAULT 'claude'`,
-        );
-      }
+    if (currentVersion === CURRENT_SCHEMA_VERSION) {
+      return;
     }
 
-    // v2: add allowed_tools column — always check for the column regardless of version
-    // because a previous migration may have updated the version without adding the column
-    {
-      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!cols.some((c) => c.name === "allowed_tools")) {
-        this.db.exec(`
-          ALTER TABLE sessions ADD COLUMN allowed_tools TEXT NOT NULL DEFAULT '[]'
-        `);
-      }
-    }
+    this.db.close();
+    const backupPath = `${this.dbPath}.pre-cleanup.${Date.now()}`;
+    renameSync(this.dbPath, backupPath);
+    this.db = new Database(this.dbPath);
+    this.db.pragma("journal_mode = WAL");
+    this.db.pragma("busy_timeout = 3000");
+    this.createSchema();
+    this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
+    this.needsRebuild = true;
+  }
 
-    // v3: add worktree_path and original_directory columns for git worktree isolation
-    {
-      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!cols.some((c) => c.name === "worktree_path")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN worktree_path TEXT`);
-      }
-      if (!cols.some((c) => c.name === "original_directory")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN original_directory TEXT`);
-      }
-    }
-
-    // v4: add parent_session_id column for plan-parent linking
-    {
-      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!cols.some((c) => c.name === "parent_session_id")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN parent_session_id TEXT`);
-      }
-    }
-
-    // v5: add preferred_model column for per-instance model selection
-    {
-      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!cols.some((c) => c.name === "preferred_model")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN preferred_model TEXT`);
-      }
-    }
-
-    // v6: add reasoning_budget column for per-instance thinking limits
-    {
-      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!cols.some((c) => c.name === "reasoning_budget")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN reasoning_budget INTEGER`);
-      }
-    }
-
-    // v7: add skip_permissions column for persisting full-access mode
-    {
-      const cols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!cols.some((c) => c.name === "skip_permissions")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN skip_permissions INTEGER NOT NULL DEFAULT 0`);
-      }
-    }
-
-    // v8: provider-aware managed session bindings
+  private createSchema(): void {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        session_id TEXT PRIMARY KEY,
+        instance_id TEXT NOT NULL UNIQUE,
+        provider_name TEXT NOT NULL DEFAULT 'claude',
+        name TEXT NOT NULL,
+        working_directory TEXT NOT NULL,
+        jsonl_path TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        last_activity_at INTEGER NOT NULL,
+        type TEXT NOT NULL DEFAULT 'external',
+        archived INTEGER NOT NULL DEFAULT 0,
+        custom_title INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        summary TEXT,
+        first_prompt TEXT,
+        git_branch TEXT,
+        message_count INTEGER NOT NULL DEFAULT 0,
+        allowed_tools TEXT NOT NULL DEFAULT '[]',
+        worktree_path TEXT,
+        original_directory TEXT,
+        parent_session_id TEXT,
+        preferred_model TEXT,
+        reasoning_budget INTEGER,
+        skip_permissions INTEGER NOT NULL DEFAULT 0,
+        last_message_text TEXT,
+        last_message_from TEXT,
+        last_message_at INTEGER,
+        git_info_branch TEXT,
+        git_info_is_worktree INTEGER,
+        space_id TEXT,
+        project_id TEXT,
+        model TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sessions_working_directory ON sessions(working_directory);
+      CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
+      CREATE INDEX IF NOT EXISTS idx_sessions_last_activity_at ON sessions(last_activity_at);
+      CREATE INDEX IF NOT EXISTS idx_sessions_jsonl_path ON sessions(jsonl_path);
+      CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
+
       CREATE TABLE IF NOT EXISTS managed_sessions (
         instance_id TEXT PRIMARY KEY,
         provider_name TEXT NOT NULL,
@@ -377,52 +326,25 @@ export class SessionDB {
         runtime_mode TEXT NOT NULL DEFAULT 'approval-required',
         resume_cursor_json TEXT,
         runtime_payload_json TEXT,
-        transcript_path TEXT
+        transcript_path TEXT,
+        last_message_text TEXT,
+        last_message_from TEXT,
+        last_message_at INTEGER,
+        git_info_branch TEXT,
+        git_info_is_worktree INTEGER,
+        space_id TEXT,
+        project_id TEXT,
+        model TEXT,
+        model_options_json TEXT,
+        original_git_branch TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_provider ON managed_sessions(provider_name);
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_archived ON managed_sessions(archived);
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_working_directory ON managed_sessions(working_directory);
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_provider_session_id ON managed_sessions(provider_session_id);
-    `);
+      CREATE INDEX IF NOT EXISTS idx_managed_sessions_project_id ON managed_sessions(project_id);
 
-    // v9: add last_message columns for lazy hydration (sidebar preview without JSONL parse)
-    {
-      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!sessionCols.some((c) => c.name === "last_message_text")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN last_message_text TEXT`);
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN last_message_from TEXT`);
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN last_message_at INTEGER`);
-      }
-      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
-        name: string;
-      }>;
-      if (!managedCols.some((c) => c.name === "last_message_text")) {
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN last_message_text TEXT`);
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN last_message_from TEXT`);
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN last_message_at INTEGER`);
-      }
-    }
-
-    // v10: persist git metadata so sidebar grouping/icons can render from DB
-    {
-      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!sessionCols.some((c) => c.name === "git_info_branch")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN git_info_branch TEXT`);
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN git_info_is_worktree INTEGER`);
-      }
-      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
-        name: string;
-      }>;
-      if (!managedCols.some((c) => c.name === "git_info_branch")) {
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN git_info_branch TEXT`);
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN git_info_is_worktree INTEGER`);
-      }
-    }
-
-    // v12: explicit projects table + project_id FK on sessions
-    this.db.exec(`DROP TABLE IF EXISTS hidden_directories`);
-    this.db.exec(`
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -430,43 +352,15 @@ export class SessionDB {
         repo_root TEXT,
         remote_url TEXT,
         target_branch TEXT,
+        custom_instructions TEXT,
+        default_space_branch TEXT,
+        space_branch_source TEXT,
+        default_provider TEXT,
+        default_model TEXT,
         created_at INTEGER NOT NULL,
         last_activity_at INTEGER
-      )
-    `);
-    {
-      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!sessionCols.some((c) => c.name === "project_id")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN project_id TEXT`);
-      }
-      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
-        name: string;
-      }>;
-      if (!managedCols.some((c) => c.name === "project_id")) {
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN project_id TEXT`);
-      }
-    }
-    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id)`);
-    this.db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_managed_sessions_project_id ON managed_sessions(project_id)`,
-    );
+      );
 
-    // v13: persist actual model ID from API responses
-    {
-      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!sessionCols.some((c) => c.name === "model")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN model TEXT`);
-      }
-      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
-        name: string;
-      }>;
-      if (!managedCols.some((c) => c.name === "model")) {
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN model TEXT`);
-      }
-    }
-
-    // v14: spaces table + space_id columns on sessions/managed_sessions
-    this.db.exec(`
       CREATE TABLE IF NOT EXISTS spaces (
         id TEXT PRIMARY KEY,
         project_directory TEXT NOT NULL,
@@ -476,67 +370,19 @@ export class SessionDB {
         is_default INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'active',
         created_at INTEGER NOT NULL,
-        last_activity_at INTEGER NOT NULL
+        last_activity_at INTEGER NOT NULL,
+        merge_commit TEXT,
+        merge_method TEXT,
+        merged_at INTEGER,
+        target_branch TEXT,
+        remote_status TEXT,
+        pr_url TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_spaces_project_directory ON spaces(project_directory);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_spaces_default_per_project
         ON spaces(project_directory) WHERE is_default = 1;
-    `);
-    {
-      const sessionCols = this.db.pragma("table_info(sessions)") as Array<{ name: string }>;
-      if (!sessionCols.some((c) => c.name === "space_id")) {
-        this.db.exec(`ALTER TABLE sessions ADD COLUMN space_id TEXT`);
-      }
-      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
-        name: string;
-      }>;
-      if (!managedCols.some((c) => c.name === "space_id")) {
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN space_id TEXT`);
-      }
-    }
 
-    // v15: canonical model options (reasoning budget, effort, fast mode)
-    {
-      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
-        name: string;
-      }>;
-      if (!managedCols.some((c) => c.name === "model_options_json")) {
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN model_options_json TEXT`);
-      }
-    }
-
-    // v16: add original_git_branch for branch-switch detection
-    {
-      const managedCols = this.db.pragma("table_info(managed_sessions)") as Array<{
-        name: string;
-      }>;
-      if (!managedCols.some((c) => c.name === "original_git_branch")) {
-        this.db.exec(`ALTER TABLE managed_sessions ADD COLUMN original_git_branch TEXT`);
-      }
-    }
-
-    // v17: project-level settings
-    {
-      const projCols = this.db.pragma("table_info(projects)") as Array<{ name: string }>;
-      if (!projCols.some((c) => c.name === "custom_instructions")) {
-        this.db.exec(`ALTER TABLE projects ADD COLUMN custom_instructions TEXT`);
-        this.db.exec(`ALTER TABLE projects ADD COLUMN default_space_branch TEXT`);
-        this.db.exec(`ALTER TABLE projects ADD COLUMN default_provider TEXT`);
-        this.db.exec(`ALTER TABLE projects ADD COLUMN default_model TEXT`);
-      }
-    }
-
-    // v18: space branch source (local vs remote)
-    {
-      const projCols = this.db.pragma("table_info(projects)") as Array<{ name: string }>;
-      if (!projCols.some((c) => c.name === "space_branch_source")) {
-        this.db.exec(`ALTER TABLE projects ADD COLUMN space_branch_source TEXT`);
-      }
-    }
-
-    // v19: global settings table
-    this.db.exec(`
       CREATE TABLE IF NOT EXISTS global_settings (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         theme TEXT DEFAULT 'dark',
@@ -548,28 +394,9 @@ export class SessionDB {
         provider_defaults_json TEXT,
         custom_instructions TEXT
       );
+
       INSERT OR IGNORE INTO global_settings (id) VALUES (1);
     `);
-
-    // v20: space merge metadata + remote tracking
-    {
-      const spaceCols = this.db.pragma("table_info(spaces)") as Array<{ name: string }>;
-      if (!spaceCols.some((c) => c.name === "merge_commit")) {
-        this.db.exec(`ALTER TABLE spaces ADD COLUMN merge_commit TEXT`);
-        this.db.exec(`ALTER TABLE spaces ADD COLUMN merge_method TEXT`);
-        this.db.exec(`ALTER TABLE spaces ADD COLUMN merged_at INTEGER`);
-        this.db.exec(`ALTER TABLE spaces ADD COLUMN target_branch TEXT`);
-        this.db.exec(`ALTER TABLE spaces ADD COLUMN remote_status TEXT`);
-        this.db.exec(`ALTER TABLE spaces ADD COLUMN pr_url TEXT`);
-      }
-    }
-
-    // Update version
-    if (currentVersion === 0) {
-      this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
-    } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
-      this.db.exec(`UPDATE schema_version SET version = ${CURRENT_SCHEMA_VERSION}`);
-    }
   }
 
   private prepareStatements(): void {
@@ -1144,7 +971,7 @@ export class SessionDB {
   // =========================================================================
 
   upsertProject(row: ProjectRow): void {
-    this.stmtUpsertProject.run(normalizeProjectRow(row));
+    this.stmtUpsertProject.run(row);
   }
 
   getProject(id: string): ProjectRow | undefined {

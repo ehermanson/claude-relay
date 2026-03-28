@@ -15,7 +15,6 @@ import {
   readFileSync,
   writeFileSync,
   unlinkSync,
-  renameSync,
   statSync,
   fstatSync,
   existsSync,
@@ -1027,8 +1026,8 @@ export class InstanceManager extends EventEmitter {
     this.baseConfig = config;
     const home = homedir();
     this.providerDirs = {
-      claude: config.providerDirs?.claude ?? config.claudeDir ?? join(home, ".claude"),
-      codex: config.providerDirs?.codex ?? config.codexDir ?? join(home, ".codex"),
+      claude: config.providerDirs.claude ?? join(home, ".claude"),
+      codex: config.providerDirs.codex ?? join(home, ".codex"),
       gemini: config.providerDirs?.gemini ?? join(home, ".gemini"),
     };
     this.db = new SessionDB(config.dbPath, config.logger);
@@ -4757,91 +4756,6 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * One-time migration from the legacy JSON manifest into SQLite.
-   * Reads instances.json, imports rows preserving instance_id, then renames to .migrated.
-   */
-  private migrateFromManifest(): void {
-    const manifestPath = this.baseConfig.manifestFile;
-    if (!manifestPath) return;
-
-    try {
-      if (!existsSync(manifestPath)) return;
-      const data = readFileSync(manifestPath, "utf-8");
-      const entries = JSON.parse(data) as Array<{
-        id: string;
-        name: string;
-        workingDirectory: string;
-        sessionId: string;
-        jsonlPath: string;
-        createdAt: number;
-        type?: "managed" | "external";
-        lastActivityAt?: number;
-        customTitle?: boolean;
-      }>;
-
-      if (!Array.isArray(entries) || entries.length === 0) {
-        renameSync(manifestPath, `${manifestPath}.migrated`);
-        return;
-      }
-
-      const rows: SessionRow[] = [];
-      for (const entry of entries) {
-        if (!entry.sessionId || !entry.jsonlPath) continue;
-        if (!existsSync(entry.jsonlPath)) continue;
-        rows.push({
-          session_id: entry.sessionId,
-          instance_id: entry.id,
-          provider_name: "claude",
-          name: entry.name,
-          working_directory: entry.workingDirectory,
-          jsonl_path: entry.jsonlPath,
-          created_at: entry.createdAt,
-          last_activity_at: entry.lastActivityAt ?? entry.createdAt,
-          type: entry.type ?? "managed",
-          archived: 0,
-          custom_title: entry.customTitle ? 1 : 0,
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_tokens: 0,
-          cache_read_tokens: 0,
-
-          summary: null,
-          first_prompt: null,
-          git_branch: null,
-          message_count: 0,
-          allowed_tools: "[]",
-          worktree_path: null,
-          original_directory: null,
-          parent_session_id: null,
-          preferred_model: null,
-          reasoning_budget: null,
-          skip_permissions: 0,
-          last_message_text: null,
-          last_message_from: null,
-          last_message_at: null,
-          git_info_branch: null,
-          git_info_is_worktree: null,
-          project_id:
-            this._projectManager.getProjectByDirectory(entry.workingDirectory)?.id ?? null,
-          model: null,
-          space_id: null,
-        });
-      }
-
-      if (rows.length > 0) {
-        this.db.upsertMany(rows);
-        this.baseConfig.logger.info(
-          `[InstanceManager] Migrated ${rows.length} session(s) from manifest to SQLite`,
-        );
-      }
-
-      renameSync(manifestPath, `${manifestPath}.migrated`);
-    } catch (err) {
-      this.baseConfig.logger.warn(`[InstanceManager] Manifest migration failed: ${err}`);
-    }
-  }
-
-  /**
    * Scan JSONL files on disk for registered project directories.
    * Only scans directories that match an explicit project registration.
    */
@@ -5297,58 +5211,6 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
-  private migrateLegacyManagedSessions(): void {
-    for (const row of this.db.getAll(true)) {
-      if (row.type !== "managed") continue;
-      if (this.db.getManagedByInstanceId(row.instance_id)) continue;
-      try {
-        this.db.upsertManaged({
-          instance_id: row.instance_id,
-          provider_name: row.provider_name || "claude",
-          provider_session_id: row.session_id,
-          name: row.name,
-          working_directory: row.working_directory,
-          created_at: row.created_at,
-          last_activity_at: row.last_activity_at,
-          archived: row.archived,
-          custom_title: row.custom_title,
-          input_tokens: row.input_tokens,
-          output_tokens: row.output_tokens,
-          cache_creation_tokens: row.cache_creation_tokens,
-          cache_read_tokens: row.cache_read_tokens,
-          git_branch: row.git_branch,
-          worktree_path: row.worktree_path,
-          original_directory: row.original_directory,
-          parent_session_id: row.parent_session_id,
-          preferred_model: row.preferred_model,
-          reasoning_budget: row.reasoning_budget,
-          skip_permissions: row.skip_permissions,
-          runtime_mode: normalizeRuntimeMode(row.skip_permissions === 1, false),
-          resume_cursor_json: JSON.stringify({ sessionId: row.session_id }),
-          runtime_payload_json: JSON.stringify({ cwd: row.working_directory }),
-          transcript_path: row.jsonl_path,
-          last_message_text: row.last_message_text,
-          last_message_from: row.last_message_from,
-          last_message_at: row.last_message_at,
-          git_info_branch: row.git_info_branch,
-          git_info_is_worktree: row.git_info_is_worktree,
-          project_id: row.project_id,
-          model: row.model ?? null,
-          space_id: row.space_id,
-          model_options_json:
-            row.reasoning_budget != null
-              ? JSON.stringify({ reasoningBudgetTokens: row.reasoning_budget })
-              : null,
-          original_git_branch: null,
-        });
-      } catch (err) {
-        this.baseConfig.logger.warn(
-          `[InstanceManager] Failed to migrate legacy managed session ${row.instance_id}: ${err}`,
-        );
-      }
-    }
-  }
-
   /**
    * Restore a single external session row from the DB into an in-memory Instance.
    * Returns true if the instance was created, false if skipped.
@@ -5506,7 +5368,6 @@ export class InstanceManager extends EventEmitter {
       return false;
     }
 
-    // Restore canonical modelOptions: prefer model_options_json, fall back to legacy reasoning_budget
     let restoredModelOptions: ProviderModelOptions | undefined;
     if (entry.model_options_json) {
       try {
@@ -5514,9 +5375,6 @@ export class InstanceManager extends EventEmitter {
       } catch {
         restoredModelOptions = undefined;
       }
-    }
-    if (!restoredModelOptions && entry.reasoning_budget != null) {
-      restoredModelOptions = { reasoningBudgetTokens: entry.reasoning_budget };
     }
 
     const info: InstanceInfo = {
@@ -5538,8 +5396,7 @@ export class InstanceManager extends EventEmitter {
         entry.original_git_branch ?? entry.git_branch ?? entry.git_info_branch ?? undefined,
       parentSessionId: entry.parent_session_id ?? undefined,
       preferredModel: entry.preferred_model ?? undefined,
-      reasoningBudget:
-        restoredModelOptions?.reasoningBudgetTokens ?? entry.reasoning_budget ?? undefined,
+      reasoningBudget: restoredModelOptions?.reasoningBudgetTokens,
       modelOptions: restoredModelOptions,
       planMode: entry.runtime_mode === "plan" ? true : undefined,
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
@@ -5610,8 +5467,6 @@ export class InstanceManager extends EventEmitter {
    * Gets instances into the sidebar immediately from cached metadata.
    */
   restoreInstances(): void {
-    this.migrateFromManifest();
-    this.migrateLegacyManagedSessions();
     this.preloadGitInfoCache();
 
     if (this.db.needsRebuild) {

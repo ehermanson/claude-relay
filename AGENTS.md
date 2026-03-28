@@ -110,7 +110,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - Default provider/model are used when creating new sessions within the project
 - Default space branch determines the base branch when creating new spaces (worktrees)
 - Settings page: `/projects/:id/settings` with textarea for instructions, branch picker, provider/model selectors
-- `normalizeProjectRow()` in `db.ts` null-coalesces all optional fields before SQLite upsert — guards against older rows or migration sources missing new columns
+- `SessionDB` creates the final schema directly; any DB whose `schema_version` does not match the current version is backed up and rebuilt from transcript discovery
 
 ### Plan Review Abstraction
 
@@ -122,8 +122,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 `ProviderModelOptions` (`reasoningBudgetTokens`, `reasoningEffort`, `fastMode`) is the canonical contract for provider-agnostic model tuning. Provider drivers map these to provider-specific session args.
 
 - `InstanceInfo.modelOptions` is canonical; `InstanceInfo.reasoningBudget` is a derived compat field
-- `model_options_json` column on `managed_sessions` (v15) is canonical storage; `reasoning_budget` column is a compat write
-- Restore order: `model_options_json` first, fall back to legacy `reasoning_budget`
+- `model_options_json` column on `managed_sessions` is the canonical storage for provider-agnostic model tuning; `reasoning_budget` remains a derived compat field on in-memory/session rows
 - `set_model_options` WS message does sparse merge (omitted = untouched, `null` = clear); `set_reasoning_budget` is a compat shim that delegates
 - `ProviderCapabilities` includes control metadata (`reasoningBudgetLevels`, `reasoningEffortLevels`, `permissionModes`, `planModes`, `fastModes`) — UI renders labels/descriptions from these, never hardcodes provider-specific text
 - `ReasoningEffort` uses `"max"` as the Relay-canonical highest effort; provider drivers map to native values (e.g. Codex `"xhigh"`); unknown strings pass through

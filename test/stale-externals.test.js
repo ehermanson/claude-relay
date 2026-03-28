@@ -13,20 +13,6 @@ const noopLogger = {
   debug() {},
 };
 
-/**
- * Create a minimal JSONL file that parseJsonl can read.
- * Must have at least an init entry with cwd so addExternalInstance succeeds.
- */
-function writeMinimalJsonl(path, cwd) {
-  const initEntry = {
-    type: "init",
-    cwd,
-    sessionId: path.split("/").pop().replace(".jsonl", ""),
-    timestamp: new Date().toISOString(),
-  };
-  writeFileSync(path, JSON.stringify(initEntry) + "\n");
-}
-
 function makeConfig(overrides = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "relay-stale-test-"));
   return {
@@ -35,8 +21,11 @@ function makeConfig(overrides = {}) {
       logger: noopLogger,
       maxProcesses: 10,
       dbPath: join(tempDir, "sessions.db"),
-      claudeDir: join(tempDir, ".claude"),
-      codexDir: join(tempDir, ".codex"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
       ...overrides,
     }),
     tempDir,
