@@ -668,8 +668,13 @@ export function createWebSocketServer(
 
           case "terminal_close": {
             const tm = bindTerminalManager();
-            if (tm && getAuthorizedTerminal(ws, tm, message.terminalId)) {
-              tm.closeTerminal(message.terminalId);
+            if (tm) {
+              // Silently ignore if terminal is already gone — the client may
+              // race with a server-side terminal_removed broadcast.
+              const terminal = tm.getTerminal(message.terminalId);
+              if (terminal && canAccessTerminalScope(ws, terminal.scope)) {
+                tm.closeTerminal(message.terminalId);
+              }
             }
             break;
           }
