@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 
 /**
- * Dev launcher — finds free ports for both the backend server and the Vite
- * dev server, then spawns the normal dev stack. Each receives its resolved
- * port via env so the proxy always targets the right backend.
+ * Dev launcher — runs the server directly from TypeScript source using Node's
+ * native type stripping (no tsc --watch, no dist/ dependency). Finds free ports
+ * for both the backend and Vite dev server so multiple instances (e.g. worktrees)
+ * can coexist.
  *
- * This lets multiple instances (e.g. worktrees) run `pnpm run dev` without
- * port conflicts.
+ * The server does NOT auto-restart on file changes. This is intentional —
+ * it prevents the "using the tool to work on the tool" problem where AI agents
+ * modifying server files would trigger disruptive restarts mid-operation.
+ * Restart manually with Ctrl+C / re-run, or press 'r' to restart the server.
  */
 
 import net from "node:net";
 import path from "node:path";
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 function isPortFree(port) {
   return new Promise((resolve) => {
@@ -50,38 +53,90 @@ const wantVite = parseInt(process.env.VITE_PORT || "5173");
 const backendPort = await findFreePort(wantBackend);
 const vitePort = await findFreePort(wantVite);
 
-// Print a startup banner so it's clear which instance is which
 const git = getGitContext();
 const context = git ? `${git.branch}${git.isWorktree ? " (worktree)" : ""}` : "unknown";
 console.log();
 console.log(`  Relay Dev  ─  ${context}`);
 console.log(`  Backend    →  http://localhost:${backendPort}`);
 console.log(`  UI         →  http://localhost:${vitePort}`);
+console.log(`  Press 'r' to restart the server`);
 console.log();
 
-// Build TypeScript first
-execSync("pnpm build:server", { stdio: "inherit" });
+// --- Server process management ---
 
-// Spawn concurrently with the resolved ports
-const child = spawn(
-  "npx",
-  [
-    "concurrently",
-    "-n",
-    "srv,tsc,ui",
-    `DEV=1 PORT=${backendPort} node --watch-path=dist dist/cli/bin.js`,
-    "tsc --watch --preserveWatchOutput",
-    `PORT=${backendPort} VITE_PORT=${vitePort} pnpm --filter relay-app dev`,
-  ],
-  {
+const serverEnv = {
+  ...process.env,
+  DEV: "1",
+  PORT: String(backendPort),
+  VITE_PORT: String(vitePort),
+};
+
+let serverProc = null;
+
+function startServer() {
+  serverProc = spawn("node", ["--conditions=relay-dev", "cli/bin.ts"], {
     stdio: "inherit",
-    env: { ...process.env, PORT: String(backendPort), VITE_PORT: String(vitePort) },
-  },
-);
-
-child.on("exit", (code) => process.exit(code ?? 1));
-
-// Forward signals for clean shutdown
-for (const sig of ["SIGINT", "SIGTERM"]) {
-  process.on(sig, () => child.kill(sig));
+    env: serverEnv,
+  });
+  serverProc.on("exit", (code, signal) => {
+    if (signal) return; // killed intentionally
+    if (code !== 0) {
+      console.error(`\n  Server exited with code ${code}`);
+    }
+  });
 }
+
+function restartServer() {
+  console.log("\n  Restarting server...\n");
+  if (serverProc) {
+    serverProc.once("exit", () => startServer());
+    serverProc.kill("SIGTERM");
+  } else {
+    startServer();
+  }
+}
+
+// --- Vite dev server ---
+
+const viteProc = spawn("pnpm", ["--filter", "relay-app", "dev"], {
+  stdio: "inherit",
+  env: { ...process.env, PORT: String(backendPort), VITE_PORT: String(vitePort) },
+});
+
+// --- Keyboard input: 'r' to restart server ---
+
+if (process.stdin.isTTY) {
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.on("data", (data) => {
+    const key = data.toString();
+    if (key === "r" || key === "R") {
+      restartServer();
+    } else if (key === "\x03") {
+      // Ctrl+C
+      shutdown();
+    }
+  });
+}
+
+// --- Start ---
+
+startServer();
+
+// --- Shutdown ---
+
+let stopping = false;
+function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  console.log("\nShutting down...");
+  if (serverProc) serverProc.kill("SIGTERM");
+  viteProc.kill("SIGTERM");
+  setTimeout(() => process.exit(1), 5000).unref();
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+viteProc.on("exit", () => {
+  if (!stopping) shutdown();
+});

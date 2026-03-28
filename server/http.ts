@@ -40,15 +40,20 @@ import { registerSettingsRoutes } from "#server/routes/settings.js";
 import { registerWorkspaceRoutes } from "#server/routes/workspace.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
 
-const uiDistDir = path.join(import.meta.dirname, "..", "..", "app", "dist");
+// From dist: dist/server/http.js → ../../ = project root
+// From source: server/http.ts → ../ = project root
+const projectRoot = import.meta.dirname.includes(`${path.sep}dist${path.sep}`)
+  ? path.join(import.meta.dirname, "..", "..")
+  : path.join(import.meta.dirname, "..");
+const uiDistDir = path.join(projectRoot, "app", "dist");
 const indexHtmlPath = path.join(uiDistDir, "index.html");
-const packageJsonPath = path.join(import.meta.dirname, "..", "..", "package.json");
+const packageJsonPath = path.join(projectRoot, "package.json");
 const packageVersion: string = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")).version;
 
 /** Detect whether the relay server itself is running from a git worktree. */
 function getSelfGitInfo(): { branch: string; isWorktree: boolean } | null {
   try {
-    const repoRoot = path.join(import.meta.dirname, "..", "..");
+    const repoRoot = projectRoot;
     const opts = { cwd: repoRoot, timeout: 2000, encoding: "utf8" as const };
     const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts).trim();
     const gitDir = path.resolve(

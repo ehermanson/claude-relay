@@ -54,12 +54,29 @@ function wsProxy(): Plugin {
   };
 }
 
+/** Vite plugin to swap favicon to blueprint style in dev */
+function devFavicon(): Plugin {
+  return {
+    name: "dev-favicon",
+    transformIndexHtml: {
+      order: "pre",
+      handler(html, ctx) {
+        if (ctx.server) {
+          return html.replace(/href="\/favicon\.svg"/g, 'href="/favicon-dev.svg"');
+        }
+        return html;
+      },
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     devtools(),
     tanstackRouter({ target: "react", autoCodeSplitting: true }),
     react({ babel: { plugins: [["babel-plugin-react-compiler", {}]] } }),
     wsProxy(),
+    devFavicon(),
   ],
   resolve: {
     alias: {

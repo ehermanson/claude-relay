@@ -30,7 +30,7 @@ In the backend, Relay manages providers through a provider-driver registry (`ser
 
 ## Tech Stack
 
-- **Runtime**: Node.js 20+, ESM only (`"type": "module"`)
+- **Runtime**: Node.js 22+, ESM only (`"type": "module"`), native TS execution in dev
 - **Language**: TypeScript (strict mode)
 - **Server**: `node:http` host server + Hono for HTTP routing + `ws` for WebSockets
 - **UI**: React 19 + Vite + Tailwind CSS v4 + React Router
@@ -44,10 +44,16 @@ pnpm build:server   # tsc only
 pnpm build:app      # UI typecheck + vite build
 pnpm typecheck      # server + UI TypeScript checks
 pnpm test           # node --test test/*.test.js
-pnpm dev            # concurrent: node --watch, tsc --watch, vite dev
+pnpm dev            # server from TS source (no tsc) + vite dev
 ```
 
 Always `pnpm build:server` before `pnpm test` — tests import from `dist/`.
+
+### Dev Mode
+
+`pnpm dev` runs the server directly from TypeScript source via Node's native type stripping (`--conditions=relay-dev` remaps `#` imports to `.ts` files). No `tsc --watch`, no `dist/` dependency, no auto-restart. Press `r` to manually restart the server.
+
+This avoids the "using the tool to work on the tool" problem — AI agents modifying server files won't trigger disruptive mid-operation restarts.
 
 ## Key Conventions
 
@@ -159,4 +165,5 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - **`#` imports**: All imports in `server/` and `cli/` use `#core/` or `#server/` aliases. No relative path navigation (`../`).
 - **`.js` extensions**: All `#` imports must use `.js` extensions (ESM + NodeNext resolution).
 - **Build before test**: Tests import from `dist/`, not source. A stale build = confusing test failures.
-- **`import.meta.dirname`**: Used in `server/http.ts` for locating static assets. Path is relative to compiled `.js` file location (`dist/server/http.js`), not source `.ts`. If this file moves, update the paths.
+- **`import.meta.dirname`**: `server/http.ts` detects whether it's running from source or `dist/` to compute the project root. Avoid hardcoded `../..` traversals — use the `projectRoot` constant instead.
+- **No parameter properties**: Node's native TS type stripping doesn't support `constructor(private x: T)` syntax. Use explicit field declarations + assignment instead. (This is what enables `pnpm dev` to run without tsc.)

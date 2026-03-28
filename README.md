@@ -333,7 +333,7 @@ Contributor workflow stays repo-local; you do not need a global install for deve
 
 ```bash
 pnpm install
-pnpm dev    # Watch mode — rebuilds server + UI on changes
+pnpm dev    # Runs server from TS source + Vite HMR for UI
 pnpm build:server
 pnpm test   # Tests import from dist/, so build server first
 pnpm typecheck  # Run server + UI TypeScript checks

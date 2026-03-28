@@ -78,11 +78,13 @@ export interface SpaceManager {
 }
 
 export class SpaceManager extends EventEmitter {
-  constructor(
-    private db: SessionDB,
-    private logger: Logger,
-  ) {
+  private db: SessionDB;
+  private logger: Logger;
+
+  constructor(db: SessionDB, logger: Logger) {
     super();
+    this.db = db;
+    this.logger = logger;
   }
 
   private getExistingWorktreePath(worktreePath: string | null): string | null {
