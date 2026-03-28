@@ -190,6 +190,77 @@ describe("WebSocket Server", () => {
       const msg = await ws.nextMessageOfType("instance_history");
       assert.equal(msg.instanceId, info.id);
       assert.ok(Array.isArray(msg.history));
+      assert.equal(msg.replayMode, "full");
+    });
+
+    it("replays only missed instance events when subscribing with a cursor", async () => {
+      const session = auth.createSession();
+      const ws1 = await connect(session.id);
+      await ws1.waitForHandshake();
+
+      const info = manager.createInstance({ name: "Replay Test" });
+
+      ws1.send(JSON.stringify({ type: "subscribe", instanceId: info.id }));
+      const firstHistory = await ws1.nextMessageOfType("instance_history");
+
+      manager.emit("instance:output", info.id, {
+        type: "output",
+        text: "first chunk",
+        isWaiting: false,
+      });
+      const first = await ws1.nextMessageOfType("output");
+      assert.equal(first.eventSequence, 1);
+
+      ws1.close();
+
+      manager.emit("instance:output", info.id, {
+        type: "output",
+        text: "second chunk",
+        isWaiting: false,
+      });
+
+      const ws2 = await connect(session.id);
+      await ws2.waitForHandshake();
+      ws2.send(
+        JSON.stringify({
+          type: "subscribe",
+          instanceId: info.id,
+          lastSeenSequence: first.eventSequence,
+          replayEpoch: firstHistory.replayEpoch,
+        }),
+      );
+
+      const replayAck = await ws2.nextMessageOfType("instance_history");
+      assert.equal(replayAck.replayMode, "delta");
+      assert.equal(replayAck.latestSequence, 2);
+      assert.equal(replayAck.replayEpoch, firstHistory.replayEpoch);
+      assert.deepEqual(replayAck.history, []);
+
+      const replayed = await ws2.nextMessageOfType("output");
+      assert.equal(replayed.text, "second chunk");
+      assert.equal(replayed.eventSequence, 2);
+    });
+
+    it("falls back to full replay when the replay epoch is stale", async () => {
+      const session = auth.createSession();
+      const ws = await connect(session.id);
+      await ws.waitForHandshake();
+
+      const info = manager.createInstance({ name: "Stale Epoch Test" });
+
+      ws.send(
+        JSON.stringify({
+          type: "subscribe",
+          instanceId: info.id,
+          lastSeenSequence: 5,
+          replayEpoch: 123,
+        }),
+      );
+
+      const msg = await ws.nextMessageOfType("instance_history");
+      assert.equal(msg.replayMode, "full");
+      assert.ok(Array.isArray(msg.history));
+      assert.notEqual(msg.replayEpoch, 123);
     });
   });
 

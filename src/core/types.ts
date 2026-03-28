@@ -310,6 +310,8 @@ export interface RemoveInstancePayload {
 export interface SubscribePayload {
   type: "subscribe";
   instanceId: string;
+  lastSeenSequence?: number;
+  replayEpoch?: number;
 }
 
 export interface UnsubscribePayload {
@@ -502,6 +504,7 @@ export interface OutputMessage {
   isWaiting: boolean;
   thinking?: string;
   instanceId?: string;
+  eventSequence?: number;
   /** Raw SDK/provider message for debug display. */
   raw?: unknown;
 }
@@ -511,6 +514,7 @@ export interface UserMessage {
   text: string;
   images?: string[];
   instanceId?: string;
+  eventSequence?: number;
   /** If true, this message was injected programmatically (e.g. auto-continue after restart) and should be hidden from the chat UI. */
   internal?: boolean;
 }
@@ -521,6 +525,7 @@ export interface ExitMessage {
   signal?: string;
   stderr?: string;
   instanceId?: string;
+  eventSequence?: number;
 }
 
 export interface ErrorMessage {
@@ -561,6 +566,7 @@ export interface ActivityMessage {
   detail?: string;
   input?: Record<string, unknown>;
   instanceId?: string;
+  eventSequence?: number;
   permissionDenied?: string;
   /** Resolution of an interactive tool (ExitPlanMode, AskUserQuestion) from the terminal. */
   resolution?: "approved" | "dismissed" | "feedback";
@@ -597,6 +603,9 @@ export interface InstanceHistoryMessage {
   type: "instance_history";
   instanceId: string;
   history: HistoryEntry[];
+  replayMode?: "full" | "delta";
+  latestSequence?: number;
+  replayEpoch?: number;
 }
 
 export interface TranscriptMessage {
@@ -604,6 +613,7 @@ export interface TranscriptMessage {
   title: string;
   result: string;
   instanceId?: string;
+  eventSequence?: number;
 }
 
 export interface ScanCompleteMessage {

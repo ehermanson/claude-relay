@@ -25,6 +25,7 @@ import type {
   ExitMessage,
   ActivityMessage,
   TranscriptMessage,
+  UserMessage,
 } from "../core/types.js";
 
 function truncateSessionId(sessionId: string): string {
@@ -57,12 +58,121 @@ export function createWebSocketServer(
   const wss = new WebSocketServer({ server });
   const log = config.logger;
   const spaceManager = instanceManager.getSpaceManager();
+  const replayEpoch = Date.now();
 
   // Per-client subscription sets (instance subscriptions)
   const subscriptions = new Map<WebSocket, Set<string>>();
 
   // Per-client terminal subscriptions (terminalId sets)
   const terminalSubscriptions = new Map<WebSocket, Set<string>>();
+  const MAX_REPLAY_EVENTS = 500;
+  type ReplayableServerMessage =
+    | OutputMessage
+    | ActivityMessage
+    | ExitMessage
+    | TranscriptMessage
+    | UserMessage;
+  type ReplayEntry = { sequence: number; message: ReplayableServerMessage };
+  type ReplayBuffer = { nextSequence: number; events: ReplayEntry[] };
+  const replayBuffers = new Map<string, ReplayBuffer>();
+  const replayReasonCounts = new Map<
+    "no_cursor" | "epoch_mismatch" | "empty_buffer" | "ahead_of_server" | "buffer_miss" | "delta",
+    number
+  >();
+
+  function getReplayBuffer(instanceId: string): ReplayBuffer {
+    let buffer = replayBuffers.get(instanceId);
+    if (!buffer) {
+      buffer = { nextSequence: 1, events: [] };
+      replayBuffers.set(instanceId, buffer);
+    }
+    return buffer;
+  }
+
+  function getLatestSequence(instanceId: string): number {
+    const buffer = replayBuffers.get(instanceId);
+    return buffer ? buffer.nextSequence - 1 : 0;
+  }
+
+  function appendReplayEvent<T extends ReplayableServerMessage>(instanceId: string, message: T): T {
+    const buffer = getReplayBuffer(instanceId);
+    const annotated = {
+      ...message,
+      instanceId,
+      eventSequence: buffer.nextSequence++,
+    } as T;
+    buffer.events.push({
+      sequence: annotated.eventSequence ?? 0,
+      message: { ...annotated },
+    });
+    if (buffer.events.length > MAX_REPLAY_EVENTS) {
+      buffer.events.splice(0, buffer.events.length - MAX_REPLAY_EVENTS);
+    }
+    return annotated;
+  }
+
+  function getReplayDelta(
+    instanceId: string,
+    lastSeenSequence: number | undefined,
+    clientReplayEpoch: number | undefined,
+  ): {
+    replayMode: "full" | "delta";
+    latestSequence: number;
+    events: ReplayableServerMessage[];
+    reason:
+      | "no_cursor"
+      | "epoch_mismatch"
+      | "empty_buffer"
+      | "ahead_of_server"
+      | "buffer_miss"
+      | "delta";
+  } {
+    const latestSequence = getLatestSequence(instanceId);
+    if (lastSeenSequence === undefined) {
+      return { replayMode: "full", latestSequence, events: [], reason: "no_cursor" };
+    }
+
+    if (clientReplayEpoch !== replayEpoch) {
+      return { replayMode: "full", latestSequence, events: [], reason: "epoch_mismatch" };
+    }
+
+    const buffer = replayBuffers.get(instanceId);
+    if (!buffer || buffer.events.length === 0) {
+      return { replayMode: "full", latestSequence, events: [], reason: "empty_buffer" };
+    }
+
+    if (lastSeenSequence > latestSequence) {
+      return { replayMode: "full", latestSequence, events: [], reason: "ahead_of_server" };
+    }
+
+    const earliestSequence = buffer.events[0].sequence;
+    if (lastSeenSequence < earliestSequence - 1) {
+      return { replayMode: "full", latestSequence, events: [], reason: "buffer_miss" };
+    }
+
+    return {
+      replayMode: "delta",
+      latestSequence,
+      events: buffer.events
+        .filter((entry) => entry.sequence > lastSeenSequence)
+        .map((entry) => ({ ...entry.message })),
+      reason: "delta",
+    };
+  }
+
+  function noteReplayReason(
+    reason:
+      | "no_cursor"
+      | "epoch_mismatch"
+      | "empty_buffer"
+      | "ahead_of_server"
+      | "buffer_miss"
+      | "delta",
+  ): number {
+    const nextCount = (replayReasonCounts.get(reason) ?? 0) + 1;
+    replayReasonCounts.set(reason, nextCount);
+    return nextCount;
+  }
 
   function sendToTerminalSubscribers(terminalId: string, message: ServerMessage): void {
     for (const [ws, subs] of terminalSubscriptions) {
@@ -149,15 +259,15 @@ export function createWebSocketServer(
 
   // Wire up InstanceManager events
   instanceManager.on("instance:output", (instanceId: string, message: OutputMessage) => {
-    sendToSubscribers(instanceId, { ...message, instanceId });
+    sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
   });
 
   instanceManager.on("instance:activity", (instanceId: string, message: ActivityMessage) => {
-    sendToSubscribers(instanceId, { ...message, instanceId });
+    sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
   });
 
   instanceManager.on("instance:exit", (instanceId: string, message: ExitMessage) => {
-    sendToSubscribers(instanceId, { ...message, instanceId });
+    sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
   });
 
   instanceManager.on("instance:status", (instanceId: string, info: InstanceInfo) => {
@@ -179,15 +289,16 @@ export function createWebSocketServer(
     if (tm) {
       tm.closeAllForScope({ type: "instance", instanceId });
     }
+    replayBuffers.delete(instanceId);
     broadcast({ type: "instance_removed", instanceId });
   });
 
   instanceManager.on("instance:user", (instanceId: string, message) => {
-    sendToSubscribers(instanceId, { ...message, instanceId });
+    sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
   });
 
   instanceManager.on("instance:transcript", (instanceId: string, message: TranscriptMessage) => {
-    sendToSubscribers(instanceId, { ...message, instanceId });
+    sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
   });
 
   instanceManager.on("scan:complete", () => {
@@ -370,14 +481,50 @@ export function createWebSocketServer(
             if (subs) {
               subs.add(message.instanceId);
             }
-            // Send history so client catches up
+            const subscribeStartedAt = Date.now();
             try {
-              const history = instanceManager.getHistory(message.instanceId);
-              sendMessage(ws, {
-                type: "instance_history",
-                instanceId: message.instanceId,
-                history,
-              });
+              const replay = getReplayDelta(
+                message.instanceId,
+                message.lastSeenSequence,
+                message.replayEpoch,
+              );
+              const replayReasonCount = noteReplayReason(replay.reason);
+              if (replay.replayMode === "delta") {
+                const historyMessage: ServerMessage = {
+                  type: "instance_history",
+                  instanceId: message.instanceId,
+                  history: [],
+                  replayMode: "delta",
+                  latestSequence: replay.latestSequence,
+                  replayEpoch,
+                };
+                sendMessage(ws, historyMessage);
+                for (const event of replay.events) {
+                  sendMessage(ws, event);
+                }
+                log.debug(
+                  `[WebSocket] subscribe ${message.instanceId}: delta replay (${replay.events.length} events, latest seq ${replay.latestSequence}, reason count ${replayReasonCount}) in ${Date.now() - subscribeStartedAt}ms`,
+                );
+              } else {
+                const history = instanceManager.getHistory(message.instanceId);
+                const historyMessage: ServerMessage = {
+                  type: "instance_history",
+                  instanceId: message.instanceId,
+                  history,
+                  replayMode: "full",
+                  latestSequence: replay.latestSequence,
+                  replayEpoch,
+                };
+                sendMessage(ws, historyMessage);
+                const baseMessage = `[WebSocket] subscribe ${message.instanceId}: full replay (${history.length} entries, reason ${replay.reason}, reason count ${replayReasonCount}) in ${Date.now() - subscribeStartedAt}ms`;
+                if (replay.reason === "buffer_miss") {
+                  log.warn(
+                    `${baseMessage}. Frequent buffer_miss events suggest reconnect deltas are outgrowing MAX_REPLAY_EVENTS=${MAX_REPLAY_EVENTS}; consider revisiting that limit.`,
+                  );
+                } else {
+                  log.debug(baseMessage);
+                }
+              }
             } catch {
               sendMessage(ws, {
                 type: "error",

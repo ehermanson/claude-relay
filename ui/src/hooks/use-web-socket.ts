@@ -60,8 +60,8 @@ export function useWebSocket() {
     }
   };
 
-  const subscribe = (instanceId: string) => {
-    send({ type: "subscribe", instanceId });
+  const subscribe = (instanceId: string, lastSeenSequence?: number, replayEpoch?: number) => {
+    send({ type: "subscribe", instanceId, lastSeenSequence, replayEpoch });
   };
 
   const unsubscribe = (instanceId: string) => {

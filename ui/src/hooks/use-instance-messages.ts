@@ -30,17 +30,33 @@ interface State {
   processingStartedAt: number | null;
   /** Raw history entries for debug/context panel display */
   rawHistory: HistoryEntry[] | null;
+  /** Last replay cursor seen for this instance */
+  lastSeenSequence: number;
+  /** Server replay epoch tied to the current buffered event stream */
+  replayEpoch?: number;
 }
 
 type Action =
   | { type: "reset" }
   | { type: "restore"; cached: State }
-  | { type: "replay"; history: HistoryEntry[] }
-  | { type: "output"; text: string; isWaiting: boolean; thinking?: string }
+  | {
+      type: "replay";
+      history: HistoryEntry[];
+      replayMode?: "full" | "delta";
+      latestSequence?: number;
+      replayEpoch?: number;
+    }
+  | {
+      type: "output";
+      text: string;
+      isWaiting: boolean;
+      thinking?: string;
+      eventSequence?: number;
+    }
   | { type: "activity"; message: ActivityMessage }
-  | { type: "user"; text: string; internal?: boolean }
-  | { type: "transcript"; title: string; result: string }
-  | { type: "exit"; code: number; signal?: string; stderr?: string }
+  | { type: "user"; text: string; internal?: boolean; eventSequence?: number }
+  | { type: "transcript"; title: string; result: string; eventSequence?: number }
+  | { type: "exit"; code: number; signal?: string; stderr?: string; eventSequence?: number }
   | { type: "error"; message: string }
   | { type: "notification"; message: string }
   | { type: "show_thinking" };
@@ -70,9 +86,11 @@ const EMPTY_STATE: State = {
   lastActivity: null,
   processingStartedAt: null,
   rawHistory: null,
+  lastSeenSequence: 0,
+  replayEpoch: undefined,
 };
 
-function reducer(state: State, action: Action): State {
+function coreReducer(state: State, action: Action): State {
   switch (action.type) {
     case "reset":
       return EMPTY_STATE;
@@ -81,6 +99,20 @@ function reducer(state: State, action: Action): State {
       return action.cached;
 
     case "replay": {
+      const isSafeDelta =
+        action.replayMode === "delta" &&
+        (state.replayEpoch === undefined || action.replayEpoch === state.replayEpoch) &&
+        (action.latestSequence ?? state.lastSeenSequence) >= state.lastSeenSequence;
+
+      if (isSafeDelta) {
+        return {
+          ...state,
+          hasLoadedHistory: true,
+          replayEpoch: action.replayEpoch ?? state.replayEpoch,
+          lastSeenSequence: action.latestSequence ?? state.lastSeenSequence,
+        };
+      }
+
       // Replay history to rebuild items
       let items: ChatItem[] = [];
       let assistantText = "";
@@ -196,6 +228,8 @@ function reducer(state: State, action: Action): State {
         lastActivity: null,
         processingStartedAt: null,
         rawHistory: action.history,
+        replayEpoch: action.replayEpoch,
+        lastSeenSequence: action.latestSequence ?? 0,
       };
     }
 
@@ -357,7 +391,11 @@ function reducer(state: State, action: Action): State {
         result: action.result,
         timestamp: Date.now(),
       });
-      return { ...state, items, showThinkingIndicator: false };
+      return {
+        ...state,
+        items,
+        showThinkingIndicator: false,
+      };
     }
 
     case "user": {
@@ -376,10 +414,19 @@ function reducer(state: State, action: Action): State {
           ...lastItem,
           text: lastItem.text + "\n" + action.text,
         };
-        return { ...state, items, showThinkingIndicator: false };
+        return {
+          ...state,
+          items,
+          showThinkingIndicator: false,
+        };
       }
       items.push({ kind: "user", text: action.text, timestamp: now });
-      return { ...state, items, showThinkingIndicator: false, processingStartedAt: now };
+      return {
+        ...state,
+        items,
+        showThinkingIndicator: false,
+        processingStartedAt: now,
+      };
     }
 
     case "exit": {
@@ -443,6 +490,32 @@ function reducer(state: State, action: Action): State {
   }
 }
 
+function getActionSequence(action: Action): number | undefined {
+  switch (action.type) {
+    case "output":
+    case "user":
+    case "transcript":
+    case "exit":
+      return action.eventSequence;
+    case "activity":
+      return action.message.eventSequence;
+    default:
+      return undefined;
+  }
+}
+
+function reducer(state: State, action: Action): State {
+  const next = coreReducer(state, action);
+  const seq = getActionSequence(action);
+  if (seq === undefined || seq <= next.lastSeenSequence) {
+    return next;
+  }
+  return {
+    ...next,
+    lastSeenSequence: seq,
+  };
+}
+
 export function useInstanceMessages() {
   const [state, dispatch] = useReducer(reducer, EMPTY_STATE);
   const instanceIdRef = useRef<string | null>(null);
@@ -456,7 +529,13 @@ export function useInstanceMessages() {
     switch (message.type) {
       case "instance_history":
         if (message.instanceId === instanceId) {
-          dispatch({ type: "replay", history: message.history });
+          dispatch({
+            type: "replay",
+            history: message.history,
+            replayMode: message.replayMode,
+            latestSequence: message.latestSequence,
+            replayEpoch: message.replayEpoch,
+          });
         }
         break;
       case "output":
@@ -466,6 +545,7 @@ export function useInstanceMessages() {
             text: message.text,
             isWaiting: message.isWaiting,
             thinking: message.thinking,
+            eventSequence: message.eventSequence,
           });
         }
         break;
@@ -476,7 +556,12 @@ export function useInstanceMessages() {
         break;
       case "user":
         if (message.instanceId === instanceId) {
-          dispatch({ type: "user", text: message.text, internal: message.internal });
+          dispatch({
+            type: "user",
+            text: message.text,
+            internal: message.internal,
+            eventSequence: message.eventSequence,
+          });
         }
         break;
       case "transcript":
@@ -485,6 +570,7 @@ export function useInstanceMessages() {
             type: "transcript",
             title: message.title,
             result: message.result,
+            eventSequence: message.eventSequence,
           });
         }
         break;
@@ -495,6 +581,7 @@ export function useInstanceMessages() {
             code: message.code,
             signal: message.signal,
             stderr: message.stderr,
+            eventSequence: message.eventSequence,
           });
         }
         break;
@@ -536,6 +623,18 @@ export function useInstanceMessages() {
     dispatch({ type: "show_thinking" });
   }, []);
 
+  const getReplayCursor = useCallback((instanceId: string) => {
+    const source =
+      instanceIdRef.current === instanceId ? stateRef.current : stateCache.get(instanceId);
+    if (!source || source.lastSeenSequence <= 0 || source.replayEpoch === undefined) {
+      return undefined;
+    }
+    return {
+      lastSeenSequence: source.lastSeenSequence,
+      replayEpoch: source.replayEpoch,
+    };
+  }, []);
+
   return {
     items: state.items,
     hasLoadedHistory: state.hasLoadedHistory,
@@ -546,6 +645,7 @@ export function useInstanceMessages() {
     lastActivity: state.lastActivity,
     processingStartedAt: state.processingStartedAt,
     rawHistory: state.rawHistory,
+    getReplayCursor,
     handleMessage,
     setInstanceId,
     showThinking,

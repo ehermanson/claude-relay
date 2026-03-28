@@ -56,6 +56,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     lastActivity,
     processingStartedAt,
     rawHistory,
+    getReplayCursor,
     handleMessage,
     setInstanceId,
     showThinking,
@@ -80,9 +81,10 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   // Subscribe/unsubscribe — re-runs on each new WS connection (connectionId)
   useEffect(() => {
     if (!id || connectionId === 0) return;
-    subscribe(id);
+    const replayCursor = getReplayCursor(id);
+    subscribe(id, replayCursor?.lastSeenSequence, replayCursor?.replayEpoch);
     return () => unsubscribe(id);
-  }, [id, connectionId, subscribe, unsubscribe]);
+  }, [id, connectionId, subscribe, unsubscribe, getReplayCursor]);
 
   // Register message handler
   useEffect(() => {

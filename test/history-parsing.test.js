@@ -153,6 +153,23 @@ describe("History Parsing via DB Restore", () => {
     // Clean up any managers
   });
 
+  describe("transcript parse cache", () => {
+    it("reuses parsed transcript results across repeated cold parses", () => {
+      const manager = makeManager(tempDir);
+      const transcriptPath = join(fixturesDir, "basic-session.jsonl");
+
+      const first = manager["parseProviderTranscriptCached"]("claude", transcriptPath);
+      const second = manager["parseProviderTranscriptCached"]("claude", transcriptPath);
+
+      assert.equal(first.cacheHit, false);
+      assert.equal(second.cacheHit, true);
+      assert.notStrictEqual(first.parsed.history, second.parsed.history);
+      assert.deepEqual(second.parsed.history, first.parsed.history);
+
+      manager.stopAll();
+    });
+  });
+
   describe("basic session history", () => {
     it("restores user and assistant messages from JSONL", () => {
       seedDB(tempDir, [makeExternalEntry({ jsonlPath: join(fixturesDir, "basic-session.jsonl") })]);

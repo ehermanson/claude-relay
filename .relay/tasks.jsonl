@@ -164,3 +164,10 @@
 {"id":"7b4c2d1e","title":"Investigate merged space resurrecting as recovered active space","description":"Trace why a non-default space that was completed/merged through the Relay UI can later reload as an active recovered-space row with missing title and missing sibling chats. Compare the completion persistence path with session-metadata recovery, identify the root cause, patch it, add regression coverage, and update docs if needed.","status":"open","priority":1,"type":"bug","tags":["spaces","recovery","merge"],"parent":null,"blockedBy":[],"createdAt":"2026-03-28T02:02:04Z","updatedAt":"2026-03-28T02:02:04Z"}
 {"id":"7b4c2d1e","status":"in_progress","updatedAt":"2026-03-28T02:02:04Z"}
 {"id":"7b4c2d1e","status":"done","updatedAt":"2026-03-28T02:07:07Z"}
+{"id":"c66a3ed4","title":"Reduce chat reconnect and hydration overhead","description":"Improve perceived chat performance by avoiding full-history replay on reconnect, caching parsed transcript results for cold hydrations, and adding instrumentation around subscribe/hydrate work so we can measure impact. Scope: add per-instance replay cursors for WS reconnects with fallback to full history, add in-memory transcript parse cache keyed by transcript metadata, update the client subscription flow to send the last seen cursor, and cover the new behavior with tests.","status":"open","priority":1,"type":"task","tags":["performance","websocket","history"],"parent":null,"blockedBy":[],"createdAt":"2026-03-28T02:12:00Z","updatedAt":"2026-03-28T02:12:00Z"}
+{"id":"c66a3ed4","status":"in_progress","updatedAt":"2026-03-28T02:12:05Z"}
+{"id":"c66a3ed4","status":"done","updatedAt":"2026-03-28T02:19:30Z"}
+{"id":"c66a3ed4","status":"in_progress","updatedAt":"2026-03-28T02:26:30Z"}
+{"id":"c66a3ed4","status":"done","updatedAt":"2026-03-28T02:33:15Z"}
+{"id":"c66a3ed4","status":"in_progress","updatedAt":"2026-03-28T02:38:20Z"}
+{"id":"c66a3ed4","status":"done","updatedAt":"2026-03-28T02:39:10Z"}

@@ -5,7 +5,7 @@ import type { InstanceInfo, ClientMessage } from "@shared/types";
 // Stable methods that never change — components consuming only this won't re-render
 interface WSMethodsContextValue {
   send: (message: ClientMessage) => void;
-  subscribe: (instanceId: string) => void;
+  subscribe: (instanceId: string, lastSeenSequence?: number, replayEpoch?: number) => void;
   unsubscribe: (instanceId: string) => void;
   addMessageHandler: (handler: MessageHandler) => () => void;
 }

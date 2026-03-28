@@ -146,6 +146,19 @@ interface WatchState {
   stats: SessionStats;
 }
 
+interface TranscriptParseResult {
+  cwd: string;
+  history: HistoryEntry[];
+  tasks: Map<string, TaskItem>;
+  files: Map<string, FileChange>;
+  stats: SessionStats;
+}
+
+interface TranscriptCacheEntry {
+  cacheKey: string;
+  parsed: TranscriptParseResult;
+}
+
 function isUsableStoredWorktreePath(
   worktreePath: string | null | undefined,
 ): worktreePath is string {
@@ -229,6 +242,7 @@ export interface InstanceManager {
 // =============================================================================
 
 const MAX_HISTORY = 1000;
+const MAX_TRANSCRIPT_CACHE_ENTRIES = 100;
 const DISCOVERY_INTERVAL = 10_000; // 10s
 const WATCH_POLL_INTERVAL = 2_000; // 2s
 const WATCH_DEDUP_GRACE_MS = 2_000; // Allow JSONL writes to catch up to managed process output
@@ -1010,6 +1024,8 @@ export class InstanceManager extends EventEmitter {
   private _sdkQueryFn: ((params: { prompt: unknown; options?: unknown }) => unknown) | null = null;
   /** Cached project icon paths: dir → absolute file path (null = scanned, not found) */
   private projectIconCache = new Map<string, string | null>();
+  /** Parsed transcript cache keyed by provider + path + file metadata */
+  private transcriptParseCache = new Map<string, TranscriptCacheEntry>();
   /** True once the background filesystem scan has completed */
   scanComplete = false;
   /** Guard to prevent concurrent discovery polls from overlapping */
@@ -2223,7 +2239,14 @@ export class InstanceManager extends EventEmitter {
       instance.externalState?.jsonlPath;
 
     if (transcriptPath && existsSync(transcriptPath)) {
-      const parsed = this.parseProviderTranscript(instance.info.provider, transcriptPath);
+      const hydrateStartedAt = Date.now();
+      const { parsed, cacheHit } = this.parseProviderTranscriptCached(
+        instance.info.provider,
+        transcriptPath,
+      );
+      this.baseConfig.logger.debug(
+        `[InstanceManager] Hydrated ${id} from ${transcriptPath} in ${Date.now() - hydrateStartedAt}ms (${cacheHit ? "cache hit" : "cache miss"}, ${parsed.history.length} history entries)`,
+      );
 
       instance.history = parsed.history;
       instance.tasks = parsed.tasks.size > 0 ? parsed.tasks : undefined;
@@ -3808,17 +3831,64 @@ export class InstanceManager extends EventEmitter {
     };
   }
 
-  private parseProviderTranscript(
+  private cloneParsedTranscript(parsed: TranscriptParseResult): TranscriptParseResult {
+    return {
+      cwd: parsed.cwd,
+      history: parsed.history.map((entry) => ({
+        ...entry,
+        message: structuredClone(entry.message),
+      })),
+      tasks: new Map(Array.from(parsed.tasks.entries(), ([id, task]) => [id, { ...task }])),
+      files: new Map(Array.from(parsed.files.entries(), ([path, file]) => [path, { ...file }])),
+      stats: { ...parsed.stats },
+    };
+  }
+
+  private buildTranscriptCacheKey(provider: ProviderKind, filePath: string): string | null {
+    try {
+      const stat = statSync(filePath);
+      return `${provider}:${filePath}:${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      return null;
+    }
+  }
+
+  private parseProviderTranscriptCached(
     provider: ProviderKind,
     filePath: string,
-  ): {
-    cwd: string;
-    history: HistoryEntry[];
-    tasks: Map<string, TaskItem>;
-    files: Map<string, FileChange>;
-    stats: SessionStats;
-  } {
-    return parseTranscriptForProvider(provider, filePath, (path) => this.parseJsonl(path));
+  ): { parsed: TranscriptParseResult; cacheHit: boolean } {
+    const cacheKey = this.buildTranscriptCacheKey(provider, filePath);
+    if (cacheKey) {
+      const cached = this.transcriptParseCache.get(cacheKey);
+      if (cached) {
+        // Refresh insertion order so the oldest key is the least-recently-used one.
+        this.transcriptParseCache.delete(cacheKey);
+        this.transcriptParseCache.set(cacheKey, cached);
+        return { parsed: this.cloneParsedTranscript(cached.parsed), cacheHit: true };
+      }
+    }
+
+    const parsed = parseTranscriptForProvider(provider, filePath, (path) => this.parseJsonl(path));
+
+    if (cacheKey) {
+      this.transcriptParseCache.set(cacheKey, {
+        cacheKey,
+        parsed,
+      });
+
+      if (this.transcriptParseCache.size > MAX_TRANSCRIPT_CACHE_ENTRIES) {
+        const oldestKey = this.transcriptParseCache.keys().next().value;
+        if (oldestKey) {
+          this.transcriptParseCache.delete(oldestKey);
+        }
+      }
+    }
+
+    return { parsed: this.cloneParsedTranscript(parsed), cacheHit: false };
+  }
+
+  private parseProviderTranscript(provider: ProviderKind, filePath: string): TranscriptParseResult {
+    return this.parseProviderTranscriptCached(provider, filePath).parsed;
   }
 
   private resolveManagedTranscriptPath(
