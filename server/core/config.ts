@@ -41,6 +41,9 @@ export type CoreOptions = Partial<CoreConfig>;
 /**
  * Merge user options with defaults to produce a full core config.
  */
+/** Base directory for Relay state: ~/.relay-dev when DEV is set, ~/.relay otherwise. */
+export const relayDir = join(homedir(), process.env.DEV ? ".relay-dev" : ".relay");
+
 export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
   const home = homedir();
   return {
@@ -49,7 +52,7 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
     processTimeout: options.processTimeout ?? 10 * 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? defaultLogger,
-    dbPath: options.dbPath ?? join(home, ".relay", "sessions.db"),
+    dbPath: options.dbPath ?? join(relayDir, "sessions.db"),
     defaultModel: options.defaultModel,
     providerDirs: options.providerDirs ?? {
       claude: join(home, ".claude"),

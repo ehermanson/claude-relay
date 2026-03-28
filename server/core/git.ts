@@ -8,12 +8,12 @@
 import { execSync, execFileSync, execFile as execFileCb } from "child_process";
 import { existsSync, openSync, readSync, closeSync, readFileSync } from "fs";
 import { join, resolve, dirname } from "path";
-import { homedir } from "os";
 import { promisify } from "util";
 
 import type { FileChange } from "#core/types.js";
+import { relayDir } from "#core/config.js";
 
-const DEFAULT_WORKTREE_BASE = join(homedir(), ".relay", "worktrees");
+const DEFAULT_WORKTREE_BASE = join(relayDir, "worktrees");
 
 /**
  * Return the worktree base directory.
@@ -48,8 +48,8 @@ function normalizeBranchName(branch: string): string | null {
   return trimmed;
 }
 
-/** Pattern matching ~/.relay/worktrees/<name> paths (instance and space worktrees) */
-const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][^/\\]+\/?$/;
+/** Pattern matching ~/.relay/worktrees/<name> or ~/.relay-dev/worktrees/<name> paths */
+const RELAY_WORKTREE_RE = /[/\\]\.relay(?:-dev)?[/\\]worktrees[/\\][^/\\]+\/?$/;
 
 /**
  * Check if a directory path is a relay-managed worktree.

@@ -6,7 +6,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { CoreConfig } from "#core/config.js";
+import { relayDir, type CoreConfig } from "#core/config.js";
 import { defaultLogger } from "#core/logger.js";
 
 /**
@@ -56,8 +56,8 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     rateLimitMax: options.rateLimitMax ?? 5,
     rateLimitWindow: options.rateLimitWindow ?? 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
-    sessionFile: options.sessionFile ?? join(home, ".relay", "sessions.json"),
-    dbPath: options.dbPath ?? join(home, ".relay", "sessions.db"),
+    sessionFile: options.sessionFile ?? join(relayDir, "sessions.json"),
+    dbPath: options.dbPath ?? join(relayDir, "sessions.db"),
     defaultModel: options.defaultModel,
     providerDirs: options.providerDirs ?? {
       claude: join(home, ".claude"),

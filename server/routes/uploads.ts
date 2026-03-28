@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import type { Hono } from "hono";
+import { relayDir } from "#core/config.js";
 import { getMimeType, readBodyBuffer } from "#server/hono-utils.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
 
@@ -43,7 +44,7 @@ export function registerUploadRoutes(app: Hono<AppEnv>, _: HttpDeps): void {
 
     try {
       const body = await readBodyBuffer(c, maxUpload);
-      const uploadsDir = path.join(homedir(), ".relay", "uploads");
+      const uploadsDir = path.join(relayDir, "uploads");
       fs.mkdirSync(uploadsDir, { recursive: true });
       const filePath = path.join(uploadsDir, `${crypto.randomUUID()}${ext}`);
       fs.writeFileSync(filePath, body);
