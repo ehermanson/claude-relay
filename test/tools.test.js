@@ -6,7 +6,7 @@ import {
   describeToolDetail,
   isPermissionDenial,
   parsePlanUpdate,
-} from "../dist/core/tools.js";
+} from "../dist/server/core/tools.js";
 
 describe("describeToolUse", () => {
   it("returns 'Reading file' for Read", () => {

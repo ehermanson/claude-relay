@@ -17,9 +17,9 @@ import {
   resolveWorktreeOrigin,
   createWorktree,
   removeWorktree,
-} from "../dist/core/git.js";
-import { InstanceManager } from "../dist/core/instance-manager.js";
-import { SessionDB } from "../dist/core/db.js";
+} from "../dist/server/core/git.js";
+import { InstanceManager } from "../dist/server/core/instance-manager.js";
+import { SessionDB } from "../dist/server/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
 
 const noopLogger = {

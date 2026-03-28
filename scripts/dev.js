@@ -69,9 +69,9 @@ const child = spawn(
     "concurrently",
     "-n",
     "srv,tsc,ui",
-    `DEV=1 PORT=${backendPort} node --watch-path=dist dist/bin.js`,
+    `DEV=1 PORT=${backendPort} node --watch-path=dist dist/cli/bin.js`,
     "tsc --watch --preserveWatchOutput",
-    `PORT=${backendPort} VITE_PORT=${vitePort} pnpm --filter relay-ui dev`,
+    `PORT=${backendPort} VITE_PORT=${vitePort} pnpm --filter relay-app dev`,
   ],
   {
     stdio: "inherit",

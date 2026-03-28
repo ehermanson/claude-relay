@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
-import { InstanceManager } from "../dist/core/instance-manager.js";
+import { InstanceManager } from "../dist/server/core/instance-manager.js";
 import { resolveConfig } from "../dist/server/config.js";
 
 const noopLogger = {

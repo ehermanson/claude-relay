@@ -3,19 +3,23 @@
   "version": "3.0.0",
   "description": "A lightweight server that bridges remote clients to local AI coding agents via WebSockets",
   "bin": {
-    "relay": "dist/bin.js"
+    "relay": "dist/cli/bin.js"
   },
   "files": [
-    "dist",
-    "ui/dist"
+    "dist/",
+    "app/dist/"
   ],
   "type": "module",
-  "main": "dist/core/index.js",
-  "types": "dist/core/index.d.ts",
+  "main": "dist/server/core/index.js",
+  "types": "dist/server/core/index.d.ts",
+  "imports": {
+    "#core/*.js": "./dist/server/core/*.js",
+    "#server/*.js": "./dist/server/*.js"
+  },
   "exports": {
     ".": {
-      "types": "./dist/core/index.d.ts",
-      "import": "./dist/core/index.js"
+      "types": "./dist/server/core/index.d.ts",
+      "import": "./dist/server/core/index.js"
     },
     "./server": {
       "types": "./dist/server/index.d.ts",
@@ -23,22 +27,18 @@
     }
   },
   "scripts": {
-    "build": "pnpm build:server && pnpm build:ui",
+    "build": "pnpm build:server && pnpm build:app",
     "build:server": "tsc",
-    "build:ui": "pnpm --filter relay-ui build",
-    "start": "node dist/bin.js",
-    "relay:export": "node dist/bin.js export",
-    "relay:import": "node dist/bin.js import",
-    "relay:export-tgz": "node dist/bin.js export-tgz",
-    "relay:import-tgz": "node dist/bin.js import-tgz",
+    "build:app": "pnpm --filter relay-app build",
+    "start": "node dist/cli/bin.js",
     "dev": "node scripts/dev.js",
-    "test": "node --test test/*.test.js && pnpm --filter relay-ui test",
-    "typecheck": "tsc --noEmit && pnpm --filter relay-ui typecheck",
-    "typecheck:ui": "pnpm --filter relay-ui typecheck",
-    "fmt": "oxfmt src/ ui/src/",
-    "fmt:check": "oxfmt --check src/ ui/src/",
-    "lint": "oxlint src/ ui/src/",
-    "lint:fix": "oxlint --fix src/ ui/src/",
+    "test": "node --test test/*.test.js && pnpm --filter relay-app test",
+    "typecheck": "tsc --noEmit && pnpm --filter relay-app typecheck",
+    "typecheck:app": "pnpm --filter relay-app typecheck",
+    "fmt": "oxfmt server/ cli/ app/src/",
+    "fmt:check": "oxfmt --check server/ cli/ app/src/",
+    "lint": "oxlint server/ cli/ app/src/",
+    "lint:fix": "oxlint --fix server/ cli/ app/src/",
     "knip": "knip",
     "prepare": "husky"
   },

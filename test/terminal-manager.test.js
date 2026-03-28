@@ -7,7 +7,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { TerminalManager } from "../dist/core/terminal-manager.js";
+import { TerminalManager } from "../dist/server/core/terminal-manager.js";
 
 const noopLogger = {
   info() {},

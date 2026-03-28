@@ -4,9 +4,9 @@ import { execFileSync, execSync } from "node:child_process";
 import { mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { SessionDB } from "../dist/core/db.js";
-import { noopLogger } from "../dist/core/logger.js";
-import { ProjectManager } from "../dist/core/project-manager.js";
+import { SessionDB } from "../dist/server/core/db.js";
+import { noopLogger } from "../dist/server/core/logger.js";
+import { ProjectManager } from "../dist/server/core/project-manager.js";
 
 function withStrictGitIdentityEnv(run) {
   const saved = {

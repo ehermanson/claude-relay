@@ -1,0 +1,81 @@
+import { defineConfig } from "vite";
+import { devtools } from "@tanstack/devtools-vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import react from "@vitejs/plugin-react";
+import path from "path";
+import http from "http";
+import type { Plugin } from "vite";
+
+const BACKEND_PORT = parseInt(process.env.PORT || "7777");
+const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
+const VITE_PORT = parseInt(process.env.VITE_PORT || "5173");
+
+/** Vite plugin to proxy non-HMR WebSocket upgrades to the relay server */
+function wsProxy(): Plugin {
+  return {
+    name: "ws-proxy",
+    configureServer(server) {
+      server.httpServer?.on("upgrade", (req, socket) => {
+        // Let Vite handle its own HMR WebSocket
+        if (req.url?.startsWith("/@") || req.url === "/") {
+          // Only proxy root-level WS connections (no path = our app WS)
+        }
+
+        // Skip Vite HMR paths
+        if (req.url && req.url !== "/") return;
+
+        const proxyReq = http.request({
+          hostname: "localhost",
+          port: BACKEND_PORT,
+          path: req.url || "/",
+          method: req.method,
+          headers: req.headers,
+        });
+
+        proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
+          socket.write(
+            `HTTP/1.1 101 Switching Protocols\r\n` +
+              Object.entries(proxyRes.headers)
+                .map(([k, v]) => `${k}: ${v}`)
+                .join("\r\n") +
+              "\r\n\r\n",
+          );
+          if (proxyHead.length) socket.write(proxyHead);
+          proxySocket.on("error", () => socket.destroy());
+          socket.on("error", () => proxySocket.destroy());
+          proxySocket.pipe(socket);
+          socket.pipe(proxySocket);
+        });
+
+        proxyReq.on("error", () => socket.destroy());
+        proxyReq.end();
+      });
+    },
+  };
+}
+
+export default defineConfig({
+  plugins: [
+    devtools(),
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    react({ babel: { plugins: [["babel-plugin-react-compiler", {}]] } }),
+    wsProxy(),
+  ],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      "@shared": path.resolve(__dirname, "../server/core"),
+    },
+  },
+  server: {
+    host: "0.0.0.0",
+    port: VITE_PORT,
+    strictPort: true,
+    proxy: {
+      "/api": BACKEND_URL,
+      "/auth": BACKEND_URL,
+      "/logout": BACKEND_URL,
+      "/health": BACKEND_URL,
+    },
+  },
+});

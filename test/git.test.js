@@ -19,7 +19,7 @@ import {
   getFullDiff,
   getFileDiff,
   getWorktreeDiff,
-} from "../dist/core/git.js";
+} from "../dist/server/core/git.js";
 
 // Helper: create a temp git repo with an initial commit
 function createTestRepo() {

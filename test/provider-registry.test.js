@@ -9,7 +9,7 @@ import {
   getRegisteredProviders,
   listAvailableProviders,
   resolveCoreConfig,
-} from "../dist/core/index.js";
+} from "../dist/server/core/index.js";
 
 const noopLogger = {
   info() {},

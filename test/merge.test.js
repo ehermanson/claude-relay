@@ -22,8 +22,8 @@ import {
   createWorktree,
   removeWorktree,
   getCurrentBranch,
-} from "../dist/core/git.js";
-import { InstanceManager } from "../dist/core/instance-manager.js";
+} from "../dist/server/core/git.js";
+import { InstanceManager } from "../dist/server/core/instance-manager.js";
 import { createRequestHandler } from "../dist/server/http.js";
 import { createWebSocketServer } from "../dist/server/websocket.js";
 import { AuthManager } from "../dist/server/auth.js";

@@ -5,9 +5,9 @@ const config: KnipConfig = {
   exclude: ["duplicates"],
   workspaces: {
     ".": {
-      project: ["src/**/*.ts"],
+      project: ["server/**/*.ts", "cli/**/*.ts"],
     },
-    ui: {
+    app: {
       entry: ["src/routes/**/*.tsx"],
       project: ["src/**/*.{ts,tsx}"],
       ignore: ["src/components/ui/**"],

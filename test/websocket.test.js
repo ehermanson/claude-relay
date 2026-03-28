@@ -8,7 +8,7 @@ import { WebSocket } from "ws";
 import { createRequestHandler } from "../dist/server/http.js";
 import { createWebSocketServer } from "../dist/server/websocket.js";
 import { AuthManager } from "../dist/server/auth.js";
-import { InstanceManager } from "../dist/core/instance-manager.js";
+import { InstanceManager } from "../dist/server/core/instance-manager.js";
 import { resolveConfig } from "../dist/server/config.js";
 import { addWSHelpers } from "./helpers.js";
 

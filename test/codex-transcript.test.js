@@ -7,7 +7,7 @@ import {
   convertCodexTranscriptEntry,
   parseCodexTranscript,
   findCodexTranscriptPath,
-} from "../dist/core/providers/codex-transcript.js";
+} from "../dist/server/core/providers/codex-transcript.js";
 
 function createContext() {
   return {

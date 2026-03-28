@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { ClaudeProcess } from "../dist/core/claude-process.js";
+import { ClaudeProcess } from "../dist/server/core/claude-process.js";
 
 const noopLogger = {
   info() {},

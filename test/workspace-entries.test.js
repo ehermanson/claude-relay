@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { searchWorkspaceEntries } from "../dist/core/workspace-entries.js";
+import { searchWorkspaceEntries } from "../dist/server/core/workspace-entries.js";
 
 describe("searchWorkspaceEntries", () => {
   let rootDir;

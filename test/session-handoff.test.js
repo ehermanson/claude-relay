@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildProviderSwitchHandoffPrompt } from "../dist/core/session-handoff.js";
+import { buildProviderSwitchHandoffPrompt } from "../dist/server/core/session-handoff.js";
 
 describe("buildProviderSwitchHandoffPrompt", () => {
   it("builds a portable provider-switch prompt from recent conversation", () => {

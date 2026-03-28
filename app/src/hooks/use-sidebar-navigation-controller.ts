@@ -1,0 +1,96 @@
+import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useParams } from "@tanstack/react-router";
+import { useActionToasts } from "@/context/action-toast-context";
+import { useWSMethods, useWSState } from "@/context/websocket-context";
+import { fetchProjectIcons } from "@/lib/api";
+import { getInstanceProjectRouteId, getProjectName } from "@/lib/project-route";
+import { useProjectNavigationModel } from "@/hooks/use-project-navigation-model";
+import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
+
+export interface SidebarNavigationEntry {
+  dir: string;
+  project?: Project;
+  projectId: string;
+  name: string;
+  groupInstances: InstanceInfo[];
+  spaces: SpaceInfo[];
+  iconPath?: string;
+  hasActivity: boolean;
+  isActiveProject: boolean;
+}
+
+export function useSidebarNavigationController() {
+  const navigate = useNavigate();
+  const { send } = useWSMethods();
+  const { instances } = useWSState();
+  const { trackInstanceCreate } = useActionToasts();
+  const navigation = useProjectNavigationModel();
+  const {
+    chatId: currentChatId,
+    projectId: currentProjectId,
+    spaceId: currentSpaceId,
+  } = useParams({ strict: false }) as {
+    chatId?: string;
+    projectId?: string;
+    spaceId?: string;
+  };
+
+  const { data: projectIcons = {} } = useQuery({
+    queryKey: ["projectIcons"],
+    queryFn: fetchProjectIcons,
+  });
+  const prevInstanceIds = useRef(new Set<string>());
+  const pendingCreate = useRef(false);
+
+  useEffect(() => {
+    const currentIds = new Set(instances.map((instance) => instance.id));
+    if (pendingCreate.current && prevInstanceIds.current.size > 0) {
+      for (const instance of instances) {
+        if (!prevInstanceIds.current.has(instance.id) && !instance.external) {
+          pendingCreate.current = false;
+          navigate({
+            to: "/projects/$projectId/chats/$chatId",
+            params: { projectId: getInstanceProjectRouteId(instance), chatId: instance.id },
+          });
+          break;
+        }
+      }
+    }
+    prevInstanceIds.current = currentIds;
+  }, [instances, navigate]);
+
+  const projectEntries: SidebarNavigationEntry[] = navigation.groups.map(
+    ([dir, groupInstances]) => {
+      const project = navigation.projectByDir.get(dir);
+      const projectId = project?.id ?? getProjectName(dir);
+      return {
+        dir,
+        project,
+        projectId,
+        name: project?.name ?? getProjectName(dir),
+        groupInstances,
+        spaces: navigation.projectSpaces[dir] ?? [],
+        iconPath: projectIcons[dir],
+        hasActivity: groupInstances.some((instance) => instance.status === "processing"),
+        isActiveProject: currentProjectId === projectId,
+      };
+    },
+  );
+
+  const createNewChat = (dir: string) => {
+    pendingCreate.current = true;
+    trackInstanceCreate(dir);
+    send({ type: "create_instance", workingDirectory: dir });
+  };
+
+  return {
+    ...navigation,
+    currentChatId,
+    currentProjectId,
+    currentSpaceId,
+    projectEntries,
+    projectIcons,
+    createNewChat,
+  };
+}

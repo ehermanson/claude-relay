@@ -9,8 +9,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { InstanceManager } from "../dist/core/instance-manager.js";
-import { SessionDB } from "../dist/core/db.js";
+import { InstanceManager } from "../dist/server/core/instance-manager.js";
+import { SessionDB } from "../dist/server/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
 
 const noopLogger = {

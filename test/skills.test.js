@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { discoverSkills } from "../dist/core/skills.js";
+import { discoverSkills } from "../dist/server/core/skills.js";
 
 // discoverSkills reads from fixed paths under homedir(). To test it properly
 // we'd need to mock homedir, which is fragile. Instead, we test project-scoped

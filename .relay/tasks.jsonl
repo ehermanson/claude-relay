@@ -171,3 +171,15 @@
 {"id":"c66a3ed4","status":"done","updatedAt":"2026-03-28T02:33:15Z"}
 {"id":"c66a3ed4","status":"in_progress","updatedAt":"2026-03-28T02:38:20Z"}
 {"id":"c66a3ed4","status":"done","updatedAt":"2026-03-28T02:39:10Z"}
+{"id":"4f2c9b1a","title":"Refactor SpaceView into focused view components","description":"Reduce the size and responsibility count of the space route component by extracting focused view components for the header, chat tabs, main body, and dialogs, while avoiding over-extraction into non-reusable hooks. Keep routing and space-specific orchestration readable without changing behavior.","status":"open","priority":2,"type":"task","tags":["spaces","ui","refactor"],"parent":null,"blockedBy":[],"createdAt":"2026-03-28T16:52:03Z","updatedAt":"2026-03-28T16:52:03Z"}
+{"id":"4f2c9b1a","status":"in_progress","updatedAt":"2026-03-28T16:52:03Z"}
+{"id":"4f2c9b1a","status":"done","updatedAt":"2026-03-28T16:58:35Z"}
+{"id":"f1d7a6c2","title":"Reduce SpaceView prop plumbing with screen-scoped context","description":"Follow up on the SpaceView refactor by removing the large duplicated prop bags across the extracted space components. Introduce a screen-scoped context for shared state and actions so the split remains readable without excessive prop threading.","status":"open","priority":2,"type":"task","tags":["spaces","ui","refactor"],"parent":null,"blockedBy":[],"createdAt":"2026-03-28T16:58:27Z","updatedAt":"2026-03-28T16:58:27Z"}
+{"id":"f1d7a6c2","status":"in_progress","updatedAt":"2026-03-28T16:58:27Z"}
+{"id":"f1d7a6c2","status":"done","updatedAt":"2026-03-28T17:03:45Z"}
+{"id":"c0b8e541","title":"Refactor InstanceView into focused screen pieces","description":"Reduce the responsibility load in InstanceView by separating chat screen rendering concerns from websocket/history/action orchestration. Use a screen-scoped context to avoid large duplicated prop bags across extracted components, while keeping chat-specific behavior local and understandable.","status":"open","priority":1,"type":"task","tags":["chat","ui","refactor"],"parent":null,"blockedBy":[],"createdAt":"2026-03-28T19:08:15Z","updatedAt":"2026-03-28T19:08:15Z"}
+{"id":"c0b8e541","status":"in_progress","updatedAt":"2026-03-28T19:08:15Z"}
+{"id":"c0b8e541","status":"done","updatedAt":"2026-03-28T19:16:20Z"}
+{"id":"8d3c5f71","title":"Share navigation/controller logic between sidebar variants","description":"Extract a shared sidebar navigation/controller layer for the main sidebar and mini-sidebar. Centralize project entry metadata, active state, project icons, and common navigation actions like creating a new chat, while allowing the full sidebar to keep richer actions that the mini-sidebar does not expose yet.","status":"open","priority":1,"type":"task","tags":["sidebar","navigation","ui","refactor"],"parent":null,"blockedBy":[],"createdAt":"2026-03-28T19:25:58Z","updatedAt":"2026-03-28T19:25:58Z"}
+{"id":"8d3c5f71","status":"in_progress","updatedAt":"2026-03-28T19:25:58Z"}
+{"id":"8d3c5f71","status":"done","updatedAt":"2026-03-28T19:31:10Z"}

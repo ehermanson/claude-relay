@@ -1,4 +1,4 @@
 packages:
-  - "ui"
+  - "app"
 allowBuilds:
   better-sqlite3: false

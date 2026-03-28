@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { createRequestHandler } from "../dist/server/http.js";
 import { AuthManager } from "../dist/server/auth.js";
-import { InstanceManager } from "../dist/core/instance-manager.js";
+import { InstanceManager } from "../dist/server/core/instance-manager.js";
 import { resolveConfig } from "../dist/server/config.js";
 
 const noopLogger = {

@@ -1,6 +1,9 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createSdkSession, createSdkSessionSync } from "../dist/core/providers/claude-sdk.js";
+import {
+  createSdkSession,
+  createSdkSessionSync,
+} from "../dist/server/core/providers/claude-sdk.js";
 
 // =============================================================================
 // FakeQuery — mirrors the SDK's Query async generator + control methods
@@ -88,7 +91,7 @@ function makeHarness() {
   /** @type {any} */
   let capturedPrompt;
 
-  const queryFn = ({ prompt, options }) => {
+  const queryFn = ({ prompt, options: _options }) => {
     capturedPrompt = prompt;
     return fakeQuery;
   };
@@ -144,7 +147,7 @@ describe("ClaudeSdkSession", () => {
         cwd: "/my/project",
         model: "claude-opus-4-6",
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
           return fakeQuery;
         },
@@ -162,7 +165,7 @@ describe("ClaudeSdkSession", () => {
         cwd: "/my/project",
         maxThinkingTokens: 10000,
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
           return fakeQuery;
         },
@@ -178,7 +181,7 @@ describe("ClaudeSdkSession", () => {
         cwd: "/test",
         resumeSessionId: "abc-123",
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
           return fakeQuery;
         },
@@ -194,7 +197,7 @@ describe("ClaudeSdkSession", () => {
         cwd: "/test",
         dangerouslySkipPermissions: true,
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
           return fakeQuery;
         },
@@ -212,7 +215,7 @@ describe("ClaudeSdkSession", () => {
         cwd: "/test",
         planMode: true,
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
           return fakeQuery;
         },
@@ -229,7 +232,7 @@ describe("ClaudeSdkSession", () => {
         dangerouslySkipPermissions: true,
         planMode: true,
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
           return fakeQuery;
         },
@@ -244,7 +247,7 @@ describe("ClaudeSdkSession", () => {
       const session = await createSdkSession({
         cwd: "/test",
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
           return fakeQuery;
         },
@@ -260,7 +263,7 @@ describe("ClaudeSdkSession", () => {
         cwd: "/test",
         allowedTools: ["Bash", "Edit"],
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
           return fakeQuery;
         },
@@ -660,14 +663,13 @@ describe("ClaudeSdkSession", () => {
       });
 
       // Simulate the SDK calling canUseTool for an approved tool
-      const capturedOptions = {};
       const fakeQuery = new FakeQuery();
       let canUseToolFn;
       const session2 = await createSdkSession({
         cwd: "/test",
         allowedTools: ["Bash"],
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           canUseToolFn = options.canUseTool;
           return fakeQuery;
         },
@@ -693,7 +695,7 @@ describe("ClaudeSdkSession", () => {
       const session = await createSdkSession({
         cwd: "/test",
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           canUseToolFn = options.canUseTool;
           return fakeQuery;
         },
@@ -734,7 +736,7 @@ describe("ClaudeSdkSession", () => {
       const session = await createSdkSession({
         cwd: "/test",
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           canUseToolFn = options.canUseTool;
           return fakeQuery;
         },
@@ -788,7 +790,7 @@ describe("ClaudeSdkSession", () => {
       const session = await createSdkSession({
         cwd: "/test",
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           canUseToolFn = options.canUseTool;
           return fakeQuery;
         },
@@ -820,7 +822,7 @@ describe("ClaudeSdkSession", () => {
         cwd: "/test",
         allowedTools: ["Edit"],
         logger: noopLogger,
-        queryFn: ({ prompt, options }) => {
+        queryFn: ({ _prompt, options }) => {
           canUseToolFn = options.canUseTool;
           return fakeQuery;
         },

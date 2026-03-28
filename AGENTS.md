@@ -10,21 +10,22 @@
 
 Relay is a bridge between remote devices and local AI coding agents. It manages multiple agent processes, discovers external sessions, and serves a React web UI.
 
-**Two-layer package:**
+**Three-layer structure:**
 
-- `relay` (core) — process management, instance orchestration, types. No server deps.
-- `relay/server` — HTTP, WebSocket, auth, tunnel, UI. Extends core.
+- `app/` — React UI (the product)
+- `server/` — HTTP, WebSocket, auth, tunnel + `server/core/` (engine: managers, types, providers)
+- `cli/` — CLI wiring (bin.ts, migration.ts)
 
 ## Architecture Philosophy
 
-In the backend, Relay manages providers through a provider-driver registry (`provider-registry.ts`): each provider declares its capabilities and owns session creation, model lookup, transcript parsing, external-session discovery, and managed-session recovery behind the shared `ProviderSession`/`ProviderRuntimeBinding` contract. The UI asks the server for available providers (`GET /api/providers`) and provider-scoped model metadata plus capabilities (`GET /api/provider-models`), then shows or hides toolbar controls and picker options from that metadata.
+In the backend, Relay manages providers through a provider-driver registry (`server/core/provider-registry.ts`): each provider declares its capabilities and owns session creation, model lookup, transcript parsing, external-session discovery, and managed-session recovery behind the shared `ProviderSession`/`ProviderRuntimeBinding` contract. The UI asks the server for available providers (`GET /api/providers`) and provider-scoped model metadata plus capabilities (`GET /api/provider-models`), then shows or hides toolbar controls and picker options from that metadata.
 
 **Key architectural invariants:**
 
 - `ProviderCapabilities` is the single source of truth for what controls the UI should render — never hardcode provider-specific logic in the UI
 - SQLite has two distinct roles: `sessions` is a rebuildable Claude transcript index, while `managed_sessions` is the source of truth for managed-session provider bindings and restore metadata
 - JSONL files on disk are the canonical transcript source — the DB is a cache/index that can be rebuilt by scanning `~/.claude/projects/`
-- Core must never import from server; server imports from core; UI imports from core via `@shared` alias
+- Core (`server/core/`) must never import from server; server imports from core; UI imports from core via `@shared` alias
 - Session targeting after first response always uses `--resume <sessionId>`, never `--continue` (which picks the most-recently-modified session in CWD — wrong with concurrent sessions)
 
 ## Tech Stack
@@ -40,7 +41,7 @@ In the backend, Relay manages providers through a provider-driver registry (`pro
 ```bash
 pnpm build          # tsc + vite build
 pnpm build:server   # tsc only
-pnpm build:ui       # UI typecheck + vite build
+pnpm build:app      # UI typecheck + vite build
 pnpm typecheck      # server + UI TypeScript checks
 pnpm test           # node --test test/*.test.js
 pnpm dev            # concurrent: node --watch, tsc --watch, vite dev
@@ -50,13 +51,27 @@ Always `pnpm build:server` before `pnpm test` — tests import from `dist/`.
 
 ## Key Conventions
 
+### Import Aliases
+
+Server + CLI use Node.js native subpath imports (`#` prefix):
+
+- `#core/foo.js` → `server/core/foo.ts` (compile) / `dist/server/core/foo.js` (runtime)
+- `#server/foo.js` → `server/foo.ts` (compile) / `dist/server/foo.js` (runtime)
+
+App uses Vite resolve.alias:
+
+- `@/*` → `app/src/*`
+- `@shared/*` → `server/core/*`
+
+Zero relative path navigation (`../`) in any server/cli import.
+
 ### Package Exports
 
 ```json
-{ ".": "./dist/core/index.js", "./server": "./dist/server/index.js" }
+{ ".": "./dist/server/core/index.js", "./server": "./dist/server/index.js" }
 ```
 
-`server/index.ts` re-exports all of core — importing from `relay/server` gives you everything. UI imports shared types via `@shared/types` (Vite alias → `src/core/types.ts`).
+`server/index.ts` re-exports all of core — importing from `relay/server` gives you everything. UI imports shared types via `@shared/types` (Vite alias → `server/core/types.ts`).
 
 ### Config Hierarchy
 
@@ -79,7 +94,7 @@ Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a ch
 
 Spaces group multiple concurrent agent chats within a shared git worktree/branch (`Project → Space[] → Chat[]`). Every project has an implicit "main" space (no worktree, default branch). Additional spaces create dedicated worktrees in `~/.relay/worktrees/space-<id>/`.
 
-- `SpaceManager` (`src/core/space-manager.ts`) owns space lifecycle: create, list, complete (merge + cleanup), delete (archive + cleanup)
+- `SpaceManager` (`server/core/space-manager.ts`) owns space lifecycle: create, list, complete (merge + cleanup), delete (archive + cleanup)
 - `spaces` table in SQLite with `space_id` FK on `sessions` and `managed_sessions`
 - Space completion auto-commits dirty worktrees, merges into the default branch, and removes the worktree; local branch is kept for recoverability
 - `MergeMethod` type: `"squash" | "merge-commit"` — passed per-merge via `completeSpace(id, { mergeMethod, squashMessage? })`; default is `"squash"`
@@ -97,7 +112,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 ### Git Integration
 
 - `GitStatusBar` component renders below the project header: branch selector, push/pull/fetch buttons, ahead/behind indicators, dirty-state badge
-- `src/core/git.ts` provides pure-function git helpers: `listBranches()`, `getAheadBehind()`, `checkoutBranch()`, `gitFetch()`, `gitPull()`, `gitPush()`, `getPrimaryRemote()`
+- `server/core/git.ts` provides pure-function git helpers: `listBranches()`, `getAheadBehind()`, `checkoutBranch()`, `gitFetch()`, `gitPull()`, `gitPush()`, `getPrimaryRemote()`
 - `getPrimaryRemote(dir)` detects the actual remote name (prefers `origin`, falls back to first listed) — never hardcode `"origin"`
 - Remote branch names are stripped of the dynamic remote prefix (not hardcoded `origin/`)
 - REST API: `GET /api/projects/:id/branches`, `POST /api/projects/:id/checkout`, `POST /api/projects/:id/git/fetch`, `POST /api/projects/:id/git/pull`, `POST /api/projects/:id/git/push`
@@ -135,12 +150,13 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - `blocked` status auto-derived from unresolved `blockedBy` refs — never set manually
 - Create: append new JSON line. Update: append line with same `id` + changed fields (sparse merge). Delete: append `{id, deleted: true}`
 - Relay compacts (dedupes, strips tombstones) on every write through the API
-- Core module: `src/core/task-manager.ts` (pure functions, no server deps)
+- Core module: `server/core/task-manager.ts` (pure functions, no server deps)
 - API: `GET|POST /api/projects/:id/tasks`, `PATCH|DELETE /api/projects/:id/tasks/:taskId`
 - On managed session start, Relay injects an internal message telling the model about the task format
 
 ## Common Pitfalls
 
-- **`.js` extensions**: All relative imports in TypeScript must use `.js` extensions (ESM + NodeNext resolution).
-- **Build before test**: Tests import from `dist/`, not `src/`. A stale build = confusing test failures.
+- **`#` imports**: All imports in `server/` and `cli/` use `#core/` or `#server/` aliases. No relative path navigation (`../`).
+- **`.js` extensions**: All `#` imports must use `.js` extensions (ESM + NodeNext resolution).
+- **Build before test**: Tests import from `dist/`, not source. A stale build = confusing test failures.
 - **`import.meta.dirname`**: Used in `server/http.ts` for locating static assets. Path is relative to compiled `.js` file location (`dist/server/http.js`), not source `.ts`. If this file moves, update the paths.

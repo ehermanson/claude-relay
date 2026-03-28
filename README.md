@@ -21,17 +21,13 @@ Relay discovers sessions already running on your machine, lets you resume them f
 
 ### Install
 
-If you want to run Relay, clone the repo, build it once, and install the CLI globally from the checked-out directory:
-
 ```bash
-git clone git@github.com:ehermanson/relay.git
-cd relay
-pnpm install
-pnpm build
-npm install -g .
+curl -fsSL https://raw.githubusercontent.com/ehermanson/relay/main/install.sh | bash
 ```
 
-Then you can run it from anywhere:
+This clones to `~/.relay/app`, builds, and links the `relay` command to `~/.local/bin`. Run it again to update.
+
+Then:
 
 ```bash
 relay start
@@ -39,17 +35,11 @@ relay start
 
 Open `http://localhost:7777`. That's it.
 
-Notes:
-
-- `npm install -g relay` is not the right command here; the bare `relay` package name on npm is already taken
-- The global install above uses the CLI from your local checkout after `pnpm build`
-- After pulling updates, rebuild and reinstall globally: `pnpm build && npm install -g .`
-
-### Run Without Installing Globally
-
-If you prefer not to install the CLI globally, you can still run Relay directly from the repo:
+### Manual Install
 
 ```bash
+git clone git@github.com:ehermanson/relay.git
+cd relay
 pnpm install
 pnpm build
 pnpm start
@@ -314,37 +304,7 @@ Sessions still carry a working directory, and that directory remains the agent's
 
 - **No model access** — this is not an API wrapper. It manages provider CLIs and SDKs on your machine. You need at least one provider installed.
 - **No multi-user auth** — optional single-password auth protects the whole server when enabled.
-- **No multi-device sync** — persistence is local to the machine running the relay (though importing/exporting is supported, see below).
-
-### Export / Import
-
-Relay still does not have true multi-device sync, but it can now export a local migration bundle and import it on another machine.
-
-```bash
-# Create a directory bundle with a DB snapshot + Claude/Codex JSONL transcripts
-relay export ~/relay-export
-
-# Merge that bundle into another install
-relay import ~/relay-export
-
-# Or create/import a single tarball
-relay export-tgz ~/relay-export.tgz
-relay import-tgz ~/relay-export.tgz
-
-# Or from this repo without installing globally
-pnpm relay:export -- ~/relay-export
-pnpm relay:import -- ~/relay-export
-pnpm relay:export-tgz -- ~/relay-export.tgz
-pnpm relay:import-tgz -- ~/relay-export.tgz
-```
-
-Notes:
-
-- `export` / `import` use a directory bundle
-- `export-tgz` / `import-tgz` wrap the same bundle format in a single `.tgz` archive
-- `import` merges transcript trees into local `~/.claude/projects` and `~/.codex/sessions`
-- Relay rewrites transcript paths in imported DB rows to the new machine's local provider dirs
-- Project/worktree paths are best-effort; if your repos live in different places, you may need to re-register or clean up a few entries after import
+- **No multi-device sync** — persistence is local to the machine running the relay. The DB is a rebuildable cache; JSONL transcript files on disk are the canonical source of truth.
 
 ## Configuration
 
@@ -385,8 +345,6 @@ Useful repo-local CLI commands:
 ```bash
 pnpm start -- --password "your-secret"
 pnpm start -- --port 8888
-pnpm relay:export -- ~/relay-export
-pnpm relay:import -- ~/relay-export
 ```
 
 ## Prerequisites

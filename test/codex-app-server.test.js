@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { CodexAppServerSession } from "../dist/core/providers/codex-app-server.js";
+import { CodexAppServerSession } from "../dist/server/core/providers/codex-app-server.js";
 
 const noopLogger = {
   info() {},

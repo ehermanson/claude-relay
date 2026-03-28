@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { InstanceManager } from "../dist/core/instance-manager.js";
+import { InstanceManager } from "../dist/server/core/instance-manager.js";
 import { resolveConfig } from "../dist/server/config.js";
 
 const noopLogger = {

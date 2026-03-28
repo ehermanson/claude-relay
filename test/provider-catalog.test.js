@@ -4,7 +4,7 @@ import {
   getProviderDisplayName,
   getBuiltinProviderModels,
   findProviderModelLabel,
-} from "../dist/core/provider-catalog.js";
+} from "../dist/server/core/provider-catalog.js";
 
 describe("getProviderDisplayName", () => {
   it("returns 'Claude Code' for claude", () => {

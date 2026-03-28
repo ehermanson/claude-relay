@@ -4,8 +4,8 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
-import { InstanceManager } from "../dist/core/instance-manager.js";
-import { SessionDB } from "../dist/core/db.js";
+import { InstanceManager } from "../dist/server/core/instance-manager.js";
+import { SessionDB } from "../dist/server/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
 
 // Use a noop logger to keep test output clean
