@@ -18,6 +18,7 @@ import {
   commitAll,
   getFullDiff,
   getFileDiff,
+  getWorktreeDiff,
 } from "../dist/core/git.js";
 
 // Helper: create a temp git repo with an initial commit
@@ -436,5 +437,34 @@ describe("getFileDiff", () => {
     } finally {
       rmSync(unbornRepo, { recursive: true, force: true });
     }
+  });
+});
+
+describe("getWorktreeDiff", () => {
+  let repoDir;
+
+  beforeEach(() => {
+    repoDir = createTestRepo();
+  });
+
+  afterEach(() => {
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it("includes untracked files alongside branch changes", () => {
+    const baseBranch = getCurrentBranch(repoDir) ?? "main";
+    execSync("git checkout -b feature-branch", { cwd: repoDir, stdio: "pipe" });
+    writeFileSync(join(repoDir, "tracked.txt"), "tracked branch work");
+    execSync("git add tracked.txt && git commit -m 'tracked change'", {
+      cwd: repoDir,
+      stdio: "pipe",
+    });
+    writeFileSync(join(repoDir, "untracked.txt"), "new untracked work");
+
+    const diff = getWorktreeDiff(repoDir, baseBranch);
+    assert.ok(diff);
+    assert.ok(diff.includes("tracked.txt"));
+    assert.ok(diff.includes("untracked.txt"));
+    assert.ok(diff.includes("+new untracked work"));
   });
 });

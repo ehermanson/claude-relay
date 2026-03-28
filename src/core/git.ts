@@ -295,6 +295,9 @@ export function getBranchDiff(
  */
 export function getWorktreeDiff(worktreePath: string, defaultBranch: string): string | null {
   try {
+    const repoRoot = getRepoRoot(worktreePath);
+    if (!repoRoot) return null;
+
     // Find the merge-base between the default branch and the worktree's HEAD
     const mergeBase = execFileSync("git", ["merge-base", defaultBranch, "HEAD"], {
       cwd: worktreePath,
@@ -304,12 +307,22 @@ export function getWorktreeDiff(worktreePath: string, defaultBranch: string): st
 
     // Diff the merge-base against the working tree (includes uncommitted changes).
     // We combine committed-on-branch diffs + staged + unstaged.
-    return execFileSync("git", ["diff", mergeBase], {
+    let diff = execFileSync("git", ["diff", mergeBase], {
       cwd: worktreePath,
       timeout: 10000,
       encoding: "utf8" as const,
       maxBuffer: 10 * 1024 * 1024,
     });
+
+    // Append patches for untracked files so the space diff reflects all
+    // work attributable to the branch, not just tracked paths.
+    const untracked = getUntrackedFiles(worktreePath);
+    for (const relPath of untracked) {
+      const patch = diffForNewFile(repoRoot, relPath);
+      if (patch) diff += patch;
+    }
+
+    return diff;
   } catch {
     return null;
   }
