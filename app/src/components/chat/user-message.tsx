@@ -6,6 +6,7 @@ import { MarkdownContent, ImageThumbnail, IMAGE_PATTERN } from "./markdown-conte
 interface UserMessageProps {
   text: string;
   timestamp?: number;
+  shrinkwrapWidth?: number;
 }
 
 // ── Extractors ───────────────────────────────────────────────────────
@@ -89,7 +90,7 @@ function TerminalAttachment({ block }: { block: TerminalBlock }) {
   );
 }
 
-export function UserMessage({ text, timestamp }: UserMessageProps) {
+export function UserMessage({ text, timestamp, shrinkwrapWidth }: UserMessageProps) {
   const { textPart, images, terminalBlocks } = splitContent(text);
   const hasText = textPart.length > 0;
   const hasImages = images.length > 0;
@@ -105,7 +106,10 @@ export function UserMessage({ text, timestamp }: UserMessageProps) {
         </div>
       )}
       {hasText && (
-        <div className="rounded-2xl rounded-br-sm border border-border/50 bg-user-bg p-2 text-sm leading-relaxed text-user-text">
+        <div
+          className="rounded-2xl rounded-br-sm border border-border/50 bg-user-bg p-2 text-sm leading-relaxed text-user-text"
+          style={shrinkwrapWidth ? { maxWidth: shrinkwrapWidth } : undefined}
+        >
           <MarkdownContent text={textPart} />
         </div>
       )}

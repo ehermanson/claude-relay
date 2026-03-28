@@ -10,6 +10,7 @@
 import type { ActivityMessage } from "@shared/types";
 import { INTERACTIVE_TOOLS } from "@shared/tools";
 import type { ChatItem, RenderRow, ToolGroupData, UserChatItem } from "@/lib/chat-types";
+import { estimateUserHeight } from "@/lib/pretext";
 
 // Re-export for consumers
 export type { RenderRow, ToolGroupData };
@@ -192,9 +193,10 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
 
 // ── Height estimation ────────────────────────────────────────────────
 
-export function estimateRowHeight(row: RenderRow): number {
+export function estimateRowHeight(row: RenderRow, containerWidth?: number): number {
   switch (row.kind) {
     case "user":
+      if (containerWidth) return estimateUserHeight(row.text, containerWidth);
       return 72 + Math.ceil(row.text.length / 80) * 20;
     case "assistant":
       return Math.max(80, Math.min(500, 60 + Math.ceil(row.text.length / 60) * 20));

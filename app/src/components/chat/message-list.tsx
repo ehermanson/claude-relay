@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -14,6 +14,7 @@ import { buildRows, estimateRowHeight } from "@/components/chat/build-rows";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import type { ChatItem, LiveActivity, RenderRow } from "@/lib/chat-types";
 import type { UserInputAnswer } from "@shared/types";
+import { computeBubbleShrinkwrap, onFontReady } from "@/lib/pretext";
 
 // ── Threshold for "near bottom" detection ────────────────────────────
 
@@ -68,6 +69,24 @@ export function MessageList({
     showScrollToBottom,
   } = useAutoScroll<HTMLDivElement>();
 
+  // ── Container width tracking (for pretext layout) ────────────────
+  const containerRef = useRef<HTMLDivElement>(null);
+  const containerWidthRef = useRef(720); // default max-w-3xl - px-6
+  const [, setFontTick] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    containerWidthRef.current = el.clientWidth;
+    const observer = new ResizeObserver(([entry]) => {
+      containerWidthRef.current = entry.contentRect.width;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => onFontReady(() => setFontTick((t) => t + 1)), []);
+
   // ── Build render rows ────────────────────────────────────────────
   const rows = useMemo(() => buildRows(items), [items]);
 
@@ -88,7 +107,7 @@ export function MessageList({
     count: virtualizedRowCount,
     getScrollElement: () => scrollRef.current,
     getItemKey: (i) => rows[i]?.id ?? i,
-    estimateSize: (i) => (rows[i] ? estimateRowHeight(rows[i]) : 96),
+    estimateSize: (i) => (rows[i] ? estimateRowHeight(rows[i], containerWidthRef.current) : 96),
     gap: 16,
     overscan: 8,
   });
@@ -127,7 +146,13 @@ export function MessageList({
   const renderRow = (row: RenderRow) => {
     switch (row.kind) {
       case "user":
-        return <UserMessage text={row.text} timestamp={row.timestamp} />;
+        return (
+          <UserMessage
+            text={row.text}
+            timestamp={row.timestamp}
+            shrinkwrapWidth={computeBubbleShrinkwrap(row.text, containerWidthRef.current)}
+          />
+        );
       case "assistant":
         return <ClaudeMessage text={row.text} timestamp={row.timestamp} isLast={row.isLast} />;
       case "system":
@@ -165,7 +190,7 @@ export function MessageList({
   return (
     <div className="relative flex min-h-0 flex-1">
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-6 py-6">
+        <div ref={containerRef} className="mx-auto max-w-3xl px-6 py-6">
           {/* Virtualized section — absolute-positioned items in a sized container */}
           {hasVirtual && (
             <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
