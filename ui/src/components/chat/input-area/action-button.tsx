@@ -36,7 +36,7 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
     <Tooltip content={isStop ? stopTooltip : tooltip}>
       <motion.button
         ref={ref}
-        layout
+        layout="size"
         onClick={isStop ? onStopClick : onClick}
         disabled={!isStop && disabled}
         className={`

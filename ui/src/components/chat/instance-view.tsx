@@ -11,7 +11,7 @@ import { PermissionBanner } from "@/components/chat/permission-banner";
 import { BranchChangeBanner } from "@/components/chat/branch-change-banner";
 import { Sidecar } from "@/components/chat/sidecar";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
-import { TerminalPanel } from "@/components/terminal/terminal-panel";
+import { TerminalPanel, CollapsedTerminalBar } from "@/components/terminal/terminal-panel";
 import { TerminalContextStrip } from "@/components/terminal/terminal-context-strip";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
@@ -183,13 +183,20 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   const terminalScopeKey = terminalScope ? scopeKey(terminalScope) : "";
   const {
     isPanelOpen: isTerminalPanelOpen,
+    isPanelCollapsed: isTerminalPanelCollapsed,
     togglePanel: toggleTerminalPanel,
+    expandPanel: expandTerminalPanel,
+    getTerminalsForScope,
     removeTerminalContext,
     clearTerminalContexts,
     getTerminalContexts,
   } = useTerminalStore();
   const terminalContexts = id ? getTerminalContexts(id) : [];
   const showTerminalPanel = !!terminalScope && isTerminalPanelOpen(terminalScope);
+  const isTerminalCollapsed = !!terminalScope && isTerminalPanelCollapsed(terminalScope);
+  const collapsedTerminalCount = isTerminalCollapsed
+    ? getTerminalsForScope(terminalScope).length
+    : 0;
   const { height: terminalHeight, onResizeStart: handleTerminalResizeStart } = useVerticalResize();
 
   const handleToggleTerminal = () => {
@@ -516,7 +523,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         onOpenMobileSidecar={() => setSidecarMobileOpen(true)}
         onSplit={() => navigate({ search: { split: "pick" } })}
         onToggleTerminal={handleToggleTerminal}
-        terminalOpen={showTerminalPanel}
+        terminalOpen={showTerminalPanel || isTerminalCollapsed}
       />
 
       <div ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden">
@@ -531,6 +538,12 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
                 activeInstanceId={id}
               />
             </ErrorBoundary>
+          )}
+          {isTerminalCollapsed && !isMobile && collapsedTerminalCount > 0 && (
+            <CollapsedTerminalBar
+              terminalCount={collapsedTerminalCount}
+              onExpand={() => expandTerminalPanel(terminalScopeKey)}
+            />
           )}
         </div>
         {!isMobile && (

@@ -2,11 +2,14 @@ import { create } from "zustand";
 import type { TerminalInfo, TerminalScope } from "@shared/types";
 
 const PANEL_HEIGHT_KEY = "relay-terminal-panel-height";
-const PANEL_OPEN_KEY = "relay-terminal-panel-open";
+const PANEL_STATE_KEY = "relay-terminal-panel-state";
 const NAMES_KEY = "relay-terminal-names";
 const DEFAULT_HEIGHT = 280;
 const MIN_HEIGHT = 140;
 const MAX_HEIGHT = 600;
+
+/** Panel visibility state per scope. */
+export type PanelState = "open" | "collapsed";
 
 function loadHeight(): number {
   try {
@@ -16,17 +19,22 @@ function loadHeight(): number {
   return DEFAULT_HEIGHT;
 }
 
-function loadOpenScopes(): Set<string> {
+/**
+ * Load panel states from localStorage.
+ * Migrates from the old binary Set format ("relay-terminal-panel-open")
+ * to the new { key: PanelState } map format ("relay-terminal-panel-state").
+ */
+function loadPanelStates(): Record<string, PanelState> {
   try {
-    const raw = localStorage.getItem(PANEL_OPEN_KEY);
-    if (raw) return new Set(JSON.parse(raw));
+    const raw = localStorage.getItem(PANEL_STATE_KEY);
+    if (raw) return JSON.parse(raw);
   } catch {}
-  return new Set();
+  return {};
 }
 
-function persistOpenScopes(scopes: Set<string>): void {
+function persistPanelStates(states: Record<string, PanelState>): void {
   try {
-    localStorage.setItem(PANEL_OPEN_KEY, JSON.stringify(Array.from(scopes)));
+    localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(states));
   } catch {}
 }
 
@@ -61,8 +69,8 @@ interface TerminalState {
   terminals: Map<string, TerminalInfo>;
   /** Active terminal per scope key. */
   activeTerminalId: Record<string, string | null>;
-  /** Which scopes have the terminal panel open. */
-  openScopes: Set<string>;
+  /** Panel state per scope key ("open" | "collapsed"). Absent = closed. */
+  panelStates: Record<string, PanelState>;
   /** Panel height in pixels (shared across all scopes). */
   panelHeight: number;
   /** Terminal output snippets attached to the next chat message, keyed by instance ID. */
@@ -77,9 +85,12 @@ interface TerminalState {
   removeTerminal: (terminalId: string) => void;
   updateTerminal: (terminalId: string, update: Partial<TerminalInfo>) => void;
   setActiveTerminal: (scopeKey: string, terminalId: string) => void;
+  /** Toggle: closed → open, open → collapsed, collapsed → closed. */
   togglePanel: (scopeKey: string) => void;
   openPanel: (scopeKey: string) => void;
   closePanel: (scopeKey: string) => void;
+  collapsePanel: (scopeKey: string) => void;
+  expandPanel: (scopeKey: string) => void;
   setPanelHeight: (height: number) => void;
   persistHeight: () => void;
   addTerminalContext: (instanceId: string, terminalName: string, text: string) => void;
@@ -92,13 +103,18 @@ interface TerminalState {
   getTerminalsForScope: (scope: TerminalScope) => TerminalInfo[];
   getActiveTerminal: (scope: TerminalScope) => TerminalInfo | undefined;
   getTerminalName: (terminalId: string, index: number) => string;
+  /** True when the panel is open (visible, not collapsed). */
   isPanelOpen: (scope: TerminalScope) => boolean;
+  /** True when the panel is collapsed (terminals alive but panel hidden). */
+  isPanelCollapsed: (scope: TerminalScope) => boolean;
+  /** Returns the raw panel state for a scope. */
+  getPanelState: (scope: TerminalScope) => PanelState | undefined;
 }
 
 export const useTerminalStore = create<TerminalState>()((set, get) => ({
   terminals: new Map(),
   activeTerminalId: {},
-  openScopes: loadOpenScopes(),
+  panelStates: loadPanelStates(),
   panelHeight: loadHeight(),
   terminalContexts: {},
   terminalNames: loadNames(),
@@ -151,13 +167,21 @@ export const useTerminalStore = create<TerminalState>()((set, get) => ({
 
       const key = scopeKey(removed.scope);
       const active = s.activeTerminalId[key];
-      const newActive =
-        active === terminalId
-          ? (Array.from(map.values()).find((t) => scopeKey(t.scope) === key)?.id ?? null)
-          : active;
+      const remaining = Array.from(map.values()).find((t) => scopeKey(t.scope) === key);
+      const newActive = active === terminalId ? (remaining?.id ?? null) : active;
+
+      // Auto-close the panel when the last terminal in this scope is removed
+      let panelStates = s.panelStates;
+      if (!remaining && s.panelStates[key]) {
+        panelStates = { ...s.panelStates };
+        delete panelStates[key];
+        persistPanelStates(panelStates);
+      }
+
       return {
         terminals: map,
         activeTerminalId: { ...s.activeTerminalId, [key]: newActive ?? null },
+        panelStates,
       };
     }),
 
@@ -175,32 +199,53 @@ export const useTerminalStore = create<TerminalState>()((set, get) => ({
 
   togglePanel: (key) =>
     set((s) => {
-      const next = new Set(s.openScopes);
-      if (next.has(key)) {
-        next.delete(key);
+      const current = s.panelStates[key];
+      const next = { ...s.panelStates };
+      if (!current) {
+        // closed → open
+        next[key] = "open";
+      } else if (current === "open") {
+        // open → collapsed (keeps terminals alive)
+        next[key] = "collapsed";
       } else {
-        next.add(key);
+        // collapsed → open
+        next[key] = "open";
       }
-      persistOpenScopes(next);
-      return { openScopes: next };
+      persistPanelStates(next);
+      return { panelStates: next };
     }),
 
   openPanel: (key) =>
     set((s) => {
-      if (s.openScopes.has(key)) return s;
-      const next = new Set(s.openScopes);
-      next.add(key);
-      persistOpenScopes(next);
-      return { openScopes: next };
+      if (s.panelStates[key] === "open") return s;
+      const next = { ...s.panelStates, [key]: "open" as PanelState };
+      persistPanelStates(next);
+      return { panelStates: next };
     }),
 
   closePanel: (key) =>
     set((s) => {
-      if (!s.openScopes.has(key)) return s;
-      const next = new Set(s.openScopes);
-      next.delete(key);
-      persistOpenScopes(next);
-      return { openScopes: next };
+      if (!s.panelStates[key]) return s;
+      const next = { ...s.panelStates };
+      delete next[key];
+      persistPanelStates(next);
+      return { panelStates: next };
+    }),
+
+  collapsePanel: (key) =>
+    set((s) => {
+      if (s.panelStates[key] === "collapsed") return s;
+      const next = { ...s.panelStates, [key]: "collapsed" as PanelState };
+      persistPanelStates(next);
+      return { panelStates: next };
+    }),
+
+  expandPanel: (key) =>
+    set((s) => {
+      if (s.panelStates[key] === "open") return s;
+      const next = { ...s.panelStates, [key]: "open" as PanelState };
+      persistPanelStates(next);
+      return { panelStates: next };
     }),
 
   setPanelHeight: (height) =>
@@ -272,5 +317,7 @@ export const useTerminalStore = create<TerminalState>()((set, get) => ({
     return get().terminals.get(activeId);
   },
 
-  isPanelOpen: (scope) => get().openScopes.has(scopeKey(scope)),
+  isPanelOpen: (scope) => get().panelStates[scopeKey(scope)] === "open",
+  isPanelCollapsed: (scope) => get().panelStates[scopeKey(scope)] === "collapsed",
+  getPanelState: (scope) => get().panelStates[scopeKey(scope)],
 }));

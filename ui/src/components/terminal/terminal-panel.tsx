@@ -6,15 +6,38 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, ChevronDown, Columns2 } from "lucide-react";
+import { X, ChevronDown, ChevronUp, Columns2 } from "lucide-react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Tooltip } from "@/components/ui/tooltip";
+import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { useWSMethods } from "@/context/websocket-context";
 import { useTerminalStore, scopeKey } from "@/hooks/use-terminal-store";
 import { TerminalView } from "./terminal-view";
 import type { ServerMessage, TerminalScope, TerminalInfo } from "@shared/types";
 
 const MAX_TERMINALS = 4;
+
+// ── Collapsed peek bar ────────────────────────────────────────────────
+
+interface CollapsedTerminalBarProps {
+  terminalCount: number;
+  onExpand: () => void;
+}
+
+export function CollapsedTerminalBar({ terminalCount, onExpand }: CollapsedTerminalBarProps) {
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      className="group flex w-full items-center justify-center gap-1.5 border-t border-border/50 bg-surface-inset px-3 py-1 text-[0.6875rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+    >
+      <ChevronUp size={12} className="transition-transform group-hover:-translate-y-0.5" />
+      <span>
+        {terminalCount} terminal{terminalCount !== 1 ? "s" : ""}
+      </span>
+    </button>
+  );
+}
 
 // ── Main Panel ───────────────────────────────────────────────────────
 
@@ -39,7 +62,7 @@ export function TerminalPanel({
     setTerminalsForScope,
     removeTerminal,
     updateTerminal,
-    closePanel,
+    collapsePanel,
   } = useTerminalStore();
   const key = scopeKey(scope);
   const terminals = getTerminalsForScope(scope);
@@ -48,6 +71,9 @@ export function TerminalPanel({
   // create a duplicate terminal before knowing what already exists.
   const [listReceived, setListReceived] = useState(false);
   const mountedRef = useRef(true);
+
+  // Confirmation dialog for closing a terminal
+  const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -106,72 +132,99 @@ export function TerminalPanel({
 
   const handleCloseTerminal = useCallback(
     (terminalId: string) => {
-      send({ type: "terminal_close", terminalId });
+      const terminal = terminals.find((t) => t.id === terminalId);
+      // If the terminal is already exited, just close it directly
+      if (terminal?.exited) {
+        send({ type: "terminal_close", terminalId });
+      } else {
+        // Show confirmation for active terminals
+        setPendingCloseId(terminalId);
+      }
     },
-    [send],
+    [terminals, send],
   );
 
-  const handleClosePanel = useCallback(() => {
-    closePanel(key);
-  }, [key, closePanel]);
+  const confirmCloseTerminal = useCallback(() => {
+    if (pendingCloseId) {
+      send({ type: "terminal_close", terminalId: pendingCloseId });
+      setPendingCloseId(null);
+    }
+  }, [pendingCloseId, send]);
+
+  const handleCollapsePanel = useCallback(() => {
+    collapsePanel(key);
+  }, [key, collapsePanel]);
 
   const isSplit = terminals.length >= 2;
 
   return (
-    <div className="flex flex-col border-t border-border/50 bg-surface-inset" style={{ height }}>
-      {/* Resize handle */}
-      <div
-        onMouseDown={onResizeStart}
-        className="h-px shrink-0 cursor-row-resize bg-border/50 after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2 after:content-['']"
-        style={{ position: "relative" }}
-      />
+    <>
+      <div className="flex flex-col border-t border-border/50 bg-surface-inset" style={{ height }}>
+        {/* Resize handle */}
+        <div
+          onMouseDown={onResizeStart}
+          className="h-px shrink-0 cursor-row-resize bg-border/50 after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2 after:content-['']"
+          style={{ position: "relative" }}
+        />
 
-      {/* Terminal content */}
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {terminals.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted">
-            No terminal
-          </div>
-        ) : isSplit ? (
-          <Group orientation="horizontal" className="h-full">
-            {terminals.map((t, i) => (
-              <SplitPane
-                key={t.id}
-                terminal={t}
-                index={i}
-                scope={scope}
-                isLast={i === terminals.length - 1}
-                onClose={() => handleCloseTerminal(t.id)}
-                onAdd={handleNewTerminal}
-                canAdd={canAdd}
-                onClosePanel={handleClosePanel}
-                activeInstanceId={activeInstanceId}
-              />
-            ))}
-          </Group>
-        ) : (
-          <div className="flex h-full flex-col">
-            <PaneHeader
-              terminal={terminals[0]}
-              index={0}
-              onClose={() => handleCloseTerminal(terminals[0].id)}
-              onAdd={canAdd ? handleNewTerminal : undefined}
-              canAdd={canAdd}
-              onClosePanel={handleClosePanel}
-            />
-            <div className="min-h-0 flex-1">
-              <TerminalView
-                key={terminals[0].id}
-                terminalId={terminals[0].id}
-                scope={scope}
-                index={0}
-                activeInstanceId={activeInstanceId}
-              />
+        {/* Terminal content */}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {terminals.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted">
+              No terminal
             </div>
-          </div>
-        )}
+          ) : isSplit ? (
+            <Group orientation="horizontal" className="h-full">
+              {terminals.map((t, i) => (
+                <SplitPane
+                  key={t.id}
+                  terminal={t}
+                  index={i}
+                  scope={scope}
+                  isLast={i === terminals.length - 1}
+                  onClose={() => handleCloseTerminal(t.id)}
+                  onAdd={handleNewTerminal}
+                  canAdd={canAdd}
+                  onCollapsePanel={handleCollapsePanel}
+                  activeInstanceId={activeInstanceId}
+                />
+              ))}
+            </Group>
+          ) : (
+            <div className="flex h-full flex-col">
+              <PaneHeader
+                terminal={terminals[0]}
+                index={0}
+                onClose={() => handleCloseTerminal(terminals[0].id)}
+                onAdd={canAdd ? handleNewTerminal : undefined}
+                canAdd={canAdd}
+                onCollapsePanel={handleCollapsePanel}
+              />
+              <div className="min-h-0 flex-1">
+                <TerminalView
+                  key={terminals[0].id}
+                  terminalId={terminals[0].id}
+                  scope={scope}
+                  index={0}
+                  activeInstanceId={activeInstanceId}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+
+      <ConfirmActionDialog
+        open={!!pendingCloseId}
+        onOpenChange={(open) => {
+          if (!open) setPendingCloseId(null);
+        }}
+        title="Close terminal?"
+        description="This will kill the running process and close the terminal."
+        confirmLabel="Close"
+        onConfirm={confirmCloseTerminal}
+      />
+    </>
   );
 }
 
@@ -185,7 +238,7 @@ function SplitPane({
   onClose,
   onAdd,
   canAdd,
-  onClosePanel,
+  onCollapsePanel,
   activeInstanceId,
 }: {
   terminal: TerminalInfo;
@@ -195,7 +248,7 @@ function SplitPane({
   onClose: () => void;
   onAdd: () => void;
   canAdd: boolean;
-  onClosePanel: () => void;
+  onCollapsePanel: () => void;
   activeInstanceId?: string | null;
 }) {
   return (
@@ -208,7 +261,7 @@ function SplitPane({
             onClose={onClose}
             onAdd={isLast ? onAdd : undefined}
             canAdd={canAdd}
-            onClosePanel={isLast ? onClosePanel : undefined}
+            onCollapsePanel={isLast ? onCollapsePanel : undefined}
           />
           <div className="min-h-0 flex-1">
             <TerminalView
@@ -236,14 +289,14 @@ function PaneHeader({
   onClose,
   onAdd,
   canAdd = true,
-  onClosePanel,
+  onCollapsePanel,
 }: {
   terminal: TerminalInfo;
   index: number;
   onClose: () => void;
   onAdd?: () => void;
   canAdd?: boolean;
-  onClosePanel?: () => void;
+  onCollapsePanel?: () => void;
 }) {
   const { getTerminalName, renameTerminal } = useTerminalStore();
   const name = getTerminalName(terminal.id, index);
@@ -301,23 +354,25 @@ function PaneHeader({
             </button>
           </Tooltip>
         )}
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded p-0.5 text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          title="Close terminal"
-        >
-          <X size={12} />
-        </button>
-        {onClosePanel && (
+        <Tooltip content="Close terminal">
           <button
             type="button"
-            onClick={onClosePanel}
+            onClick={onClose}
             className="rounded p-0.5 text-muted transition-colors hover:bg-surface-hover hover:text-text"
-            title="Close terminal panel"
           >
-            <ChevronDown size={12} />
+            <X size={12} />
           </button>
+        </Tooltip>
+        {onCollapsePanel && (
+          <Tooltip content="Collapse terminal panel">
+            <button
+              type="button"
+              onClick={onCollapsePanel}
+              className="rounded p-0.5 text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <ChevronDown size={12} />
+            </button>
+          </Tooltip>
         )}
       </div>
     </div>

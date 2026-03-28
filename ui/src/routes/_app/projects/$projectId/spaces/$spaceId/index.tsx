@@ -71,7 +71,7 @@ const DiffDrawer = lazy(() =>
 );
 import { useTerminalStore } from "@/hooks/use-terminal-store";
 import { useVerticalResize } from "@/hooks/use-vertical-resize";
-import { TerminalPanel } from "@/components/terminal/terminal-panel";
+import { TerminalPanel, CollapsedTerminalBar } from "@/components/terminal/terminal-panel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type {
   SpaceInfo,
@@ -132,8 +132,18 @@ export function SpaceView() {
   // ── Terminal panel state ──────────────────────────────────────────
   const terminalScope: TerminalScope = { type: "space", spaceId };
   const terminalScopeKey = `space:${spaceId}`;
-  const { isPanelOpen: isTerminalPanelOpen, togglePanel: toggleTerminalPanel } = useTerminalStore();
+  const {
+    isPanelOpen: isTerminalPanelOpen,
+    isPanelCollapsed: isTerminalPanelCollapsed,
+    togglePanel: toggleTerminalPanel,
+    expandPanel: expandTerminalPanel,
+    getTerminalsForScope,
+  } = useTerminalStore();
   const showTerminalPanel = isTerminalPanelOpen(terminalScope);
+  const isTerminalCollapsed = isTerminalPanelCollapsed(terminalScope);
+  const collapsedTerminalCount = isTerminalCollapsed
+    ? getTerminalsForScope(terminalScope).length
+    : 0;
   const { height: terminalHeight, onResizeStart: handleTerminalResizeStart } = useVerticalResize();
   const handleToggleTerminal = () => toggleTerminalPanel(terminalScopeKey);
 
@@ -721,10 +731,14 @@ export function SpaceView() {
                 worktreePath={space.worktreePath || undefined}
               />
               {!isMobile && (
-                <Tooltip content={showTerminalPanel ? "Hide terminal" : "Show terminal"}>
+                <Tooltip
+                  content={
+                    showTerminalPanel || isTerminalCollapsed ? "Hide terminal" : "Show terminal"
+                  }
+                >
                   <Button
                     variant="icon"
-                    toggled={showTerminalPanel}
+                    toggled={showTerminalPanel || isTerminalCollapsed}
                     onClick={handleToggleTerminal}
                     className="shrink-0"
                   >
@@ -942,6 +956,12 @@ export function SpaceView() {
               activeInstanceId={activeTab}
             />
           </ErrorBoundary>
+        )}
+        {isTerminalCollapsed && !isMobile && collapsedTerminalCount > 0 && (
+          <CollapsedTerminalBar
+            terminalCount={collapsedTerminalCount}
+            onExpand={() => expandTerminalPanel(terminalScopeKey)}
+          />
         )}
       </div>
 
