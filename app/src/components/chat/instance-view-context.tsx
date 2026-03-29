@@ -79,6 +79,7 @@ export type InstanceViewContextValue = {
     handleAnswerUserInput: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
     handleTakeover: () => void;
     handleCancel: () => void;
+    handleInterruptAndSend: () => void;
     handleSwitchProvider: (
       targetProvider: ProviderKind,
       carryContext: boolean,

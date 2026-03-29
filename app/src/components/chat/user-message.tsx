@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TerminalSquare, ChevronDown, ChevronRight } from "lucide-react";
+import { TerminalSquare, ChevronDown, ChevronRight, Clock, Zap } from "lucide-react";
 import { formatTimestamp } from "../../lib/utils";
 import { MarkdownContent, ImageThumbnail, IMAGE_PATTERN } from "./markdown-content";
 
@@ -7,6 +7,8 @@ interface UserMessageProps {
   text: string;
   timestamp?: number;
   shrinkwrapWidth?: number;
+  queued?: boolean;
+  onInterruptAndSend?: () => void;
 }
 
 // ── Extractors ───────────────────────────────────────────────────────
@@ -90,14 +92,22 @@ function TerminalAttachment({ block }: { block: TerminalBlock }) {
   );
 }
 
-export function UserMessage({ text, timestamp, shrinkwrapWidth }: UserMessageProps) {
+export function UserMessage({
+  text,
+  timestamp,
+  shrinkwrapWidth,
+  queued,
+  onInterruptAndSend,
+}: UserMessageProps) {
   const { textPart, images, terminalBlocks } = splitContent(text);
   const hasText = textPart.length > 0;
   const hasImages = images.length > 0;
   const hasTerminal = terminalBlocks.length > 0;
 
   return (
-    <div className="flex max-w-[80%] flex-col items-end gap-1.5 self-end">
+    <div
+      className={`flex max-w-[80%] flex-col items-end gap-1.5 self-end ${queued ? "opacity-60" : ""}`}
+    >
       {hasTerminal && (
         <div className="flex w-full flex-col gap-1.5">
           {terminalBlocks.map((block, i) => (
@@ -107,16 +117,38 @@ export function UserMessage({ text, timestamp, shrinkwrapWidth }: UserMessagePro
       )}
       {hasText && (
         <div
-          className="rounded-2xl rounded-br-sm border border-border/50 bg-user-bg p-2 text-sm leading-relaxed text-user-text"
+          className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed ${
+            queued
+              ? "border-border/30 border-dashed bg-user-bg/60 text-user-text/70"
+              : "border-border/50 bg-user-bg text-user-text"
+          }`}
           style={shrinkwrapWidth ? { maxWidth: shrinkwrapWidth } : undefined}
         >
           <MarkdownContent text={textPart} />
         </div>
       )}
       {hasImages && <ImageRow images={images} />}
-      {timestamp && (
-        <span className="px-1 text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
-      )}
+      <div className="flex items-center gap-1.5 px-1">
+        {queued && (
+          <span className="flex items-center gap-1 text-[10px] text-muted/60">
+            <Clock size={10} />
+            queued
+          </span>
+        )}
+        {queued && onInterruptAndSend && (
+          <button
+            type="button"
+            onClick={onInterruptAndSend}
+            className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-warning transition-colors hover:bg-warning/10"
+          >
+            <Zap size={10} />
+            Send now
+          </button>
+        )}
+        {timestamp && (
+          <span className="text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
+        )}
+      </div>
     </div>
   );
 }

@@ -61,6 +61,7 @@ export function InstanceViewContent() {
             pendingInteraction={!!shared.instance.pendingPlan || !!shared.pendingUserInput}
             planChildId={shared.planChild?.id}
             planChildName={shared.planChild?.name}
+            onInterruptAndSend={actions.handleInterruptAndSend}
           />
         </ErrorBoundary>
       )}

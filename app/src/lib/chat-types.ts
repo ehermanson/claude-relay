@@ -19,6 +19,7 @@ export interface UserChatItem {
   kind: "user";
   text: string;
   timestamp?: number;
+  queued?: boolean;
 }
 
 export interface AssistantChatItem {
@@ -65,6 +66,7 @@ export interface UserRow {
   kind: "user";
   text: string;
   timestamp?: number;
+  queued?: boolean;
 }
 
 export interface AssistantRow {

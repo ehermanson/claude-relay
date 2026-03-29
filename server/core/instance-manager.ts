@@ -194,6 +194,10 @@ interface Instance {
   fileStateRevision: number;
   /** Queued retry message when tool approval arrives while process is still running */
   pendingRetry?: string;
+  /** Messages queued by the user while the agent is mid-turn */
+  pendingMessages?: Array<{ text: string; images?: string[]; internal?: boolean }>;
+  /** Set when interrupt was triggered specifically to deliver queued messages */
+  interruptedToSend?: boolean;
   /** Last plan file path detected from Edit/Write activity while in plan mode */
   planFilePath?: string;
   /** Path to the git worktree (if this instance runs in isolation) */
@@ -1997,9 +2001,36 @@ export class InstanceManager extends EventEmitter {
     images?: string[],
     internal?: boolean,
   ): Promise<InstanceInfo | undefined> {
-    return this.enqueueInstanceMutation(id, (instance) =>
-      this.dispatchUserMessageLocked(id, instance, text, images, internal),
-    );
+    return this.enqueueInstanceMutation(id, (instance) => {
+      // If the agent is mid-turn, queue the message for delivery when the turn ends
+      if (instance.process?.isProcessing && !instance.info.external) {
+        if (!instance.pendingMessages) instance.pendingMessages = [];
+        instance.pendingMessages.push({ text, images, internal });
+
+        // Emit to the UI so the queued message appears in the chat immediately,
+        // but do NOT push to history — dispatchUserMessageLocked will create
+        // the real history entry when the queue is drained.
+        // Apply the same image-marker transform that dispatchUserMessageLocked
+        // uses, so the placeholder text is self-contained and renderable.
+        let displayText = text;
+        if (images && images.length > 0) {
+          const markers = images.map((p) => `[Image: source: ${p}]`).join("\n");
+          displayText = displayText ? `${displayText}\n${markers}` : markers;
+        }
+        const userMessage: import("#core/types.js").UserMessage = {
+          type: "user",
+          text: displayText,
+          instanceId: id,
+          internal,
+          queued: true,
+        };
+        this.emit("instance:user", id, userMessage);
+        instance.info.queuedMessageCount = instance.pendingMessages.length;
+        this.emitInstanceStatus(instance);
+        return undefined;
+      }
+      return this.dispatchUserMessageLocked(id, instance, text, images, internal);
+    });
   }
 
   async cancelMessage(id: string): Promise<void> {
@@ -2009,6 +2040,44 @@ export class InstanceManager extends EventEmitter {
       instance.cancelledByUser = true;
       instance.process.interrupt();
     });
+  }
+
+  /**
+   * Interrupt the current agent turn so queued messages are delivered sooner.
+   * The queued messages will be drained by the normal output/exit handler
+   * once the process responds to the interrupt.
+   */
+  async interruptAndSend(id: string): Promise<void> {
+    await this.enqueueInstanceMutation(id, (instance) => {
+      if (instance.info.external) throw new Error("Cannot interrupt external instances");
+      if (!instance.process) throw new Error("Instance is not running");
+      if (!instance.pendingMessages?.length) throw new Error("No queued messages to send");
+      // Use interruptedToSend so the exit handler knows to drain the queue
+      // (distinct from cancelledByUser which is a plain cancel)
+      instance.interruptedToSend = true;
+      instance.process.interrupt();
+    });
+  }
+
+  /**
+   * Coalesce all pending queued messages into a single message for dispatch.
+   * Combines text with double-newline separators and merges image arrays.
+   */
+  private coalescePendingMessages(instance: Instance): {
+    text: string;
+    images?: string[];
+    internal?: boolean;
+  } {
+    const msgs = instance.pendingMessages ?? [];
+    const texts = msgs.map((m) => m.text).filter(Boolean);
+    const images = msgs.flatMap((m) => m.images ?? []);
+    // If any message is non-internal, treat the coalesced result as non-internal
+    const allInternal = msgs.every((m) => m.internal);
+    return {
+      text: texts.join("\n\n"),
+      images: images.length ? images : undefined,
+      internal: allInternal ? true : undefined,
+    };
   }
 
   async respondToRequest(
@@ -2219,6 +2288,30 @@ export class InstanceManager extends EventEmitter {
     }
 
     return [...instance.history];
+  }
+
+  /**
+   * Return queued user messages that haven't been dispatched yet.
+   * Used by the subscribe handler to re-emit them after a full replay,
+   * so the client can display them even after a reconnect.
+   */
+  getPendingQueuedMessages(id: string): Array<import("#core/types.js").UserMessage> {
+    const instance = this.instances.get(id);
+    if (!instance?.pendingMessages?.length) return [];
+    return instance.pendingMessages.map((m) => {
+      let displayText = m.text;
+      if (m.images && m.images.length > 0) {
+        const markers = m.images.map((p) => `[Image: source: ${p}]`).join("\n");
+        displayText = displayText ? `${displayText}\n${markers}` : markers;
+      }
+      return {
+        type: "user" as const,
+        text: displayText,
+        instanceId: id,
+        internal: m.internal,
+        queued: true,
+      };
+    });
   }
 
   private getPersistedAllowedTools(sessionId: string | undefined): string[] {
@@ -5786,6 +5879,19 @@ export class InstanceManager extends EventEmitter {
             live.info.lastActivityAt = Date.now();
             this.setStatus(live, "processing");
             live.process?.send(retryText);
+          } else if (live.pendingMessages?.length) {
+            // Drain queued user messages as the next turn
+            const coalesced = this.coalescePendingMessages(live);
+            live.pendingMessages = undefined;
+            live.info.queuedMessageCount = undefined;
+            this.emitInstanceStatus(live);
+            this.dispatchUserMessageLocked(
+              id,
+              live,
+              coalesced.text,
+              coalesced.images,
+              coalesced.internal,
+            );
           } else {
             this.checkWorktreeChanges(live);
             this.refreshPendingPlan(live);
@@ -5882,15 +5988,43 @@ export class InstanceManager extends EventEmitter {
         live.providerBinding = proc.getRuntimeBinding();
         live.info.lastActivityAt = Date.now();
         const wasCancelledByUser = live.cancelledByUser;
+        const wasInterruptedToSend = live.interruptedToSend;
         live.cancelledByUser = false;
+        live.interruptedToSend = false;
+
+        // If user interrupted specifically to deliver queued messages, dispatch them now
+        // (this restarts the process via dispatchUserMessageLocked)
+        if (wasInterruptedToSend && live.pendingMessages?.length) {
+          const coalesced = this.coalescePendingMessages(live);
+          live.pendingMessages = undefined;
+          live.info.queuedMessageCount = undefined;
+          this.setStatus(live, "stopped");
+          this.emitInstanceStatus(live);
+          this.dbSave(live);
+          this.dispatchUserMessageLocked(
+            id,
+            live,
+            coalesced.text,
+            coalesced.images,
+            coalesced.internal,
+          );
+          return;
+        }
+
         if (message.code !== 0 && !wasCancelledByUser) {
           this.pushHistory(live, message);
           this.setStatus(live, "error");
         } else {
           this.setStatus(live, "stopped");
         }
+        // Clear any orphaned queue on non-interrupt exits and broadcast the update
+        if (live.pendingMessages?.length) {
+          live.pendingMessages = undefined;
+          live.info.queuedMessageCount = undefined;
+          this.emitInstanceStatus(live);
+        }
         this.dbSave(live);
-        if (!wasCancelledByUser) {
+        if (!wasCancelledByUser && !wasInterruptedToSend) {
           this.emit("instance:exit", id, message);
         }
       }).catch((err) => this.logQueuedMutationError("exit handler", id, err));

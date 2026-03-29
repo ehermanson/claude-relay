@@ -114,6 +114,11 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     send({ type: "instance_cancel", instanceId: id });
   };
 
+  const handleInterruptAndSend = () => {
+    if (!id || !isActive) return;
+    send({ type: "instance_interrupt_and_send", instanceId: id });
+  };
+
   const handleSwitchProvider = async (
     targetProvider: ProviderKind,
     carryContext: boolean,
@@ -385,6 +390,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       handleAnswerUserInput,
       handleTakeover,
       handleCancel,
+      handleInterruptAndSend,
       handleSwitchProvider,
       setShowDebugPaste,
       setConfirmDelete,

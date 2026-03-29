@@ -525,6 +525,15 @@ export function createWebSocketServer(
                   log.debug(baseMessage);
                 }
               }
+              // After a full replay, re-emit any queued messages so the client can
+              // display them even after a reconnect. For delta replays, the queued
+              // messages are already in the replay buffer events, so skip to avoid dupes.
+              if (replay.replayMode === "full") {
+                const queuedMessages = instanceManager.getPendingQueuedMessages(message.instanceId);
+                for (const qm of queuedMessages) {
+                  sendMessage(ws, qm);
+                }
+              }
             } catch {
               sendMessage(ws, {
                 type: "error",
@@ -578,6 +587,19 @@ export function createWebSocketServer(
               sendMessage(ws, {
                 type: "error",
                 message: err instanceof Error ? err.message : "Failed to cancel",
+                instanceId: message.instanceId,
+              });
+            }
+            break;
+          }
+
+          case "instance_interrupt_and_send": {
+            try {
+              await instanceManager.interruptAndSend(message.instanceId);
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to interrupt and send",
                 instanceId: message.instanceId,
               });
             }

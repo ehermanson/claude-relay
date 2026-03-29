@@ -163,7 +163,7 @@ export function InputToolbar({
         ) : null}
       </div>
 
-      {/* Right section: secondary action + morphing send/stop button */}
+      {/* Right section: secondary action + send/queue/stop buttons */}
       <div className="flex items-center gap-2">
         {hasSecondaryAction ? (
           <Button
@@ -175,15 +175,38 @@ export function InputToolbar({
             {secondaryActionLabel}
           </Button>
         ) : null}
-        <ActionButton
-          isStop={isProcessing}
-          onClick={onSend}
-          onStopClick={onCancel}
-          disabled={isSendDisabled}
-          label={sendLabel}
-          tooltip={sendTooltip ?? (isMobile ? "Send" : "Send (Enter)")}
-          stopTooltip={isMobile ? "Cancel" : "Cancel (Esc)"}
-        />
+        {isProcessing ? (
+          <>
+            {!isSendDisabled && (
+              <ActionButton
+                isStop={false}
+                onClick={onSend}
+                onStopClick={onCancel}
+                disabled={isSendDisabled}
+                variant="queue"
+                tooltip={isMobile ? "Queue message" : "Queue message (Enter)"}
+                stopTooltip=""
+              />
+            )}
+            <ActionButton
+              isStop={true}
+              onClick={onCancel}
+              onStopClick={onCancel}
+              disabled={false}
+              stopTooltip={isMobile ? "Cancel" : "Cancel (Esc)"}
+            />
+          </>
+        ) : (
+          <ActionButton
+            isStop={false}
+            onClick={onSend}
+            onStopClick={onCancel}
+            disabled={isSendDisabled}
+            label={sendLabel}
+            tooltip={sendTooltip ?? (isMobile ? "Send" : "Send (Enter)")}
+            stopTooltip={isMobile ? "Cancel" : "Cancel (Esc)"}
+          />
+        )}
       </div>
     </div>
   );

@@ -14,6 +14,8 @@ interface ActionButtonProps {
   label?: string;
   tooltip?: string;
   stopTooltip?: string;
+  /** Visual variant for the send state. "queue" renders a dimmed, dashed-border style. */
+  variant?: "default" | "queue";
 }
 
 /**
@@ -27,10 +29,11 @@ interface ActionButtonProps {
  * A slight delay on the send→stop transition makes the change more noticeable.
  */
 export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(function ActionButton(
-  { isStop, onClick, onStopClick, disabled, label, tooltip, stopTooltip },
+  { isStop, onClick, onStopClick, disabled, label, tooltip, stopTooltip, variant = "default" },
   ref,
 ) {
   const hasLabel = !!label && !isStop;
+  const isQueue = variant === "queue" && !isStop;
 
   return (
     <Tooltip content={isStop ? stopTooltip : tooltip}>
@@ -48,7 +51,9 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
             ${
               isStop
                 ? "bg-error text-white hover:bg-error/90"
-                : "bg-accent text-white shadow-sm hover:bg-accent-hover hover:shadow-md"
+                : isQueue
+                  ? "border border-dashed border-accent/60 bg-accent/15 text-accent shadow-none hover:bg-accent/25"
+                  : "bg-accent text-white shadow-sm hover:bg-accent-hover hover:shadow-md"
             }
             ${hasLabel ? "h-9 rounded-full px-4 text-[0.875rem] tracking-[-0.02em]" : "h-8 w-8 rounded-full p-0"}
           `}

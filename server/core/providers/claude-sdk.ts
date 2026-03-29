@@ -275,6 +275,10 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private _isProcessing = false;
   private _hasStreamedText = false;
   private _lastMessageHadToolUse = false;
+  /** Number of thinking blocks already emitted for the current message turn. */
+  private _emittedThinkingCount = 0;
+  /** True until the first user message is sent — suppresses replay emissions. */
+  private _isResumeReplay = false;
   private _sessionId: string | undefined;
   private _stopped = false;
   private _stats: SessionStats = {
@@ -329,6 +333,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     if (options.resumeSessionId) {
       sdkOptions.resume = options.resumeSessionId;
+      this._isResumeReplay = true;
     }
 
     if (options.dangerouslySkipPermissions) {
@@ -419,6 +424,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this._isProcessing = true;
     this._hasStreamedText = false;
     this._lastMessageHadToolUse = false;
+    this._emittedThinkingCount = 0;
+    this._isResumeReplay = false;
     this._autoContinueCount = 0;
     this.logger.info(`[SdkSession] Sending: "${message.slice(0, 50)}..."`);
 
@@ -810,6 +817,10 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   }
 
   private handleAssistant(msg: Record<string, unknown>): void {
+    // During resume replay, the SDK re-sends all previous assistant messages.
+    // The JSONL parser already built the history from these — skip to avoid duplicates.
+    if (this._isResumeReplay) return;
+
     this._lastRawAssistantMsg = msg;
     const message = msg.message as
       | {
@@ -841,8 +852,14 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // Track whether this message contained tool_use for auto-continue fallback
     this._lastMessageHadToolUse = message.content.some((block) => block.type === "tool_use");
 
+    // Count thinking blocks in this partial message so we only emit new ones.
+    // With includePartialMessages the SDK re-sends the full content array on
+    // every partial update, so we skip blocks we already emitted.
+    let thinkingIndex = 0;
     for (const block of message.content) {
       if (block.type === "thinking" && block.thinking) {
+        if (thinkingIndex++ < this._emittedThinkingCount) continue;
+        this._emittedThinkingCount = thinkingIndex;
         const activity: ActivityMessage = {
           type: "activity",
           activity: "thinking",
@@ -923,6 +940,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     } else if (eventType === "message_start") {
       // Message started — ensure we're in processing state and reset stream flag
       this._hasStreamedText = false;
+      this._emittedThinkingCount = 0;
       this.pendingStreamMessage = null;
       if (!this._isProcessing) {
         this._isProcessing = true;

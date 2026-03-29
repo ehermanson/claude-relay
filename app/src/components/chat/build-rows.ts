@@ -147,6 +147,7 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
             kind: "user",
             text: item.text,
             timestamp: item.timestamp,
+            queued: item.queued,
           });
           break;
         case "assistant":

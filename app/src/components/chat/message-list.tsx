@@ -43,6 +43,7 @@ interface MessageListProps {
   pendingInteraction?: boolean;
   planChildId?: string;
   planChildName?: string;
+  onInterruptAndSend?: () => void;
 }
 
 export function MessageList({
@@ -61,6 +62,7 @@ export function MessageList({
   pendingInteraction,
   planChildId,
   planChildName,
+  onInterruptAndSend,
 }: MessageListProps) {
   const {
     ref: scrollRef,
@@ -151,6 +153,8 @@ export function MessageList({
             text={row.text}
             timestamp={row.timestamp}
             shrinkwrapWidth={computeBubbleShrinkwrap(row.text, containerWidthRef.current)}
+            queued={row.queued}
+            onInterruptAndSend={row.queued ? onInterruptAndSend : undefined}
           />
         );
       case "assistant":

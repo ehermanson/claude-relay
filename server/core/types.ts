@@ -260,6 +260,8 @@ export interface InstanceInfo {
   projectId?: string;
   /** Space this instance belongs to (null = implicit main space) */
   spaceId?: string;
+  /** Number of user messages queued while the agent is processing */
+  queuedMessageCount?: number;
 }
 
 export interface HistoryEntry {
@@ -329,6 +331,11 @@ export interface InstanceMessagePayload {
 
 export interface InstanceCancelPayload {
   type: "instance_cancel";
+  instanceId: string;
+}
+
+export interface InstanceInterruptAndSendPayload {
+  type: "instance_interrupt_and_send";
   instanceId: string;
 }
 
@@ -470,6 +477,7 @@ export type ClientMessage =
   | UnsubscribePayload
   | InstanceMessagePayload
   | InstanceCancelPayload
+  | InstanceInterruptAndSendPayload
   | RespondToRequestPayload
   | RenameInstancePayload
   | RenameSpacePayload
@@ -517,6 +525,8 @@ export interface UserMessage {
   eventSequence?: number;
   /** If true, this message was injected programmatically (e.g. auto-continue after restart) and should be hidden from the chat UI. */
   internal?: boolean;
+  /** True when this message was queued while the agent was processing and hasn't been delivered yet. */
+  queued?: boolean;
 }
 
 export interface ExitMessage {
