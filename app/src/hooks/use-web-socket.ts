@@ -1,4 +1,4 @@
-import { useReducer, useRef, useEffect, useState } from "react";
+import { useReducer, useRef, useEffect, useState, useCallback } from "react";
 import type { ServerMessage, InstanceInfo, ClientMessage } from "@shared/types";
 
 // Instance list reducer
@@ -54,28 +54,34 @@ export function useWebSocket() {
   const lastMessageRef = useRef(0);
   const staleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const send = (message: ClientMessage) => {
+  const send = useCallback((message: ClientMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     }
-  };
+  }, []);
 
-  const subscribe = (instanceId: string, lastSeenSequence?: number, replayEpoch?: number) => {
-    send({ type: "subscribe", instanceId, lastSeenSequence, replayEpoch });
-  };
+  const subscribe = useCallback(
+    (instanceId: string, lastSeenSequence?: number, replayEpoch?: number) => {
+      send({ type: "subscribe", instanceId, lastSeenSequence, replayEpoch });
+    },
+    [send],
+  );
 
-  const unsubscribe = (instanceId: string) => {
-    send({ type: "unsubscribe", instanceId });
-  };
+  const unsubscribe = useCallback(
+    (instanceId: string) => {
+      send({ type: "unsubscribe", instanceId });
+    },
+    [send],
+  );
 
-  const addMessageHandler = (handler: MessageHandler) => {
+  const addMessageHandler = useCallback((handler: MessageHandler) => {
     handlersRef.current.add(handler);
     return () => {
       handlersRef.current.delete(handler);
     };
-  };
+  }, []);
 
-  const connect = () => {
+  const connect = useCallback(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${protocol}//${window.location.host}`);
     wsRef.current = ws;
@@ -170,7 +176,7 @@ export function useWebSocket() {
     ws.onerror = (err) => {
       console.error("WebSocket error:", err);
     };
-  };
+  }, []);
 
   useEffect(() => {
     connect();
@@ -180,7 +186,7 @@ export function useWebSocket() {
       if (graceRef.current) clearTimeout(graceRef.current);
       wsRef.current?.close();
     };
-  }, []);
+  }, [connect]);
 
   return {
     isConnected,

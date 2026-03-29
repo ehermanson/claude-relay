@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useWebSocket, type MessageHandler } from "../hooks/use-web-socket";
 import type { InstanceInfo, ClientMessage } from "@shared/types";
 
@@ -33,8 +33,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     addMessageHandler,
   } = useWebSocket();
 
-  const methods = { send, subscribe, unsubscribe, addMessageHandler };
-  const state = { isConnected, isSyncing, connectionId, instances };
+  const methods = useMemo(
+    () => ({ send, subscribe, unsubscribe, addMessageHandler }),
+    [send, subscribe, unsubscribe, addMessageHandler],
+  );
+  const state = useMemo(
+    () => ({ isConnected, isSyncing, connectionId, instances }),
+    [isConnected, isSyncing, connectionId, instances],
+  );
 
   return (
     <WSMethodsContext.Provider value={methods}>

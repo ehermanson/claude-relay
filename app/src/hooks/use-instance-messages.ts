@@ -54,7 +54,8 @@ type Action =
       eventSequence?: number;
     }
   | { type: "activity"; message: ActivityMessage }
-  | { type: "user"; text: string; internal?: boolean; eventSequence?: number }
+  | { type: "user"; text: string; internal?: boolean; queued?: boolean; eventSequence?: number }
+  | { type: "clear_queued" }
   | { type: "transcript"; title: string; result: string; eventSequence?: number }
   | { type: "exit"; code: number; signal?: string; stderr?: string; eventSequence?: number }
   | { type: "error"; message: string }
@@ -173,7 +174,12 @@ function coreReducer(state: State, action: Action): State {
                 text: lastItem.text + "\n" + msg.text,
               };
             } else {
-              items.push({ kind: "user", text: msg.text, timestamp: entry.timestamp });
+              items.push({
+                kind: "user",
+                text: msg.text,
+                timestamp: entry.timestamp,
+                queued: msg.queued,
+              });
             }
             break;
           }
@@ -403,6 +409,22 @@ function coreReducer(state: State, action: Action): State {
       if (action.internal) return state;
       const items = [...state.items];
       const now = Date.now();
+
+      // When the queue drains, the server sends one coalesced non-queued user
+      // message that replaces all the queued placeholders.  Strip the old
+      // placeholders so we don't show duplicates.
+      if (!action.queued) {
+        const hadQueued = items.some((i) => i.kind === "user" && i.queued);
+        if (hadQueued) {
+          // Remove all queued placeholders — the real message replaces them
+          for (let i = items.length - 1; i >= 0; i--) {
+            if (items[i].kind === "user" && (items[i] as { queued?: boolean }).queued) {
+              items.splice(i, 1);
+            }
+          }
+        }
+      }
+
       const lastItem = items[items.length - 1];
       if (
         isImageOnly(action.text) &&
@@ -420,12 +442,21 @@ function coreReducer(state: State, action: Action): State {
           showThinkingIndicator: false,
         };
       }
-      items.push({ kind: "user", text: action.text, timestamp: now });
+      items.push({ kind: "user", text: action.text, timestamp: now, queued: action.queued });
       return {
         ...state,
         items,
         showThinkingIndicator: false,
-        processingStartedAt: now,
+        processingStartedAt: action.queued ? state.processingStartedAt : now,
+      };
+    }
+
+    case "clear_queued": {
+      const hadQueued = state.items.some((i) => i.kind === "user" && i.queued);
+      if (!hadQueued) return state;
+      return {
+        ...state,
+        items: state.items.filter((i) => !(i.kind === "user" && i.queued)),
       };
     }
 
@@ -505,11 +536,12 @@ function getActionSequence(action: Action): number | undefined {
 }
 
 function reducer(state: State, action: Action): State {
-  const next = coreReducer(state, action);
   const seq = getActionSequence(action);
-  if (seq === undefined || seq <= next.lastSeenSequence) {
-    return next;
+  if (seq !== undefined && seq <= state.lastSeenSequence) {
+    return state;
   }
+  const next = coreReducer(state, action);
+  if (seq === undefined) return next;
   return {
     ...next,
     lastSeenSequence: seq,
@@ -560,6 +592,7 @@ export function useInstanceMessages() {
             type: "user",
             text: message.text,
             internal: message.internal,
+            queued: message.queued,
             eventSequence: message.eventSequence,
           });
         }
@@ -593,6 +626,13 @@ export function useInstanceMessages() {
       case "notification":
         if (!message.instanceId || message.instanceId === instanceId) {
           dispatch({ type: "notification", message: message.message });
+        }
+        break;
+      case "instance_status":
+        // When the server clears the message queue (turn ended or stop pressed),
+        // remove any queued placeholder bubbles that are still visible.
+        if (message.instanceId === instanceId && !message.instance.queuedMessageCount) {
+          dispatch({ type: "clear_queued" });
         }
         break;
     }
