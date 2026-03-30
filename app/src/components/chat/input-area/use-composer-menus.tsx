@@ -1,5 +1,11 @@
-import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
-import type { SkillInfo } from "@shared/types";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from "react";
+import type { SkillInfo, Task } from "@shared/types";
 import { fetchWorkspaceEntries } from "../../../lib/api";
 import { detectMentionTrigger, replacePromptRange } from "../../../lib/composer-mentions";
 import { MentionMenu, SlashMenu } from "./overlay-menus";
@@ -8,6 +14,7 @@ import {
   SLASH_COMMANDS,
   getSlashContext,
   matchesQuery,
+  mentionEntryKey,
   type MentionEntry,
   type SlashMenuItem,
 } from "./shared";
@@ -22,6 +29,7 @@ interface UseComposerMenusParams {
   instanceId: string;
   isMobile: boolean;
   skills?: SkillInfo[];
+  tasks?: Task[] | null;
   draftText: string;
   composerSelectionOffset: number;
   mentionEntries: MentionEntry[];
@@ -60,9 +68,9 @@ interface UseComposerMenusParams {
 function getNextIndex(currentIndex: number, length: number, direction: "next" | "prev") {
   if (length === 0) return -1;
   if (direction === "next") {
-    return currentIndex < 0 ? 0 : (currentIndex + 1) % length;
+    return currentIndex < 0 ? 0 : Math.min(currentIndex + 1, length - 1);
   }
-  return currentIndex < 0 ? length - 1 : (currentIndex - 1 + length) % length;
+  return currentIndex < 0 ? 0 : Math.max(currentIndex - 1, 0);
 }
 
 function groupSlashMenuItems(items: SlashMenuItem[]) {
@@ -81,6 +89,7 @@ export function useComposerMenus({
   instanceId,
   isMobile,
   skills,
+  tasks,
   draftText,
   composerSelectionOffset,
   mentionEntries,
@@ -119,33 +128,93 @@ export function useComposerMenus({
     ? detectMentionTrigger(draftText, composerSelectionOffset)
     : null;
 
+  const mentionLoadingRef = useRef(false);
+  const [mentionLoading, setMentionLoading] = useState(false);
+
+  // Build task entries from in-memory data (synchronous — no fetch needed)
+  const buildTaskEntries = (query: string): MentionEntry[] => {
+    const q = query.toLowerCase();
+    return (tasks ?? [])
+      .filter(
+        (t) =>
+          t.status === "open" &&
+          !t.deleted &&
+          (q === "" ||
+            q === "task" ||
+            q.startsWith("task") ||
+            t.title.toLowerCase().includes(q) ||
+            t.id.toLowerCase().includes(q)),
+      )
+      .sort((a, b) => a.priority - b.priority || b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, 10)
+      .map((t) => ({
+        kind: "task" as const,
+        taskId: t.id,
+        title: t.title,
+        description: t.description,
+        priority: t.priority,
+        type: t.type,
+      }));
+  };
+
   useEffect(() => {
     if (!mentionTrigger) {
       setMentionEntries([]);
       setSelectedMentionKey(null);
+      mentionLoadingRef.current = false;
+      setMentionLoading(false);
       return;
     }
 
+    // Show task results immediately (they're already in memory)
+    const taskEntries = buildTaskEntries(mentionTrigger.query);
+    if (taskEntries.length > 0) {
+      setMentionEntries(taskEntries);
+      setSelectedMentionKey((prev) => {
+        if (prev && taskEntries.some((e) => mentionEntryKey(e) === prev)) return prev;
+        return mentionEntryKey(taskEntries[0]);
+      });
+    }
+
+    mentionLoadingRef.current = true;
+    setMentionLoading(true);
+
     let cancelled = false;
-    const timeoutId = window.setTimeout(async () => {
+
+    const doFetch = async () => {
       const result = await fetchWorkspaceEntries(instanceId, mentionTrigger.query);
       if (cancelled) return;
 
-      setMentionEntries(result.entries);
+      const freshTaskEntries = buildTaskEntries(mentionTrigger.query);
+      const merged: MentionEntry[] = [...result.entries, ...freshTaskEntries];
+      setMentionEntries(merged);
+      mentionLoadingRef.current = false;
+      setMentionLoading(false);
       setSelectedMentionKey((prev) => {
-        if (prev && result.entries.some((entry) => entry.path === prev)) {
+        if (prev && merged.some((entry) => mentionEntryKey(entry) === prev)) {
           return prev;
         }
-        return result.entries[0]?.path ?? null;
+        return merged[0] ? mentionEntryKey(merged[0]) : null;
       });
-    }, 120);
+    };
+
+    // Skip debounce for the initial empty query — fire immediately
+    if (mentionTrigger.query === "") {
+      doFetch();
+    } else {
+      const timeoutId = window.setTimeout(doFetch, 120);
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timeoutId);
+      };
+    }
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timeoutId);
     };
   }, [
     instanceId,
+    tasks,
     mentionTrigger?.query,
     mentionTrigger?.rangeEnd,
     mentionTrigger?.rangeStart,
@@ -156,11 +225,19 @@ export function useComposerMenus({
   const applyMentionEntry = (entry: MentionEntry) => {
     if (!mentionTrigger) return;
 
+    let replacement: string;
+    if (entry.kind === "task") {
+      const encodedTitle = encodeURIComponent(entry.title);
+      replacement = `@task:${entry.taskId}:${encodedTitle} `;
+    } else {
+      replacement = `@${entry.path} `;
+    }
+
     const next = replacePromptRange(
       draftText,
       mentionTrigger.rangeStart,
       mentionTrigger.rangeEnd,
-      `@${entry.path} `,
+      replacement,
     );
     setComposerValue(next.value, next.cursor);
     setMentionEntries([]);
@@ -314,7 +391,7 @@ export function useComposerMenus({
 
   const selectedMentionItem =
     (selectedMentionKey
-      ? mentionEntries.find((entry) => entry.path === selectedMentionKey)
+      ? mentionEntries.find((entry) => mentionEntryKey(entry) === selectedMentionKey)
       : null) ??
     mentionEntries[0] ??
     null;
@@ -373,9 +450,28 @@ export function useComposerMenus({
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       const composerContainer = composerContainerRef.current;
       const target = event.target;
-      if (composerContainer && target instanceof Node && !composerContainer.contains(target)) {
+      const isInsideComposer =
+        composerContainer && target instanceof Node && composerContainer.contains(target);
+
+      // Escape always dismisses regardless of focus location
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (mentionTrigger) {
+          setMentionEntries([]);
+          setSelectedMentionKey(null);
+          dismissMentionMenu();
+          return;
+        }
+
+        setSelectedSlashKey(null);
+        dismissSlashMenu();
         return;
       }
+
+      // Tab/Enter only apply when focus is inside the composer
+      if (!isInsideComposer) return;
 
       if (mentionTrigger && (event.key === "Tab" || event.key === "Enter")) {
         event.preventDefault();
@@ -392,26 +488,40 @@ export function useComposerMenus({
         selectedSlashItem?.onSelect();
         return;
       }
+    };
 
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
+    // Click outside composer + menu dismisses the menu
+    const handleWindowMouseDown = (event: MouseEvent) => {
+      const composerContainer = composerContainerRef.current;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+
+      // Click inside the composer container (which includes the menu overlay) — keep open
+      if (composerContainer?.contains(target)) return;
+
+      // Click inside the mention list (it's positioned absolutely, may be outside composer)
+      const mentionList = mentionListRef.current;
+      if (mentionList?.contains(target)) return;
 
       if (mentionTrigger) {
         setMentionEntries([]);
         setSelectedMentionKey(null);
         dismissMentionMenu();
-        return;
+      } else if (slashContext) {
+        setSelectedSlashKey(null);
+        dismissSlashMenu();
       }
-
-      setSelectedSlashKey(null);
-      dismissSlashMenu();
     };
 
     window.addEventListener("keydown", handleWindowKeyDown, true);
-    return () => window.removeEventListener("keydown", handleWindowKeyDown, true);
+    window.addEventListener("mousedown", handleWindowMouseDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleWindowKeyDown, true);
+      window.removeEventListener("mousedown", handleWindowMouseDown, true);
+    };
   }, [
     composerContainerRef,
+    mentionListRef,
     dismissMentionMenu,
     dismissSlashMenu,
     mentionTrigger,
@@ -427,21 +537,25 @@ export function useComposerMenus({
     if (isMentionMenuOpen) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        const currentIndex = selectedMentionItem
-          ? mentionEntries.findIndex((entry) => entry.path === selectedMentionItem.path)
+        const selectedKey = selectedMentionItem ? mentionEntryKey(selectedMentionItem) : null;
+        const currentIndex = selectedKey
+          ? mentionEntries.findIndex((entry) => mentionEntryKey(entry) === selectedKey)
           : -1;
         const nextIndex = getNextIndex(currentIndex, mentionEntries.length, "next");
-        setSelectedMentionKey(mentionEntries[nextIndex]?.path ?? null);
+        const next = mentionEntries[nextIndex];
+        setSelectedMentionKey(next ? mentionEntryKey(next) : null);
         return;
       }
 
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        const currentIndex = selectedMentionItem
-          ? mentionEntries.findIndex((entry) => entry.path === selectedMentionItem.path)
+        const selectedKey = selectedMentionItem ? mentionEntryKey(selectedMentionItem) : null;
+        const currentIndex = selectedKey
+          ? mentionEntries.findIndex((entry) => mentionEntryKey(entry) === selectedKey)
           : -1;
         const nextIndex = getNextIndex(currentIndex, mentionEntries.length, "prev");
-        setSelectedMentionKey(mentionEntries[nextIndex]?.path ?? null);
+        const next = mentionEntries[nextIndex];
+        setSelectedMentionKey(next ? mentionEntryKey(next) : null);
         return;
       }
 
@@ -526,6 +640,7 @@ export function useComposerMenus({
     <MentionMenu
       isMobile={isMobile}
       mentionEntries={mentionEntries}
+      loading={mentionLoading}
       selectedMentionKey={selectedMentionKey}
       onSelectMentionKey={setSelectedMentionKey}
       onApplyMentionEntry={applyMentionEntry}

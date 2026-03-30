@@ -1,3 +1,5 @@
+import type { Task } from "@shared/types";
+
 interface ComposerTextSegment {
   kind: "text";
   text: string;
@@ -8,7 +10,7 @@ interface ComposerMentionSegment {
   path: string;
 }
 
-type ComposerSegment = ComposerTextSegment | ComposerMentionSegment;
+export type ComposerSegment = ComposerTextSegment | ComposerMentionSegment;
 
 interface MentionTriggerMatch {
   query: string;
@@ -85,4 +87,35 @@ export function replacePromptRange(
     value,
     cursor: start + replacement.length,
   };
+}
+
+// ─── Task reference expansion ──────────────────────────────────────────────
+
+const TASK_REF_RE = /@task:([a-f0-9]{8})(?::[^\s@]*)?\b/g;
+
+/** Escape a string for safe use inside an XML attribute (double-quoted). */
+function escapeXmlAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/** Escape a string for safe use as XML element text content. */
+function escapeXmlText(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Replace `@task:<id>` tokens with `<task_reference>` XML blocks so the model
+ * receives structured context about referenced tasks.
+ */
+export function expandTaskReferences(text: string, tasks: Task[]): string {
+  return text.replace(TASK_REF_RE, (match, taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return match;
+    const desc = task.description ? `\n${escapeXmlText(task.description)}` : "";
+    return `<task_reference id="${escapeXmlAttr(task.id)}" title="${escapeXmlAttr(task.title)}">${desc}\n</task_reference>`;
+  });
 }

@@ -16,9 +16,21 @@ interface UserMessageProps {
 const TERMINAL_CONTEXT_PATTERN =
   /<terminal_context(?:\s+source="([^"]*)")?\s*>\n?([\s\S]*?)\n?<\/terminal_context>/g;
 
+const TASK_REFERENCE_PATTERN =
+  /<task_reference\s+id="([^"]*)"\s+title="([^"]*)">([\s\S]*?)\n?<\/task_reference>/g;
+
 interface TerminalBlock {
   source: string;
   text: string;
+}
+
+/** Reverse XML entity escaping applied by expandTaskReferences. */
+function unescapeXml(s: string): string {
+  return s
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&"); // must be last
 }
 
 function splitContent(text: string): {
@@ -33,6 +45,9 @@ function splitContent(text: string): {
     .replace(TERMINAL_CONTEXT_PATTERN, (_match, source: string | undefined, content: string) => {
       terminalBlocks.push({ source: source || "Terminal", text: content });
       return "";
+    })
+    .replace(TASK_REFERENCE_PATTERN, (_match, id: string, title: string) => {
+      return `@task:${id}:${encodeURIComponent(unescapeXml(title))}`;
     })
     .replace(IMAGE_PATTERN, (_match, filePath: string) => {
       images.push(filePath.trim());

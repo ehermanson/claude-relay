@@ -26,6 +26,7 @@ import { PlanReviewPanel, type PlanComment } from "@/components/chat/plan-review
 import { ProjectContext } from "@/context/project-context";
 import { useWSMethods } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { expandTaskReferences } from "@/lib/composer-mentions";
 import { formatModel } from "@/lib/utils";
 import {
   FastModeToggle,
@@ -276,8 +277,14 @@ export function InputArea({
   const handleSend = async () => {
     if (!isConnected || uploading) return;
 
-    const text = draftText.trim();
+    let text = draftText.trim();
     if (!text && images.length === 0) return;
+
+    // Expand task references into structured XML blocks for the model
+    const projectTasks = projectCtx?.artifacts.tasks;
+    if (projectTasks) {
+      text = expandTaskReferences(text, projectTasks);
+    }
 
     let imagePaths: string[] | undefined;
     try {
@@ -375,6 +382,7 @@ export function InputArea({
     instanceId,
     isMobile,
     skills: providerSkills,
+    tasks: projectCtx?.artifacts.tasks ?? null,
     draftText: isInSpecialMode ? "" : draftText,
     composerSelectionOffset: isInSpecialMode ? 0 : composerSelectionOffset,
     mentionEntries,

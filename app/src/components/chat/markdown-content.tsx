@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import { X, ListChecks } from "lucide-react";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import hljs from "../../lib/markdown";
 import { openNativePath } from "../../lib/api";
+import { FileIcon } from "@/components/ui/file-icon";
 
 interface MarkdownContentProps {
   text: string;
@@ -18,6 +19,70 @@ function preprocessImages(text: string): string {
     const encoded = encodeURIComponent(filePath.trim());
     return `![Image](/api/file?path=${encoded})`;
   });
+}
+
+// ── Remark plugin: convert @mentions in text nodes into link nodes ────────
+// Operates on the parsed mdast tree so it never touches text inside links,
+// code blocks, or inline code — only bare prose text nodes.
+
+const MENTION_AST_RE = /((?:^|\s))@(task:[a-f0-9]{8}(?::[^\s@]*)?|[^\s@]+)(?=\s|$)/g;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MdastNode = any;
+
+function remarkMentions() {
+  return (tree: MdastNode) => {
+    walkMentions(tree, false);
+  };
+}
+
+function walkMentions(node: MdastNode, insideLink: boolean): void {
+  if (!node.children) return;
+
+  const next: MdastNode[] = [];
+  for (const child of node.children as MdastNode[]) {
+    if (child.type === "text" && !insideLink) {
+      const parts = splitMentionText(child.value as string);
+      next.push(...parts);
+    } else {
+      walkMentions(child, insideLink || child.type === "link");
+      next.push(child);
+    }
+  }
+  node.children = next;
+}
+
+function splitMentionText(text: string): MdastNode[] {
+  const result: MdastNode[] = [];
+  let last = 0;
+
+  for (const m of text.matchAll(MENTION_AST_RE)) {
+    const leading = m[1] ?? "";
+    const token = m[2] ?? "";
+    const atPos = (m.index ?? 0) + leading.length;
+
+    if (atPos > last) {
+      result.push({ type: "text", value: text.slice(last, atPos) });
+    }
+
+    const url = token.startsWith("task:")
+      ? `relay-task-mention:${token.slice(5)}`
+      : `relay-file-mention:${token}`;
+
+    result.push({
+      type: "link",
+      url,
+      children: [{ type: "text", value: token }],
+    });
+
+    last = atPos + 1 + token.length; // skip @ + token
+  }
+
+  if (last < text.length) {
+    result.push({ type: "text", value: text.slice(last) });
+  }
+
+  return result.length > 0 ? result : [{ type: "text", value: text }];
 }
 
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
@@ -213,11 +278,53 @@ function parseNativeFileHref(
   };
 }
 
+function MentionChip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-accent/8 px-1.5 py-px align-middle text-[0.75rem] font-medium leading-tight text-text">
+      {children}
+    </span>
+  );
+}
+
 function MarkdownLink({
   href = "",
   children,
   ...props
 }: React.ComponentProps<"a"> & { node?: unknown }) {
+  if (href.startsWith("relay-file-mention:")) {
+    const path = href.slice("relay-file-mention:".length);
+    const basename = path.split("/").pop() || path;
+    return (
+      <MentionChip>
+        <FileIcon path={path} size={12} className="h-3 w-3" />
+        <span className="max-w-[12rem] truncate">{basename}</span>
+      </MentionChip>
+    );
+  }
+
+  if (href.startsWith("relay-task-mention:")) {
+    const encoded = href.slice("relay-task-mention:".length);
+    // encoded is "taskId" or "taskId:EncodedTitle"
+    const colonIdx = encoded.indexOf(":");
+    let title: string;
+    if (colonIdx === -1) {
+      title = encoded;
+    } else {
+      try {
+        title = decodeURIComponent(encoded.slice(colonIdx + 1));
+      } catch {
+        title = encoded.slice(colonIdx + 1);
+      }
+    }
+    return (
+      <MentionChip>
+        <ListChecks size={12} className="h-3 w-3 shrink-0 text-muted" />
+        <span className="text-muted">task:</span>
+        <span className="max-w-[12rem] truncate">{title}</span>
+      </MentionChip>
+    );
+  }
+
   const nativeTarget = parseNativeFileHref(href);
 
   if (nativeTarget) {
@@ -261,7 +368,7 @@ function MarkdownLink({
   );
 }
 
-const REMARK_PLUGINS = [remarkGfm];
+const REMARK_PLUGINS = [remarkGfm, remarkMentions];
 const MD_COMPONENTS = {
   code: CodeBlock,
   pre: PreBlock,
@@ -274,7 +381,11 @@ export function MarkdownContent({ text }: MarkdownContentProps) {
 
   return (
     <div className="markdown-content">
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MD_COMPONENTS}>
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        components={MD_COMPONENTS}
+        urlTransform={(url) => (url.startsWith("relay-") ? url : defaultUrlTransform(url))}
+      >
         {processed}
       </ReactMarkdown>
     </div>

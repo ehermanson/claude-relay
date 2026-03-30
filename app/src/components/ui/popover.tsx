@@ -34,6 +34,8 @@ interface PopoverContentProps {
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
   sideOffset?: number;
+  /** Optional anchor element for positioning when no Trigger is used. */
+  anchor?: Element | null;
 }
 
 function PopoverContent({
@@ -42,10 +44,11 @@ function PopoverContent({
   side = "bottom",
   align = "end",
   sideOffset = 6,
+  anchor,
 }: PopoverContentProps) {
   return (
     <BasePopover.Portal>
-      <BasePopover.Positioner side={side} align={align} sideOffset={sideOffset}>
+      <BasePopover.Positioner side={side} align={align} sideOffset={sideOffset} anchor={anchor}>
         <BasePopover.Popup className={`glass z-50 rounded-xl p-4 animate-fade-in ${className}`}>
           {children}
         </BasePopover.Popup>

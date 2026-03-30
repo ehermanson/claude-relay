@@ -104,6 +104,22 @@ class ComposerMentionNode extends TextNode {
       "inline-flex select-none items-center gap-1 rounded-md border border-border/80 bg-accent/10 px-1.5 py-px align-middle text-[12px] font-medium leading-[1.1] text-text";
     dom.contentEditable = "false";
     renderMentionChip(dom, this.__path);
+
+    if (isTaskMention(this.__path)) {
+      const { taskId } = parseTaskToken(this.__path);
+      dom.dataset.taskId = taskId;
+      dom.style.cursor = "pointer";
+      dom.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dom.dispatchEvent(
+          new CustomEvent("task-chip-click", {
+            detail: { taskId: dom.dataset.taskId, anchor: dom },
+            bubbles: true,
+          }),
+        );
+      });
+    }
+
     return dom;
   }
 
@@ -147,8 +163,48 @@ function inferEntryKind(pathValue: string): "file" | "directory" {
   return "directory";
 }
 
+function isTaskMention(pathValue: string): boolean {
+  return pathValue.startsWith("task:");
+}
+
+/** Parse `task:ID:EncodedTitle` → { taskId, title }. Falls back to raw ID if no title. */
+function parseTaskToken(pathValue: string): { taskId: string; title: string } {
+  const rest = pathValue.slice(5); // strip "task:"
+  const colonIdx = rest.indexOf(":");
+  if (colonIdx === -1) return { taskId: rest, title: rest };
+  const taskId = rest.slice(0, colonIdx);
+  try {
+    return { taskId, title: decodeURIComponent(rest.slice(colonIdx + 1)) };
+  } catch {
+    return { taskId, title: rest.slice(colonIdx + 1) };
+  }
+}
+
+// SVG path for a simple checkbox/task icon (lucide ListChecks)
+const TASK_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>`;
+
 function renderMentionChip(container: HTMLElement, pathValue: string): void {
   container.textContent = "";
+
+  if (isTaskMention(pathValue)) {
+    const { title } = parseTaskToken(pathValue);
+
+    const icon = document.createElement("span");
+    icon.className = "inline-flex h-3 w-3 shrink-0 items-center justify-center text-muted";
+    icon.innerHTML = TASK_ICON_SVG;
+
+    const prefix = document.createElement("span");
+    prefix.className = "text-muted";
+    prefix.textContent = "task:";
+
+    const label = document.createElement("span");
+    label.className = "truncate";
+    label.textContent = title;
+
+    container.append(icon, prefix, label);
+    return;
+  }
+
   const icon = document.createElement("img");
   icon.alt = "";
   icon.ariaHidden = "true";

@@ -39,9 +39,19 @@ export interface SlashMenuItem {
   onSelect: () => void;
 }
 
-export interface MentionEntry {
-  path: string;
-  kind: "file" | "directory";
+export type MentionEntry =
+  | { kind: "file" | "directory"; path: string }
+  | {
+      kind: "task";
+      taskId: string;
+      title: string;
+      description: string;
+      priority: number;
+      type: string;
+    };
+
+export function mentionEntryKey(entry: MentionEntry): string {
+  return entry.kind === "task" ? `task:${entry.taskId}` : entry.path;
 }
 
 export interface ImageAttachment {
