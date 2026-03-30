@@ -81,6 +81,36 @@ describe("useInstanceMessages sequence dedupe", () => {
     expect(result.current.items).toEqual([{ kind: "thinking-block", text: "considering options" }]);
   });
 
+  it("preserves whitespace-only output chunks between text chunks", () => {
+    const { result } = renderHook(() => useInstanceMessages());
+
+    act(() => {
+      result.current.setInstanceId("instance-1");
+    });
+
+    // Simulate streaming chunks where newlines arrive as separate chunks
+    const chunks = ["- item one", "\n\n", "4. next section"];
+
+    for (const [i, text] of chunks.entries()) {
+      act(() => {
+        result.current.handleMessage("instance-1", {
+          type: "output",
+          instanceId: "instance-1",
+          text,
+          isWaiting: i === chunks.length - 1,
+          eventSequence: 10 + i,
+        } as OutputMessage);
+      });
+    }
+
+    expect(result.current.items).toEqual([
+      expect.objectContaining({
+        kind: "assistant",
+        text: "- item one\n\n4. next section",
+      }),
+    ]);
+  });
+
   it("ignores duplicate sequenced output chunks", () => {
     const { result } = renderHook(() => useInstanceMessages());
 

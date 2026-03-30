@@ -258,7 +258,7 @@ function coreReducer(state: State, action: Action): State {
         };
       }
 
-      if (action.text && action.text.trim()) {
+      if (action.text) {
         const items = [...state.items];
 
         // Append to existing assistant message or create new one
