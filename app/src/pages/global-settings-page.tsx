@@ -76,7 +76,6 @@ function useAutoSave() {
 // ─── General Section ───────────────────────────────────────────────────────
 
 export function GeneralSettingsSection() {
-  const { data: settings } = useGlobalSettings();
   const themeStore = useThemeStore();
   const save = useAutoSave();
 
@@ -88,10 +87,7 @@ export function GeneralSettingsSection() {
   return (
     <SettingsSection title="General" description="Manage appearance and default behaviors.">
       <SettingRow label="Theme" description="Choose between light, dark, or system appearance.">
-        <ThemeToggle
-          value={(settings?.theme ?? themeStore.preference) as ThemePreference}
-          onChange={handleThemeChange}
-        />
+        <ThemeToggle value={themeStore.preference} onChange={handleThemeChange} />
       </SettingRow>
     </SettingsSection>
   );
