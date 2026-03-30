@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { AlertTriangle, Brain, Clock, Cog } from "lucide-react";
+import { AlertTriangle, Clock, Cog } from "lucide-react";
 import type { LiveActivity } from "@/lib/chat-types";
-import { getToolIcon } from "@/lib/tool-icons";
 
 function formatElapsed(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -9,25 +8,6 @@ function formatElapsed(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
   return `${minutes}m ${remainder}s`;
-}
-
-/** Icon for the current activity type */
-function ActivityIcon({ activity }: { activity: LiveActivity | null; stale: boolean }) {
-  const desc = activity?.description ?? "";
-
-  // Thinking — brain icon
-  if (desc === "Thinking..." || desc.startsWith("Think")) {
-    return <Brain size={14} className="shrink-0 text-claude" />;
-  }
-
-  // Known tool — use shared icon registry
-  if (activity?.tool) {
-    const Icon = getToolIcon(activity.tool);
-    return <Icon size={14} className="shrink-0 text-accent" />;
-  }
-
-  // Default — spinning gear
-  return <Cog size={14} className="shrink-0 animate-spin text-muted [animation-duration:3s]" />;
 }
 
 interface LiveStatusStripProps {
@@ -67,12 +47,8 @@ export function LiveStatusStrip({
   const isStale = silenceMs > 15_000;
   const isVeryStale = silenceMs > 60_000;
 
-  // Elapsed since this specific activity started (or since processing began)
-  const elapsedMs = activity
-    ? now - activity.startedAt
-    : processingStartedAt
-      ? now - processingStartedAt
-      : 0;
+  // Elapsed since the turn started (not per-activity)
+  const elapsedMs = processingStartedAt ? now - processingStartedAt : 0;
 
   // Description text
   let description: string;
@@ -80,22 +56,20 @@ export function LiveStatusStrip({
     description = "No activity for " + formatElapsed(silenceMs);
   } else if (isStale) {
     description = "Still working...";
-  } else if (activity) {
-    description = activity.description;
   } else {
     description = "Working...";
   }
 
   return (
     <div className="flex items-center gap-2.5 px-1 py-2">
-      {/* Pulsing dot or icon */}
+      {/* Icon */}
       <div className="flex items-center justify-center">
         {isVeryStale ? (
           <AlertTriangle size={14} className="shrink-0 text-warning" />
         ) : isStale ? (
           <Clock size={14} className="shrink-0 animate-pulse text-muted" />
         ) : (
-          <ActivityIcon activity={activity} stale={false} />
+          <Cog size={14} className="shrink-0 animate-spin text-muted [animation-duration:3s]" />
         )}
       </div>
 

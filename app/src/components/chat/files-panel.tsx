@@ -162,7 +162,7 @@ export const FilesPanel = memo(function FilesPanel({
               <button
                 type="button"
                 onClick={onViewChanges}
-                className="ml-auto flex items-center gap-1 rounded-md border border-accent/30 bg-accent/8 px-2 py-0.5 text-[0.6875rem] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/15"
+                className="ml-auto flex items-center gap-1 rounded-md px-2 py-0.5 text-[0.6875rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
               >
                 <FileDiff size={12} className="shrink-0" />
                 <span className="sidecar-control-label">Full Diff</span>
