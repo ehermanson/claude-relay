@@ -2,7 +2,6 @@ import {
   BrainIcon,
   Check,
   ChevronRight,
-  GaugeIcon,
   HammerIcon,
   LockIcon,
   LockOpenIcon,
@@ -257,7 +256,7 @@ export function ReasoningEffortPicker({
             isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
           } ${reasoningEffort ? "text-accent" : "text-muted"}`}
         >
-          <GaugeIcon size={11} strokeWidth={2} />
+          <BrainIcon size={11} strokeWidth={2} />
           <span className="toolbar-control-label">{label}</span>
         </Menu.Trigger>
       </Tooltip>
