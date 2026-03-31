@@ -35,7 +35,7 @@ const DISCONNECT_GRACE = 1_500;
 
 // Stale connection detection: if no message received within this window,
 // the connection is presumed dead and we force a reconnect. The server
-// pings every 30s, so 45s gives comfortable margin.
+// sends a heartbeat message every 30s, so 45s gives comfortable margin.
 const STALE_TIMEOUT = 45_000;
 
 export function useWebSocket() {

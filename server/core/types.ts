@@ -702,6 +702,10 @@ export interface TerminalListResponse {
   terminals: TerminalInfo[];
 }
 
+export interface HeartbeatMessage {
+  type: "heartbeat";
+}
+
 export type ServerMessage =
   | ConnectedMessage
   | OutputMessage
@@ -728,7 +732,8 @@ export type ServerMessage =
   | TerminalExitMessage
   | TerminalRemovedMessage
   | TerminalScrollbackMessage
-  | TerminalListResponse;
+  | TerminalListResponse
+  | HeartbeatMessage;
 
 // =============================================================================
 // Session Types

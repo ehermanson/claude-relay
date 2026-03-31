@@ -216,6 +216,8 @@ export function createWebSocketServer(
   }
 
   // Ping/pong heartbeat to detect dead connections (e.g. network drops)
+  // Also sends an application-level heartbeat message so browser clients
+  // (which can't see pong frames) know the connection is alive.
   const PING_INTERVAL = 30_000;
   const alive = new Map<WebSocket, boolean>();
   const pingTimer = setInterval(() => {
@@ -229,6 +231,7 @@ export function createWebSocketServer(
       }
       alive.set(ws, false);
       ws.ping();
+      sendMessage(ws, { type: "heartbeat" });
     }
   }, PING_INTERVAL);
   wss.on("close", () => clearInterval(pingTimer));
