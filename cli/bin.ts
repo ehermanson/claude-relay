@@ -147,4 +147,10 @@ function startServer(cliArgs: string[]): void {
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  // Log unhandled rejections so crashes leave a trail.
+  // Node 15+ exits on unhandled rejections by default — this ensures we see why.
+  process.on("unhandledRejection", (reason) => {
+    console.error("[FATAL] Unhandled rejection:", reason);
+  });
 }

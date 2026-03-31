@@ -253,6 +253,8 @@ export interface InstanceManager {
 const MAX_HISTORY = 1000;
 const MAX_TRANSCRIPT_CACHE_ENTRIES = 100;
 const DISCOVERY_INTERVAL = 10_000; // 10s
+/** Git branch refresh runs at most this often (multiple of discovery interval) */
+const GIT_REFRESH_INTERVAL = 30_000; // 30s
 const WATCH_POLL_INTERVAL = 2_000; // 2s
 const WATCH_DEDUP_GRACE_MS = 2_000; // Allow JSONL writes to catch up to managed process output
 /** Number of consecutive discovery misses before marking an external session as ended */
@@ -1028,6 +1030,8 @@ export class InstanceManager extends EventEmitter {
   private staleCounts = new Map<string, number>();
   /** Instance IDs that were auto-continued after a restart — excluded from the next processing-at-shutdown save to prevent restart loops */
   private recentlyAutoContinued = new Set<string>();
+  /** Timestamp of the last git branch refresh pass (throttled to GIT_REFRESH_INTERVAL) */
+  private lastGitRefreshAt = 0;
   private providerDirs: Record<ProviderKind, string>;
   /** Pre-resolved SDK query function — null if SDK not available (falls back to CLI) */
   private _sdkQueryFn: ((params: { prompt: unknown; options?: unknown }) => unknown) | null = null;
@@ -3314,20 +3318,26 @@ export class InstanceManager extends EventEmitter {
     const t0 = performance.now();
     try {
       await this.discoverExistingInner();
-      await Promise.all(
-        Array.from(this.instances.entries())
-          .filter(
-            ([, instance]) => instance.externalState || instance.watchState || instance.process,
-          )
-          .map(([instanceId, instance]) =>
-            this.refreshGitBranchStateAsync(instanceId, instance).catch((err) => {
-              this.baseConfig.logger.debug(
-                `[Discover] Git branch refresh failed for ${instanceId}:`,
-                err instanceof Error ? err.message : err,
-              );
-            }),
-          ),
-      );
+
+      // Throttle git-branch refresh — no need to run every discovery cycle
+      const now = Date.now();
+      if (now - this.lastGitRefreshAt >= GIT_REFRESH_INTERVAL) {
+        this.lastGitRefreshAt = now;
+        await Promise.all(
+          Array.from(this.instances.entries())
+            .filter(
+              ([, instance]) => instance.externalState || instance.watchState || instance.process,
+            )
+            .map(([instanceId, instance]) =>
+              this.refreshGitBranchStateAsync(instanceId, instance).catch((err) => {
+                this.baseConfig.logger.debug(
+                  `[Discover] Git branch refresh failed for ${instanceId}:`,
+                  err instanceof Error ? err.message : err,
+                );
+              }),
+            ),
+        );
+      }
     } catch (err) {
       this.baseConfig.logger.debug(
         "[Discovery] Error during discovery poll:",
@@ -3415,7 +3425,7 @@ export class InstanceManager extends EventEmitter {
         // Check for plan-continuation parent (explicit reference in first message)
         const planParent = this.findPlanParent(jsonlPath);
         const parentSessionId = planParent?.sessionId || planParent?.info.sessionId;
-        this.addExternalInstance(
+        await this.addExternalInstance(
           active.provider,
           active.sessionId,
           jsonlPath,
@@ -3605,13 +3615,13 @@ export class InstanceManager extends EventEmitter {
     );
   }
 
-  private addExternalInstance(
+  private async addExternalInstance(
     provider: ProviderKind,
     sessionId: string,
     jsonlPath: string,
     parentSessionId?: string,
     pid?: number,
-  ): void {
+  ): Promise<void> {
     const { cwd, history, tasks, files, stats } = this.parseProviderTranscript(provider, jsonlPath);
     if (!cwd) return; // Can't determine working directory
 
@@ -3638,7 +3648,11 @@ export class InstanceManager extends EventEmitter {
 
     const lastMessage = extractLastMessage(history);
 
-    const gitInfo = getGitInfo(workingDirectory) ?? undefined;
+    // Use async git calls to avoid blocking the event loop during discovery
+    const [gitInfo, worktreeGitInfo] = await Promise.all([
+      getGitInfoAsync(workingDirectory),
+      worktreePath ? getGitInfoAsync(cwd) : Promise.resolve(null),
+    ]);
     if (gitInfo && worktreePath) gitBranch = gitInfo.branch;
 
     const info: InstanceInfo = {
@@ -3653,7 +3667,7 @@ export class InstanceManager extends EventEmitter {
       lastMessage,
       sessionId,
       stats: hasSessionStats(stats) ? stats : undefined,
-      gitInfo: worktreePath ? (getGitInfo(cwd) ?? undefined) : gitInfo,
+      gitInfo: (worktreePath ? worktreeGitInfo : gitInfo) ?? undefined,
       gitBranch,
       originalDirectory,
       parentSessionId,
@@ -3696,13 +3710,13 @@ export class InstanceManager extends EventEmitter {
       hydrated: true,
     };
 
-    // Enrich files with git diff stats
+    // Enrich files with git diff stats (async to avoid blocking event loop)
     if (instance.files && instance.files.size > 0) {
       const diffCwd = instance.actualCwd || workingDirectory;
       const origBranch = originalDirectory
-        ? (getCurrentBranch(originalDirectory) ?? undefined)
+        ? ((await getCurrentBranchAsync(originalDirectory)) ?? undefined)
         : undefined;
-      enrichDiffStats(diffCwd, instance.files, {
+      await enrichDiffStatsAsync(diffCwd, instance.files, {
         originalBranch: origBranch,
         sessionCreatedAt: instance.info.createdAt,
       });
