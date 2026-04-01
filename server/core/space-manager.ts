@@ -29,6 +29,7 @@ import {
   getWorktreeDiff,
   gitPush,
   getWorktreeBase,
+  resolveWorktreeOrigin,
 } from "#core/git.js";
 
 function rowToInfo(row: SpaceRow, chatCount: number): SpaceInfo {
@@ -128,6 +129,21 @@ export class SpaceManager extends EventEmitter {
     worktree_path: string | null;
   }): string {
     return row.git_branch ?? row.worktree_path ?? "Recovered space";
+  }
+
+  private normalizeProjectDirectory(
+    projectDirectory: string | null | undefined,
+    worktreePath?: string | null,
+  ): string | null {
+    if (projectDirectory) {
+      const origin = resolveWorktreeOrigin(projectDirectory);
+      if (origin) return origin;
+    }
+    if (worktreePath) {
+      const origin = resolveWorktreeOrigin(worktreePath);
+      if (origin) return origin;
+    }
+    return projectDirectory ?? worktreePath ?? null;
   }
 
   private findMatchingSpaceRow(
@@ -333,6 +349,46 @@ export class SpaceManager extends EventEmitter {
   }
 
   recoverSpacesFromSessionMetadata(): number {
+    const activeRows = this.db.getAllActive();
+    const managedRows = this.db.getAllManagedActive();
+    const repairedProjectDirs = new Set<string>();
+    const registerProjectDirectory = (
+      projectDirectory: string | null | undefined,
+      worktreePath?: string | null,
+    ): string | null => {
+      const normalized = this.normalizeProjectDirectory(projectDirectory, worktreePath);
+      if (
+        projectDirectory &&
+        normalized &&
+        normalized !== projectDirectory &&
+        !repairedProjectDirs.has(projectDirectory)
+      ) {
+        this.db.reassignSpacesToProjectDirectory(normalized, projectDirectory);
+        repairedProjectDirs.add(projectDirectory);
+      }
+      return normalized;
+    };
+
+    const activeProjects = new Set<string>();
+    for (const row of activeRows) {
+      const projectDirectory = registerProjectDirectory(
+        row.original_directory ?? row.working_directory,
+        row.worktree_path,
+      );
+      if (projectDirectory) {
+        activeProjects.add(projectDirectory);
+      }
+    }
+    for (const row of managedRows) {
+      const projectDirectory = registerProjectDirectory(
+        row.original_directory ?? row.working_directory,
+        row.worktree_path,
+      );
+      if (projectDirectory) {
+        activeProjects.add(projectDirectory);
+      }
+    }
+
     const existingSpaces = new Map<string, SpaceRow>();
     const defaultSpaces = new Set<string>();
 
@@ -343,14 +399,6 @@ export class SpaceManager extends EventEmitter {
           defaultSpaces.add(project.directory);
         }
       }
-    }
-
-    const activeProjects = new Set<string>();
-    for (const row of this.db.getAllActive()) {
-      activeProjects.add(row.original_directory ?? row.working_directory);
-    }
-    for (const row of this.db.getAllManagedActive()) {
-      activeProjects.add(row.original_directory ?? row.working_directory);
     }
 
     let recovered = 0;
@@ -392,7 +440,11 @@ export class SpaceManager extends EventEmitter {
       const spaceBranch = row.git_branch ?? row.original_git_branch ?? null;
       if (!row.worktree_path && !spaceBranch?.startsWith("relay-space/")) return;
 
-      const projectDirectory = row.original_directory ?? row.working_directory;
+      const projectDirectory = this.normalizeProjectDirectory(
+        row.original_directory ?? row.working_directory,
+        row.worktree_path,
+      );
+      if (!projectDirectory) return;
       const id = this.deriveRecoveredSpaceId({
         ...row,
         git_branch: spaceBranch,
@@ -444,10 +496,10 @@ export class SpaceManager extends EventEmitter {
       }
     };
 
-    for (const row of this.db.getAllActive()) {
+    for (const row of activeRows) {
       collect(row, "session");
     }
-    for (const row of this.db.getAllManagedActive()) {
+    for (const row of managedRows) {
       collect(row, "managed");
     }
 

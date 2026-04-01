@@ -658,6 +658,108 @@ describe("scanAllSessions archive protection", () => {
 
     manager.stopAll();
   });
+
+  it("reassigns relay worktree-owned space rows back to the registered repo during recovery", () => {
+    const wt = createSpaceWorktree(repoDir, "b6583aaa");
+    assert.ok(wt, "space worktree should be created");
+    cleanupWorktrees.push(wt);
+
+    const config = resolveConfig({
+      password: "test",
+      logger: noopLogger,
+      maxProcesses: 3,
+      dbPath: join(tempDir, "sessions.db"),
+      providerDirs: {
+        claude: join(tempDir, ".claude"),
+        codex: join(tempDir, ".codex"),
+        gemini: join(tempDir, ".gemini"),
+      },
+    });
+    const manager = new InstanceManager(config);
+    manager.projectManager.addProject(repoDir);
+
+    manager.db.upsertSpace({
+      id: "orphan-worktree-default",
+      project_directory: wt.worktreePath,
+      name: "main",
+      git_branch: null,
+      worktree_path: null,
+      is_default: 1,
+      status: "active",
+      created_at: 1000,
+      last_activity_at: 2000,
+      merge_commit: null,
+      merge_method: null,
+      merged_at: null,
+      target_branch: null,
+      remote_status: null,
+      pr_url: null,
+    });
+
+    manager.db.upsert({
+      session_id: "worktree-session",
+      instance_id: "worktree-instance",
+      provider_name: "claude",
+      name: "Recovered active space",
+      working_directory: wt.worktreePath,
+      jsonl_path: join(tempDir, "worktree-session.jsonl"),
+      created_at: 1000,
+      last_activity_at: 2000,
+      type: "external",
+      archived: 0,
+      custom_title: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      summary: null,
+      first_prompt: null,
+      git_branch: wt.branchName,
+      message_count: 0,
+      allowed_tools: "[]",
+      worktree_path: wt.worktreePath,
+      original_directory: null,
+      parent_session_id: null,
+      preferred_model: null,
+      reasoning_budget: null,
+      skip_permissions: 0,
+      runtime_mode: "approval-required",
+      last_message_text: null,
+      last_message_from: null,
+      last_message_at: null,
+      git_info_branch: wt.branchName,
+      git_info_is_worktree: 1,
+      space_id: null,
+      project_id: null,
+      model: null,
+      model_options_json: null,
+      original_git_branch: wt.branchName,
+    });
+    writeFileSync(join(tempDir, "worktree-session.jsonl"), "{}\n");
+
+    manager.getSpaceManager().recoverSpacesFromSessionMetadata();
+
+    const repoSpaces = manager.getSpaceManager().listSpaces(repoDir);
+    assert.equal(
+      manager.db.getSpacesByProject(wt.worktreePath).length,
+      0,
+      "should not leave active spaces attached to the relay worktree path",
+    );
+    assert.ok(
+      repoSpaces.some((space) => space.id === "recovered-space-b6583aaa"),
+      "should recover the active space under the registered repo",
+    );
+    assert.ok(
+      repoSpaces.some((space) => space.isDefault),
+      "should keep a default space on the registered repo",
+    );
+    assert.equal(
+      manager.db.getBySessionId("worktree-session")?.space_id,
+      "recovered-space-b6583aaa",
+    );
+
+    manager.stopAll();
+  });
 });
 
 describe("live discovery worktree recovery", () => {
