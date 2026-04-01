@@ -64,6 +64,12 @@ interface InputAreaProps {
   topSlot?: React.ReactNode;
 }
 
+interface OptimisticProviderSelection {
+  provider: ProviderKind;
+  preferredModel?: string;
+  modelLabel?: string;
+}
+
 function buildPromptPlaceholder(
   question: UserInputQuestion | null,
   allowFreeform: boolean,
@@ -104,14 +110,18 @@ export function InputArea({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const projectCtx = useContext(ProjectContext);
-  const providerSkills = projectCtx?.artifacts.skills.filter((skill) =>
-    skill.providers.includes(provider),
-  );
   const { send } = useWSMethods();
   const { images, uploading, addImages, removeImage, clearImages, uploadAttachedImages } =
     useAttachmentState();
+  const [optimisticProviderSelection, setOptimisticProviderSelection] =
+    useState<OptimisticProviderSelection | null>(null);
+  const displayedProvider = optimisticProviderSelection?.provider ?? provider;
+  const displayedPreferredModel = optimisticProviderSelection?.preferredModel ?? preferredModel;
+  const providerSkills = projectCtx?.artifacts.skills.filter((skill) =>
+    skill.providers.includes(displayedProvider),
+  );
   const { showModelMenu, setShowModelMenu, availableProviderModels, capabilities } =
-    useProviderModels(provider);
+    useProviderModels(displayedProvider);
   const { providers: availableProviders } = useAvailableProviders();
   const {
     showProviderSwitchDialog,
@@ -178,13 +188,26 @@ export function InputArea({
     }
   }, [promptRequestId]);
 
+  useEffect(() => {
+    setOptimisticProviderSelection((current) => {
+      if (!current) return null;
+      const currentModel = current.preferredModel ?? null;
+      const canonicalModel = preferredModel ?? null;
+      if (current.provider === provider && currentModel === canonicalModel) {
+        return null;
+      }
+      return current;
+    });
+  }, [instanceId, preferredModel, provider]);
+
   const discoveredProviderModels = availableProviderModels;
   const selectedCustomModel =
-    preferredModel && !discoveredProviderModels.some((model) => model.id === preferredModel)
+    displayedPreferredModel &&
+    !discoveredProviderModels.some((model) => model.id === displayedPreferredModel)
       ? {
-          provider,
-          id: preferredModel,
-          label: preferredModel,
+          provider: displayedProvider,
+          id: displayedPreferredModel,
+          label: displayedPreferredModel,
         }
       : null;
   const currentProviderModels: ProviderModelOption[] = selectedCustomModel
@@ -203,13 +226,16 @@ export function InputArea({
     })),
   ];
   const currentProviderModelLabels = buildModelLabelLookup(currentProviderModels);
-  const activeModelLabel = activeModel
-    ? (currentProviderModelLabels.get(activeModel) ?? formatModel(activeModel))
-    : null;
+  const activeModelLabel =
+    optimisticProviderSelection == null && activeModel
+      ? (currentProviderModelLabels.get(activeModel) ?? formatModel(activeModel))
+      : null;
   const catalogDefaultLabel = currentProviderModels.find((m) => m.isDefault)?.label ?? null;
   const resolvedDefaultLabel = activeModelLabel ?? catalogDefaultLabel ?? "Default";
-  const modelLabel = preferredModel
-    ? (currentProviderModelLabels.get(preferredModel) ?? preferredModel)
+  const modelLabel = displayedPreferredModel
+    ? (optimisticProviderSelection?.modelLabel ??
+      currentProviderModelLabels.get(displayedPreferredModel) ??
+      displayedPreferredModel)
     : resolvedDefaultLabel;
   const supportsModelSelection = capabilities.supportsModelSelection;
   const supportsReasoningSelection = capabilities.supportsReasoningBudget;
@@ -218,31 +244,37 @@ export function InputArea({
   const supportsPlanMode = capabilities.supportsPlanMode;
   const visibleProviders =
     availableProviders.length > 0
-      ? availableProviders.some((entry) => entry.provider === provider)
+      ? availableProviders.some((entry) => entry.provider === displayedProvider)
         ? availableProviders
         : [
             {
-              provider,
-              label: getProviderDisplayName(provider),
+              provider: displayedProvider,
+              label: getProviderDisplayName(displayedProvider),
               capabilities,
             },
             ...availableProviders,
           ]
       : [
           {
-            provider,
-            label: getProviderDisplayName(provider),
+            provider: displayedProvider,
+            label: getProviderDisplayName(displayedProvider),
             capabilities,
           },
         ];
-  const providerLabel = provider === "claude" ? "Claude" : getProviderDisplayName(provider);
+  const providerLabel =
+    displayedProvider === "claude" ? "Claude" : getProviderDisplayName(displayedProvider);
   const providerSwitchLabel = providerSwitchTarget
     ? providerSwitchTarget === "claude"
       ? "Claude"
       : getProviderDisplayName(providerSwitchTarget)
     : null;
 
-  const setModel = (model: string | null) => {
+  const setModel = (model: string | null, label?: string) => {
+    setOptimisticProviderSelection({
+      provider: displayedProvider,
+      preferredModel: model ?? undefined,
+      modelLabel: model ? label : undefined,
+    });
     send({ type: "set_model", instanceId, model });
   };
 
@@ -390,7 +422,7 @@ export function InputArea({
     mentionMenuDismissed,
     selectedSlashKey,
     slashMenuDismissed,
-    preferredModel,
+    preferredModel: displayedPreferredModel,
     reasoningBudget,
     modelLabel,
     reasoningBudgetLevels: capabilities.reasoningBudgetLevels,
@@ -493,14 +525,19 @@ export function InputArea({
         open={showModelMenu}
         onOpenChange={setShowModelMenu}
         isProcessing={isProcessing}
-        provider={provider}
-        preferredModel={preferredModel}
+        provider={displayedProvider}
+        preferredModel={displayedPreferredModel}
         availableProviders={visibleProviders}
         currentProviderModels={currentProviderModels}
         modelLabel={modelLabel}
         onSelectModel={setModel}
-        onSelectProviderModel={(targetProvider, model) => {
+        onSelectProviderModel={(targetProvider, model, label) => {
           if (!hasMessages) {
+            setOptimisticProviderSelection({
+              provider: targetProvider,
+              preferredModel: model ?? undefined,
+              modelLabel: model ? label : undefined,
+            });
             send({ type: "set_provider", instanceId, provider: targetProvider });
             if (model) send({ type: "set_model", instanceId, model });
           } else {

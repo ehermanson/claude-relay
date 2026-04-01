@@ -29,9 +29,9 @@ interface ProviderModelPickerProps {
   availableProviders: ProviderDescriptor[];
   currentProviderModels: ProviderModelOption[];
   modelLabel: string;
-  onSelectModel: (model: string | null) => void;
+  onSelectModel: (model: string | null, label?: string) => void;
   /** Called when user selects a model from a different provider's panel */
-  onSelectProviderModel?: (provider: ProviderKind, model: string | null) => void;
+  onSelectProviderModel?: (provider: ProviderKind, model: string | null, label?: string) => void;
 }
 
 export function ProviderModelPicker({
@@ -91,9 +91,13 @@ export function ProviderModelPicker({
                       key={model.id}
                       onClick={() => {
                         if (isCurrent) {
-                          onSelectModel(isDefault ? null : model.id);
+                          onSelectModel(isDefault ? null : model.id, model.label);
                         } else if (onSelectProviderModel) {
-                          onSelectProviderModel(option.provider, isDefault ? null : model.id);
+                          onSelectProviderModel(
+                            option.provider,
+                            isDefault ? null : model.id,
+                            model.label,
+                          );
                         }
                         onOpenChange(false);
                       }}
