@@ -8,6 +8,7 @@ import { FileDiff } from "lucide-react";
 import { Collapsible } from "../ui/collapsible";
 import { FileIcon } from "../ui/file-icon";
 import { Tooltip } from "../ui/tooltip";
+import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FileChange } from "@shared/types";
 
 // =============================================================================
@@ -189,9 +190,10 @@ export const FilesPanel = memo(function FilesPanel({
                   <Collapsible.Trigger className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover">
                     <ChevronIcon open={isOpen} />
                     <FileIcon path={group.dir} kind="directory" size={15} />
-                    <span className="min-w-0 flex-1 truncate text-left font-medium text-text-bright">
-                      {group.dir}
-                    </span>
+                    <MiddleTruncate
+                      text={group.dir}
+                      className="min-w-0 flex-1 text-left font-medium text-text-bright"
+                    />
                     {group.hasDiffStats ? (
                       <DiffStats additions={group.additions} deletions={group.deletions} />
                     ) : (
