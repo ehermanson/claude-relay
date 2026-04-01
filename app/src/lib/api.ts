@@ -270,6 +270,12 @@ export async function fetchProjectChats(projectId: string): Promise<InstanceInfo
   return res.json();
 }
 
+export async function fetchSpaceChats(spaceId: string): Promise<InstanceInfo[]> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/chats`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function openNativePath(target: {
   path: string;
   line?: number;

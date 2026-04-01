@@ -21,7 +21,7 @@ import {
   commitSpace,
   completeSpace,
   deleteSpace,
-  fetchProjectChats,
+  fetchSpaceChats,
   fetchSpaceDetail,
   fetchSpaceDiff,
   pushSpace,
@@ -50,7 +50,6 @@ export function SpaceView() {
   const projectId = artifacts.projectId || routeProjectId;
   const projectName = getProjectName(artifacts.directory);
   const spaceQueryKey = ["space", spaceId] as const;
-  const chatsQueryKey = ["projectChats", projectId] as const;
 
   const [spaceDiff, setSpaceDiff] = useState<string | null>(null);
   const [showDiffDrawer, setShowDiffDrawer] = useState(false);
@@ -95,15 +94,15 @@ export function SpaceView() {
     queryFn: () => fetchSpaceDetail(spaceId),
   });
   const { data: chatSummaries = [], isLoading: chatSummariesLoading } = useQuery({
-    queryKey: chatsQueryKey,
-    queryFn: () => fetchProjectChats(projectId),
-    enabled: !!projectId,
+    queryKey: ["spaceChats", spaceId],
+    queryFn: () => fetchSpaceChats(spaceId),
+    enabled: !!spaceId,
   });
 
   useEffect(() => {
     return addMessageHandler((message) => {
       if (message.type === "instance_created" || message.type === "instance_removed") {
-        void queryClient.invalidateQueries({ queryKey: chatsQueryKey });
+        void queryClient.invalidateQueries({ queryKey: ["spaceChats", spaceId] });
         return;
       }
       if (message.type === "space_list" && message.projectDirectory === artifacts.directory) {
@@ -130,7 +129,6 @@ export function SpaceView() {
   }, [
     addMessageHandler,
     artifacts.directory,
-    chatsQueryKey,
     navigate,
     projectId,
     queryClient,
@@ -138,7 +136,12 @@ export function SpaceView() {
     spaceQueryKey,
   ]);
 
-  const spaceInstances = buildSpaceInstances(spaceId, chatSummaries, instances);
+  const spaceInstances = buildSpaceInstances(
+    spaceId,
+    space ? [space] : [],
+    chatSummaries,
+    instances,
+  );
   const hasActiveChats = spaceInstances.some(
     (instance) => instance.status === "idle" || instance.status === "processing",
   );
@@ -480,10 +483,8 @@ export function SpaceView() {
 
 export const Route = createFileRoute("/_app/projects/$projectId/spaces/$spaceId/")({
   loader: async ({ params }) => {
-    const chats = await fetchProjectChats(params.projectId);
-    const fallbackChat = chats
-      .filter((chat) => chat.spaceId === params.spaceId)
-      .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0))[0];
+    const chats = await fetchSpaceChats(params.spaceId);
+    const fallbackChat = chats.sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0))[0];
 
     if (fallbackChat) {
       throw redirect({

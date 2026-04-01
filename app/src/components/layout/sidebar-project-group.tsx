@@ -28,6 +28,7 @@ import {
   getProjectName,
   type RemoveProjectTarget,
 } from "../../lib/project-route";
+import { isSpaceOwnedInstance } from "../../lib/space-membership";
 import { EmptyProjectActions } from "../empty-project-actions";
 import { Button } from "../ui/button";
 import { Collapsible } from "../ui/collapsible";
@@ -122,7 +123,9 @@ export function SidebarProjectGroup({
     name: project?.name ?? dirName,
     directory: dir,
   };
-  const mainInstances = groupInstances.filter((instance) => !instance.spaceId);
+  const mainInstances = groupInstances.filter(
+    (instance) => !isSpaceOwnedInstance(instance, spaces),
+  );
 
   const childIds = new Set<string>();
   const parentChildren = new Map<string, InstanceInfo[]>();

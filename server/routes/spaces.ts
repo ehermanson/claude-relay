@@ -63,6 +63,14 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
     return c.json(space);
   });
 
+  app.get("/api/spaces/:id/chats", (c) => {
+    const space = instanceManager.getSpaceManager().getSpace(c.req.param("id"));
+    if (!space) {
+      return c.json({ error: "Space not found" }, 404);
+    }
+    return c.json(instanceManager.listSpaceChats(space.id));
+  });
+
   app.post("/api/spaces/:id/complete", async (c) => {
     try {
       const body = await readJsonBody<{ mergeMethod?: string; squashMessage?: string }>(c);

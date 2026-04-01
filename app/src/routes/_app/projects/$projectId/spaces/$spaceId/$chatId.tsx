@@ -5,15 +5,14 @@
  * from URL params to determine which tab is active.
  */
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { fetchProjectChats } from "@/lib/api";
+import { fetchSpaceChats } from "@/lib/api";
 import { SpaceView } from "./index";
 
 export const Route = createFileRoute("/_app/projects/$projectId/spaces/$spaceId/$chatId")({
   loader: async ({ params }) => {
-    const chats = await fetchProjectChats(params.projectId);
-    const spaceChats = chats
-      .filter((chat) => chat.spaceId === params.spaceId)
-      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const spaceChats = (await fetchSpaceChats(params.spaceId)).sort(
+      (a, b) => (a.createdAt || 0) - (b.createdAt || 0),
+    );
 
     const activeChat = spaceChats.find((chat) => chat.id === params.chatId);
     if (activeChat) return;

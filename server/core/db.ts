@@ -152,6 +152,8 @@ export class SessionDB {
   private stmtGetAllManagedActive!: Database.Statement;
   private stmtGetByProjectId!: Database.Statement;
   private stmtGetManagedByProjectId!: Database.Statement;
+  private stmtGetBySpaceId!: Database.Statement;
+  private stmtGetManagedBySpaceId!: Database.Statement;
   private stmtArchiveManaged!: Database.Statement;
   private stmtArchive!: Database.Statement;
   private stmtUnarchive!: Database.Statement;
@@ -220,7 +222,15 @@ export class SessionDB {
     this.db.pragma("busy_timeout = 3000");
 
     this.migrate();
+    this.ensureIndexes();
     this.prepareStatements();
+  }
+
+  private ensureIndexes(): void {
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_space_id ON sessions(space_id);
+      CREATE INDEX IF NOT EXISTS idx_managed_sessions_space_id ON managed_sessions(space_id);
+    `);
   }
 
   private migrate(): void {
@@ -544,6 +554,14 @@ export class SessionDB {
       "SELECT * FROM managed_sessions WHERE project_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
     );
 
+    this.stmtGetBySpaceId = this.db.prepare(
+      "SELECT * FROM sessions WHERE space_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+    );
+
+    this.stmtGetManagedBySpaceId = this.db.prepare(
+      "SELECT * FROM managed_sessions WHERE space_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+    );
+
     this.stmtArchive = this.db.prepare("UPDATE sessions SET archived = 1 WHERE session_id = ?");
 
     this.stmtArchiveManaged = this.db.prepare(
@@ -851,6 +869,14 @@ export class SessionDB {
 
   getManagedByProjectId(projectId: string): ManagedInstanceRow[] {
     return this.stmtGetManagedByProjectId.all(projectId) as ManagedInstanceRow[];
+  }
+
+  getBySpaceId(spaceId: string): SessionRow[] {
+    return this.stmtGetBySpaceId.all(spaceId) as SessionRow[];
+  }
+
+  getManagedBySpaceId(spaceId: string): ManagedInstanceRow[] {
+    return this.stmtGetManagedBySpaceId.all(spaceId) as ManagedInstanceRow[];
   }
 
   archiveManaged(instanceId: string): void {

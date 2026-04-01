@@ -533,6 +533,79 @@ describe("InstanceManager", () => {
     });
   });
 
+  describe("listProjectChats", () => {
+    it("dedupes managed transcript shadows and infers missing space ids from worktree metadata", () => {
+      const project = manager.projectManager.addProject(manager.baseConfig.workingDirectory);
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Space",
+      });
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-space-chat",
+            provider_session_id: "shared-session",
+            transcript_path: "/tmp/shared.jsonl",
+            working_directory: space.worktreePath,
+            worktree_path: space.worktreePath,
+            original_directory: manager.baseConfig.workingDirectory,
+            git_branch: space.gitBranch,
+            space_id: space.id,
+            project_id: project.id,
+            name: "Managed space chat",
+          }),
+        );
+
+        db.upsert(
+          makeExternalRow({
+            session_id: "shared-session",
+            instance_id: "shadow-external",
+            jsonl_path: "/tmp/shared.jsonl",
+            working_directory: manager.baseConfig.workingDirectory,
+            original_directory: manager.baseConfig.workingDirectory,
+            worktree_path: space.worktreePath,
+            git_branch: "main",
+            space_id: null,
+            project_id: project.id,
+            name: "Shadow external",
+          }),
+        );
+
+        db.upsert(
+          makeExternalRow({
+            session_id: "external-space-only",
+            instance_id: "external-space-only",
+            jsonl_path: "/tmp/external-space-only.jsonl",
+            working_directory: manager.baseConfig.workingDirectory,
+            original_directory: manager.baseConfig.workingDirectory,
+            worktree_path: space.worktreePath,
+            git_branch: "main",
+            space_id: null,
+            project_id: project.id,
+            name: "External inferred space chat",
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const chats = manager.listProjectChats(project.id);
+      assert.equal(
+        chats.some((chat) => chat.id === "shadow-external"),
+        false,
+      );
+
+      const inferred = chats.find((chat) => chat.id === "external-space-only");
+      assert.ok(inferred);
+      assert.equal(inferred.spaceId, space.id);
+
+      const managed = chats.find((chat) => chat.id === "managed-space-chat");
+      assert.ok(managed);
+      assert.equal(managed.spaceId, space.id);
+    });
+  });
+
   describe("getHistory", () => {
     it("returns empty history for new instance", () => {
       const info = manager.createInstance();

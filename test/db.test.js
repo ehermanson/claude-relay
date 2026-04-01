@@ -429,6 +429,40 @@ describe("SessionDB", () => {
     });
   });
 
+  describe("getBySpaceId", () => {
+    it("returns only rows matching the given space_id", () => {
+      db.upsert(
+        makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl", space_id: "sp-1" }),
+      );
+      db.upsert(
+        makeRow({ session_id: "s2", instance_id: "i2", jsonl_path: "/b.jsonl", space_id: "sp-2" }),
+      );
+      db.upsert(
+        makeRow({ session_id: "s3", instance_id: "i3", jsonl_path: "/c.jsonl", space_id: "sp-1" }),
+      );
+      const rows = db.getBySpaceId("sp-1");
+      assert.equal(rows.length, 2);
+      const ids = rows.map((r) => r.instance_id).sort();
+      assert.deepEqual(ids, ["i1", "i3"]);
+    });
+
+    it("excludes archived rows", () => {
+      db.upsert(
+        makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl", space_id: "sp-1" }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "s2",
+          instance_id: "i2",
+          jsonl_path: "/b.jsonl",
+          space_id: "sp-1",
+          archived: 1,
+        }),
+      );
+      assert.equal(db.getBySpaceId("sp-1").length, 1);
+    });
+  });
+
   describe("getManagedByProjectId", () => {
     function makeManagedRow(overrides = {}) {
       return {
@@ -488,6 +522,16 @@ describe("SessionDB", () => {
 
     it("returns empty array for unknown project", () => {
       assert.equal(db.getManagedByProjectId("nonexistent").length, 0);
+    });
+
+    it("returns only managed rows matching the given space_id", () => {
+      db.upsertManaged(makeManagedRow({ instance_id: "m-1", space_id: "sp-1" }));
+      db.upsertManaged(makeManagedRow({ instance_id: "m-2", space_id: "sp-2" }));
+      db.upsertManaged(makeManagedRow({ instance_id: "m-3", space_id: "sp-1" }));
+      const rows = db.getManagedBySpaceId("sp-1");
+      assert.equal(rows.length, 2);
+      const ids = rows.map((r) => r.instance_id).sort();
+      assert.deepEqual(ids, ["m-1", "m-3"]);
     });
   });
 

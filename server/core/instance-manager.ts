@@ -60,6 +60,7 @@ import type {
   ProviderRequest,
   ProviderRuntimeBinding,
   ProviderRuntimeMode,
+  SpaceInfo,
   ReasoningEffort,
   ProviderModelOption,
   UserInputQuestion,
@@ -1006,6 +1007,36 @@ function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
   };
 }
 
+function inferSpaceIdForPersistenceRow(
+  row: {
+    space_id: string | null;
+    worktree_path: string | null;
+    git_branch: string | null;
+    original_directory?: string | null;
+    working_directory: string;
+  },
+  spaces: SpaceInfo[],
+): string | undefined {
+  if (row.space_id) return row.space_id;
+
+  const worktreeMatch = row.worktree_path
+    ? spaces.find((space) => space.worktreePath === row.worktree_path)
+    : undefined;
+  if (worktreeMatch) return worktreeMatch.id;
+
+  const projectDirectory = row.original_directory ?? row.working_directory;
+  const branchMatch =
+    row.git_branch && projectDirectory
+      ? spaces.find(
+          (space) =>
+            space.projectDirectory === projectDirectory &&
+            space.gitBranch === row.git_branch &&
+            !space.isDefault,
+        )
+      : undefined;
+  return branchMatch?.id;
+}
+
 function statsChanged(before: SessionStats, after: SessionStats): boolean {
   return (
     before.inputTokens !== after.inputTokens ||
@@ -1709,23 +1740,102 @@ export class InstanceManager extends EventEmitter {
 
   listProjectChats(projectId: string): InstanceInfo[] {
     const chats = new Map<string, InstanceInfo>();
+    const project = this._projectManager.getProject(projectId);
+    const spaces = project ? this.spaceManager.listAllSpaces(project.directory) : [];
+    const managedProviderSessionIds = new Set<string>();
+    const managedTranscriptPaths = new Set<string>();
 
     for (const instance of this.instances.values()) {
       if (instance.info.projectId !== projectId) {
         continue;
       }
+      if (!instance.info.external) {
+        const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
+        const providerSessionId =
+          binding?.providerSessionId ?? instance.sessionId ?? instance.info.sessionId;
+        const transcriptPath = binding?.transcriptPath ?? instance.jsonlPath;
+        if (providerSessionId) managedProviderSessionIds.add(providerSessionId);
+        if (transcriptPath) managedTranscriptPaths.add(transcriptPath);
+      }
       chats.set(instance.info.id, toChatSummaryInfo(this.deriveInstanceView(instance)));
     }
 
-    for (const row of this.db.getByProjectId(projectId)) {
+    for (const row of this.db.getManagedByProjectId(projectId)) {
+      if (row.provider_session_id) managedProviderSessionIds.add(row.provider_session_id);
+      if (row.transcript_path) managedTranscriptPaths.add(row.transcript_path);
       if (!chats.has(row.instance_id)) {
-        chats.set(row.instance_id, summaryFromSessionRow(row));
+        chats.set(row.instance_id, summaryFromManagedRow(row));
       }
     }
 
-    for (const row of this.db.getManagedByProjectId(projectId)) {
+    for (const row of this.db.getByProjectId(projectId)) {
+      if (
+        managedProviderSessionIds.has(row.session_id) ||
+        managedTranscriptPaths.has(row.jsonl_path)
+      ) {
+        continue;
+      }
       if (!chats.has(row.instance_id)) {
-        chats.set(row.instance_id, summaryFromManagedRow(row));
+        const summary = summaryFromSessionRow(row);
+        summary.spaceId = inferSpaceIdForPersistenceRow(row, spaces);
+        chats.set(row.instance_id, summary);
+      }
+    }
+
+    return Array.from(chats.values()).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  }
+
+  listSpaceChats(spaceId: string): InstanceInfo[] {
+    const chats = new Map<string, InstanceInfo>();
+    const space = this.spaceManager.getSpace(spaceId);
+    const project = space
+      ? this._projectManager.getProjectByDirectory(space.projectDirectory)
+      : undefined;
+    const projectId = project?.id;
+    const spaces = project ? this.spaceManager.listAllSpaces(project.directory) : [];
+    const managedProviderSessionIds = new Set<string>();
+    const managedTranscriptPaths = new Set<string>();
+
+    for (const instance of this.instances.values()) {
+      if (instance.info.spaceId !== spaceId) {
+        continue;
+      }
+      if (!instance.info.external) {
+        const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
+        const providerSessionId =
+          binding?.providerSessionId ?? instance.sessionId ?? instance.info.sessionId;
+        const transcriptPath = binding?.transcriptPath ?? instance.jsonlPath;
+        if (providerSessionId) managedProviderSessionIds.add(providerSessionId);
+        if (transcriptPath) managedTranscriptPaths.add(transcriptPath);
+      }
+      chats.set(instance.info.id, toChatSummaryInfo(this.deriveInstanceView(instance)));
+    }
+
+    if (projectId) {
+      for (const row of this.db.getManagedByProjectId(projectId)) {
+        const inferredSpaceId = inferSpaceIdForPersistenceRow(row, spaces);
+        if (inferredSpaceId !== spaceId) continue;
+        if (row.provider_session_id) managedProviderSessionIds.add(row.provider_session_id);
+        if (row.transcript_path) managedTranscriptPaths.add(row.transcript_path);
+        if (!chats.has(row.instance_id)) {
+          chats.set(row.instance_id, summaryFromManagedRow(row));
+        }
+      }
+
+      for (const row of this.db.getByProjectId(projectId)) {
+        const inferredSpaceId = inferSpaceIdForPersistenceRow(row, spaces);
+        if (inferredSpaceId !== spaceId) continue;
+        if (
+          managedProviderSessionIds.has(row.session_id) ||
+          managedTranscriptPaths.has(row.jsonl_path)
+        ) {
+          continue;
+        }
+        if (!chats.has(row.instance_id)) {
+          const summary = summaryFromSessionRow(row);
+          summary.spaceId = inferredSpaceId;
+          chats.set(row.instance_id, summary);
+        }
       }
     }
 

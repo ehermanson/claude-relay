@@ -48,6 +48,7 @@ export function useWebSocket() {
   const [instances, dispatch] = useReducer(instanceReducer, []);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasConnectedRef = useRef(false);
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
   const backoffRef = useRef(RECONNECT_BASE);
   const graceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,7 +88,9 @@ export function useWebSocket() {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return;
       lastMessageRef.current = Date.now();
+      hasConnectedRef.current = true;
       // Start stale-connection checker
       if (staleTimerRef.current) clearInterval(staleTimerRef.current);
       staleTimerRef.current = setInterval(() => {
@@ -102,6 +105,7 @@ export function useWebSocket() {
     };
 
     ws.onmessage = (event) => {
+      if (wsRef.current !== ws) return;
       lastMessageRef.current = Date.now();
 
       try {
@@ -151,6 +155,7 @@ export function useWebSocket() {
     };
 
     ws.onclose = (event) => {
+      if (wsRef.current !== ws) return;
       if (staleTimerRef.current) clearInterval(staleTimerRef.current);
 
       // Server rejected us as unauthorized — redirect to login
@@ -174,7 +179,13 @@ export function useWebSocket() {
     };
 
     ws.onerror = (err) => {
-      console.error("WebSocket error:", err);
+      if (wsRef.current !== ws) return;
+      if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) return;
+      if (hasConnectedRef.current) {
+        console.error("WebSocket error:", err);
+      } else {
+        console.debug("WebSocket connect failed; waiting to retry");
+      }
     };
   }, []);
 
@@ -184,7 +195,9 @@ export function useWebSocket() {
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
       if (staleTimerRef.current) clearInterval(staleTimerRef.current);
       if (graceRef.current) clearTimeout(graceRef.current);
-      wsRef.current?.close();
+      const ws = wsRef.current;
+      wsRef.current = null;
+      ws?.close();
     };
   }, [connect]);
 

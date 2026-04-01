@@ -1,19 +1,22 @@
 import { getDisplaySessionStats } from "@/lib/utils";
+import { getResolvedSpaceId } from "@/lib/space-membership";
 import type { FileChange, InstanceInfo, SessionStats } from "@shared/types";
+import type { SpaceInfo } from "@shared/types";
 
 export function buildSpaceInstances(
   spaceId: string,
+  spaces: SpaceInfo[],
   chatSummaries: InstanceInfo[],
   liveInstances: InstanceInfo[],
 ): InstanceInfo[] {
   const spaceChatMap = new Map<string, InstanceInfo>();
   for (const chat of chatSummaries) {
-    if (chat.spaceId === spaceId) {
+    if (getResolvedSpaceId(chat, spaces) === spaceId) {
       spaceChatMap.set(chat.id, chat);
     }
   }
   for (const instance of liveInstances) {
-    if (instance.spaceId === spaceId) {
+    if (getResolvedSpaceId(instance, spaces) === spaceId) {
       spaceChatMap.set(instance.id, instance);
     }
   }

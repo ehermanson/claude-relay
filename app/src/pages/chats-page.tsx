@@ -14,6 +14,7 @@ import { useActionToasts } from "@/context/action-toast-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { fetchProjectChats, fetchAllSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
+import { getResolvedSpaceId, isSpaceOwnedInstance } from "@/lib/space-membership";
 import {
   formatModel,
   formatTimeAgo,
@@ -279,7 +280,9 @@ export function ChatsPage() {
   const projectInstances = Array.from(projectInstancesMap.values()).sort(
     (a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0),
   );
-  const standaloneInstances = projectInstances.filter((inst) => !inst.spaceId);
+  const standaloneInstances = projectInstances.filter(
+    (inst) => !isSpaceOwnedInstance(inst, spaces),
+  );
 
   // Build a lookup for parent session names
   const parentNames = new Map<string, string>();
@@ -298,10 +301,11 @@ export function ChatsPage() {
 
   const chatsBySpace = new Map<string, InstanceInfo[]>();
   for (const instance of projectInstances) {
-    if (!instance.spaceId) continue;
-    const chats = chatsBySpace.get(instance.spaceId) ?? [];
+    const resolvedSpaceId = getResolvedSpaceId(instance, spaces);
+    if (!resolvedSpaceId) continue;
+    const chats = chatsBySpace.get(resolvedSpaceId) ?? [];
     chats.push(instance);
-    chatsBySpace.set(instance.spaceId, chats);
+    chatsBySpace.set(resolvedSpaceId, chats);
   }
   for (const chats of chatsBySpace.values()) {
     chats.sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
