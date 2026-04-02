@@ -17,8 +17,7 @@
     "noUnusedParameters": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@shared/*": ["../server/core/*"],
-      "@chenglou/pretext": ["./src/pretext.d.ts"]
+      "@shared/*": ["../server/core/*"]
     }
   },
   "include": ["src"]
