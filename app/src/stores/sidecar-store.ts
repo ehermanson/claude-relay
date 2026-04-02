@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { create } from "zustand";
 
-export type SidecarTab = "tasks" | "files" | "plan" | "context";
+export type SidecarTab = "tasks" | "files" | "plan" | "context" | "brief";
 
 // ── Internal per-instance state ──────────────────────────────────────────────
 
@@ -19,6 +19,7 @@ interface InstanceSidecar {
   prevHasTasks: boolean;
   prevHasFiles: boolean;
   prevHasPlan: boolean;
+  prevHasBrief: boolean;
 }
 
 function emptyInstance(): InstanceSidecar {
@@ -29,6 +30,7 @@ function emptyInstance(): InstanceSidecar {
     prevHasTasks: false,
     prevHasFiles: false,
     prevHasPlan: false,
+    prevHasBrief: false,
   };
 }
 
@@ -40,7 +42,13 @@ interface SidecarState {
   setMobileOpen: (instanceId: string, open: boolean) => void;
   resetInstance: (instanceId: string) => void;
   /** Called when content flags change — auto-activates panels on first appearance. */
-  syncContent: (instanceId: string, hasTasks: boolean, hasFiles: boolean, hasPlan: boolean) => void;
+  syncContent: (
+    instanceId: string,
+    hasTasks: boolean,
+    hasFiles: boolean,
+    hasPlan: boolean,
+    hasBrief: boolean,
+  ) => void;
 }
 
 function getOrCreate(state: SidecarState, id: string): InstanceSidecar {
@@ -78,7 +86,7 @@ export const useSidecarStore = create<SidecarState>()((set) => ({
       instances: { ...state.instances, [instanceId]: emptyInstance() },
     })),
 
-  syncContent: (instanceId, hasTasks, hasFiles, hasPlan) =>
+  syncContent: (instanceId, hasTasks, hasFiles, hasPlan, hasBrief) =>
     set((state) => {
       const prev = getOrCreate(state, instanceId);
       const toActivate: SidecarTab[] = [];
@@ -88,13 +96,16 @@ export const useSidecarStore = create<SidecarState>()((set) => ({
         toActivate.push("files");
       if (hasPlan && !prev.prevHasPlan && !prev.manuallyToggledOff.has("plan"))
         toActivate.push("plan");
+      if (hasBrief && !prev.prevHasBrief && !prev.manuallyToggledOff.has("brief"))
+        toActivate.push("brief");
 
       // Nothing changed — skip update
       if (
         toActivate.length === 0 &&
         prev.prevHasTasks === hasTasks &&
         prev.prevHasFiles === hasFiles &&
-        prev.prevHasPlan === hasPlan
+        prev.prevHasPlan === hasPlan &&
+        prev.prevHasBrief === hasBrief
       )
         return state;
 
@@ -110,6 +121,7 @@ export const useSidecarStore = create<SidecarState>()((set) => ({
             prevHasTasks: hasTasks,
             prevHasFiles: hasFiles,
             prevHasPlan: hasPlan,
+            prevHasBrief: hasBrief,
           },
         },
       };
@@ -125,6 +137,7 @@ interface UseSidecarPanelsOptions {
   hasFilesContent: boolean;
   hasPlanContent: boolean;
   hasStats: boolean;
+  hasBriefContent?: boolean;
 }
 
 export function useSidecarPanels({
@@ -134,6 +147,7 @@ export function useSidecarPanels({
   hasFilesContent,
   hasPlanContent,
   hasStats,
+  hasBriefContent = false,
 }: UseSidecarPanelsOptions) {
   const instances = useSidecarStore((s) => s.instances);
   const syncContent = useSidecarStore((s) => s.syncContent);
@@ -143,8 +157,8 @@ export function useSidecarPanels({
 
   // Sync content flags into store — auto-activates panels when content first appears.
   useEffect(() => {
-    syncContent(id, hasTasksContent, hasFilesContent, hasPlanContent);
-  }, [syncContent, id, hasTasksContent, hasFilesContent, hasPlanContent]);
+    syncContent(id, hasTasksContent, hasFilesContent, hasPlanContent, hasBriefContent);
+  }, [syncContent, id, hasTasksContent, hasFilesContent, hasPlanContent, hasBriefContent]);
 
   const inst = instances[id] ?? emptyInstance();
 
@@ -161,7 +175,8 @@ export function useSidecarPanels({
     (hasTasksContent ? 1 : 0) +
     (hasFilesContent ? 1 : 0) +
     (hasPlanContent ? 1 : 0) +
-    (hasStats ? 1 : 0);
+    (hasStats ? 1 : 0) +
+    (hasBriefContent ? 1 : 0);
 
   const allContentPanels = useMemo(() => {
     const s = new Set<SidecarTab>();
@@ -169,15 +184,17 @@ export function useSidecarPanels({
     if (hasFilesContent) s.add("files");
     if (hasPlanContent) s.add("plan");
     if (hasStats) s.add("context");
+    if (hasBriefContent) s.add("brief");
     return s;
-  }, [hasTasksContent, hasFilesContent, hasPlanContent, hasStats]);
+  }, [hasTasksContent, hasFilesContent, hasPlanContent, hasStats, hasBriefContent]);
 
   const showDesktopSidecar =
     !isMobile &&
     ((inst.activePanels.has("tasks") && hasTasksContent) ||
       (inst.activePanels.has("files") && hasFilesContent) ||
       (inst.activePanels.has("plan") && hasPlanContent) ||
-      (inst.activePanels.has("context") && hasStats));
+      (inst.activePanels.has("context") && hasStats) ||
+      (inst.activePanels.has("brief") && hasBriefContent));
 
   return {
     activePanels: inst.activePanels,

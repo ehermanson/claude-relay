@@ -15,11 +15,16 @@ import { formatTokens } from "@/lib/utils";
 
 interface ViewHeaderProps {
   children: ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
-export function ViewHeader({ children }: ViewHeaderProps) {
+export function ViewHeader({ children, className, style }: ViewHeaderProps) {
   return (
-    <div className="flex shrink-0 items-center gap-3 border-b border-border/70 px-4 py-2.5">
+    <div
+      className={`flex shrink-0 items-center gap-3 border-b border-border/70 px-4 py-2.5${className ? ` ${className}` : ""}`}
+      style={style}
+    >
       {children}
     </div>
   );

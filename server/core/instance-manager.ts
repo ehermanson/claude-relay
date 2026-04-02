@@ -1817,7 +1817,9 @@ export class InstanceManager extends EventEmitter {
     this.baseConfig.logger.info(
       `[InstanceManager] Created instance "${name}" (${id})${resumeId ? ` resuming ${resumeId}` : ""}`,
     );
-    return { ...info };
+    const result = { ...info };
+    this.emit("instance:created", id, result);
+    return result;
   }
 
   private deleteInstanceTranscriptFiles(instance: Instance): void {

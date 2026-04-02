@@ -31,14 +31,14 @@ export function SpaceSidebar({
   ).length;
   const stoppedCount = instances.filter((instance) => instance.status === "stopped").length;
 
-  const hasFiles = activePanels.has("files") && fileChanges.length > 0;
+  const hasFiles = activePanels.has("files");
   const hasStats =
     activePanels.has("context") && !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
 
   type Tab = { key: string; label: string; count: number };
   const availableTabs: Tab[] = [];
-  // Always show the space context tab for non-default spaces
-  if (!space.isDefault) availableTabs.push({ key: "space-context", label: "Brief", count: 0 });
+  if (activePanels.has("brief") && !space.isDefault)
+    availableTabs.push({ key: "space-context", label: "Brief", count: 0 });
   if (hasFiles) availableTabs.push({ key: "files", label: "Files", count: fileChanges.length });
   if (hasStats) availableTabs.push({ key: "context", label: "Context", count: 0 });
 
@@ -109,14 +109,20 @@ export function SpaceSidebar({
         {effectiveTab === "space-context" && !space.isDefault && (
           <SpaceContextPanel spaceId={space.id} />
         )}
-        {effectiveTab === "files" && hasFiles && (
-          <FilesPanel
-            files={fileChanges}
-            cwd=""
-            onViewChanges={() => onOpenDiff()}
-            onFileClick={(path) => onOpenDiff(path)}
-          />
-        )}
+        {effectiveTab === "files" &&
+          hasFiles &&
+          (fileChanges.length > 0 ? (
+            <FilesPanel
+              files={fileChanges}
+              cwd=""
+              onViewChanges={() => onOpenDiff()}
+              onFileClick={(path) => onOpenDiff(path)}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center px-4 py-10 text-center text-muted">
+              <p className="text-sm">No files changed</p>
+            </div>
+          ))}
         {effectiveTab === "context" && hasStats && (
           <ContextPanel
             mode="space"

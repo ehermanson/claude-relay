@@ -18,6 +18,7 @@ import { CommitMessageDialog } from "@/components/git/commit-message-dialog";
 import { useSpaceViewContext } from "@/components/spaces/space-view-context";
 import {
   Archive,
+  BookOpen,
   Bug,
   Check,
   EllipsisVertical,
@@ -29,6 +30,7 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import { formatTokens } from "@/lib/utils";
+import "./space-view-header.css";
 
 export function SpaceViewHeader() {
   const { shared, actions } = useSpaceViewContext();
@@ -40,13 +42,15 @@ export function SpaceViewHeader() {
     : 0;
 
   return (
-    <ViewHeader>
+    <ViewHeader style={{ containerName: "space-header", containerType: "inline-size" }}>
       <MobileSidebarToggle />
-      <ViewHeaderBreadcrumb
-        to="/projects/$projectId"
-        params={{ projectId: shared.projectId }}
-        label={shared.projectName}
-      />
+      <span className="space-header-breadcrumb contents">
+        <ViewHeaderBreadcrumb
+          to="/projects/$projectId"
+          params={{ projectId: shared.projectId }}
+          label={shared.projectName}
+        />
+      </span>
       <GitBranch size={14} className="shrink-0 text-accent" />
       <ViewHeaderTitle>
         {shared.editingSpaceName ? (
@@ -63,65 +67,67 @@ export function SpaceViewHeader() {
             {shared.space.name}
           </span>
         )}
-        {shared.space.gitBranch && <BranchBadge branch={shared.space.gitBranch} />}
-        {shared.isMerged && (
-          <Badge variant="success" size="sm">
-            Merged
-          </Badge>
-        )}
-        {shared.isBroken && (
-          <Badge variant="warning" size="sm">
-            Broken
-          </Badge>
-        )}
-        {shared.isArchived && (
-          <Badge variant="default" size="sm">
-            Archived
-          </Badge>
-        )}
-        {shared.isActive && shared.space.remoteStatus === "pr-open" && (
-          <Badge
-            variant="accent"
-            size="sm"
-            className={shared.space.prUrl ? "cursor-pointer" : ""}
-            onClick={
-              shared.space.prUrl ? () => window.open(shared.space.prUrl!, "_blank") : undefined
-            }
-          >
-            PR open
-            {shared.space.prUrl && <ExternalLink size={10} />}
-          </Badge>
-        )}
-        {shared.isActive && shared.space.remoteStatus === "pushed" && (
-          <Badge variant="accent" size="sm">
-            Pushed
-          </Badge>
-        )}
-        {shared.isActive && !shared.space.remoteStatus && (
-          <Badge variant="default" size="sm">
-            Local only
-          </Badge>
-        )}
-        <TokenBadge
-          tokens={totalTokens}
-          label="Session"
-          tooltip={
-            shared.aggregatedStats ? (
-              <div className="flex flex-col gap-0.5">
-                <div className="font-medium">Space usage</div>
-                <div className="text-muted">
-                  Across {shared.spaceInstances.length} chat
-                  {shared.spaceInstances.length !== 1 ? "s" : ""}
+        <span className="space-header-badge contents">
+          {shared.space.gitBranch && <BranchBadge branch={shared.space.gitBranch} />}
+          {shared.isMerged && (
+            <Badge variant="success" size="sm">
+              Merged
+            </Badge>
+          )}
+          {shared.isBroken && (
+            <Badge variant="warning" size="sm">
+              Broken
+            </Badge>
+          )}
+          {shared.isArchived && (
+            <Badge variant="default" size="sm">
+              Archived
+            </Badge>
+          )}
+          {shared.isActive && shared.space.remoteStatus === "pr-open" && (
+            <Badge
+              variant="accent"
+              size="sm"
+              className={shared.space.prUrl ? "cursor-pointer" : ""}
+              onClick={
+                shared.space.prUrl ? () => window.open(shared.space.prUrl!, "_blank") : undefined
+              }
+            >
+              PR open
+              {shared.space.prUrl && <ExternalLink size={10} />}
+            </Badge>
+          )}
+          {shared.isActive && shared.space.remoteStatus === "pushed" && (
+            <Badge variant="accent" size="sm">
+              Pushed
+            </Badge>
+          )}
+          {shared.isActive && !shared.space.remoteStatus && (
+            <Badge variant="default" size="sm">
+              Local only
+            </Badge>
+          )}
+          <TokenBadge
+            tokens={totalTokens}
+            label="Session"
+            tooltip={
+              shared.aggregatedStats ? (
+                <div className="flex flex-col gap-0.5">
+                  <div className="font-medium">Space usage</div>
+                  <div className="text-muted">
+                    Across {shared.spaceInstances.length} chat
+                    {shared.spaceInstances.length !== 1 ? "s" : ""}
+                  </div>
+                  <div>Total: {formatTokens(totalTokens)}</div>
+                  <div>Input: {formatTokens(shared.aggregatedStats.inputTokens)}</div>
+                  <div>Output: {formatTokens(shared.aggregatedStats.outputTokens)}</div>
+                  <div>Cache write: {formatTokens(shared.aggregatedStats.cacheCreationTokens)}</div>
+                  <div>Cache read: {formatTokens(shared.aggregatedStats.cacheReadTokens)}</div>
                 </div>
-                <div>Total: {formatTokens(totalTokens)}</div>
-                <div>Input: {formatTokens(shared.aggregatedStats.inputTokens)}</div>
-                <div>Output: {formatTokens(shared.aggregatedStats.outputTokens)}</div>
-                <div>Cache write: {formatTokens(shared.aggregatedStats.cacheCreationTokens)}</div>
-                <div>Cache read: {formatTokens(shared.aggregatedStats.cacheReadTokens)}</div>
-              </div>
-            ) : undefined
-          }
-        />
+              ) : undefined
+            }
+          />
+        </span>
         <Menu.Root>
           <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
             <EllipsisVertical size={14} />
@@ -198,6 +204,19 @@ export function SpaceViewHeader() {
           onOpenChange={actions.setGhCliDialogOpen}
           reason={shared.ghCliReason}
         />
+
+        {!shared.space.isDefault && !shared.isMobile && (
+          <Tooltip content={shared.activePanels.has("brief") ? "Hide brief" : "Show brief"}>
+            <Button
+              variant="icon"
+              toggled={shared.activePanels.has("brief")}
+              onClick={() => actions.togglePanel("brief")}
+              className="shrink-0"
+            >
+              <BookOpen size={15} strokeWidth={2} />
+            </Button>
+          </Tooltip>
+        )}
 
         {(shared.spaceInstances.length > 0 || shared.chatSummariesLoading) && (
           <>

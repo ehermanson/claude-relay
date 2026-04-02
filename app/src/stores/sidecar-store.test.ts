@@ -56,7 +56,7 @@ describe("useSidecarStore", () => {
     it("auto-activates panels when content first appears", () => {
       const { syncContent } = useSidecarStore.getState();
 
-      syncContent("inst-1", true, false, false);
+      syncContent("inst-1", true, false, false, false);
 
       const inst = useSidecarStore.getState().instances["inst-1"];
       expect(inst.activePanels.has("tasks")).toBe(true);
@@ -67,12 +67,12 @@ describe("useSidecarStore", () => {
       const { syncContent, togglePanel } = useSidecarStore.getState();
 
       // Content appears → auto-activate
-      syncContent("inst-1", true, false, false);
+      syncContent("inst-1", true, false, false, false);
       // User dismisses
       togglePanel("inst-1", "tasks");
       // Content goes away then comes back
-      syncContent("inst-1", false, false, false);
-      syncContent("inst-1", true, false, false);
+      syncContent("inst-1", false, false, false, false);
+      syncContent("inst-1", true, false, false, false);
 
       const inst = useSidecarStore.getState().instances["inst-1"];
       expect(inst.activePanels.has("tasks")).toBe(false);
@@ -81,7 +81,7 @@ describe("useSidecarStore", () => {
     it("auto-activates multiple panels at once", () => {
       const { syncContent } = useSidecarStore.getState();
 
-      syncContent("inst-1", true, true, true);
+      syncContent("inst-1", true, true, true, false);
 
       const inst = useSidecarStore.getState().instances["inst-1"];
       expect(inst.activePanels.has("tasks")).toBe(true);
@@ -92,10 +92,10 @@ describe("useSidecarStore", () => {
     it("skips update when nothing changed", () => {
       const { syncContent } = useSidecarStore.getState();
 
-      syncContent("inst-1", true, false, false);
+      syncContent("inst-1", true, false, false, false);
       const stateAfterFirst = useSidecarStore.getState();
 
-      syncContent("inst-1", true, false, false);
+      syncContent("inst-1", true, false, false, false);
       const stateAfterSecond = useSidecarStore.getState();
 
       // Should be referentially identical (no unnecessary re-render)
@@ -107,7 +107,7 @@ describe("useSidecarStore", () => {
     it("clears all state for an instance", () => {
       const { togglePanel, syncContent, resetInstance } = useSidecarStore.getState();
 
-      syncContent("inst-1", true, true, false);
+      syncContent("inst-1", true, true, false, false);
       togglePanel("inst-1", "plan");
 
       resetInstance("inst-1");

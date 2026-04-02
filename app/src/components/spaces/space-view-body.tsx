@@ -87,7 +87,7 @@ export function SpaceViewBody() {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {shared.activeTab || shared.pendingNewChatActive ? (
-            (shared.showSidebar || !shared.space.isDefault) && !shared.isMobile ? (
+            shared.showSidebar && !shared.isMobile ? (
               <Group orientation="horizontal" className="flex-1">
                 <Panel defaultSize="70" minSize="40">
                   <SpaceChatArea

@@ -110,7 +110,7 @@ export function SpaceChatTabs({
         title={
           disableNewChat ? "This space is read-only until its worktree is repaired" : undefined
         }
-        className="flex shrink-0 items-center border-l border-border-hover px-2.5 py-1.5 text-muted transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+        className="flex h-full shrink-0 items-center border-l border-border-hover px-2.5 py-1.5 text-muted transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
       >
         <Plus size={13} strokeWidth={2.5} />
       </button>

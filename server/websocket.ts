@@ -442,7 +442,9 @@ export function createWebSocketServer(
 
           case "create_instance": {
             try {
-              const info = instanceManager.createInstance({
+              // createInstance() emits "instance:created" which the event
+              // listener above broadcasts to all clients — no manual broadcast needed.
+              instanceManager.createInstance({
                 provider: message.provider,
                 name: message.name,
                 workingDirectory: message.workingDirectory,
@@ -453,7 +455,6 @@ export function createWebSocketServer(
                 modelOptions: message.modelOptions,
                 planMode: message.planMode,
               });
-              broadcast({ type: "instance_created", instanceId: info.id, instance: info });
             } catch (err) {
               sendMessage(ws, {
                 type: "error",

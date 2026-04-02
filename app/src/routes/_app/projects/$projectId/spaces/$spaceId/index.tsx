@@ -247,9 +247,10 @@ export function SpaceView() {
     instanceId: spaceId,
     isMobile,
     hasTasksContent: false,
-    hasFilesContent: fileChanges.length > 0,
+    hasFilesContent: true,
     hasPlanContent: false,
     hasStats,
+    hasBriefContent: !space?.isDefault,
   });
 
   // Once chatSummaries includes the pending new chat, sync the URL so the route

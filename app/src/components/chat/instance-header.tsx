@@ -36,6 +36,7 @@ import { gitCommitInstance, gitPushInstance } from "../../lib/api";
 import { formatTokens, getDisplaySessionStats } from "../../lib/utils";
 import type { InstanceInfo, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
+import "./instance-header.css";
 
 // ── Sidecar toggle buttons ───────────────────────────────────────────
 
@@ -240,13 +241,15 @@ export function InstanceHeader({
   };
 
   return (
-    <ViewHeader>
+    <ViewHeader style={{ containerName: "chat-header", containerType: "inline-size" }}>
       <MobileSidebarToggle />
-      <ViewHeaderBreadcrumb
-        to="/projects/$projectId/chats"
-        params={{ projectId }}
-        label={getProjectName(instance.workingDirectory)}
-      />
+      <span className="chat-header-breadcrumb contents">
+        <ViewHeaderBreadcrumb
+          to="/projects/$projectId/chats"
+          params={{ projectId }}
+          label={getProjectName(instance.workingDirectory)}
+        />
+      </span>
       <Tooltip content={statusLabel}>
         <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
       </Tooltip>
@@ -254,33 +257,35 @@ export function InstanceHeader({
         <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
           {instance.name}
         </h1>
-        {displayBranch && (
-          <BranchBadge
-            branch={displayBranch}
+        <span className="chat-header-badge contents">
+          {displayBranch && (
+            <BranchBadge
+              branch={displayBranch}
+              tooltip={
+                displayBranchIsWorktree
+                  ? `Working in worktree on branch ${displayBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
+                  : `On branch ${displayBranch}`
+              }
+            />
+          )}
+          <TokenBadge
+            tokens={totalTokens}
+            label="Session"
             tooltip={
-              displayBranchIsWorktree
-                ? `Working in worktree on branch ${displayBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
-                : `On branch ${displayBranch}`
+              instance.stats ? (
+                <div className="flex flex-col gap-0.5">
+                  <div className="font-medium">Session usage</div>
+                  <div className="text-muted">{instance.stats.model ?? "Unknown model"}</div>
+                  <div>Total: {formatTokens(totalTokens)}</div>
+                  <div>Input: {formatTokens(displayStats?.inputTokens ?? 0)}</div>
+                  <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
+                  <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
+                  <div>Cache read: {formatTokens(instance.stats.cacheReadTokens)}</div>
+                </div>
+              ) : undefined
             }
           />
-        )}
-        <TokenBadge
-          tokens={totalTokens}
-          label="Session"
-          tooltip={
-            instance.stats ? (
-              <div className="flex flex-col gap-0.5">
-                <div className="font-medium">Session usage</div>
-                <div className="text-muted">{instance.stats.model ?? "Unknown model"}</div>
-                <div>Total: {formatTokens(totalTokens)}</div>
-                <div>Input: {formatTokens(displayStats?.inputTokens ?? 0)}</div>
-                <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
-                <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
-                <div>Cache read: {formatTokens(instance.stats.cacheReadTokens)}</div>
-              </div>
-            ) : undefined
-          }
-        />
+        </span>
         <Menu.Root>
           <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
             <EllipsisVertical size={14} />
