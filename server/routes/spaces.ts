@@ -94,6 +94,18 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
     }
   });
 
+  app.post("/api/spaces/:id/mark-merged", (c) => {
+    try {
+      const result = instanceManager.getSpaceManager().markSpaceMerged(c.req.param("id"));
+      return c.json({ success: true, ...result });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Failed to mark space as merged" },
+        400,
+      );
+    }
+  });
+
   app.delete("/api/spaces/:id", (c) => {
     try {
       instanceManager.getSpaceManager().deleteSpace(c.req.param("id"));

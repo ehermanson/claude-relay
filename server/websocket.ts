@@ -744,6 +744,24 @@ export function createWebSocketServer(
             break;
           }
 
+          case "mark_space_merged": {
+            try {
+              const { targetBranch } = instanceManager
+                .getSpaceManager()
+                .markSpaceMerged(message.spaceId);
+              sendMessage(ws, {
+                type: "notification",
+                message: `Space marked as merged into ${targetBranch}`,
+              });
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to mark space as merged",
+              });
+            }
+            break;
+          }
+
           case "delete_space": {
             try {
               instanceManager.getSpaceManager().deleteSpace(message.spaceId);

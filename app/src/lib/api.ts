@@ -457,6 +457,19 @@ export async function completeSpace(
   return res.json();
 }
 
+export async function markSpaceMerged(
+  spaceId: string,
+): Promise<{ success: boolean; targetBranch: string }> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/mark-merged`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to mark space as merged" }));
+    throw new Error(data.error || "Failed to mark space as merged");
+  }
+  return res.json();
+}
+
 export async function fetchAllSpaces(projectId: string): Promise<SpaceInfo[]> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/spaces/all`);
   if (!res.ok) throw new Error("Failed to fetch spaces");

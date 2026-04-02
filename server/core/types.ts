@@ -29,7 +29,7 @@ export interface TerminalInfo {
 // =============================================================================
 
 export type SpaceStatus = "active" | "broken" | "completed" | "archived";
-export type MergeMethod = "squash" | "merge-commit";
+export type MergeMethod = "squash" | "merge-commit" | "external";
 
 export interface SpaceInfo {
   id: string;
@@ -425,6 +425,11 @@ export interface CompleteSpacePayload {
   squashMessage?: string;
 }
 
+export interface MarkSpaceMergedPayload {
+  type: "mark_space_merged";
+  spaceId: string;
+}
+
 export interface DeleteSpacePayload {
   type: "delete_space";
   spaceId: string;
@@ -498,6 +503,7 @@ export type ClientMessage =
   | SetProviderPayload
   | CreateSpacePayload
   | CompleteSpacePayload
+  | MarkSpaceMergedPayload
   | DeleteSpacePayload
   | TerminalCreatePayload
   | TerminalInputPayload

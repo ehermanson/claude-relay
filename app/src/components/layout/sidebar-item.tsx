@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { Columns2, GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { Menu } from "@/components/ui/menu";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { getInstanceProjectRouteId } from "@/lib/project-route";
 import { formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
@@ -14,10 +15,7 @@ interface SidebarItemProps {
   parentInstance?: { id: string; name: string };
   to: string;
   params: Record<string, string>;
-  onDelete?: (instance: Pick<InstanceInfo, "id" | "name">) => void;
   deleteDisabled?: boolean;
-  onRename?: (name: string) => void;
-  onMerge?: () => void;
   /** Currently active chatId — used to offer "Open in split view". */
   activeChatId?: string;
 }
@@ -29,20 +27,19 @@ export function SidebarItem({
   parentInstance,
   to,
   params,
-  onDelete,
   deleteDisabled,
-  onRename,
-  onMerge,
   activeChatId,
 }: SidebarItemProps) {
   const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
+  const actions = useSidebarActions();
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const canMerge = !!instance.gitBranch && !!instance.hasChanges;
   const canSplit = !!activeChatId && activeChatId !== instance.id;
-  const hasMenu = !!onDelete || !!onRename || !!onMerge || canSplit;
+  const hasMenu = true; // always show menu for rename/delete
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -60,7 +57,7 @@ export function SidebarItem({
   const commitEdit = () => {
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== instance.name) {
-      onRename?.(trimmed);
+      actions.renameInstance(instance.id, trimmed);
     }
     setEditing(false);
   };
@@ -190,22 +187,20 @@ export function SidebarItem({
                   <MoreVertical size={12} />
                 </Menu.Trigger>
                 <Menu.Content>
-                  {onRename && (
+                  <Menu.Item
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      startEditing();
+                    }}
+                  >
+                    <Pencil size={13} strokeWidth={2} className="text-muted" />
+                    Rename
+                  </Menu.Item>
+                  {canMerge && (
                     <Menu.Item
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
-                        startEditing();
-                      }}
-                    >
-                      <Pencil size={13} strokeWidth={2} className="text-muted" />
-                      Rename
-                    </Menu.Item>
-                  )}
-                  {onMerge && (
-                    <Menu.Item
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        onMerge();
+                        actions.mergeInstance(instance.id);
                       }}
                     >
                       <GitMerge size={13} strokeWidth={2} className="text-muted" />
@@ -225,19 +220,17 @@ export function SidebarItem({
                       Open in split view
                     </Menu.Item>
                   )}
-                  {onDelete && (
-                    <Menu.Item
-                      danger
-                      disabled={deleteDisabled}
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        onDelete({ id: instance.id, name: instance.name });
-                      }}
-                    >
-                      <Trash2 size={13} strokeWidth={2} />
-                      Delete
-                    </Menu.Item>
-                  )}
+                  <Menu.Item
+                    danger
+                    disabled={deleteDisabled}
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      actions.deleteInstance({ id: instance.id, name: instance.name });
+                    }}
+                  >
+                    <Trash2 size={13} strokeWidth={2} />
+                    Delete
+                  </Menu.Item>
                 </Menu.Content>
               </Menu.Root>
             ) : (

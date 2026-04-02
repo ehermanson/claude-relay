@@ -80,6 +80,7 @@ type SpaceViewContextValue = {
     handleTerminalResizeStart: (e: MouseEvent) => void;
     expandTerminalPanel: () => void;
     handleComplete: (mergeMethod?: string, squashMessage?: string) => Promise<void>;
+    handleMarkMerged: () => Promise<void>;
     handleMergeSuccessDone: () => void;
     confirmCloseTab: () => void;
     confirmDeleteSpace: () => Promise<void>;

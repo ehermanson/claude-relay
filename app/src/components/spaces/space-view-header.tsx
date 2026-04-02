@@ -19,6 +19,7 @@ import { useSpaceViewContext } from "@/components/spaces/space-view-context";
 import {
   Archive,
   Bug,
+  Check,
   EllipsisVertical,
   ExternalLink,
   FileText,
@@ -136,6 +137,12 @@ export function SpaceViewHeader() {
               <Bug size={13} strokeWidth={2} className="text-muted" />
               Debug
             </Menu.Item>
+            {!shared.space.isDefault && shared.isActive && (
+              <Menu.Item onClick={() => void actions.handleMarkMerged()}>
+                <Check size={13} strokeWidth={2} className="text-muted" />
+                Mark as merged
+              </Menu.Item>
+            )}
             {!shared.space.isDefault && (shared.isActive || shared.isBroken) && (
               <>
                 <Menu.Separator />

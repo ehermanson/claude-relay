@@ -719,6 +719,50 @@ export class SpaceManager extends EventEmitter {
   }
 
   /**
+   * Mark a space as merged without performing the actual git merge.
+   * For cases where the merge was done manually outside of Relay.
+   * Cleans up worktree and archives context, then updates status to "completed".
+   */
+  markSpaceMerged(id: string): { targetBranch: string } {
+    const row = this.db.getSpace(id);
+    if (!row) throw new Error(`Space ${id} not found`);
+    if (row.is_default) throw new Error("Cannot mark the default space as merged");
+    if (row.status === "completed") throw new Error("Space is already marked as merged");
+
+    const repoRoot = row.project_directory ? getRepoRoot(row.project_directory) : null;
+    const targetBranch =
+      (repoRoot ? getCurrentBranch(repoRoot) : null) ||
+      (repoRoot ? getDefaultBranch(repoRoot) : null) ||
+      "main";
+
+    // Auto-commit dirty worktree before cleanup so work isn't lost
+    if (row.worktree_path && existsSync(row.worktree_path) && isWorktreeDirty(row.worktree_path)) {
+      const commitResult = commitAll(row.worktree_path, row.name || "Space work");
+      if (!commitResult.success) {
+        throw new Error(`Auto-commit failed: ${commitResult.error}`);
+      }
+    }
+
+    // Archive the shared space context before removing the worktree
+    if (row.worktree_path && existsSync(row.worktree_path)) {
+      this.archiveSpaceContext(id, row.worktree_path);
+    }
+
+    // Cleanup worktree if it exists (keep local branch for recoverability)
+    if (row.git_branch && row.worktree_path && repoRoot && existsSync(row.worktree_path)) {
+      removeWorktree(repoRoot, row.worktree_path, row.git_branch, { keepBranch: true });
+    }
+
+    this.db.updateSpaceMergeMetadata(id, undefined, "external", Date.now(), targetBranch);
+    this.logger.info(
+      `[SpaceManager] Marked space "${row.name}" (${id}) as externally merged into ${targetBranch}`,
+    );
+    this.emit("space:completed", id, row.project_directory, targetBranch, "external", undefined);
+
+    return { targetBranch };
+  }
+
+  /**
    * Delete/archive a space without merging. Cleans up the worktree.
    */
   deleteSpace(id: string): void {

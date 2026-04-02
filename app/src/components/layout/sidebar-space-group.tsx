@@ -2,13 +2,22 @@
  * SidebarSpaceGroup — A space entry in the project sidebar.
  *
  * Shows the space name + branch badge, and a context menu for
- * Complete, Archive, and Rename actions.
+ * Complete, Mark as merged, Archive, and Rename actions.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { getSpaceRoute } from "@/lib/project-route";
-import { AlertTriangle, Archive, GitBranch, GitMerge, MoreVertical, Pencil } from "lucide-react";
+import {
+  AlertTriangle,
+  Archive,
+  Check,
+  GitBranch,
+  GitMerge,
+  MoreVertical,
+  Pencil,
+} from "lucide-react";
+import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { Menu } from "../ui/menu";
 import { Badge } from "../ui/badge";
 import type { SpaceInfo } from "@shared/types";
@@ -18,9 +27,6 @@ interface SidebarSpaceGroupProps {
   projectId: string;
   latestChatId?: string;
   isActive: boolean;
-  onRename: (spaceId: string, name: string) => void;
-  onComplete: (spaceId: string) => void;
-  onDelete: (spaceId: string) => void;
 }
 
 export function SidebarSpaceGroup({
@@ -28,10 +34,8 @@ export function SidebarSpaceGroup({
   projectId,
   latestChatId,
   isActive,
-  onRename,
-  onComplete,
-  onDelete,
 }: SidebarSpaceGroupProps) {
+  const actions = useSidebarActions();
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
@@ -57,7 +61,7 @@ export function SidebarSpaceGroup({
   const commitEdit = () => {
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== space.name) {
-      onRename(space.id, trimmed);
+      actions.renameSpace(space.id, trimmed);
     }
     setEditing(false);
   };
@@ -169,11 +173,20 @@ export function SidebarSpaceGroup({
                     <Menu.Item
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
-                        onComplete(space.id);
+                        actions.completeSpace(space.id);
                       }}
                     >
                       <GitMerge size={13} strokeWidth={2} className="text-muted" />
                       Complete
+                    </Menu.Item>
+                    <Menu.Item
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        actions.markSpaceMerged(space.id);
+                      }}
+                    >
+                      <Check size={13} strokeWidth={2} className="text-muted" />
+                      Mark as merged
                     </Menu.Item>
                     <Menu.Separator />
                   </>
@@ -182,7 +195,7 @@ export function SidebarSpaceGroup({
                   danger
                   onClick={(e: React.MouseEvent) => {
                     e.stopPropagation();
-                    onDelete(space.id);
+                    actions.deleteSpace(space.id);
                   }}
                 >
                   <Archive size={13} strokeWidth={2} />

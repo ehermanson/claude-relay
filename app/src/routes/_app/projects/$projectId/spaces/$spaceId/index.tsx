@@ -21,6 +21,7 @@ import { SpaceViewProvider } from "@/components/spaces/space-view-context";
 import {
   commitSpace,
   completeSpace,
+  markSpaceMerged,
   createInstance,
   deleteSpace,
   fetchSpaceChats,
@@ -378,6 +379,15 @@ export function SpaceView() {
     }
   };
 
+  const handleMarkMerged = async () => {
+    try {
+      await markSpaceMerged(spaceId);
+      toast.success("Space marked as merged");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to mark space as merged");
+    }
+  };
+
   const handleCommit = async (message: string) => {
     try {
       const result = await commitSpace(spaceId, { message });
@@ -544,6 +554,7 @@ export function SpaceView() {
       handleTerminalResizeStart,
       expandTerminalPanel: () => expandTerminalPanel(terminalScopeKey),
       handleComplete,
+      handleMarkMerged,
       handleMergeSuccessDone,
       confirmCloseTab,
       confirmDeleteSpace,

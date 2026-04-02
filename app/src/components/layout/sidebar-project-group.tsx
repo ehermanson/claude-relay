@@ -23,12 +23,9 @@ import {
   Archive,
 } from "lucide-react";
 import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
-import {
-  getInstanceProjectRouteId,
-  getProjectName,
-  type RemoveProjectTarget,
-} from "../../lib/project-route";
+import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
 import { isSpaceOwnedInstance } from "../../lib/space-membership";
+import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { EmptyProjectActions } from "../empty-project-actions";
 import { Button } from "../ui/button";
 import { Collapsible } from "../ui/collapsible";
@@ -57,12 +54,6 @@ interface SidebarProjectGroupProps {
   iconPath?: string;
   isOpen: boolean;
   onToggle: () => void;
-  sessionIdMap: Map<string, InstanceInfo>;
-  onQuickCreate: (dir: string) => void;
-  onDelete: (instance: Pick<InstanceInfo, "id" | "name">) => void;
-  onRename: (id: string, name: string) => void;
-  onMerge: (id: string) => void;
-  onRemoveProject?: (project: RemoveProjectTarget) => void;
   isFirst?: boolean;
   isLast?: boolean;
   onMoveToTop?: () => void;
@@ -72,10 +63,6 @@ interface SidebarProjectGroupProps {
   spaces?: SpaceInfo[];
   latestChatIdBySpace?: Record<string, string>;
   activeSpaceId?: string;
-  onCreateSpace: (dir: string) => void;
-  onRenameSpace?: (spaceId: string, name: string) => void;
-  onCompleteSpace?: (spaceId: string) => void;
-  onDeleteSpace?: (spaceId: string) => void;
 }
 
 export function SidebarProjectGroup({
@@ -87,12 +74,6 @@ export function SidebarProjectGroup({
   iconPath,
   isOpen,
   onToggle,
-  sessionIdMap,
-  onQuickCreate,
-  onDelete,
-  onRename,
-  onMerge,
-  onRemoveProject,
   isFirst,
   isLast,
   onMoveToTop,
@@ -102,12 +83,9 @@ export function SidebarProjectGroup({
   spaces,
   latestChatIdBySpace,
   activeSpaceId,
-  onCreateSpace,
-  onRenameSpace,
-  onCompleteSpace,
-  onDeleteSpace,
 }: SidebarProjectGroupProps) {
   const navigate = useNavigate();
+  const actions = useSidebarActions();
   const [menuOpen, setMenuOpen] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [iconHovered, setIconHovered] = useState(false);
@@ -118,7 +96,7 @@ export function SidebarProjectGroup({
   const showFavicon = iconPath && !imgError;
   const routeProjectId = project?.id ?? groupInstances[0]?.projectId ?? dirName;
   const isActiveProject = currentProjectId === routeProjectId;
-  const removeProjectTarget: RemoveProjectTarget = {
+  const removeProjectTarget = {
     id: project?.id ?? groupInstances.find((instance) => instance.projectId)?.projectId,
     name: project?.name ?? dirName,
     directory: dir,
@@ -131,8 +109,10 @@ export function SidebarProjectGroup({
   const parentChildren = new Map<string, InstanceInfo[]>();
   for (const inst of mainInstances) {
     if (inst.parentSessionId) {
-      const parent = sessionIdMap.get(inst.parentSessionId);
-      if (parent && parent.workingDirectory === inst.workingDirectory) {
+      const parent = groupInstances.find(
+        (i) => i.sessionId === inst.parentSessionId && i.workingDirectory === inst.workingDirectory,
+      );
+      if (parent) {
         childIds.add(inst.id);
         const children = parentChildren.get(parent.id) || [];
         children.push(inst);
@@ -188,10 +168,7 @@ export function SidebarProjectGroup({
         projectId: getInstanceProjectRouteId(inst),
         chatId: inst.id,
       }}
-      onDelete={onDelete}
       deleteDisabled={inst.external === true && inst.status !== "stopped"}
-      onRename={(name) => onRename(inst.id, name)}
-      onMerge={inst.gitBranch && inst.hasChanges ? () => onMerge(inst.id) : undefined}
       activeChatId={currentId}
     />
   );
@@ -254,7 +231,7 @@ export function SidebarProjectGroup({
                   className="!items-start"
                   onClick={(event: React.MouseEvent) => {
                     event.stopPropagation();
-                    onQuickCreate(dir);
+                    actions.quickCreate(dir);
                   }}
                 >
                   <MessageSquarePlus size={13} strokeWidth={2} className="mt-1 text-muted" />
@@ -269,7 +246,7 @@ export function SidebarProjectGroup({
                   className="!items-start"
                   onClick={(event: React.MouseEvent) => {
                     event.stopPropagation();
-                    onCreateSpace(dir);
+                    actions.createSpace(dir);
                   }}
                 >
                   <GitBranch size={13} strokeWidth={2} className="mt-1 text-muted" />
@@ -391,17 +368,15 @@ export function SidebarProjectGroup({
                       Move to bottom
                     </Menu.Item>
                   )}
-                  {onRemoveProject && <Menu.Separator />}
-                  {onRemoveProject && (
-                    <Menu.Item
-                      onClick={() => {
-                        onRemoveProject(removeProjectTarget);
-                      }}
-                    >
-                      <FolderMinus size={13} strokeWidth={2} className="text-muted" />
-                      Remove project
-                    </Menu.Item>
-                  )}
+                  <Menu.Separator />
+                  <Menu.Item
+                    onClick={() => {
+                      actions.removeProject(removeProjectTarget);
+                    }}
+                  >
+                    <FolderMinus size={13} strokeWidth={2} className="text-muted" />
+                    Remove project
+                  </Menu.Item>
                 </Menu.Content>
               </Menu.Root>
             ) : (
@@ -434,9 +409,6 @@ export function SidebarProjectGroup({
                     projectId={routeProjectId}
                     latestChatId={latestChatIdBySpace?.[space.id]}
                     isActive={activeSpaceId === space.id}
-                    onRename={onRenameSpace ?? (() => {})}
-                    onComplete={onCompleteSpace ?? (() => {})}
-                    onDelete={onDeleteSpace ?? (() => {})}
                   />
                 ))}
 
@@ -445,9 +417,6 @@ export function SidebarProjectGroup({
               projectId={routeProjectId}
               latestChatIdBySpace={latestChatIdBySpace}
               activeSpaceId={activeSpaceId}
-              onRenameSpace={onRenameSpace}
-              onCompleteSpace={onCompleteSpace}
-              onDeleteSpace={onDeleteSpace}
             />
 
             {/* Chats */}
@@ -470,22 +439,18 @@ export function SidebarProjectGroup({
               projectId={routeProjectId}
               latestChatIdBySpace={latestChatIdBySpace}
               activeSpaceId={activeSpaceId}
-              onRenameSpace={onRenameSpace}
-              onCompleteSpace={onCompleteSpace}
-              onDeleteSpace={onDeleteSpace}
             />
 
             {visible.length === 0 &&
               (!spaces ||
                 spaces.filter(
                   (s) => !s.isDefault && (s.status === "active" || s.status === "broken"),
-                ).length === 0) &&
-              onCreateSpace && (
+                ).length === 0) && (
                 <div className="px-2 py-1">
                   <EmptyProjectActions
                     size="compact"
-                    onNewChat={() => onQuickCreate(dir)}
-                    onNewSpace={() => onCreateSpace(dir)}
+                    onNewChat={() => actions.quickCreate(dir)}
+                    onNewSpace={() => actions.createSpace(dir)}
                   />
                 </div>
               )}
@@ -501,17 +466,11 @@ function SidebarBrokenSpaces({
   projectId,
   latestChatIdBySpace,
   activeSpaceId,
-  onRenameSpace,
-  onCompleteSpace,
-  onDeleteSpace,
 }: {
   spaces?: SpaceInfo[];
   projectId: string;
   latestChatIdBySpace?: Record<string, string>;
   activeSpaceId?: string;
-  onRenameSpace?: (spaceId: string, name: string) => void;
-  onCompleteSpace?: (spaceId: string) => void;
-  onDeleteSpace?: (spaceId: string) => void;
 }) {
   const brokenSpaces = spaces?.filter((s) => !s.isDefault && s.status === "broken");
   const hasActiveChild = brokenSpaces?.some((s) => s.id === activeSpaceId) ?? false;
@@ -540,9 +499,6 @@ function SidebarBrokenSpaces({
             projectId={projectId}
             latestChatId={latestChatIdBySpace?.[space.id]}
             isActive={activeSpaceId === space.id}
-            onRename={onRenameSpace ?? (() => {})}
-            onComplete={onCompleteSpace ?? (() => {})}
-            onDelete={onDeleteSpace ?? (() => {})}
           />
         ))}
     </div>
@@ -554,17 +510,11 @@ function SidebarClosedSpaces({
   projectId,
   latestChatIdBySpace,
   activeSpaceId,
-  onRenameSpace,
-  onCompleteSpace,
-  onDeleteSpace,
 }: {
   spaces?: SpaceInfo[];
   projectId: string;
   latestChatIdBySpace?: Record<string, string>;
   activeSpaceId?: string;
-  onRenameSpace?: (spaceId: string, name: string) => void;
-  onCompleteSpace?: (spaceId: string) => void;
-  onDeleteSpace?: (spaceId: string) => void;
 }) {
   const closedSpaces = spaces?.filter(
     (s) => !s.isDefault && (s.status === "completed" || s.status === "archived"),
@@ -596,9 +546,6 @@ function SidebarClosedSpaces({
             projectId={projectId}
             latestChatId={latestChatIdBySpace?.[space.id]}
             isActive={activeSpaceId === space.id}
-            onRename={onRenameSpace ?? (() => {})}
-            onComplete={onCompleteSpace ?? (() => {})}
-            onDelete={onDeleteSpace ?? (() => {})}
           />
         ))}
     </div>
