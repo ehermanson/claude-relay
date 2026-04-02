@@ -34,6 +34,7 @@ export function CreateSpaceDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [baseBranch, setBaseBranch] = useState("");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -53,6 +54,7 @@ export function CreateSpaceDialog({
       const space = await createSpace(projectId, {
         name: name.trim() || undefined,
         baseBranch: effectiveBranch,
+        description: description.trim() || undefined,
       });
       onOpenChange(false);
       await queryClient.invalidateQueries({ queryKey: ["spaces", projectId] });
@@ -71,6 +73,7 @@ export function CreateSpaceDialog({
       onOpenChange={(open) => {
         if (!open) {
           setName("");
+          setDescription("");
           setBaseBranch("");
         }
         onOpenChange(open);
@@ -101,6 +104,22 @@ export function CreateSpaceDialog({
                 }
               }}
               placeholder="Optional"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label
+              className="text-[0.75rem] font-medium text-muted"
+              htmlFor="create-space-description"
+            >
+              Description
+            </label>
+            <textarea
+              id="create-space-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="What is this space for? (optional)"
+              rows={3}
+              className="w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-text placeholder:text-muted/50 focus:border-accent focus:outline-none"
             />
           </div>
           <div className="space-y-1.5">

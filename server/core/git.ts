@@ -6,7 +6,15 @@
  */
 
 import { execSync, execFileSync, execFile as execFileCb } from "child_process";
-import { existsSync, openSync, readSync, closeSync, readFileSync } from "fs";
+import {
+  existsSync,
+  openSync,
+  readSync,
+  closeSync,
+  readFileSync,
+  statSync,
+  realpathSync,
+} from "fs";
 import { join, resolve, dirname } from "path";
 import { promisify } from "util";
 
@@ -14,6 +22,7 @@ import type { FileChange } from "#core/types.js";
 import { relayDir } from "#core/config.js";
 
 const DEFAULT_WORKTREE_BASE = join(relayDir, "worktrees");
+const FAST_GIT_TIMEOUT_MS = Number(process.env.RELAY_GIT_TIMEOUT_MS || "1500");
 
 /**
  * Return the worktree base directory.
@@ -25,6 +34,63 @@ export function getWorktreeBase(): string {
 const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const RELAY_GIT_FALLBACK_NAME = "Relay";
 const RELAY_GIT_FALLBACK_EMAIL = "relay@local";
+
+function hasValidRelayWorktreeAdmin(dir: string): boolean {
+  if (!isRelayWorktreePath(dir)) return true;
+
+  const gitPath = join(dir, ".git");
+  if (!existsSync(gitPath)) return false;
+
+  try {
+    const stat = statSync(gitPath);
+    if (stat.isDirectory()) return true;
+    const raw = readFileSync(gitPath, "utf8").trim();
+    const match = raw.match(/^gitdir:\s*(.+)$/i);
+    if (!match) return false;
+    return existsSync(resolve(dir, match[1]));
+  } catch {
+    return false;
+  }
+}
+
+function findGitRoot(dir: string): { root: string; valid: boolean } | null {
+  let current = resolve(dir);
+  const canonicalize = (path: string): string => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return path;
+    }
+  };
+
+  while (true) {
+    const gitPath = join(current, ".git");
+    if (existsSync(gitPath)) {
+      try {
+        const stat = statSync(gitPath);
+        if (stat.isDirectory()) {
+          return { root: canonicalize(current), valid: true };
+        }
+
+        const raw = readFileSync(gitPath, "utf8").trim();
+        const match = raw.match(/^gitdir:\s*(.+)$/i);
+        if (!match) {
+          return { root: canonicalize(current), valid: false };
+        }
+
+        return { root: canonicalize(current), valid: existsSync(resolve(current, match[1])) };
+      } catch {
+        return { root: canonicalize(current), valid: false };
+      }
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+}
 
 /** Check if a file is likely binary by reading the first 8KB and looking for null bytes. */
 function isBinaryFile(absPath: string): boolean {
@@ -76,9 +142,15 @@ export function isRelayWorktreePath(dir: string): boolean {
 export function resolveWorktreeOrigin(worktreePath: string): string | null {
   if (!isRelayWorktreePath(worktreePath)) return null;
   if (!existsSync(worktreePath)) return null;
+  if (!hasValidRelayWorktreeAdmin(worktreePath)) return null;
 
   try {
-    const opts = { cwd: worktreePath, timeout: 2000, encoding: "utf8" as const };
+    const opts = {
+      cwd: worktreePath,
+      timeout: FAST_GIT_TIMEOUT_MS,
+      encoding: "utf8" as const,
+      stdio: "pipe" as const,
+    };
     const gitCommonDir = execFileSync("git", ["rev-parse", "--git-common-dir"], opts).trim();
     // git-common-dir returns the main repo's .git dir (may be relative)
     const resolved = resolve(worktreePath, gitCommonDir);
@@ -139,11 +211,14 @@ function isMissingGitIdentityError(error: unknown): boolean {
  * Check if a directory is inside a git working tree.
  */
 export function isGitRepo(dir: string): boolean {
+  const gitRoot = findGitRoot(dir);
+  if (gitRoot) return gitRoot.valid;
+  if (!hasValidRelayWorktreeAdmin(dir)) return false;
   try {
-    const result = execSync("git rev-parse --is-inside-work-tree", {
+    const result = execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
       cwd: dir,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
+      stdio: "pipe",
+      timeout: FAST_GIT_TIMEOUT_MS,
     })
       .toString()
       .trim();
@@ -158,11 +233,12 @@ export function isGitRepo(dir: string): boolean {
  * Returns null if not a git repo or no remote URL found.
  */
 export function getRemoteUrl(dir: string): string | null {
+  if (!hasValidRelayWorktreeAdmin(dir)) return null;
   try {
-    const raw = execSync("git remote get-url origin", {
+    const raw = execFileSync("git", ["config", "--get", "remote.origin.url"], {
       cwd: dir,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
+      stdio: "pipe",
+      timeout: FAST_GIT_TIMEOUT_MS,
     })
       .toString()
       .trim();
@@ -181,11 +257,14 @@ export function getRemoteUrl(dir: string): string | null {
  * Get the root directory of the git repository.
  */
 export function getRepoRoot(dir: string): string | null {
+  const gitRoot = findGitRoot(dir);
+  if (gitRoot) return gitRoot.valid ? gitRoot.root : null;
+  if (!hasValidRelayWorktreeAdmin(dir)) return null;
   try {
-    return execSync("git rev-parse --show-toplevel", {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd: dir,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
+      stdio: "pipe",
+      timeout: FAST_GIT_TIMEOUT_MS,
     })
       .toString()
       .trim();
@@ -198,11 +277,12 @@ export function getRepoRoot(dir: string): string | null {
  * Get the current branch name.
  */
 export function getCurrentBranch(dir: string): string | null {
+  if (!hasValidRelayWorktreeAdmin(dir)) return null;
   try {
-    const branch = execSync("git rev-parse --abbrev-ref HEAD", {
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: dir,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
+      stdio: "pipe",
+      timeout: FAST_GIT_TIMEOUT_MS,
     }).toString();
     return normalizeBranchName(branch);
   } catch {
@@ -228,12 +308,13 @@ function hasHeadCommit(dir: string): boolean {
  * Tries symbolic-ref first, falls back to main/master heuristic.
  */
 export function getDefaultBranch(dir: string): string | null {
+  if (!hasValidRelayWorktreeAdmin(dir)) return null;
   // Try symbolic-ref for remote HEAD
   try {
-    const ref = execSync("git symbolic-ref refs/remotes/origin/HEAD", {
+    const ref = execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD"], {
       cwd: dir,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000,
+      stdio: "pipe",
+      timeout: FAST_GIT_TIMEOUT_MS,
     })
       .toString()
       .trim();
@@ -247,10 +328,10 @@ export function getDefaultBranch(dir: string): string | null {
   // Heuristic: check if main or master exists
   for (const candidate of ["main", "master"]) {
     try {
-      execSync(`git rev-parse --verify ${candidate}`, {
+      execFileSync("git", ["rev-parse", "--verify", candidate], {
         cwd: dir,
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 3000,
+        stdio: "pipe",
+        timeout: FAST_GIT_TIMEOUT_MS,
       });
       return candidate;
     } catch {
@@ -713,10 +794,11 @@ export function enrichDiffStats(
 const execFileAsync = promisify(execFileCb);
 
 export async function getCurrentBranchAsync(dir: string): Promise<string | null> {
+  if (!hasValidRelayWorktreeAdmin(dir)) return null;
   try {
     const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: dir,
-      timeout: 5000,
+      timeout: FAST_GIT_TIMEOUT_MS,
     });
     return normalizeBranchName(stdout);
   } catch {
@@ -727,8 +809,9 @@ export async function getCurrentBranchAsync(dir: string): Promise<string | null>
 export async function getGitInfoAsync(
   dir: string,
 ): Promise<{ branch: string; isWorktree: boolean } | null> {
+  if (!hasValidRelayWorktreeAdmin(dir)) return null;
   try {
-    const opts = { cwd: dir, timeout: 2000 };
+    const opts = { cwd: dir, timeout: FAST_GIT_TIMEOUT_MS };
     const [branchResult, gitDirResult, commonDirResult] = await Promise.all([
       execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts),
       execFileAsync("git", ["rev-parse", "--git-dir"], opts),

@@ -20,7 +20,9 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
       return c.json({ error: "Project not found" }, 404);
     }
     try {
-      const body = await readJsonBody<{ name?: string; baseBranch?: string }>(c);
+      const body = await readJsonBody<{ name?: string; baseBranch?: string; description?: string }>(
+        c,
+      );
       let effectiveBranch = body.baseBranch;
       if (!effectiveBranch && project.defaultSpaceBranch) {
         effectiveBranch = project.defaultSpaceBranch;
@@ -40,6 +42,7 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
       const space = instanceManager.getSpaceManager().createSpace(project.directory, {
         name: body.name,
         baseBranch: effectiveBranch,
+        description: body.description,
       });
       return c.json(space, 201);
     } catch (err) {
@@ -139,5 +142,10 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
       return c.json({ error: "Space not found" }, 404);
     }
     return c.json({ diff });
+  });
+
+  app.get("/api/spaces/:id/context", (c) => {
+    const content = instanceManager.getSpaceManager().readSpaceContext(c.req.param("id"));
+    return c.json({ content });
   });
 }

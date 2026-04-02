@@ -421,7 +421,7 @@ export async function removeProject(id: string): Promise<void> {
 
 export async function createSpace(
   projectId: string,
-  opts?: { name?: string; baseBranch?: string },
+  opts?: { name?: string; baseBranch?: string; description?: string },
 ): Promise<SpaceInfo> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/spaces`, {
     method: "POST",
@@ -481,6 +481,13 @@ export async function fetchSpaceDiff(spaceId: string): Promise<string> {
   }
   const data = await res.json();
   return data.diff;
+}
+
+export async function fetchSpaceContext(spaceId: string): Promise<string | null> {
+  const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/context`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.content;
 }
 // ─── Branch & Git Operations ──────────────────────────────────────────────
 

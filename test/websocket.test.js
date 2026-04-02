@@ -156,9 +156,15 @@ describe("WebSocket Server", () => {
       const ws = await connect(session.id);
       await ws.waitForHandshake();
 
-      ws.send(JSON.stringify({ type: "create_instance", name: "WS Test" }));
+      ws.send(
+        JSON.stringify({
+          type: "create_instance",
+          name: "WS Test",
+          workingDirectory: tempDir,
+        }),
+      );
 
-      const msg = await ws.nextMessageOfType("instance_created");
+      const msg = await ws.nextMessageOfType("instance_created", 10000);
       assert.equal(msg.instance.name, "WS Test");
       assert.ok(msg.instance.id);
     });
@@ -168,9 +174,16 @@ describe("WebSocket Server", () => {
       const ws = await connect(session.id);
       await ws.waitForHandshake();
 
-      ws.send(JSON.stringify({ type: "create_instance", name: "Codex Test", provider: "codex" }));
+      ws.send(
+        JSON.stringify({
+          type: "create_instance",
+          name: "Codex Test",
+          provider: "codex",
+          workingDirectory: tempDir,
+        }),
+      );
 
-      const msg = await ws.nextMessageOfType("instance_created");
+      const msg = await ws.nextMessageOfType("instance_created", 10000);
       assert.equal(msg.instance.name, "Codex Test");
       assert.equal(msg.instance.provider, "codex");
     });
@@ -312,6 +325,20 @@ describe("WebSocket Server", () => {
       const msg = await ws.nextMessage();
       assert.equal(msg.type, "error");
       assert.ok(msg.message.includes("not found"));
+    });
+
+    it("purges an instance and broadcasts instance_removed", async () => {
+      const session = auth.createSession();
+      const ws = await connect(session.id);
+      await ws.waitForHandshake();
+
+      const info = manager.createInstance({ name: "ToPurge" });
+
+      ws.send(JSON.stringify({ type: "purge_instance", instanceId: info.id }));
+
+      const msg = await ws.nextMessageOfType("instance_removed");
+      assert.equal(msg.instanceId, info.id);
+      assert.equal(manager.listInstances().length, 0);
     });
   });
 });

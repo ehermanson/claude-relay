@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { MarkdownContent } from "./markdown-content";
+import { MessageHoverToolbar } from "./message-hover-toolbar";
 import { formatTimestamp } from "../../lib/utils";
 
 interface ClaudeMessageProps {
@@ -14,6 +15,7 @@ export function ClaudeMessage({ text, timestamp, isLast }: ClaudeMessageProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   const measure = () => {
     const el = contentRef.current;
@@ -28,7 +30,12 @@ export function ClaudeMessage({ text, timestamp, isLast }: ClaudeMessageProps) {
   const collapsed = isOverflowing && !expanded && !isLast;
 
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
+    <div
+      className="relative flex min-w-0 flex-col gap-1.5"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <MessageHoverToolbar text={text} visible={hovered} />
       <div className="min-w-0 overflow-hidden px-1 py-0.5 text-sm leading-relaxed text-text/80">
         <div
           ref={contentRef}

@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react";
 import { Check, Copy, FolderOpen, GitBranch, Plus } from "lucide-react";
+import { motion } from "motion/react";
 import { Group, Panel } from "react-resizable-panels";
 import { InstanceView } from "@/components/chat/instance-view";
 import { SpaceChatTabs } from "@/components/spaces/space-chat-tabs";
@@ -7,16 +8,21 @@ import { SpaceSidebar } from "@/components/spaces/space-sidebar";
 import { useSpaceViewContext } from "@/components/spaces/space-view-context";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Button } from "@/components/ui/button";
+import { RelayLogo } from "@/components/ui/relay-logo";
 import { Spinner } from "@/components/ui/spinner";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { CollapsedTerminalBar, TerminalPanel } from "@/components/terminal/terminal-panel";
 import type { InstanceInfo } from "@shared/types";
+
+const MotionLogo = motion.create(RelayLogo);
 
 export function SpaceViewBody() {
   const { shared, actions } = useSpaceViewContext();
   const chatTabsProps: ComponentProps<typeof SpaceChatTabs> = {
     instances: shared.spaceInstances,
     activeTab: shared.activeTab,
+    pendingNewChatId: shared.pendingNewChatId,
+    pendingNewChat: shared.pendingNewChatActive,
     onNavigateToChat: actions.navigateToChat,
     onRenameTab: actions.handleRenameTab,
     onCloseTab: (id) => actions.setCloseTabId(id),
@@ -80,14 +86,15 @@ export function SpaceViewBody() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {shared.activeTab ? (
-            shared.showSidebar && !shared.isMobile ? (
+          {shared.activeTab || shared.pendingNewChatActive ? (
+            (shared.showSidebar || !shared.space.isDefault) && !shared.isMobile ? (
               <Group orientation="horizontal" className="flex-1">
                 <Panel defaultSize="70" minSize="40">
                   <SpaceChatArea
                     activeTab={shared.activeTab}
                     activeLiveInstance={shared.activeLiveInstance}
                     chatTabsProps={chatTabsProps}
+                    pendingNewChat={shared.pendingNewChatActive}
                   />
                 </Panel>
                 <ResizableHandle />
@@ -108,6 +115,7 @@ export function SpaceViewBody() {
                   activeTab={shared.activeTab}
                   activeLiveInstance={shared.activeLiveInstance}
                   chatTabsProps={chatTabsProps}
+                  pendingNewChat={shared.pendingNewChatActive}
                 />
               </div>
             )
@@ -203,21 +211,43 @@ export function SpaceViewBody() {
   );
 }
 
+const pendingChatLoadingContent = (
+  <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+    <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
+      <MotionLogo
+        size={112}
+        connected
+        showPulseRings
+        className="mb-5"
+        initial={{ opacity: 0, scale: 0.82 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", duration: 0.9, bounce: 0.25 }}
+      />
+      <p className="text-[0.875rem] font-medium text-text-bright">Creating chat</p>
+      <p className="mt-1 text-[0.75rem] text-muted">Setting up a fresh chat in this space...</p>
+    </div>
+  </div>
+);
+
 function SpaceChatArea({
   activeTab,
   activeLiveInstance,
   chatTabsProps,
+  pendingNewChat,
 }: {
-  activeTab: string;
+  activeTab: string | null;
   activeLiveInstance: InstanceInfo | null;
   chatTabsProps: ComponentProps<typeof SpaceChatTabs>;
+  pendingNewChat?: boolean;
 }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <SpaceChatTabs {...chatTabsProps} />
-      {activeLiveInstance ? (
+      {pendingNewChat ? (
+        pendingChatLoadingContent
+      ) : activeTab && activeLiveInstance ? (
         <InstanceView key={activeTab} instanceId={activeTab} compact />
-      ) : (
+      ) : activeTab ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
           <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
             <Spinner size={18} />
@@ -227,7 +257,7 @@ function SpaceChatArea({
             </p>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

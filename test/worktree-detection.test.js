@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
   isRelayWorktreePath,
   resolveWorktreeOrigin,
@@ -29,14 +29,30 @@ const noopLogger = {
   debug() {},
 };
 
+function runGit(cwd, args) {
+  return execFileSync("git", args, {
+    cwd,
+    stdio: "pipe",
+    timeout: 5000,
+  });
+}
+
 /** Create a temporary git repo with an initial commit. Returns real path (resolves symlinks). */
 function createTempRepo() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "relay-wt-test-")));
-  execSync("git init", { cwd: dir, stdio: "pipe" });
-  execSync("git config user.email test@test.com", { cwd: dir, stdio: "pipe" });
-  execSync("git config user.name Test", { cwd: dir, stdio: "pipe" });
+  runGit(dir, ["init", "-q", "-b", "main"]);
   writeFileSync(join(dir, "README.md"), "# Test\n");
-  execSync("git add . && git commit -m 'initial'", { cwd: dir, stdio: "pipe" });
+  runGit(dir, ["add", "."]);
+  runGit(dir, [
+    "-c",
+    "user.email=test@test.com",
+    "-c",
+    "user.name=Test",
+    "commit",
+    "-q",
+    "-m",
+    "initial",
+  ]);
   return dir;
 }
 
@@ -46,10 +62,7 @@ function createSpaceWorktree(repoDir, shortId = "aabbccdd") {
   const branchName = `relay-space/${shortId}`;
   mkdirSync(base, { recursive: true });
   rmSync(worktreePath, { recursive: true, force: true });
-  execSync(`git worktree add -b "${branchName}" "${worktreePath}" HEAD`, {
-    cwd: repoDir,
-    stdio: "pipe",
-  });
+  runGit(repoDir, ["worktree", "add", "-b", branchName, worktreePath, "HEAD"]);
   return { worktreePath, branchName };
 }
 
@@ -97,7 +110,7 @@ describe("resolveWorktreeOrigin", () => {
     }
     cleanupWorktrees.length = 0;
     try {
-      execSync("git worktree prune", { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["worktree", "prune"]);
     } catch {}
     rmSync(repoDir, { recursive: true, force: true });
   });
@@ -154,7 +167,7 @@ describe("getGitInfo worktree detection", () => {
     }
     cleanupWorktrees.length = 0;
     try {
-      execSync("git worktree prune", { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["worktree", "prune"]);
     } catch {}
     rmSync(repoDir, { recursive: true, force: true });
   });
@@ -243,7 +256,7 @@ describe("scanAllSessions worktree recovery", () => {
     }
     cleanupWorktrees.length = 0;
     try {
-      execSync("git worktree prune", { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["worktree", "prune"]);
     } catch {}
     rmSync(repoDir, { recursive: true, force: true });
     rmSync(tempDir, { recursive: true, force: true });
@@ -439,7 +452,7 @@ describe("scanAllSessions archive protection", () => {
     }
     cleanupWorktrees.length = 0;
     try {
-      execSync("git worktree prune", { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["worktree", "prune"]);
     } catch {}
     rmSync(repoDir, { recursive: true, force: true });
     rmSync(tempDir, { recursive: true, force: true });
@@ -582,12 +595,28 @@ describe("scanAllSessions archive protection", () => {
     cleanupWorktrees.push(wt);
 
     writeFileSync(join(wt.worktreePath, "merged.txt"), "done\n");
-    execSync("git add merged.txt && git commit -m 'space work'", {
-      cwd: wt.worktreePath,
-      stdio: "pipe",
-    });
-    execSync(`git merge --squash "${wt.branchName}"`, { cwd: repoDir, stdio: "pipe" });
-    execSync("git commit -m 'merge space'", { cwd: repoDir, stdio: "pipe" });
+    runGit(wt.worktreePath, ["add", "merged.txt"]);
+    runGit(wt.worktreePath, [
+      "-c",
+      "user.email=test@test.com",
+      "-c",
+      "user.name=Test",
+      "commit",
+      "-q",
+      "-m",
+      "space work",
+    ]);
+    runGit(repoDir, ["merge", "--squash", wt.branchName]);
+    runGit(repoDir, [
+      "-c",
+      "user.email=test@test.com",
+      "-c",
+      "user.name=Test",
+      "commit",
+      "-q",
+      "-m",
+      "merge space",
+    ]);
     removeWorktree(repoDir, wt.worktreePath, wt.branchName, { keepBranch: true });
     cleanupWorktrees.length = 0;
 
@@ -780,7 +809,7 @@ describe("live discovery worktree recovery", () => {
     }
     cleanupWorktrees.length = 0;
     try {
-      execSync("git worktree prune", { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["worktree", "prune"]);
     } catch {}
     rmSync(repoDir, { recursive: true, force: true });
     rmSync(tempDir, { recursive: true, force: true });

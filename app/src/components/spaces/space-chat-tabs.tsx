@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { SpaceChatTab } from "@/components/spaces/space-chat-tab";
+import { Spinner } from "@/components/ui/spinner";
 import type { InstanceInfo } from "@shared/types";
 
 export function SpaceChatTabs({
   instances,
   activeTab,
+  pendingNewChatId,
+  pendingNewChat,
   onNavigateToChat,
   onRenameTab,
   onCloseTab,
@@ -14,6 +17,8 @@ export function SpaceChatTabs({
 }: {
   instances: InstanceInfo[];
   activeTab: string | null;
+  pendingNewChatId: string | null;
+  pendingNewChat?: boolean;
   onNavigateToChat: (id: string) => void;
   onRenameTab: (instanceId: string, name: string) => void;
   onCloseTab: (id: string) => void;
@@ -22,6 +27,10 @@ export function SpaceChatTabs({
 }) {
   const tabsScrollRef = useRef<HTMLDivElement>(null);
   const [tabsOverflow, setTabsOverflow] = useState({ left: false, right: false });
+  const shouldShowPendingTab =
+    !!pendingNewChat &&
+    !!pendingNewChatId &&
+    !instances.some((inst) => inst.id === pendingNewChatId);
 
   const updateTabsOverflow = useCallback(() => {
     const el = tabsScrollRef.current;
@@ -59,14 +68,22 @@ export function SpaceChatTabs({
     };
   }, [updateTabsOverflow, instances.length]);
 
+  useEffect(() => {
+    const el = tabsScrollRef.current;
+    if (!el || !activeTab) return;
+    const activeEl = el.querySelector<HTMLElement>(`[data-chat-tab-id="${activeTab}"]`);
+    activeEl?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeTab, shouldShowPendingTab, instances.length]);
+
   return (
     <div className="relative flex shrink-0 items-center border-b border-border bg-surface">
       <div
         className={`pointer-events-none absolute left-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-r from-surface via-surface/60 to-transparent transition-opacity duration-150 ${tabsOverflow.left ? "opacity-100" : "opacity-0"}`}
+      />
+      <div
+        ref={tabsScrollRef}
+        className="scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto"
       >
-        <ChevronLeft size={11} strokeWidth={2.5} className="text-muted" />
-      </div>
-      <div ref={tabsScrollRef} className="scrollbar-none flex items-center overflow-x-auto pl-1">
         {instances.map((inst) => (
           <SpaceChatTab
             key={inst.id}
@@ -77,22 +94,29 @@ export function SpaceChatTabs({
             onDelete={() => onCloseTab(inst.id)}
           />
         ))}
-        <button
-          onClick={onNewChat}
-          disabled={disableNewChat}
-          title={
-            disableNewChat ? "This space is read-only until its worktree is repaired" : undefined
-          }
-          className="flex h-full shrink-0 items-center px-2.5 py-2 text-muted transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
-        >
-          <Plus size={13} strokeWidth={2.5} />
-        </button>
+        {shouldShowPendingTab && (
+          <div
+            data-chat-tab-id={pendingNewChatId}
+            className="flex shrink-0 items-center gap-1 border-r border-border bg-background px-2.5 py-1.5 text-[0.75rem] shadow-[inset_0_-2px_0_0_var(--color-accent)]"
+          >
+            <Spinner size={9} />
+            <span className="font-medium text-muted">Creating chat...</span>
+          </div>
+        )}
       </div>
-      <div
-        className={`pointer-events-none absolute right-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-l from-surface via-surface/60 to-transparent transition-opacity duration-150 ${tabsOverflow.right ? "opacity-100" : "opacity-0"}`}
+      <button
+        onClick={onNewChat}
+        disabled={disableNewChat}
+        title={
+          disableNewChat ? "This space is read-only until its worktree is repaired" : undefined
+        }
+        className="flex shrink-0 items-center border-l border-border-hover px-2.5 py-1.5 text-muted transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
       >
-        <ChevronRight size={11} strokeWidth={2.5} className="text-muted" />
-      </div>
+        <Plus size={13} strokeWidth={2.5} />
+      </button>
+      <div
+        className={`pointer-events-none absolute right-[33px] top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-l from-surface via-surface/60 to-transparent transition-opacity duration-150 ${tabsOverflow.right ? "opacity-100" : "opacity-0"}`}
+      />
     </div>
   );
 }

@@ -132,6 +132,82 @@ export interface ManagedInstanceRow {
   original_git_branch: string | null;
 }
 
+function normalizeSessionRow(row: SessionRow): SessionRow {
+  const normalized = { ...row };
+  normalized.summary ??= null;
+  normalized.first_prompt ??= null;
+  normalized.git_branch ??= null;
+  normalized.allowed_tools ??= "[]";
+  normalized.worktree_path ??= null;
+  normalized.original_directory ??= null;
+  normalized.parent_session_id ??= null;
+  normalized.preferred_model ??= null;
+  normalized.reasoning_budget ??= null;
+  normalized.skip_permissions ??= 0;
+  normalized.last_message_text ??= null;
+  normalized.last_message_from ??= null;
+  normalized.last_message_at ??= null;
+  normalized.git_info_branch ??= null;
+  normalized.git_info_is_worktree ??= null;
+  normalized.space_id ??= null;
+  normalized.project_id ??= null;
+  normalized.model ??= null;
+  return normalized;
+}
+
+function normalizeManagedInstanceRow(row: ManagedInstanceRow): ManagedInstanceRow {
+  const normalized = { ...row };
+  normalized.git_branch ??= null;
+  normalized.worktree_path ??= null;
+  normalized.original_directory ??= null;
+  normalized.parent_session_id ??= null;
+  normalized.preferred_model ??= null;
+  normalized.reasoning_budget ??= null;
+  normalized.skip_permissions ??= 0;
+  normalized.resume_cursor_json ??= null;
+  normalized.runtime_payload_json ??= null;
+  normalized.transcript_path ??= null;
+  normalized.last_message_text ??= null;
+  normalized.last_message_from ??= null;
+  normalized.last_message_at ??= null;
+  normalized.git_info_branch ??= null;
+  normalized.git_info_is_worktree ??= null;
+  normalized.space_id ??= null;
+  normalized.project_id ??= null;
+  normalized.model ??= null;
+  normalized.model_options_json ??= null;
+  normalized.original_git_branch ??= null;
+  return normalized;
+}
+
+function normalizeSpaceRow(row: SpaceRow): SpaceRow {
+  const normalized = { ...row };
+  normalized.git_branch ??= null;
+  normalized.worktree_path ??= null;
+  normalized.status ??= "active";
+  normalized.merge_commit ??= null;
+  normalized.merge_method ??= null;
+  normalized.merged_at ??= null;
+  normalized.target_branch ??= null;
+  normalized.remote_status ??= null;
+  normalized.pr_url ??= null;
+  return normalized;
+}
+
+function normalizeProjectRow(row: ProjectRow): ProjectRow {
+  const normalized = { ...row };
+  normalized.repo_root ??= null;
+  normalized.remote_url ??= null;
+  normalized.target_branch ??= null;
+  normalized.custom_instructions ??= null;
+  normalized.default_space_branch ??= null;
+  normalized.space_branch_source ??= null;
+  normalized.default_provider ??= null;
+  normalized.default_model ??= null;
+  normalized.last_activity_at ??= null;
+  return normalized;
+}
+
 export class SessionDB {
   private readonly dbPath: string;
   private db: Database.Database;
@@ -162,6 +238,8 @@ export class SessionDB {
   private stmtUpdateName!: Database.Statement;
   private stmtGetJsonlPaths!: Database.Statement;
   private stmtDeleteBySessionId!: Database.Statement;
+  private stmtDeleteByInstanceId!: Database.Statement;
+  private stmtDeleteManagedByInstanceId!: Database.Statement;
   private stmtUpdateAllowedTools!: Database.Statement;
   private stmtUpdateWorkingDirectory!: Database.Statement;
   private stmtUpdateSessionModel!: Database.Statement;
@@ -183,6 +261,7 @@ export class SessionDB {
   private stmtGetProjectModelStats!: Database.Statement;
   private stmtUpsertSpace!: Database.Statement;
   private stmtGetSpace!: Database.Statement;
+  private stmtGetSpaceByWorktreePath!: Database.Statement;
   private stmtGetSpacesByProject!: Database.Statement;
   private stmtGetDefaultSpace!: Database.Statement;
   private stmtUpdateSpaceStatus!: Database.Statement;
@@ -591,6 +670,12 @@ export class SessionDB {
 
     this.stmtDeleteBySessionId = this.db.prepare("DELETE FROM sessions WHERE session_id = ?");
 
+    this.stmtDeleteByInstanceId = this.db.prepare("DELETE FROM sessions WHERE instance_id = ?");
+
+    this.stmtDeleteManagedByInstanceId = this.db.prepare(
+      "DELETE FROM managed_sessions WHERE instance_id = ?",
+    );
+
     this.stmtUpdateAllowedTools = this.db.prepare(
       "UPDATE sessions SET allowed_tools = ? WHERE session_id = ?",
     );
@@ -759,6 +844,9 @@ export class SessionDB {
         pr_url = COALESCE(excluded.pr_url, pr_url)
     `);
     this.stmtGetSpace = this.db.prepare("SELECT * FROM spaces WHERE id = ?");
+    this.stmtGetSpaceByWorktreePath = this.db.prepare(
+      "SELECT * FROM spaces WHERE worktree_path = ? ORDER BY created_at DESC LIMIT 1",
+    );
     this.stmtGetSpacesByProject = this.db.prepare(
       "SELECT * FROM spaces WHERE project_directory = ? AND status != 'archived' ORDER BY is_default DESC, last_activity_at DESC",
     );
@@ -812,13 +900,13 @@ export class SessionDB {
   }
 
   upsert(row: SessionRow): void {
-    this.stmtUpsert.run(row);
+    this.stmtUpsert.run(normalizeSessionRow(row));
   }
 
   upsertMany(rows: SessionRow[]): void {
     const tx = this.db.transaction((items: SessionRow[]) => {
       for (const row of items) {
-        this.stmtUpsert.run(row);
+        this.stmtUpsert.run(normalizeSessionRow(row));
       }
     });
     tx(rows);
@@ -856,7 +944,7 @@ export class SessionDB {
   }
 
   upsertManaged(row: ManagedInstanceRow): void {
-    this.stmtUpsertManaged.run(row);
+    this.stmtUpsertManaged.run(normalizeManagedInstanceRow(row));
   }
 
   getAllManagedActive(): ManagedInstanceRow[] {
@@ -998,12 +1086,20 @@ export class SessionDB {
     this.stmtDeleteBySessionId.run(sessionId);
   }
 
+  deleteByInstanceId(instanceId: string): void {
+    this.stmtDeleteByInstanceId.run(instanceId);
+  }
+
+  deleteManagedByInstanceId(instanceId: string): void {
+    this.stmtDeleteManagedByInstanceId.run(instanceId);
+  }
+
   // =========================================================================
   // Project CRUD
   // =========================================================================
 
   upsertProject(row: ProjectRow): void {
-    this.stmtUpsertProject.run(row);
+    this.stmtUpsertProject.run(normalizeProjectRow(row));
   }
 
   getProject(id: string): ProjectRow | undefined {
@@ -1099,11 +1195,15 @@ export class SessionDB {
   // =========================================================================
 
   upsertSpace(row: SpaceRow): void {
-    this.stmtUpsertSpace.run(row);
+    this.stmtUpsertSpace.run(normalizeSpaceRow(row));
   }
 
   getSpace(id: string): SpaceRow | undefined {
     return this.stmtGetSpace.get(id) as SpaceRow | undefined;
+  }
+
+  getSpaceByWorktreePath(worktreePath: string): SpaceRow | undefined {
+    return this.stmtGetSpaceByWorktreePath.get(worktreePath) as SpaceRow | undefined;
   }
 
   getSpacesByProject(projectDirectory: string): SpaceRow[] {

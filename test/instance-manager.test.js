@@ -1,9 +1,9 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { InstanceManager } from "../dist/server/core/instance-manager.js";
 import { SessionDB } from "../dist/server/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
@@ -16,14 +16,29 @@ const noopLogger = {
   debug() {},
 };
 
+function runGit(cwd, args) {
+  return execFileSync("git", args, {
+    cwd,
+    stdio: "pipe",
+    timeout: 15000,
+  });
+}
+
 function makeConfig(overrides = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "relay-im-test-"));
-  execSync("git init -q", { cwd: tempDir });
-  execSync("git config user.email test@test.com", { cwd: tempDir });
-  execSync("git config user.name Test", { cwd: tempDir });
+  runGit(tempDir, ["init", "-q"]);
   writeFileSync(join(tempDir, "README.md"), "# Test\n");
-  execSync("git add .", { cwd: tempDir });
-  execSync("git commit -q -m initial", { cwd: tempDir });
+  runGit(tempDir, ["add", "."]);
+  runGit(tempDir, [
+    "-c",
+    "user.email=test@test.com",
+    "-c",
+    "user.name=Test",
+    "commit",
+    "-q",
+    "-m",
+    "initial",
+  ]);
   return resolveConfig({
     password: "test",
     logger: noopLogger,
@@ -126,9 +141,26 @@ function createBrokenWorktree(worktreePath) {
 
 describe("InstanceManager", () => {
   let manager;
+  let managers;
+
+  function trackManager(instanceManager) {
+    managers.push(instanceManager);
+    return instanceManager;
+  }
 
   beforeEach(() => {
-    manager = new InstanceManager(makeConfig());
+    managers = [];
+    manager = trackManager(new InstanceManager(makeConfig()));
+  });
+
+  afterEach(() => {
+    for (const instanceManager of managers.reverse()) {
+      try {
+        instanceManager.stopAll();
+      } catch {
+        // best-effort cleanup for test isolation
+      }
+    }
   });
 
   describe("createInstance", () => {
@@ -268,7 +300,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(manager.baseConfig);
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
       restored.restoreInstances();
       const info = restored.getInstance("managed-stale");
       const instance = restored.instances.get("managed-stale");
@@ -308,7 +340,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(manager.baseConfig);
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
       restored.restoreInstances();
       const info = restored.getInstance("managed-broken-worktree");
       const instance = restored.instances.get("managed-broken-worktree");
@@ -347,7 +379,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(manager.baseConfig);
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
       restored.projectManager.addProject(projectDir);
       restored.restoreInstances();
 
@@ -399,7 +431,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(manager.baseConfig);
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
       restored.projectManager.addProject(projectDir);
       restored.restoreInstances();
 
@@ -424,7 +456,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(manager.baseConfig);
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
       restored.restoreInstances();
       const info = restored.getInstance("managed-legacy-branch");
 
@@ -457,7 +489,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(manager.baseConfig);
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
       restored.projectManager.addProject(projectDir);
       restored.restoreInstances();
 
@@ -504,7 +536,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(manager.baseConfig);
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
       restored.projectManager.addProject(projectDir);
       restored.restoreInstances();
 
@@ -556,7 +588,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(manager.baseConfig);
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
       restored.projectManager.addProject(projectDir);
       restored.restoreInstances();
 
@@ -599,7 +631,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(manager.baseConfig);
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
       restored.projectManager.addProject(projectDir);
       restored.restoreInstances();
       restored.discoverExternalSessions = async () => [
@@ -627,24 +659,65 @@ describe("InstanceManager", () => {
 
     it("refreshes the live git branch without waiting for a new message", async () => {
       const repoDir = mkdtempSync(join(tmpdir(), "relay-branch-refresh-"));
-      execSync("git init -q -b main", { cwd: repoDir, stdio: "pipe" });
-      execSync('git config user.email "relay@example.com"', { cwd: repoDir, stdio: "pipe" });
-      execSync('git config user.name "Relay Tests"', { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["init", "-q", "-b", "main"]);
       writeFileSync(join(repoDir, "README.md"), "hello\n");
-      execSync("git add README.md", { cwd: repoDir, stdio: "pipe" });
-      execSync('git commit -q -m "init"', { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["add", "README.md"]);
+      runGit(repoDir, [
+        "-c",
+        "user.email=relay@example.com",
+        "-c",
+        "user.name=Relay Tests",
+        "commit",
+        "-q",
+        "-m",
+        "init",
+      ]);
 
       const info = manager.createInstance({ workingDirectory: repoDir });
       const instance = manager.instances.get(info.id);
       assert.ok(instance);
       assert.equal(instance.info.gitInfo?.branch, "main");
 
-      execSync("git checkout -q -b feature-branch", { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["checkout", "-q", "-b", "feature-branch"]);
 
       await manager.refreshGitBranchStateAsync(info.id, instance);
 
       assert.equal(instance.info.gitInfo?.branch, "feature-branch");
       assert.equal(instance.info.originalGitBranch, "main");
+    });
+
+    it("warns only once per missing space-owned working directory during git refresh", async () => {
+      const warnings = [];
+      const logger = {
+        info() {},
+        warn(message) {
+          warnings.push(String(message));
+        },
+        error() {},
+        debug() {},
+      };
+      const noisyManager = trackManager(new InstanceManager(makeConfig({ logger })));
+      const space = noisyManager
+        .getSpaceManager()
+        .createSpace(noisyManager.baseConfig.workingDirectory, {
+          name: "Missing worktree",
+        });
+      assert.ok(space.worktreePath);
+
+      const info = noisyManager.createInstance({ spaceId: space.id });
+      const instance = noisyManager.instances.get(info.id);
+      assert.ok(instance);
+
+      rmSync(space.worktreePath, { recursive: true, force: true });
+
+      await noisyManager.refreshGitBranchStateAsync(info.id, instance);
+      await noisyManager.refreshGitBranchStateAsync(info.id, instance);
+
+      assert.equal(warnings.length, 1);
+      assert.match(
+        warnings[0],
+        /Space-owned working directory .* is missing; keeping stale path to avoid falling back into the main repo/,
+      );
     });
   });
 
@@ -727,6 +800,88 @@ describe("InstanceManager", () => {
       const refreshedSpace = manager.getSpaceManager().getSpace(space.id);
       assert.ok(refreshedSpace?.worktreePath);
       assert.equal(existsSync(refreshedSpace.worktreePath), true);
+    });
+
+    it("purges a removed space chat from Relay and disk", () => {
+      const project = manager.projectManager.addProject(manager.baseConfig.workingDirectory);
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Purge space",
+      });
+      assert.ok(space.worktreePath);
+
+      const info = manager.createInstance({ spaceId: space.id, name: "Purge me" });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      const transcriptPath = join(manager.baseConfig.workingDirectory, "purge-space-chat.jsonl");
+      writeFileSync(
+        transcriptPath,
+        '{"type":"message","message":{"role":"user","content":"hi"}}\n',
+      );
+
+      instance.sessionId = "purge-session";
+      instance.jsonlPath = transcriptPath;
+      instance.providerBinding = {
+        provider: "claude",
+        providerSessionId: "purge-session",
+        resumeCursor: { sessionId: "purge-session" },
+        runtimePayload: {},
+        transcriptPath,
+        runtimeMode: "approval-required",
+      };
+
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: info.id,
+            provider_session_id: "purge-session",
+            transcript_path: transcriptPath,
+            working_directory: space.worktreePath,
+            worktree_path: space.worktreePath,
+            original_directory: manager.baseConfig.workingDirectory,
+            git_branch: space.gitBranch,
+            space_id: space.id,
+            project_id: project.id,
+            name: "Purge me",
+          }),
+        );
+        db.upsert(
+          makeExternalRow({
+            session_id: "purge-session",
+            instance_id: info.id,
+            jsonl_path: transcriptPath,
+            working_directory: manager.baseConfig.workingDirectory,
+            worktree_path: space.worktreePath,
+            original_directory: manager.baseConfig.workingDirectory,
+            git_branch: space.gitBranch,
+            space_id: space.id,
+            project_id: project.id,
+            name: "Purge me",
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      assert.equal(
+        manager.listSpaceChats(space.id).some((chat) => chat.id === info.id),
+        true,
+      );
+      assert.equal(manager.removeInstance(info.id, { purge: true }), true);
+      assert.equal(existsSync(transcriptPath), false);
+      assert.equal(
+        manager.listSpaceChats(space.id).some((chat) => chat.id === info.id),
+        false,
+      );
+
+      const verifyDb = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        assert.equal(verifyDb.getBySessionId("purge-session"), undefined);
+        assert.equal(verifyDb.getManagedByInstanceId(info.id), undefined);
+      } finally {
+        verifyDb.close();
+      }
     });
   });
 
@@ -897,12 +1052,19 @@ describe("InstanceManager", () => {
 
     it("still sends messages after a branch change while surfacing branch drift", async () => {
       const repoDir = mkdtempSync(join(tmpdir(), "relay-branch-check-"));
-      execSync("git init -q -b main", { cwd: repoDir, stdio: "pipe" });
-      execSync('git config user.email "relay@example.com"', { cwd: repoDir, stdio: "pipe" });
-      execSync('git config user.name "Relay Tests"', { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["init", "-q", "-b", "main"]);
       writeFileSync(join(repoDir, "README.md"), "hello\n");
-      execSync("git add README.md", { cwd: repoDir, stdio: "pipe" });
-      execSync('git commit -q -m "init"', { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["add", "README.md"]);
+      runGit(repoDir, [
+        "-c",
+        "user.email=relay@example.com",
+        "-c",
+        "user.name=Relay Tests",
+        "commit",
+        "-q",
+        "-m",
+        "init",
+      ]);
 
       const info = manager.createInstance({ workingDirectory: repoDir });
       const instance = manager.instances.get(info.id);
@@ -932,7 +1094,7 @@ describe("InstanceManager", () => {
         },
       };
 
-      execSync("git checkout -q -b feature-branch", { cwd: repoDir, stdio: "pipe" });
+      runGit(repoDir, ["checkout", "-q", "-b", "feature-branch"]);
 
       await manager.refreshGitBranchStateAsync(info.id, instance);
       await manager.sendMessage(info.id, "hello on the new branch");
@@ -1363,7 +1525,7 @@ describe("InstanceManager", () => {
         db.close();
       }
 
-      const restored = new InstanceManager(config);
+      const restored = trackManager(new InstanceManager(config));
       restored.restoreInstances();
       const info = restored.getInstance("opts-1");
 
@@ -1374,7 +1536,7 @@ describe("InstanceManager", () => {
     });
 
     it("setModelOptions sparse-merges and null clears individual fields", async () => {
-      const mgr = new InstanceManager(makeConfig());
+      const mgr = trackManager(new InstanceManager(makeConfig()));
       const info = mgr.createInstance();
 
       // Set all three fields
@@ -1416,7 +1578,7 @@ describe("InstanceManager", () => {
     });
 
     it("setReasoningBudget delegates to setModelOptions", async () => {
-      const mgr = new InstanceManager(makeConfig());
+      const mgr = trackManager(new InstanceManager(makeConfig()));
       const info = mgr.createInstance();
 
       await mgr.setReasoningBudget(info.id, 10000);
@@ -1431,7 +1593,7 @@ describe("InstanceManager", () => {
     });
 
     it("setModelOptions pushes to live process via setModelOptions", async () => {
-      const mgr = new InstanceManager(makeConfig());
+      const mgr = trackManager(new InstanceManager(makeConfig()));
       const info = mgr.createInstance();
       const instance = mgr.instances.get(info.id);
       assert.ok(instance);
@@ -1466,7 +1628,7 @@ describe("InstanceManager", () => {
 
     it("persists modelOptions to model_options_json in DB on create with options", () => {
       const config = makeConfig();
-      const mgr = new InstanceManager(config);
+      const mgr = trackManager(new InstanceManager(config));
       const info = mgr.createInstance({
         modelOptions: { reasoningBudgetTokens: 7777, fastMode: true },
       });

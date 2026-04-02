@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { motion } from "motion/react";
 import { BranchChangeBanner } from "@/components/chat/branch-change-banner";
 import { ConnectionStatusBanner } from "@/components/chat/connection-status-banner";
@@ -5,18 +6,56 @@ import { DebugModal } from "@/components/chat/debug-modal";
 import { ExternalSessionBar } from "@/components/chat/external-session-bar";
 import { InputArea } from "@/components/chat/input-area";
 import { MessageList } from "@/components/chat/message-list";
+import { MessageRelayProvider } from "@/components/chat/message-relay-context";
 import { PermissionBanner } from "@/components/chat/permission-banner";
+import { SpaceSuggestionCards } from "@/components/spaces/space-suggestion-cards";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
 import { TerminalContextStrip } from "@/components/terminal/terminal-context-strip";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { useInstanceViewContext } from "@/components/chat/instance-view-context";
+import { useWSMethods, useWSState } from "@/context/websocket-context";
 
 const MotionLogo = motion.create(RelayLogo);
 
 export function InstanceViewContent() {
   const { shared, actions } = useInstanceViewContext();
+  const { instances: allInstances } = useWSState();
+  const { send } = useWSMethods();
+
+  const spaceId = shared.instance.spaceId;
+  const instanceId = shared.id;
+
+  const relayValue = useMemo(() => {
+    if (!spaceId) return null;
+
+    const siblings = allInstances
+      .filter((inst) => inst.spaceId === spaceId && inst.id !== instanceId)
+      .map((inst) => ({ id: inst.id, name: inst.name, status: inst.status }));
+
+    return {
+      siblings,
+      onSendToChat: (targetId: string, messageText: string) => {
+        const sourceChat = allInstances.find((inst) => inst.id === instanceId);
+        const sourceName = sourceChat?.name || "Unknown";
+        const attributed = `[From: ${sourceName}] ${messageText}`;
+        send({ type: "instance_message", instanceId: targetId, text: attributed });
+      },
+      onSendToNewChat: (messageText: string) => {
+        // Store the message for delivery after instance creation
+        // We'll use a custom event to coordinate this
+        const sourceChat = allInstances.find((inst) => inst.id === instanceId);
+        const sourceName = sourceChat?.name || "Unknown";
+        const attributed = `[From: ${sourceName}] ${messageText}`;
+        window.dispatchEvent(
+          new CustomEvent("relay:send-to-new-chat", {
+            detail: { spaceId, message: attributed },
+          }),
+        );
+      },
+    };
+  }, [spaceId, instanceId, allInstances, send]);
 
   const loadingContent = (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
@@ -44,25 +83,27 @@ export function InstanceViewContent() {
         loadingContent
       ) : (
         <ErrorBoundary name="Message list">
-          <MessageList
-            key={shared.id}
-            items={shared.items}
-            isProcessing={shared.isActive}
-            showThinkingIndicator={shared.showThinkingIndicator}
-            instanceStatus={shared.instance.status}
-            lastActivity={shared.lastActivity}
-            processingStartedAt={shared.processingStartedAt}
-            onSendMessage={actions.handleSend}
-            onAnswerUserInput={actions.handleAnswerUserInput}
-            isInteractive={!shared.isStopped}
-            onApproveTool={actions.handleApproveTool}
-            approvedTools={shared.approvedTools}
-            isExternal={!!shared.instance.sessionId}
-            pendingInteraction={!!shared.instance.pendingPlan || !!shared.pendingUserInput}
-            planChildId={shared.planChild?.id}
-            planChildName={shared.planChild?.name}
-            onInterruptAndSend={actions.handleInterruptAndSend}
-          />
+          <MaybeRelayProvider value={relayValue}>
+            <MessageList
+              key={shared.id}
+              items={shared.items}
+              isProcessing={shared.isActive}
+              showThinkingIndicator={shared.showThinkingIndicator}
+              instanceStatus={shared.instance.status}
+              lastActivity={shared.lastActivity}
+              processingStartedAt={shared.processingStartedAt}
+              onSendMessage={actions.handleSend}
+              onAnswerUserInput={actions.handleAnswerUserInput}
+              isInteractive={!shared.isStopped}
+              onApproveTool={actions.handleApproveTool}
+              approvedTools={shared.approvedTools}
+              isExternal={!!shared.instance.sessionId}
+              pendingInteraction={!!shared.instance.pendingPlan || !!shared.pendingUserInput}
+              planChildId={shared.planChild?.id}
+              planChildName={shared.planChild?.name}
+              onInterruptAndSend={actions.handleInterruptAndSend}
+            />
+          </MaybeRelayProvider>
         </ErrorBoundary>
       )}
 
@@ -144,6 +185,11 @@ export function InstanceViewContent() {
           />
         ) : (
           <ErrorBoundary name="Input area" inline>
+            {spaceId && shared.items.length === 0 && !shared.isActive && (
+              <div className="mx-auto w-full max-w-3xl px-6">
+                <SpaceSuggestionCards onSelect={(prompt) => actions.handleSend(prompt)} />
+              </div>
+            )}
             <InputArea
               onSend={actions.handleSend}
               onAnswerUserInput={actions.handleAnswerUserInput}
@@ -174,4 +220,16 @@ export function InstanceViewContent() {
         ))}
     </>
   );
+}
+
+/** Wraps children in MessageRelayProvider only when relay is available (i.e., inside a space). */
+function MaybeRelayProvider({
+  value,
+  children,
+}: {
+  value: Parameters<typeof MessageRelayProvider>[0]["value"] | null;
+  children: React.ReactNode;
+}) {
+  if (!value) return <>{children}</>;
+  return <MessageRelayProvider value={value}>{children}</MessageRelayProvider>;
 }

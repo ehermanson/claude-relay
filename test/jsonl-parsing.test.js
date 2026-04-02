@@ -925,7 +925,7 @@ describe("Plan Discovery", () => {
   });
 
   it("discovers plans with custom filenames via JSONL content scan", () => {
-    const { projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
+    const { claudeDir, projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
 
     // Session slug doesn't match the plan filename
     writeJsonl(projectDir, "session-b.jsonl", [
@@ -975,7 +975,7 @@ describe("Plan Discovery", () => {
   });
 
   it("discovers both slug-matched and custom-named plans", () => {
-    const { plansDir } = setupProject("-Users-test-projects-my-app");
+    const { claudeDir, projectDir, plansDir } = setupProject("-Users-test-projects-my-app");
 
     // Session 1: slug matches a plan file
     writeJsonl(projectDir, "session-1.jsonl", [

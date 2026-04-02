@@ -19,6 +19,7 @@ type SpaceViewContextValue = {
     spaceInstances: InstanceInfo[];
     activeTab: string | null;
     activeLiveInstance: InstanceInfo | null;
+    pendingNewChatId: string | null;
     aggregatedStats: SessionStats | null;
     fileChanges: FileChange[];
     isActive: boolean;
@@ -27,6 +28,7 @@ type SpaceViewContextValue = {
     isArchived: boolean;
     isMobile: boolean;
     isResolvingChatSelection: boolean;
+    pendingNewChatActive: boolean;
     chatSummariesLoading: boolean;
     showSidebar: boolean;
     activePanels: ReadonlySet<SidecarTab>;

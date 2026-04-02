@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TerminalSquare, ChevronDown, ChevronRight, Clock, Zap } from "lucide-react";
+import { TerminalSquare, ChevronDown, ChevronRight, Clock, Forward, Zap } from "lucide-react";
 import { formatTimestamp } from "../../lib/utils";
 import { MarkdownContent, ImageThumbnail, IMAGE_PATTERN } from "./markdown-content";
 
@@ -119,6 +119,11 @@ export function UserMessage({
   const hasImages = images.length > 0;
   const hasTerminal = terminalBlocks.length > 0;
 
+  // Detect relayed messages: [From: Chat Name] content
+  const relayMatch = textPart.match(/^\[From:\s+(.+?)\]\s*/);
+  const relaySource = relayMatch?.[1] ?? null;
+  const relayContent = relaySource ? textPart.slice(relayMatch![0].length) : textPart;
+
   return (
     <div
       className={`flex max-w-[80%] flex-col items-end gap-1.5 self-end ${queued ? "opacity-60" : ""}`}
@@ -130,16 +135,24 @@ export function UserMessage({
           ))}
         </div>
       )}
+      {relaySource && (
+        <div className="flex items-center gap-1 px-1 text-[0.6875rem] text-accent">
+          <Forward size={11} />
+          <span>From: {relaySource}</span>
+        </div>
+      )}
       {hasText && (
         <div
           className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed ${
-            queued
-              ? "border-border/30 border-dashed bg-user-bg/60 text-user-text/70"
-              : "border-border/50 bg-user-bg text-user-text"
+            relaySource
+              ? "border-accent/30 bg-accent/5 text-user-text"
+              : queued
+                ? "border-border/30 border-dashed bg-user-bg/60 text-user-text/70"
+                : "border-border/50 bg-user-bg text-user-text"
           }`}
           style={shrinkwrapWidth ? { maxWidth: shrinkwrapWidth } : undefined}
         >
-          <MarkdownContent text={textPart} />
+          <MarkdownContent text={relaySource ? relayContent : textPart} />
         </div>
       )}
       {hasImages && <ImageRow images={images} />}

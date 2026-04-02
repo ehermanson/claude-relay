@@ -303,10 +303,17 @@ export interface CreateInstancePayload {
   spaceId?: string;
   /** Canonical model options (reasoning budget, effort, fast mode) */
   modelOptions?: ProviderModelOptions;
+  /** Whether to start in plan mode */
+  planMode?: boolean;
 }
 
 export interface RemoveInstancePayload {
   type: "remove_instance";
+  instanceId: string;
+}
+
+export interface PurgeInstancePayload {
+  type: "purge_instance";
   instanceId: string;
 }
 
@@ -474,6 +481,7 @@ export type ClientMessage =
   | ListInstancesPayload
   | CreateInstancePayload
   | RemoveInstancePayload
+  | PurgeInstancePayload
   | SubscribePayload
   | UnsubscribePayload
   | InstanceMessagePayload

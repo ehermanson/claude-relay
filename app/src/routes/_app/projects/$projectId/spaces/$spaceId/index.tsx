@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate, useParams } from "@tanstack/react-router";
@@ -10,6 +10,7 @@ import { useTerminalShortcut } from "@/hooks/use-terminal-shortcut";
 import { useVerticalResize } from "@/hooks/use-vertical-resize";
 import { useSidecarPanels } from "@/stores/sidecar-store";
 import { useTerminalStore } from "@/stores/terminal-store";
+import { primeInstanceMessagesCache } from "@/hooks/use-instance-messages";
 import { SpaceViewBody } from "@/components/spaces/space-view-body";
 import {
   SpaceViewDialogs,
@@ -20,6 +21,7 @@ import { SpaceViewProvider } from "@/components/spaces/space-view-context";
 import {
   commitSpace,
   completeSpace,
+  createInstance,
   deleteSpace,
   fetchSpaceChats,
   fetchSpaceDetail,
@@ -30,6 +32,8 @@ import { getProjectName } from "@/lib/project-route";
 import { aggregateSpaceStats, buildSpaceInstances, parseSpaceDiffFiles } from "@/lib/space-view";
 import "@/components/chat/sidecar.css";
 import type { TerminalScope } from "@shared/types";
+
+const PENDING_NEW_CHAT_TAB_ID = "__pending_space_new_chat__";
 
 export function SpaceView() {
   const {
@@ -66,10 +70,10 @@ export function SpaceView() {
     "not-installed",
   );
   const [mergeDialog, setMergeDialog] = useState<SpaceMergeDialogState>(null);
-
   const spaceNameInputRef = useRef<HTMLInputElement>(null);
-  const prevSpaceInstanceIds = useRef(new Set<string>());
-  const pendingNewChat = useRef(false);
+  const [pendingNewChatActive, setPendingNewChatActive] = useState(false);
+  const [pendingNewChatId, setPendingNewChatId] = useState<string | null>(null);
+  const pendingCreatedChatIdRef = useRef<string | null>(null);
 
   const terminalScope: TerminalScope = { type: "space", spaceId };
   const terminalScopeKey = `space:${spaceId}`;
@@ -101,8 +105,25 @@ export function SpaceView() {
 
   useEffect(() => {
     return addMessageHandler((message) => {
-      if (message.type === "instance_created" || message.type === "instance_removed") {
+      if (message.type === "instance_removed") {
         void queryClient.invalidateQueries({ queryKey: ["spaceChats", spaceId] });
+        return;
+      }
+      if (message.type === "instance_created") {
+        void queryClient.invalidateQueries({ queryKey: ["spaceChats", spaceId] });
+        if (
+          message.instance.spaceId === spaceId &&
+          message.instance.id === pendingCreatedChatIdRef.current
+        ) {
+          primeInstanceMessagesCache(message.instance.id);
+          setPendingNewChatActive(false);
+        }
+        return;
+      }
+      if (message.type === "error" && pendingNewChatActive) {
+        setPendingNewChatActive(false);
+        pendingCreatedChatIdRef.current = null;
+        setPendingNewChatId(null);
         return;
       }
       if (message.type === "space_list" && message.projectDirectory === artifacts.directory) {
@@ -130,6 +151,7 @@ export function SpaceView() {
     addMessageHandler,
     artifacts.directory,
     navigate,
+    pendingNewChatActive,
     projectId,
     queryClient,
     spaceId,
@@ -160,8 +182,13 @@ export function SpaceView() {
     };
   }, [spaceId, hasActiveChats]);
 
-  const activeTab =
-    chatId && spaceInstances.find((instance) => instance.id === chatId) ? chatId : null;
+  // If we just created a new chat and know its ID, use that as activeTab immediately
+  // (the route loader may not have the new chat in REST data yet, so chatId from URL may be stale)
+  const activeTab = pendingNewChatId
+    ? pendingNewChatId
+    : chatId && spaceInstances.find((instance) => instance.id === chatId)
+      ? chatId
+      : null;
   const firstSpaceChatId = spaceInstances[0]?.id ?? null;
   const activeLiveInstance = activeTab
     ? (instances.find((instance) => instance.id === activeTab) ?? null)
@@ -169,14 +196,31 @@ export function SpaceView() {
   const isResolvingChatSelection = chatSummariesLoading && !activeTab;
 
   useEffect(() => {
-    if (!chatSummariesLoading && firstSpaceChatId && !activeTab && chatId !== firstSpaceChatId) {
+    if (
+      !chatSummariesLoading &&
+      firstSpaceChatId &&
+      !activeTab &&
+      !pendingNewChatActive &&
+      !pendingNewChatId &&
+      chatId !== firstSpaceChatId
+    ) {
       navigate({
         to: "/projects/$projectId/spaces/$spaceId/$chatId",
         params: { projectId, spaceId, chatId: firstSpaceChatId },
         replace: true,
       });
     }
-  }, [activeTab, chatId, chatSummariesLoading, firstSpaceChatId, navigate, projectId, spaceId]);
+  }, [
+    activeTab,
+    chatId,
+    chatSummariesLoading,
+    firstSpaceChatId,
+    pendingNewChatActive,
+    pendingNewChatId,
+    navigate,
+    projectId,
+    spaceId,
+  ]);
 
   const navigateToChat = (id: string) => {
     navigate({
@@ -207,19 +251,21 @@ export function SpaceView() {
     hasStats,
   });
 
+  // Once chatSummaries includes the pending new chat, sync the URL so the route
+  // loader won't reject it, then clear the override
   useEffect(() => {
-    const currentIds = new Set(spaceInstances.map((instance) => instance.id));
-    if (pendingNewChat.current && prevSpaceInstanceIds.current.size > 0) {
-      for (const instance of spaceInstances) {
-        if (!prevSpaceInstanceIds.current.has(instance.id)) {
-          pendingNewChat.current = false;
-          navigateToChat(instance.id);
-          break;
-        }
+    if (
+      pendingNewChatId &&
+      pendingNewChatId !== PENDING_NEW_CHAT_TAB_ID &&
+      chatSummaries.some((chat) => chat.id === pendingNewChatId)
+    ) {
+      navigateToChat(pendingNewChatId);
+      if (!pendingNewChatActive) {
+        setPendingNewChatId(null);
+        pendingCreatedChatIdRef.current = null;
       }
     }
-    prevSpaceInstanceIds.current = currentIds;
-  }, [spaceInstances]);
+  }, [pendingNewChatActive, pendingNewChatId, chatSummaries]);
 
   useEffect(() => {
     if (editingSpaceName) {
@@ -233,9 +279,45 @@ export function SpaceView() {
   const isMerged = space?.status === "completed";
   const isArchived = space?.status === "archived";
 
+  const handleCreateChat = useCallback(
+    async (initialPrompt?: string) => {
+      if (pendingNewChatActive) return;
+      setPendingNewChatActive(true);
+      setPendingNewChatId(PENDING_NEW_CHAT_TAB_ID);
+      try {
+        const created = await createInstance({ spaceId });
+        pendingCreatedChatIdRef.current = created.id;
+        setPendingNewChatId(created.id);
+        if (initialPrompt) {
+          send({
+            type: "instance_message",
+            instanceId: created.id,
+            text: initialPrompt,
+          });
+        }
+      } catch (err) {
+        setPendingNewChatActive(false);
+        setPendingNewChatId(null);
+        pendingCreatedChatIdRef.current = null;
+        toast.error(err instanceof Error ? err.message : "Failed to create chat");
+      }
+    },
+    [pendingNewChatActive, send, spaceId],
+  );
+
+  // Listen for "Send to new chat" relay events from child instance views
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { spaceId: string; message: string };
+      if (detail.spaceId !== spaceId) return;
+      void handleCreateChat(detail.message);
+    };
+    window.addEventListener("relay:send-to-new-chat", handler);
+    return () => window.removeEventListener("relay:send-to-new-chat", handler);
+  }, [handleCreateChat, spaceId]);
+
   const handleNewChat = () => {
-    pendingNewChat.current = true;
-    send({ type: "create_instance", spaceId });
+    void handleCreateChat();
   };
 
   const handleRenameTab = (instanceId: string, name: string) => {
@@ -244,7 +326,7 @@ export function SpaceView() {
 
   const confirmCloseTab = () => {
     if (!closeTabId) return;
-    send({ type: "remove_instance", instanceId: closeTabId });
+    send({ type: "purge_instance", instanceId: closeTabId });
     if (activeTab === closeTabId) {
       const remaining = spaceInstances.filter((instance) => instance.id !== closeTabId);
       if (remaining.length > 0) {
@@ -398,6 +480,7 @@ export function SpaceView() {
       spaceInstances,
       activeTab,
       activeLiveInstance,
+      pendingNewChatId,
       aggregatedStats,
       fileChanges,
       isActive,
@@ -406,6 +489,7 @@ export function SpaceView() {
       isArchived,
       isMobile,
       isResolvingChatSelection,
+      pendingNewChatActive,
       chatSummariesLoading,
       showSidebar,
       activePanels,

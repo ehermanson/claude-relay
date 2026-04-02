@@ -1,7 +1,7 @@
 import "./test-env.js";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -85,12 +85,13 @@ describe("getRepoRoot", () => {
   });
 
   it("returns the repo root from the root directory", () => {
-    // realpath to resolve macOS /private/tmp symlinks
     const expected = execSync("git rev-parse --show-toplevel", {
       cwd: repoDir,
       encoding: "utf-8",
     }).trim();
-    assert.equal(getRepoRoot(repoDir), expected);
+    const actual = getRepoRoot(repoDir);
+    assert.ok(actual);
+    assert.equal(realpathSync(actual), realpathSync(expected));
   });
 
   it("returns the repo root from a subdirectory", () => {

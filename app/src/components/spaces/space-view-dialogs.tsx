@@ -126,10 +126,10 @@ export function SpaceViewDialogs() {
               {shared.spaceInstances.find((instance) => instance.id === shared.closeTabId)?.name ||
                 "This chat"}
             </span>{" "}
-            will be removed from this space.
+            will be permanently deleted from this space and Relay.
           </>
         }
-        confirmLabel="Remove"
+        confirmLabel="Delete"
         onConfirm={actions.confirmCloseTab}
       />
 

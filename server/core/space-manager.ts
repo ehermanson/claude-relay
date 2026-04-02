@@ -7,12 +7,13 @@
  */
 
 import { randomUUID } from "crypto";
-import { existsSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync } from "fs";
 import { execSync, execFileSync } from "child_process";
 import { basename, join } from "path";
 import { EventEmitter } from "events";
 
 import type { SessionDB } from "#core/db.js";
+import { relayDir } from "#core/config.js";
 import type { SpaceRow } from "#core/db.js";
 import type { Logger } from "#core/logger.js";
 import type { SpaceInfo, SpaceStatus, MergeMethod } from "#core/types.js";
@@ -271,7 +272,10 @@ export class SpaceManager extends EventEmitter {
    * Create a new space with its own git worktree.
    * Requires the project to be a git repository.
    */
-  createSpace(projectDirectory: string, opts?: { name?: string; baseBranch?: string }): SpaceInfo {
+  createSpace(
+    projectDirectory: string,
+    opts?: { name?: string; baseBranch?: string; description?: string },
+  ): SpaceInfo {
     if (!isGitRepo(projectDirectory)) {
       throw new Error("Cannot create space: project is not a git repository");
     }
@@ -305,6 +309,12 @@ export class SpaceManager extends EventEmitter {
         `Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+
+    // Seed the shared space context file
+    this.seedSpaceContext(worktreePath, opts?.name || branchName, opts?.description);
+
+    // Exclude .relay/ from git in the worktree
+    this.excludeRelayDir(worktreePath);
 
     const spaceName = opts?.name || branchName;
     const now = Date.now();
@@ -691,6 +701,11 @@ export class SpaceManager extends EventEmitter {
       `[SpaceManager] Merged space "${row.name}" (${row.git_branch}) into ${targetBranch} via ${mergeMethod}`,
     );
 
+    // Archive the shared space context before removing the worktree
+    if (existsSync(row.worktree_path)) {
+      this.archiveSpaceContext(id, row.worktree_path);
+    }
+
     // Cleanup worktree (keep local branch for recoverability)
     if (existsSync(row.worktree_path)) {
       removeWorktree(repoRoot, row.worktree_path, row.git_branch, { keepBranch: true });
@@ -710,6 +725,11 @@ export class SpaceManager extends EventEmitter {
     const row = this.db.getSpace(id);
     if (!row) throw new Error(`Space ${id} not found`);
     if (row.is_default) throw new Error("Cannot delete the default space");
+
+    // Archive the shared space context before removing the worktree
+    if (row.worktree_path && existsSync(row.worktree_path)) {
+      this.archiveSpaceContext(id, row.worktree_path);
+    }
 
     // Cleanup worktree if it exists
     if (row.git_branch && row.worktree_path) {
@@ -847,5 +867,123 @@ export class SpaceManager extends EventEmitter {
    */
   touchSpace(id: string): void {
     this.db.updateSpaceActivity(id, Date.now());
+  }
+
+  /**
+   * Read the shared space context file for a space.
+   * Returns null if the file doesn't exist or the space has no worktree.
+   */
+  readSpaceContext(id: string): string | null {
+    const row = this.db.getSpace(id);
+    if (!row) return null;
+
+    // For active spaces, read from worktree
+    if (row.worktree_path && existsSync(row.worktree_path)) {
+      const contextPath = join(row.worktree_path, ".relay", "space-context.md");
+      try {
+        return readFileSync(contextPath, "utf-8");
+      } catch {
+        return null;
+      }
+    }
+
+    // For completed/archived spaces, try the archive location
+    const archivePath = join(this.getArchiveDir(id), "space-context.md");
+    try {
+      return readFileSync(archivePath, "utf-8");
+    } catch {
+      return null;
+    }
+  }
+
+  // ─── Private helpers ────────────────────────────────────────────────
+
+  /**
+   * Seed `.relay/space-context.md` in the worktree with a template and optional description.
+   */
+  private seedSpaceContext(worktreePath: string, spaceName: string, description?: string): void {
+    const relayDir = join(worktreePath, ".relay");
+    try {
+      mkdirSync(relayDir, { recursive: true });
+
+      const sections: string[] = [];
+      sections.push(`# ${spaceName}\n`);
+
+      if (description?.trim()) {
+        sections.push(`## Goal\n\n${description.trim()}\n`);
+      } else {
+        sections.push(`## Goal\n\n<!-- Describe what this space is for -->\n`);
+      }
+
+      sections.push(`## Decisions\n\n<!-- Record key decisions and their rationale -->\n`);
+      sections.push(`## Status\n\n<!-- Track current status of work streams -->\n`);
+      sections.push(
+        `## Interfaces\n\n<!-- Document APIs, contracts, or interfaces other chats depend on -->\n`,
+      );
+
+      writeFileSync(join(relayDir, "space-context.md"), sections.join("\n"), "utf-8");
+    } catch (err) {
+      this.logger.warn(
+        `[SpaceManager] Failed to seed space context: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Add `.relay/` to `.git/info/exclude` in the worktree so it never gets committed.
+   */
+  private excludeRelayDir(worktreePath: string): void {
+    try {
+      // In a worktree, .git is a file pointing to the main repo's .git/worktrees/<name>
+      // Use git rev-parse to find the actual git dir
+      const gitDir = execSync("git rev-parse --git-dir", {
+        cwd: worktreePath,
+        encoding: "utf8",
+        timeout: 5000,
+      }).trim();
+
+      const infoDir = join(worktreePath, gitDir, "info");
+      mkdirSync(infoDir, { recursive: true });
+
+      const excludePath = join(infoDir, "exclude");
+      let content = "";
+      try {
+        content = readFileSync(excludePath, "utf-8");
+      } catch {
+        /* no existing exclude file */
+      }
+
+      if (!content.includes(".relay/")) {
+        const newLine = content.endsWith("\n") || content === "" ? "" : "\n";
+        writeFileSync(excludePath, `${content}${newLine}.relay/\n`, "utf-8");
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[SpaceManager] Failed to exclude .relay/ from git: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Archive the space context file to the Relay data directory before worktree removal.
+   */
+  private archiveSpaceContext(spaceId: string, worktreePath: string): void {
+    const contextPath = join(worktreePath, ".relay", "space-context.md");
+    if (!existsSync(contextPath)) return;
+
+    try {
+      const archiveDir = this.getArchiveDir(spaceId);
+      mkdirSync(archiveDir, { recursive: true });
+      copyFileSync(contextPath, join(archiveDir, "space-context.md"));
+      this.logger.info(`[SpaceManager] Archived space context for ${spaceId}`);
+    } catch (err) {
+      this.logger.warn(
+        `[SpaceManager] Failed to archive space context: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private getArchiveDir(spaceId: string): string {
+    return join(relayDir, "spaces", spaceId);
   }
 }

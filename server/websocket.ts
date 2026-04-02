@@ -451,6 +451,7 @@ export function createWebSocketServer(
                 model: message.model,
                 spaceId: message.spaceId,
                 modelOptions: message.modelOptions,
+                planMode: message.planMode,
               });
               broadcast({ type: "instance_created", instanceId: info.id, instance: info });
             } catch (err) {
@@ -466,6 +467,22 @@ export function createWebSocketServer(
             const removed = instanceManager.removeInstance(message.instanceId);
             if (removed) {
               // Remove from all clients' subscriptions
+              for (const [, subs] of subscriptions) {
+                subs.delete(message.instanceId);
+              }
+              broadcast({ type: "instance_removed", instanceId: message.instanceId });
+            } else {
+              sendMessage(ws, {
+                type: "error",
+                message: `Instance ${message.instanceId} not found`,
+              });
+            }
+            break;
+          }
+
+          case "purge_instance": {
+            const removed = instanceManager.removeInstance(message.instanceId, { purge: true });
+            if (removed) {
               for (const [, subs] of subscriptions) {
                 subs.delete(message.instanceId);
               }

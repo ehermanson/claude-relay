@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { ContextPanel } from "@/components/chat/context-panel";
 import { FilesPanel } from "@/components/chat/files-panel";
+import { SpaceContextPanel } from "@/components/spaces/space-context-panel";
 import { Button } from "@/components/ui/button";
 import type { SidecarTab } from "@/stores/sidecar-store";
 import type { FileChange, InstanceInfo, SessionStats, SpaceInfo } from "@shared/types";
@@ -36,10 +37,12 @@ export function SpaceSidebar({
 
   type Tab = { key: string; label: string; count: number };
   const availableTabs: Tab[] = [];
+  // Always show the space context tab for non-default spaces
+  if (!space.isDefault) availableTabs.push({ key: "space-context", label: "Brief", count: 0 });
   if (hasFiles) availableTabs.push({ key: "files", label: "Files", count: fileChanges.length });
   if (hasStats) availableTabs.push({ key: "context", label: "Context", count: 0 });
 
-  const [activeTab, setActiveTab] = useState(availableTabs[0]?.key ?? "files");
+  const [activeTab, setActiveTab] = useState(availableTabs[0]?.key ?? "space-context");
   const effectiveTab =
     availableTabs.find((tab) => tab.key === activeTab)?.key ?? availableTabs[0]?.key;
 
@@ -103,6 +106,9 @@ export function SpaceSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {effectiveTab === "space-context" && !space.isDefault && (
+          <SpaceContextPanel spaceId={space.id} />
+        )}
         {effectiveTab === "files" && hasFiles && (
           <FilesPanel
             files={fileChanges}

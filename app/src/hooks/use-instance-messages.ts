@@ -91,6 +91,14 @@ const EMPTY_STATE: State = {
   replayEpoch: undefined,
 };
 
+export function primeInstanceMessagesCache(instanceId: string): void {
+  setCacheEntry(instanceId, {
+    ...EMPTY_STATE,
+    hasLoadedHistory: true,
+    rawHistory: [],
+  });
+}
+
 function coreReducer(state: State, action: Action): State {
   switch (action.type) {
     case "reset":

@@ -51,6 +51,7 @@ export function SpaceChatTab({
 
   return (
     <div
+      data-chat-tab-id={instance.id}
       role="tab"
       tabIndex={0}
       onClick={() => {
@@ -59,7 +60,7 @@ export function SpaceChatTab({
       onKeyDown={(e) => {
         if (e.key === "Enter" && !editing) onClick();
       }}
-      className={`group/tab relative flex shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 py-2 text-[0.8125rem] transition-colors ${
+      className={`group/tab relative flex shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2.5 py-1.5 text-[0.75rem] transition-colors ${
         isActive
           ? "bg-background text-text-bright shadow-[inset_0_-2px_0_0_var(--color-accent)]"
           : "text-muted hover:bg-surface-hover hover:text-text"
@@ -76,7 +77,7 @@ export function SpaceChatTab({
           className="w-[120px] rounded bg-bg px-1 py-0.5 text-[0.8125rem] font-medium text-text-bright outline-none ring-1 ring-accent"
         />
       ) : (
-        <span className="max-w-[140px] truncate font-medium">{instance.name}</span>
+        <span className="max-w-[200px] truncate font-medium">{instance.name}</span>
       )}
       <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
         <Menu.Trigger

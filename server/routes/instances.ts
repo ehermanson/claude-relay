@@ -22,6 +22,7 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
         model?: string;
         spaceId?: string;
         modelOptions?: ProviderModelOptions;
+        planMode?: boolean;
       }>(c);
       const info = instanceManager.createInstance({
         provider: body.provider,
@@ -32,6 +33,7 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
         model: body.model,
         spaceId: body.spaceId,
         modelOptions: body.modelOptions,
+        planMode: body.planMode,
       });
       return c.json(info, 201);
     } catch (err) {
