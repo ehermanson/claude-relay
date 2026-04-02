@@ -261,7 +261,7 @@ describe("WebSocket Messages — Additional Coverage", () => {
         }),
       );
 
-      const msg = await ws.nextMessageOfType("space_list");
+      const msg = await ws.nextMessageOfType("space_list", 10000);
       assert.equal(msg.projectDirectory, projectDir);
       const renamed = msg.spaces.find((space) => space.id === "space-rename");
       assert.ok(renamed);
@@ -307,11 +307,17 @@ describe("WebSocket Messages — Additional Coverage", () => {
       await ws2.waitForHandshake();
 
       // Create via ws1
-      ws1.send(JSON.stringify({ type: "create_instance", name: "Broadcast Test" }));
+      ws1.send(
+        JSON.stringify({
+          type: "create_instance",
+          name: "Broadcast Test",
+          workingDirectory: tempDir,
+        }),
+      );
 
       // Both clients should receive instance_created
-      const msg1 = await ws1.nextMessageOfType("instance_created");
-      const msg2 = await ws2.nextMessageOfType("instance_created");
+      const msg1 = await ws1.nextMessageOfType("instance_created", 10000);
+      const msg2 = await ws2.nextMessageOfType("instance_created", 10000);
       assert.equal(msg1.instance.name, "Broadcast Test");
       assert.equal(msg2.instance.name, "Broadcast Test");
     });

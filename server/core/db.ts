@@ -1,16 +1,30 @@
 /**
  * SessionDB — SQLite-backed session persistence for Relay
  *
- * Wraps better-sqlite3 with prepared statements for fast, synchronous access.
+ * Wraps node:sqlite with prepared statements for fast, synchronous access.
  * Handles schema migrations, corruption recovery, and index management.
  */
 
 import { mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
-import Database from "better-sqlite3";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Logger } from "#core/logger.js";
 
 const CURRENT_SCHEMA_VERSION = 20;
+type SQLiteBindValue = string | number | bigint | null | NodeJS.ArrayBufferView;
+type SQLiteBindParams = Record<string, SQLiteBindValue>;
+
+function asBindParams<T extends object>(value: T): SQLiteBindParams {
+  return value as unknown as SQLiteBindParams;
+}
+
+function asRow<T>(value: Record<string, unknown> | undefined): T | undefined {
+  return value as T | undefined;
+}
+
+function asRows<T>(value: Record<string, unknown>[]): T[] {
+  return value as unknown as T[];
+}
 
 export interface ProjectRow {
   id: string;
@@ -210,72 +224,73 @@ function normalizeProjectRow(row: ProjectRow): ProjectRow {
 
 export class SessionDB {
   private readonly dbPath: string;
-  private db: Database.Database;
+  private db: DatabaseSync;
+  private transactionDepth = 0;
 
   /** Set to true if the DB was corrupt and had to be recreated */
   needsRebuild = false;
 
   // Prepared statements
-  private stmtUpsert!: Database.Statement;
-  private stmtGetBySessionId!: Database.Statement;
-  private stmtGetByInstanceId!: Database.Statement;
-  private stmtGetByJsonlPath!: Database.Statement;
-  private stmtGetAllActive!: Database.Statement;
-  private stmtGetAll!: Database.Statement;
-  private stmtGetAllIncludeArchived!: Database.Statement;
-  private stmtUpsertManaged!: Database.Statement;
-  private stmtGetManagedByInstanceId!: Database.Statement;
-  private stmtGetAllManagedActive!: Database.Statement;
-  private stmtGetByProjectId!: Database.Statement;
-  private stmtGetManagedByProjectId!: Database.Statement;
-  private stmtGetBySpaceId!: Database.Statement;
-  private stmtGetManagedBySpaceId!: Database.Statement;
-  private stmtArchiveManaged!: Database.Statement;
-  private stmtArchive!: Database.Statement;
-  private stmtUnarchive!: Database.Statement;
-  private stmtUpdateStats!: Database.Statement;
-  private stmtUpdateLastActivity!: Database.Statement;
-  private stmtUpdateName!: Database.Statement;
-  private stmtGetJsonlPaths!: Database.Statement;
-  private stmtDeleteBySessionId!: Database.Statement;
-  private stmtDeleteByInstanceId!: Database.Statement;
-  private stmtDeleteManagedByInstanceId!: Database.Statement;
-  private stmtUpdateAllowedTools!: Database.Statement;
-  private stmtUpdateWorkingDirectory!: Database.Statement;
-  private stmtUpdateSessionModel!: Database.Statement;
-  private stmtUpdatePreferredModel!: Database.Statement;
-  private stmtUpdateReasoningBudget!: Database.Statement;
-  private stmtUpdateSkipPermissions!: Database.Statement;
-  private stmtGetProjectStats!: Database.Statement;
-  private stmtGetGlobalStats!: Database.Statement;
-  private stmtUpsertProject!: Database.Statement;
-  private stmtGetProject!: Database.Statement;
-  private stmtGetProjectByDir!: Database.Statement;
-  private stmtGetAllProjects!: Database.Statement;
-  private stmtDeleteProject!: Database.Statement;
-  private stmtUpdateProjectActivity!: Database.Statement;
-  private stmtUpdateSessionProjectId!: Database.Statement;
-  private stmtUpdateManagedSessionProjectId!: Database.Statement;
-  private stmtUpdateSpaceProjectDirectoryById!: Database.Statement;
-  private stmtGetDistinctSessionDirs!: Database.Statement;
-  private stmtGetProjectModelStats!: Database.Statement;
-  private stmtUpsertSpace!: Database.Statement;
-  private stmtGetSpace!: Database.Statement;
-  private stmtGetSpaceByWorktreePath!: Database.Statement;
-  private stmtGetSpacesByProject!: Database.Statement;
-  private stmtGetDefaultSpace!: Database.Statement;
-  private stmtUpdateSpaceStatus!: Database.Statement;
-  private stmtUpdateSpaceActivity!: Database.Statement;
-  private stmtUpdateSpaceName!: Database.Statement;
-  private stmtDeleteSpace!: Database.Statement;
-  private stmtGetSpaceChatCount!: Database.Statement;
-  private stmtUpdateSessionSpaceId!: Database.Statement;
-  private stmtGetGlobalSettings!: Database.Statement;
-  private stmtUpdateGlobalSettings!: Database.Statement;
-  private stmtUpdateManagedSpaceId!: Database.Statement;
-  private stmtUpdateSpaceMergeMetadata!: Database.Statement;
-  private stmtUpdateSpaceRemoteStatus!: Database.Statement;
-  private stmtGetSpacesByProjectAll!: Database.Statement;
+  private stmtUpsert!: StatementSync;
+  private stmtGetBySessionId!: StatementSync;
+  private stmtGetByInstanceId!: StatementSync;
+  private stmtGetByJsonlPath!: StatementSync;
+  private stmtGetAllActive!: StatementSync;
+  private stmtGetAll!: StatementSync;
+  private stmtGetAllIncludeArchived!: StatementSync;
+  private stmtUpsertManaged!: StatementSync;
+  private stmtGetManagedByInstanceId!: StatementSync;
+  private stmtGetAllManagedActive!: StatementSync;
+  private stmtGetByProjectId!: StatementSync;
+  private stmtGetManagedByProjectId!: StatementSync;
+  private stmtGetBySpaceId!: StatementSync;
+  private stmtGetManagedBySpaceId!: StatementSync;
+  private stmtArchiveManaged!: StatementSync;
+  private stmtArchive!: StatementSync;
+  private stmtUnarchive!: StatementSync;
+  private stmtUpdateStats!: StatementSync;
+  private stmtUpdateLastActivity!: StatementSync;
+  private stmtUpdateName!: StatementSync;
+  private stmtGetJsonlPaths!: StatementSync;
+  private stmtDeleteBySessionId!: StatementSync;
+  private stmtDeleteByInstanceId!: StatementSync;
+  private stmtDeleteManagedByInstanceId!: StatementSync;
+  private stmtUpdateAllowedTools!: StatementSync;
+  private stmtUpdateWorkingDirectory!: StatementSync;
+  private stmtUpdateSessionModel!: StatementSync;
+  private stmtUpdatePreferredModel!: StatementSync;
+  private stmtUpdateReasoningBudget!: StatementSync;
+  private stmtUpdateSkipPermissions!: StatementSync;
+  private stmtGetProjectStats!: StatementSync;
+  private stmtGetGlobalStats!: StatementSync;
+  private stmtUpsertProject!: StatementSync;
+  private stmtGetProject!: StatementSync;
+  private stmtGetProjectByDir!: StatementSync;
+  private stmtGetAllProjects!: StatementSync;
+  private stmtDeleteProject!: StatementSync;
+  private stmtUpdateProjectActivity!: StatementSync;
+  private stmtUpdateSessionProjectId!: StatementSync;
+  private stmtUpdateManagedSessionProjectId!: StatementSync;
+  private stmtUpdateSpaceProjectDirectoryById!: StatementSync;
+  private stmtGetDistinctSessionDirs!: StatementSync;
+  private stmtGetProjectModelStats!: StatementSync;
+  private stmtUpsertSpace!: StatementSync;
+  private stmtGetSpace!: StatementSync;
+  private stmtGetSpaceByWorktreePath!: StatementSync;
+  private stmtGetSpacesByProject!: StatementSync;
+  private stmtGetDefaultSpace!: StatementSync;
+  private stmtUpdateSpaceStatus!: StatementSync;
+  private stmtUpdateSpaceActivity!: StatementSync;
+  private stmtUpdateSpaceName!: StatementSync;
+  private stmtDeleteSpace!: StatementSync;
+  private stmtGetSpaceChatCount!: StatementSync;
+  private stmtUpdateSessionSpaceId!: StatementSync;
+  private stmtGetGlobalSettings!: StatementSync;
+  private stmtUpdateGlobalSettings!: StatementSync;
+  private stmtUpdateManagedSpaceId!: StatementSync;
+  private stmtUpdateSpaceMergeMetadata!: StatementSync;
+  private stmtUpdateSpaceRemoteStatus!: StatementSync;
+  private stmtGetSpacesByProjectAll!: StatementSync;
 
   constructor(dbPath: string, logger: Logger) {
     this.dbPath = dbPath;
@@ -284,7 +299,7 @@ export class SessionDB {
     mkdirSync(dirname(dbPath), { recursive: true });
 
     try {
-      this.db = new Database(dbPath);
+      this.db = this.openDatabase(dbPath);
     } catch {
       // Corrupted file — rename and retry
       logger.warn(`[SessionDB] Database corrupted, recreating: ${dbPath}`);
@@ -293,16 +308,52 @@ export class SessionDB {
       } catch {
         // ignore rename errors
       }
-      this.db = new Database(dbPath);
+      this.db = this.openDatabase(dbPath);
       this.needsRebuild = true;
     }
-
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("busy_timeout = 3000");
 
     this.migrate();
     this.ensureIndexes();
     this.prepareStatements();
+  }
+
+  private openDatabase(path: string): DatabaseSync {
+    const db = new DatabaseSync(path, {
+      timeout: 3000,
+      readBigInts: false,
+      allowBareNamedParameters: true,
+      allowUnknownNamedParameters: true,
+    });
+    db.exec("PRAGMA journal_mode = WAL");
+    return db;
+  }
+
+  private withTransaction<T>(fn: () => T): T {
+    const savepoint = `relay_tx_${this.transactionDepth++}`;
+    this.db.exec(`SAVEPOINT ${savepoint}`);
+    try {
+      const result = fn();
+      this.db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+      return result;
+    } catch (error) {
+      try {
+        this.db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+      } catch {
+        // Ignore rollback failures so the original error wins.
+      }
+      try {
+        this.db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+      } catch {
+        // Ignore cleanup failures so the original error wins.
+      }
+      throw error;
+    }
+  }
+
+  private configureStatement(stmt: StatementSync): StatementSync {
+    stmt.setAllowBareNamedParameters(true);
+    stmt.setAllowUnknownNamedParameters(true);
+    return stmt;
   }
 
   private ensureIndexes(): void {
@@ -338,9 +389,7 @@ export class SessionDB {
     this.db.close();
     const backupPath = `${this.dbPath}.pre-cleanup.${Date.now()}`;
     renameSync(this.dbPath, backupPath);
-    this.db = new Database(this.dbPath);
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("busy_timeout = 3000");
+    this.db = this.openDatabase(this.dbPath);
     this.createSchema();
     this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
     this.needsRebuild = true;
@@ -489,7 +538,8 @@ export class SessionDB {
   }
 
   private prepareStatements(): void {
-    this.stmtUpsert = this.db.prepare(`
+    this.stmtUpsert = this.configureStatement(
+      this.db.prepare(`
       INSERT INTO sessions (
         session_id, instance_id, provider_name, name, working_directory, jsonl_path,
         created_at, last_activity_at, type, archived, custom_title,
@@ -540,9 +590,11 @@ export class SessionDB {
         space_id = excluded.space_id,
         project_id = excluded.project_id,
         model = excluded.model
-    `);
+    `),
+    );
 
-    this.stmtUpsertManaged = this.db.prepare(`
+    this.stmtUpsertManaged = this.configureStatement(
+      this.db.prepare(`
       INSERT INTO managed_sessions (
         instance_id, provider_name, provider_session_id, name, working_directory,
         created_at, last_activity_at, archived, custom_title,
@@ -597,57 +649,78 @@ export class SessionDB {
         model = excluded.model,
         model_options_json = excluded.model_options_json,
         original_git_branch = excluded.original_git_branch
-    `);
-
-    this.stmtGetBySessionId = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
-
-    this.stmtGetByInstanceId = this.db.prepare("SELECT * FROM sessions WHERE instance_id = ?");
-
-    this.stmtGetManagedByInstanceId = this.db.prepare(
-      "SELECT * FROM managed_sessions WHERE instance_id = ?",
+    `),
     );
 
-    this.stmtGetByJsonlPath = this.db.prepare("SELECT * FROM sessions WHERE jsonl_path = ?");
-
-    this.stmtGetAllActive = this.db.prepare(
-      "SELECT * FROM sessions WHERE archived = 0 ORDER BY last_activity_at DESC",
+    this.stmtGetBySessionId = this.configureStatement(
+      this.db.prepare("SELECT * FROM sessions WHERE session_id = ?"),
     );
 
-    this.stmtGetAll = this.db.prepare(
-      "SELECT * FROM sessions WHERE archived = 0 ORDER BY last_activity_at DESC",
+    this.stmtGetByInstanceId = this.configureStatement(
+      this.db.prepare("SELECT * FROM sessions WHERE instance_id = ?"),
     );
 
-    this.stmtGetAllIncludeArchived = this.db.prepare(
-      "SELECT * FROM sessions ORDER BY last_activity_at DESC",
+    this.stmtGetManagedByInstanceId = this.configureStatement(
+      this.db.prepare("SELECT * FROM managed_sessions WHERE instance_id = ?"),
     );
 
-    this.stmtGetAllManagedActive = this.db.prepare(
-      "SELECT * FROM managed_sessions WHERE archived = 0 ORDER BY last_activity_at DESC",
+    this.stmtGetByJsonlPath = this.configureStatement(
+      this.db.prepare("SELECT * FROM sessions WHERE jsonl_path = ?"),
     );
 
-    this.stmtGetByProjectId = this.db.prepare(
-      "SELECT * FROM sessions WHERE project_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+    this.stmtGetAllActive = this.configureStatement(
+      this.db.prepare("SELECT * FROM sessions WHERE archived = 0 ORDER BY last_activity_at DESC"),
     );
 
-    this.stmtGetManagedByProjectId = this.db.prepare(
-      "SELECT * FROM managed_sessions WHERE project_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+    this.stmtGetAll = this.configureStatement(
+      this.db.prepare("SELECT * FROM sessions WHERE archived = 0 ORDER BY last_activity_at DESC"),
     );
 
-    this.stmtGetBySpaceId = this.db.prepare(
-      "SELECT * FROM sessions WHERE space_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+    this.stmtGetAllIncludeArchived = this.configureStatement(
+      this.db.prepare("SELECT * FROM sessions ORDER BY last_activity_at DESC"),
     );
 
-    this.stmtGetManagedBySpaceId = this.db.prepare(
-      "SELECT * FROM managed_sessions WHERE space_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+    this.stmtGetAllManagedActive = this.configureStatement(
+      this.db.prepare(
+        "SELECT * FROM managed_sessions WHERE archived = 0 ORDER BY last_activity_at DESC",
+      ),
     );
 
-    this.stmtArchive = this.db.prepare("UPDATE sessions SET archived = 1 WHERE session_id = ?");
-
-    this.stmtArchiveManaged = this.db.prepare(
-      "UPDATE managed_sessions SET archived = 1 WHERE instance_id = ?",
+    this.stmtGetByProjectId = this.configureStatement(
+      this.db.prepare(
+        "SELECT * FROM sessions WHERE project_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+      ),
     );
 
-    this.stmtUnarchive = this.db.prepare("UPDATE sessions SET archived = 0 WHERE session_id = ?");
+    this.stmtGetManagedByProjectId = this.configureStatement(
+      this.db.prepare(
+        "SELECT * FROM managed_sessions WHERE project_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+      ),
+    );
+
+    this.stmtGetBySpaceId = this.configureStatement(
+      this.db.prepare(
+        "SELECT * FROM sessions WHERE space_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+      ),
+    );
+
+    this.stmtGetManagedBySpaceId = this.configureStatement(
+      this.db.prepare(
+        "SELECT * FROM managed_sessions WHERE space_id = ? AND archived = 0 ORDER BY last_activity_at DESC",
+      ),
+    );
+
+    this.stmtArchive = this.configureStatement(
+      this.db.prepare("UPDATE sessions SET archived = 1 WHERE session_id = ?"),
+    );
+
+    this.stmtArchiveManaged = this.configureStatement(
+      this.db.prepare("UPDATE managed_sessions SET archived = 1 WHERE instance_id = ?"),
+    );
+
+    this.stmtUnarchive = this.configureStatement(
+      this.db.prepare("UPDATE sessions SET archived = 0 WHERE session_id = ?"),
+    );
 
     this.stmtUpdateStats = this.db.prepare(`
       UPDATE sessions SET
@@ -897,46 +970,59 @@ export class SessionDB {
         custom_instructions = @custom_instructions
       WHERE id = 1
     `);
+
+    for (const value of Object.values(this)) {
+      if (
+        value &&
+        typeof value === "object" &&
+        "setAllowUnknownNamedParameters" in value &&
+        typeof value.setAllowUnknownNamedParameters === "function" &&
+        "setAllowBareNamedParameters" in value &&
+        typeof value.setAllowBareNamedParameters === "function"
+      ) {
+        value.setAllowBareNamedParameters(true);
+        value.setAllowUnknownNamedParameters(true);
+      }
+    }
   }
 
   upsert(row: SessionRow): void {
-    this.stmtUpsert.run(normalizeSessionRow(row));
+    this.stmtUpsert.run(asBindParams(normalizeSessionRow(row)));
   }
 
   upsertMany(rows: SessionRow[]): void {
-    const tx = this.db.transaction((items: SessionRow[]) => {
-      for (const row of items) {
-        this.stmtUpsert.run(normalizeSessionRow(row));
+    this.withTransaction(() => {
+      for (const row of rows) {
+        this.stmtUpsert.run(asBindParams(normalizeSessionRow(row)));
       }
     });
-    tx(rows);
   }
 
   getBySessionId(sessionId: string): SessionRow | undefined {
-    return this.stmtGetBySessionId.get(sessionId) as SessionRow | undefined;
+    return asRow(this.stmtGetBySessionId.get(sessionId) as Record<string, unknown>);
   }
 
   getByInstanceId(instanceId: string): SessionRow | undefined {
-    return this.stmtGetByInstanceId.get(instanceId) as SessionRow | undefined;
+    return asRow(this.stmtGetByInstanceId.get(instanceId) as Record<string, unknown>);
   }
 
   getManagedByInstanceId(instanceId: string): ManagedInstanceRow | undefined {
-    return this.stmtGetManagedByInstanceId.get(instanceId) as ManagedInstanceRow | undefined;
+    return asRow(this.stmtGetManagedByInstanceId.get(instanceId) as Record<string, unknown>);
   }
 
   getByJsonlPath(jsonlPath: string): SessionRow | undefined {
-    return this.stmtGetByJsonlPath.get(jsonlPath) as SessionRow | undefined;
+    return asRow(this.stmtGetByJsonlPath.get(jsonlPath) as Record<string, unknown>);
   }
 
   getAllActive(): SessionRow[] {
-    return this.stmtGetAllActive.all() as SessionRow[];
+    return asRows(this.stmtGetAllActive.all() as Record<string, unknown>[]);
   }
 
   getAll(includeArchived = false): SessionRow[] {
     if (includeArchived) {
-      return this.stmtGetAllIncludeArchived.all() as SessionRow[];
+      return asRows(this.stmtGetAllIncludeArchived.all() as Record<string, unknown>[]);
     }
-    return this.stmtGetAll.all() as SessionRow[];
+    return asRows(this.stmtGetAll.all() as Record<string, unknown>[]);
   }
 
   archive(sessionId: string): void {
@@ -944,27 +1030,27 @@ export class SessionDB {
   }
 
   upsertManaged(row: ManagedInstanceRow): void {
-    this.stmtUpsertManaged.run(normalizeManagedInstanceRow(row));
+    this.stmtUpsertManaged.run(asBindParams(normalizeManagedInstanceRow(row)));
   }
 
   getAllManagedActive(): ManagedInstanceRow[] {
-    return this.stmtGetAllManagedActive.all() as ManagedInstanceRow[];
+    return asRows(this.stmtGetAllManagedActive.all() as Record<string, unknown>[]);
   }
 
   getByProjectId(projectId: string): SessionRow[] {
-    return this.stmtGetByProjectId.all(projectId) as SessionRow[];
+    return asRows(this.stmtGetByProjectId.all(projectId) as Record<string, unknown>[]);
   }
 
   getManagedByProjectId(projectId: string): ManagedInstanceRow[] {
-    return this.stmtGetManagedByProjectId.all(projectId) as ManagedInstanceRow[];
+    return asRows(this.stmtGetManagedByProjectId.all(projectId) as Record<string, unknown>[]);
   }
 
   getBySpaceId(spaceId: string): SessionRow[] {
-    return this.stmtGetBySpaceId.all(spaceId) as SessionRow[];
+    return asRows(this.stmtGetBySpaceId.all(spaceId) as Record<string, unknown>[]);
   }
 
   getManagedBySpaceId(spaceId: string): ManagedInstanceRow[] {
-    return this.stmtGetManagedBySpaceId.all(spaceId) as ManagedInstanceRow[];
+    return asRows(this.stmtGetManagedBySpaceId.all(spaceId) as Record<string, unknown>[]);
   }
 
   archiveManaged(instanceId: string): void {
@@ -990,7 +1076,7 @@ export class SessionDB {
       output_tokens: stats.outputTokens,
       cache_creation_tokens: stats.cacheCreationTokens,
       cache_read_tokens: stats.cacheReadTokens,
-    });
+    } as SQLiteBindParams);
   }
 
   updateLastActivity(sessionId: string, timestamp: number): void {
@@ -1012,7 +1098,9 @@ export class SessionDB {
   }
 
   getJsonlPaths(): Set<string> {
-    const rows = this.stmtGetJsonlPaths.all() as { jsonl_path: string }[];
+    const rows = asRows<{ jsonl_path: string }>(
+      this.stmtGetJsonlPaths.all() as Record<string, unknown>[],
+    );
     return new Set(rows.map((r) => r.jsonl_path));
   }
 
@@ -1043,13 +1131,22 @@ export class SessionDB {
     cacheCreationTokens: number;
     cacheReadTokens: number;
   } {
-    const row = this.stmtGetProjectStats.get(workingDirectory, workingDirectory) as {
+    const row = asRow<{
       session_count: number;
       input_tokens: number;
       output_tokens: number;
       cache_creation_tokens: number;
       cache_read_tokens: number;
-    };
+    }>(this.stmtGetProjectStats.get(workingDirectory, workingDirectory) as Record<string, unknown>);
+    if (!row) {
+      return {
+        sessionCount: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+      };
+    }
     return {
       sessionCount: row.session_count,
       inputTokens: row.input_tokens,
@@ -1066,13 +1163,22 @@ export class SessionDB {
     cacheCreationTokens: number;
     cacheReadTokens: number;
   } {
-    const row = this.stmtGetGlobalStats.get() as {
+    const row = asRow<{
       session_count: number;
       input_tokens: number;
       output_tokens: number;
       cache_creation_tokens: number;
       cache_read_tokens: number;
-    };
+    }>(this.stmtGetGlobalStats.get() as Record<string, unknown>);
+    if (!row) {
+      return {
+        sessionCount: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+      };
+    }
     return {
       sessionCount: row.session_count,
       inputTokens: row.input_tokens,
@@ -1099,19 +1205,19 @@ export class SessionDB {
   // =========================================================================
 
   upsertProject(row: ProjectRow): void {
-    this.stmtUpsertProject.run(normalizeProjectRow(row));
+    this.stmtUpsertProject.run(asBindParams(normalizeProjectRow(row)));
   }
 
   getProject(id: string): ProjectRow | undefined {
-    return this.stmtGetProject.get(id) as ProjectRow | undefined;
+    return asRow(this.stmtGetProject.get(id) as Record<string, unknown>);
   }
 
   getProjectByDirectory(directory: string): ProjectRow | undefined {
-    return this.stmtGetProjectByDir.get(directory) as ProjectRow | undefined;
+    return asRow(this.stmtGetProjectByDir.get(directory) as Record<string, unknown>);
   }
 
   getAllProjects(): ProjectRow[] {
-    return this.stmtGetAllProjects.all() as ProjectRow[];
+    return asRows(this.stmtGetAllProjects.all() as Record<string, unknown>[]);
   }
 
   deleteProject(id: string): void {
@@ -1132,26 +1238,22 @@ export class SessionDB {
     const existingDefault = this.getDefaultSpace(nextDirectory);
     const previousSpaces = this.getSpacesByProject(previousDirectory);
 
-    const tx = this.db.transaction(
-      (spaces: SpaceRow[], targetDirectory: string, targetDefaultId: string | null) => {
-        for (const space of spaces) {
-          if (space.is_default === 1 && targetDefaultId && space.id !== targetDefaultId) {
-            this.db
-              .prepare("UPDATE sessions SET space_id = ? WHERE space_id = ?")
-              .run(targetDefaultId, space.id);
-            this.db
-              .prepare("UPDATE managed_sessions SET space_id = ? WHERE space_id = ?")
-              .run(targetDefaultId, space.id);
-            this.stmtDeleteSpace.run(space.id);
-            continue;
-          }
-
-          this.stmtUpdateSpaceProjectDirectoryById.run(targetDirectory, space.id);
+    this.withTransaction(() => {
+      for (const space of previousSpaces) {
+        if (space.is_default === 1 && existingDefault && space.id !== existingDefault.id) {
+          this.db
+            .prepare("UPDATE sessions SET space_id = ? WHERE space_id = ?")
+            .run(existingDefault.id, space.id);
+          this.db
+            .prepare("UPDATE managed_sessions SET space_id = ? WHERE space_id = ?")
+            .run(existingDefault.id, space.id);
+          this.stmtDeleteSpace.run(space.id);
+          continue;
         }
-      },
-    );
 
-    tx(previousSpaces, nextDirectory, existingDefault?.id ?? null);
+        this.stmtUpdateSpaceProjectDirectoryById.run(nextDirectory, space.id);
+      }
+    });
   }
 
   /** Get token usage breakdown by model for a project directory */
@@ -1164,7 +1266,7 @@ export class SessionDB {
     cacheCreationTokens: number;
     cacheReadTokens: number;
   }> {
-    const rows = this.stmtGetProjectModelStats.all(workingDirectory, workingDirectory) as Array<{
+    const rows = asRows<{
       model: string;
       provider_name: string;
       session_count: number;
@@ -1172,7 +1274,12 @@ export class SessionDB {
       output_tokens: number;
       cache_creation_tokens: number;
       cache_read_tokens: number;
-    }>;
+    }>(
+      this.stmtGetProjectModelStats.all(workingDirectory, workingDirectory) as Record<
+        string,
+        unknown
+      >[],
+    );
     return rows.map((r) => ({
       model: r.model,
       providerName: r.provider_name,
@@ -1186,7 +1293,9 @@ export class SessionDB {
 
   /** Get distinct working directories from active sessions (for migration backfill) */
   getDistinctSessionDirectories(): string[] {
-    const rows = this.stmtGetDistinctSessionDirs.all() as { working_directory: string }[];
+    const rows = asRows<{ working_directory: string }>(
+      this.stmtGetDistinctSessionDirs.all() as Record<string, unknown>[],
+    );
     return rows.map((r) => r.working_directory);
   }
 
@@ -1195,23 +1304,23 @@ export class SessionDB {
   // =========================================================================
 
   upsertSpace(row: SpaceRow): void {
-    this.stmtUpsertSpace.run(normalizeSpaceRow(row));
+    this.stmtUpsertSpace.run(asBindParams(normalizeSpaceRow(row)));
   }
 
   getSpace(id: string): SpaceRow | undefined {
-    return this.stmtGetSpace.get(id) as SpaceRow | undefined;
+    return asRow(this.stmtGetSpace.get(id) as Record<string, unknown>);
   }
 
   getSpaceByWorktreePath(worktreePath: string): SpaceRow | undefined {
-    return this.stmtGetSpaceByWorktreePath.get(worktreePath) as SpaceRow | undefined;
+    return asRow(this.stmtGetSpaceByWorktreePath.get(worktreePath) as Record<string, unknown>);
   }
 
   getSpacesByProject(projectDirectory: string): SpaceRow[] {
-    return this.stmtGetSpacesByProject.all(projectDirectory) as SpaceRow[];
+    return asRows(this.stmtGetSpacesByProject.all(projectDirectory) as Record<string, unknown>[]);
   }
 
   getDefaultSpace(projectDirectory: string): SpaceRow | undefined {
-    return this.stmtGetDefaultSpace.get(projectDirectory) as SpaceRow | undefined;
+    return asRow(this.stmtGetDefaultSpace.get(projectDirectory) as Record<string, unknown>);
   }
 
   updateSpaceStatus(id: string, status: string): void {
@@ -1231,8 +1340,10 @@ export class SessionDB {
   }
 
   getSpaceChatCount(spaceId: string): number {
-    const row = this.stmtGetSpaceChatCount.get(spaceId, spaceId) as { count: number };
-    return row.count;
+    const row = asRow<{ count: number }>(
+      this.stmtGetSpaceChatCount.get(spaceId, spaceId) as Record<string, unknown>,
+    );
+    return row?.count ?? 0;
   }
 
   updateSessionSpaceId(sessionId: string, spaceId: string | null): void {
@@ -1264,7 +1375,9 @@ export class SessionDB {
   }
 
   getSpacesByProjectAll(projectDirectory: string): SpaceRow[] {
-    return this.stmtGetSpacesByProjectAll.all(projectDirectory) as SpaceRow[];
+    return asRows(
+      this.stmtGetSpacesByProjectAll.all(projectDirectory) as Record<string, unknown>[],
+    );
   }
 
   // =========================================================================
@@ -1272,10 +1385,14 @@ export class SessionDB {
   // =========================================================================
 
   getGlobalSettings(): GlobalSettingsRow {
-    const row = this.stmtGetGlobalSettings.get() as GlobalSettingsRow | undefined;
+    const row = asRow<GlobalSettingsRow>(
+      this.stmtGetGlobalSettings.get() as Record<string, unknown>,
+    );
     if (!row) {
       this.db.exec("INSERT OR IGNORE INTO global_settings (id) VALUES (1)");
-      return this.stmtGetGlobalSettings.get() as GlobalSettingsRow;
+      return asRow<GlobalSettingsRow>(
+        this.stmtGetGlobalSettings.get() as Record<string, unknown>,
+      ) as GlobalSettingsRow;
     }
     return row;
   }
@@ -1283,24 +1400,28 @@ export class SessionDB {
   updateGlobalSettings(patch: Partial<Omit<GlobalSettingsRow, "id">>): GlobalSettingsRow {
     const current = this.getGlobalSettings();
     // Use "key in patch" checks so explicit null clears the value (vs omitted = keep current)
-    this.stmtUpdateGlobalSettings.run({
-      theme: "theme" in patch ? patch.theme : current.theme,
-      default_open_target:
-        "default_open_target" in patch ? patch.default_open_target : current.default_open_target,
-      default_provider:
-        "default_provider" in patch ? patch.default_provider : current.default_provider,
-      default_model: "default_model" in patch ? patch.default_model : current.default_model,
-      default_space_branch:
-        "default_space_branch" in patch ? patch.default_space_branch : current.default_space_branch,
-      space_branch_source:
-        "space_branch_source" in patch ? patch.space_branch_source : current.space_branch_source,
-      provider_defaults_json:
-        "provider_defaults_json" in patch
-          ? patch.provider_defaults_json
-          : current.provider_defaults_json,
-      custom_instructions:
-        "custom_instructions" in patch ? patch.custom_instructions : current.custom_instructions,
-    });
+    this.stmtUpdateGlobalSettings.run(
+      asBindParams({
+        theme: "theme" in patch ? patch.theme : current.theme,
+        default_open_target:
+          "default_open_target" in patch ? patch.default_open_target : current.default_open_target,
+        default_provider:
+          "default_provider" in patch ? patch.default_provider : current.default_provider,
+        default_model: "default_model" in patch ? patch.default_model : current.default_model,
+        default_space_branch:
+          "default_space_branch" in patch
+            ? patch.default_space_branch
+            : current.default_space_branch,
+        space_branch_source:
+          "space_branch_source" in patch ? patch.space_branch_source : current.space_branch_source,
+        provider_defaults_json:
+          "provider_defaults_json" in patch
+            ? patch.provider_defaults_json
+            : current.provider_defaults_json,
+        custom_instructions:
+          "custom_instructions" in patch ? patch.custom_instructions : current.custom_instructions,
+      }),
+    );
     return this.getGlobalSettings();
   }
 
@@ -1311,7 +1432,7 @@ export class SessionDB {
   }
 
   checkpointWal(): void {
-    this.db.pragma("wal_checkpoint(TRUNCATE)");
+    this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   }
 
   close(): void {

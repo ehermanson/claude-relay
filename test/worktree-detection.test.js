@@ -8,7 +8,15 @@
 import { TEST_WORKTREE_BASE } from "./test-env.js";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  realpathSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { execFileSync } from "node:child_process";
@@ -37,13 +45,22 @@ function runGit(cwd, args) {
   });
 }
 
-/** Create a temporary git repo with an initial commit. Returns real path (resolves symlinks). */
-function createTempRepo() {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "relay-wt-test-")));
-  runGit(dir, ["init", "-q", "-b", "main"]);
-  writeFileSync(join(dir, "README.md"), "# Test\n");
-  runGit(dir, ["add", "."]);
-  runGit(dir, [
+function randomHex(length = 8) {
+  return Math.random()
+    .toString(16)
+    .slice(2, 2 + length)
+    .padEnd(length, "0");
+}
+
+let seedRepoDir;
+
+function ensureSeedRepo() {
+  if (seedRepoDir) return seedRepoDir;
+  seedRepoDir = realpathSync(mkdtempSync(join(tmpdir(), "relay-wt-seed-")));
+  runGit(seedRepoDir, ["init", "-q", "-b", "main"]);
+  writeFileSync(join(seedRepoDir, "README.md"), "# Test\n");
+  runGit(seedRepoDir, ["add", "."]);
+  runGit(seedRepoDir, [
     "-c",
     "user.email=test@test.com",
     "-c",
@@ -53,6 +70,13 @@ function createTempRepo() {
     "-m",
     "initial",
   ]);
+  return seedRepoDir;
+}
+
+function makeRepoDir() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "relay-wt-test-")));
+  const dir = join(root, "repo");
+  cpSync(ensureSeedRepo(), dir, { recursive: true });
   return dir;
 }
 
@@ -98,7 +122,7 @@ describe("resolveWorktreeOrigin", () => {
   const cleanupWorktrees = [];
 
   beforeEach(() => {
-    repoDir = createTempRepo();
+    repoDir = makeRepoDir();
   });
 
   afterEach(() => {
@@ -156,7 +180,7 @@ describe("getGitInfo worktree detection", () => {
   const cleanupWorktrees = [];
 
   beforeEach(() => {
-    repoDir = createTempRepo();
+    repoDir = makeRepoDir();
   });
 
   afterEach(() => {
@@ -244,7 +268,7 @@ describe("scanAllSessions worktree recovery", () => {
   const cleanupWorktrees = [];
 
   beforeEach(() => {
-    repoDir = createTempRepo();
+    repoDir = makeRepoDir();
     tempDir = mkdtempSync(join(tmpdir(), "relay-scan-wt-"));
   });
 
@@ -320,7 +344,8 @@ describe("scanAllSessions worktree recovery", () => {
   });
 
   it("rebuilds relay space sessions from space-prefixed worktree transcript dirs", () => {
-    const wt = createSpaceWorktree(repoDir, "1a2b3c4d");
+    const shortId = randomHex(8);
+    const wt = createSpaceWorktree(repoDir, shortId);
     assert.ok(wt, "space worktree should be created");
     cleanupWorktrees.push(wt);
 
@@ -358,10 +383,10 @@ describe("scanAllSessions worktree recovery", () => {
     const instances = manager.listInstances();
     assert.equal(instances.length, 1, "should restore the space-backed session");
     assert.equal(realpathSync(instances[0].workingDirectory), realpathSync(repoDir));
-    assert.equal(instances[0].spaceId, "recovered-space-1a2b3c4d");
+    assert.equal(instances[0].spaceId, `recovered-space-${shortId}`);
 
     const spaces = manager.getSpaceManager().listSpaces(repoDir);
-    const recoveredSpace = spaces.find((space) => space.id === "recovered-space-1a2b3c4d");
+    const recoveredSpace = spaces.find((space) => space.id === `recovered-space-${shortId}`);
     assert.ok(recoveredSpace, "should recover a non-default space row");
     assert.equal(recoveredSpace.gitBranch, wt.branchName);
     assert.equal(realpathSync(recoveredSpace.worktreePath), realpathSync(wt.worktreePath));
@@ -371,7 +396,7 @@ describe("scanAllSessions worktree recovery", () => {
       const row = db.getByJsonlPath(jsonlPath);
       assert.ok(row, "scanned session row should exist");
       assert.equal(row.git_branch, wt.branchName);
-      assert.equal(row.space_id, "recovered-space-1a2b3c4d");
+      assert.equal(row.space_id, `recovered-space-${shortId}`);
       assert.equal(realpathSync(row.worktree_path), realpathSync(wt.worktreePath));
       assert.equal(realpathSync(row.original_directory), realpathSync(repoDir));
     } finally {
@@ -440,7 +465,7 @@ describe("scanAllSessions archive protection", () => {
   const cleanupWorktrees = [];
 
   beforeEach(() => {
-    repoDir = createTempRepo();
+    repoDir = makeRepoDir();
     tempDir = mkdtempSync(join(tmpdir(), "relay-archive-wt-"));
   });
 
@@ -797,7 +822,7 @@ describe("live discovery worktree recovery", () => {
   const cleanupWorktrees = [];
 
   beforeEach(() => {
-    repoDir = createTempRepo();
+    repoDir = makeRepoDir();
     tempDir = mkdtempSync(join(tmpdir(), "relay-live-wt-"));
   });
 

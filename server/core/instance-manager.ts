@@ -121,6 +121,12 @@ import {
   getFullDiff,
   getFileDiff,
 } from "#core/git.js";
+import {
+  explicitOrInferredSpaceIdForPersistenceRow,
+  inferSpaceIdForPersistenceRow,
+  resolveExternalRestorePaths,
+  resolveManagedRestorePaths,
+} from "#core/instance-restore.js";
 import { searchWorkspaceEntries, type WorkspaceEntry } from "#core/workspace-entries.js";
 import { isPathWithinWorkspace } from "#core/workspace-paths.js";
 
@@ -1013,56 +1019,6 @@ function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
     spaceId: entry.space_id ?? undefined,
     projectId: entry.project_id ?? undefined,
   };
-}
-
-// Compatibility-only ownership repair for legacy rows that predate canonical
-// `space_id` persistence. Current spaces should arrive with explicit ownership
-// and should not depend on branch/worktree inference in normal operation.
-function inferSpaceIdForPersistenceRow(
-  row: {
-    space_id: string | null;
-    worktree_path: string | null;
-    git_branch: string | null;
-    original_directory?: string | null;
-    working_directory: string;
-  },
-  spaces: SpaceInfo[],
-): string | undefined {
-  if (row.space_id) return row.space_id;
-
-  const worktreeMatch = row.worktree_path
-    ? spaces.find(
-        (space) =>
-          space.worktreePath === row.worktree_path ||
-          space.missingWorktreePath === row.worktree_path,
-      )
-    : undefined;
-  if (worktreeMatch) return worktreeMatch.id;
-
-  const projectDirectory = getPersistenceRowProjectDirectory(row);
-  const branchMatch =
-    row.git_branch && projectDirectory
-      ? spaces.find(
-          (space) =>
-            space.projectDirectory === projectDirectory &&
-            space.gitBranch === row.git_branch &&
-            !space.isDefault,
-        )
-      : undefined;
-  return branchMatch?.id;
-}
-
-function explicitOrInferredSpaceIdForPersistenceRow(
-  row: {
-    space_id: string | null;
-    worktree_path: string | null;
-    git_branch: string | null;
-    original_directory?: string | null;
-    working_directory: string;
-  },
-  spaces: SpaceInfo[],
-): string | undefined {
-  return row.space_id ?? inferSpaceIdForPersistenceRow(row, spaces);
 }
 
 function hasExplicitNonDefaultSpace(
@@ -5976,7 +5932,6 @@ export class InstanceManager extends EventEmitter {
     let extWorktreePath = entry.worktree_path ?? undefined;
     const extOriginalDir = entry.original_directory ?? undefined;
     const extGitBranch = entry.git_branch ?? undefined;
-    let repairedStaleWorktree = false;
     const hasExplicitSpaceOwnership = hasExplicitNonDefaultSpace(this.spaceManager, entry.space_id);
     // Compatibility shim: allow legacy rows to recover ownership from the
     // current spaces table during restore instead of leaking into main.
@@ -5985,21 +5940,20 @@ export class InstanceManager extends EventEmitter {
       entry,
     );
 
-    if (
-      entry.worktree_path &&
-      entry.original_directory &&
-      !isUsableStoredWorktreePath(entry.worktree_path)
-    ) {
+    const restoredPaths = resolveExternalRestorePaths({
+      row: entry,
+      hasExplicitSpaceOwnership,
+      usableStoredWorktreePath: isUsableStoredWorktreePath(entry.worktree_path),
+    });
+    restoreWorkingDirectory = restoredPaths.workingDirectory;
+    extWorktreePath = restoredPaths.worktreePath;
+
+    if (entry.worktree_path && !restoredPaths.worktreePath) {
       if (hasExplicitSpaceOwnership) {
-        restoreWorkingDirectory = entry.worktree_path;
-        extWorktreePath = undefined;
         this.baseConfig.logger.warn(
           `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable for space ${entry.space_id}; keeping session read-only`,
         );
-      } else {
-        restoreWorkingDirectory = entry.original_directory;
-        extWorktreePath = undefined;
-        repairedStaleWorktree = true;
+      } else if (restoredPaths.repairedStaleWorktree) {
         this.baseConfig.logger.warn(
           `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable, using original directory`,
         );
@@ -6070,7 +6024,7 @@ export class InstanceManager extends EventEmitter {
         projectDirectory: getPersistenceRowProjectDirectory(entry),
       });
     }
-    if (repairedStaleWorktree) {
+    if (restoredPaths.repairedStaleWorktree) {
       this.dbSave(instance);
     }
     this.emit("instance:created", entry.instance_id, { ...info });
@@ -6089,7 +6043,6 @@ export class InstanceManager extends EventEmitter {
     let restoreGitBranch: string | undefined;
     let restoreOriginalDirectory: string | undefined;
 
-    let repairedStaleWorktree = false;
     const hasExplicitSpaceOwnership = hasExplicitNonDefaultSpace(this.spaceManager, entry.space_id);
     // Compatibility shim: allow legacy rows to recover ownership from the
     // current spaces table during restore instead of leaking into main.
@@ -6097,29 +6050,25 @@ export class InstanceManager extends EventEmitter {
       getPersistenceRowProjectDirectory(entry),
       entry,
     );
-    if (entry.worktree_path && entry.original_directory) {
-      if (isUsableStoredWorktreePath(entry.worktree_path)) {
-        restoreActualCwd = entry.worktree_path;
-        restoreWorktreePath = entry.worktree_path;
-        restoreGitBranch = entry.git_branch ?? undefined;
-        restoreOriginalDirectory = entry.original_directory;
-      } else {
-        if (hasExplicitSpaceOwnership) {
-          restoreActualCwd = entry.worktree_path;
-          restoreOriginalDirectory = entry.original_directory;
-          restoreGitBranch = entry.git_branch ?? undefined;
-          this.baseConfig.logger.warn(
-            `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable for space ${entry.space_id}; keeping session read-only`,
-          );
-        } else {
-          restoreActualCwd = entry.original_directory;
-          restoreOriginalDirectory = entry.original_directory;
-          restoreGitBranch = entry.git_branch ?? undefined;
-          repairedStaleWorktree = true;
-          this.baseConfig.logger.warn(
-            `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable, using original directory`,
-          );
-        }
+    const restoredPaths = resolveManagedRestorePaths({
+      row: entry,
+      hasExplicitSpaceOwnership,
+      usableStoredWorktreePath: isUsableStoredWorktreePath(entry.worktree_path),
+    });
+    restoreActualCwd = restoredPaths.workingDirectory;
+    restoreWorktreePath = restoredPaths.worktreePath;
+    restoreGitBranch = restoredPaths.gitBranch;
+    restoreOriginalDirectory = restoredPaths.originalDirectory;
+
+    if (entry.worktree_path && !restoredPaths.worktreePath) {
+      if (hasExplicitSpaceOwnership) {
+        this.baseConfig.logger.warn(
+          `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable for space ${entry.space_id}; keeping session read-only`,
+        );
+      } else if (restoredPaths.repairedStaleWorktree) {
+        this.baseConfig.logger.warn(
+          `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable, using original directory`,
+        );
       }
     }
 
@@ -6137,7 +6086,7 @@ export class InstanceManager extends EventEmitter {
     } catch {
       runtimePayload = undefined;
     }
-    if (repairedStaleWorktree) {
+    if (restoredPaths.repairedStaleWorktree) {
       runtimePayload = { ...runtimePayload, cwd: restoreActualCwd };
     }
 
@@ -6224,7 +6173,10 @@ export class InstanceManager extends EventEmitter {
         projectDirectory: getPersistenceRowProjectDirectory(entry),
       });
     }
-    if (transcriptPath !== (entry.transcript_path ?? undefined) || repairedStaleWorktree) {
+    if (
+      transcriptPath !== (entry.transcript_path ?? undefined) ||
+      restoredPaths.repairedStaleWorktree
+    ) {
       this.dbSave(instance);
     }
     this.emit("instance:created", entry.instance_id, { ...info });

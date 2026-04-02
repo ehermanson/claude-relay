@@ -52,14 +52,12 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.71",
     "@chenglou/pretext": "^0.0.4",
     "@hono/node-server": "^1.19.4",
-    "better-sqlite3": "^12.6.2",
     "cookie": "^0.6.0",
     "hono": "^4.10.1",
     "node-pty": "^1.1.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/cookie": "^0.6.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.13",
@@ -87,7 +85,6 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "better-sqlite3",
       "node-pty"
     ]
   }

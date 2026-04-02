@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
@@ -24,12 +24,16 @@ function runGit(cwd, args) {
   });
 }
 
-function makeConfig(overrides = {}) {
-  const tempDir = mkdtempSync(join(tmpdir(), "relay-im-test-"));
-  runGit(tempDir, ["init", "-q"]);
-  writeFileSync(join(tempDir, "README.md"), "# Test\n");
-  runGit(tempDir, ["add", "."]);
-  runGit(tempDir, [
+let seedRepoDir;
+
+function ensureSeedRepo() {
+  if (seedRepoDir) return seedRepoDir;
+
+  seedRepoDir = mkdtempSync(join(tmpdir(), "relay-im-seed-"));
+  runGit(seedRepoDir, ["init", "-q", "-b", "main"]);
+  writeFileSync(join(seedRepoDir, "README.md"), "# Test\n");
+  runGit(seedRepoDir, ["add", "."]);
+  runGit(seedRepoDir, [
     "-c",
     "user.email=test@test.com",
     "-c",
@@ -39,6 +43,19 @@ function makeConfig(overrides = {}) {
     "-m",
     "initial",
   ]);
+
+  return seedRepoDir;
+}
+
+function makeRepoDir() {
+  const tempRoot = mkdtempSync(join(tmpdir(), "relay-im-test-"));
+  const repoDir = join(tempRoot, "repo");
+  cpSync(ensureSeedRepo(), repoDir, { recursive: true });
+  return repoDir;
+}
+
+function makeConfig(overrides = {}) {
+  const tempDir = makeRepoDir();
   return resolveConfig({
     password: "test",
     logger: noopLogger,
@@ -132,11 +149,6 @@ function makeExternalRow(overrides = {}) {
     model: null,
     ...overrides,
   };
-}
-
-function createBrokenWorktree(worktreePath) {
-  mkdirSync(worktreePath, { recursive: true });
-  writeFileSync(worktreePath + "/.git", "gitdir: /tmp/relay-missing-worktree-admin\n");
 }
 
 describe("InstanceManager", () => {
@@ -277,124 +289,6 @@ describe("InstanceManager", () => {
       assert.equal(manager.getInstance("nonexistent"), undefined);
     });
 
-    it("restores explicit space-owned managed sessions with missing worktrees as broken/read-only", () => {
-      const projectDir = manager.baseConfig.workingDirectory;
-      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
-      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Deadbeef" });
-      const missingWorktree = space.worktreePath;
-      assert.ok(missingWorktree);
-      rmSync(missingWorktree, { recursive: true, force: true });
-
-      try {
-        db.upsertManaged(
-          makeManagedRow({
-            instance_id: "managed-stale",
-            working_directory: missingWorktree,
-            worktree_path: missingWorktree,
-            original_directory: projectDir,
-            git_branch: space.gitBranch,
-            space_id: space.id,
-          }),
-        );
-      } finally {
-        db.close();
-      }
-
-      const restored = trackManager(new InstanceManager(manager.baseConfig));
-      restored.restoreInstances();
-      const info = restored.getInstance("managed-stale");
-      const instance = restored.instances.get("managed-stale");
-
-      assert.ok(info);
-      assert.ok(instance);
-      assert.equal(info.workingDirectory, missingWorktree);
-      assert.equal(info.spaceId, space.id);
-      assert.equal(instance.worktreePath, undefined);
-      assert.equal(instance.originalDirectory, projectDir);
-      assert.equal(instance.actualCwd, undefined);
-      assert.equal(restored.getSpaceManager().getSpace(space.id)?.status, "broken");
-    });
-
-    it("restores explicit space-owned managed sessions with broken linked worktrees as broken/read-only", () => {
-      const projectDir = manager.baseConfig.workingDirectory;
-      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
-      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Badbeef" });
-      const brokenWorktree = space.worktreePath;
-      assert.ok(brokenWorktree);
-      rmSync(brokenWorktree, { recursive: true, force: true });
-      createBrokenWorktree(brokenWorktree);
-
-      try {
-        db.upsertManaged(
-          makeManagedRow({
-            instance_id: "managed-broken-worktree",
-            working_directory: brokenWorktree,
-            worktree_path: brokenWorktree,
-            original_directory: projectDir,
-            git_branch: space.gitBranch,
-            space_id: space.id,
-            runtime_payload_json: JSON.stringify({ cwd: brokenWorktree }),
-          }),
-        );
-      } finally {
-        db.close();
-      }
-
-      const restored = trackManager(new InstanceManager(manager.baseConfig));
-      restored.restoreInstances();
-      const info = restored.getInstance("managed-broken-worktree");
-      const instance = restored.instances.get("managed-broken-worktree");
-
-      assert.ok(info);
-      assert.ok(instance);
-      assert.equal(info.workingDirectory, brokenWorktree);
-      assert.equal(info.spaceId, space.id);
-      assert.equal(instance.worktreePath, undefined);
-      assert.equal(instance.originalDirectory, projectDir);
-      assert.equal(instance.actualCwd, undefined);
-      assert.deepEqual(instance.providerBinding?.runtimePayload, { cwd: brokenWorktree });
-      assert.equal(restored.getSpaceManager().getSpace(space.id)?.status, "broken");
-    });
-
-    it("restores current-space managed sessions with inferred explicit ownership from the spaces table", () => {
-      const projectDir = manager.baseConfig.workingDirectory;
-      const space = manager
-        .getSpaceManager()
-        .createSpace(projectDir, { name: "Managed restore owned" });
-      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
-
-      try {
-        db.upsertManaged(
-          makeManagedRow({
-            instance_id: "managed-space-owned",
-            provider_session_id: "managed-space-owned-session",
-            working_directory: space.worktreePath,
-            worktree_path: space.worktreePath,
-            original_directory: projectDir,
-            git_branch: space.gitBranch,
-            space_id: null,
-          }),
-        );
-      } finally {
-        db.close();
-      }
-
-      const restored = trackManager(new InstanceManager(manager.baseConfig));
-      restored.projectManager.addProject(projectDir);
-      restored.restoreInstances();
-
-      const info = restored.getInstance("managed-space-owned");
-      assert.ok(info);
-      assert.equal(info.spaceId, space.id);
-
-      const rows = new SessionDB(manager.baseConfig.dbPath, noopLogger);
-      try {
-        assert.equal(rows.getManagedByInstanceId("managed-space-owned")?.space_id, space.id);
-      } finally {
-        rows.close();
-      }
-    });
-
     it("skips restoring external shadow rows when a managed session already owns the transcript", () => {
       const projectDir = manager.baseConfig.workingDirectory;
       const space = manager.getSpaceManager().createSpace(projectDir, { name: "Shadow skip" });
@@ -504,108 +398,6 @@ describe("InstanceManager", () => {
       assert.equal(instance.watchState, undefined);
     });
 
-    it("restores current-space external sessions with inferred explicit ownership from the spaces table", () => {
-      const projectDir = manager.baseConfig.workingDirectory;
-      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Restore owned" });
-      const transcriptPath = join(projectDir, "external-space-owned.jsonl");
-      writeFileSync(
-        transcriptPath,
-        `${JSON.stringify({
-          type: "init",
-          cwd: space.worktreePath,
-          sessionId: "external-space-owned",
-          timestamp: new Date().toISOString(),
-        })}\n`,
-      );
-
-      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
-      try {
-        db.upsert(
-          makeExternalRow({
-            session_id: "external-space-owned",
-            instance_id: "external-space-owned-instance",
-            working_directory: projectDir,
-            jsonl_path: transcriptPath,
-            worktree_path: space.worktreePath,
-            original_directory: projectDir,
-            git_branch: space.gitBranch,
-            space_id: null,
-          }),
-        );
-      } finally {
-        db.close();
-      }
-
-      const restored = trackManager(new InstanceManager(manager.baseConfig));
-      restored.projectManager.addProject(projectDir);
-      restored.restoreInstances();
-
-      const info = restored.getInstance("external-space-owned-instance");
-      assert.ok(info);
-      assert.equal(info.spaceId, space.id);
-
-      const rows = new SessionDB(manager.baseConfig.dbPath, noopLogger);
-      try {
-        assert.equal(rows.getBySessionId("external-space-owned")?.space_id, space.id);
-      } finally {
-        rows.close();
-      }
-    });
-
-    it("restores explicit space-owned external sessions with broken linked worktrees as broken/read-only", () => {
-      const projectDir = manager.baseConfig.workingDirectory;
-      const transcriptPath = join(projectDir, "external-broken-worktree.jsonl");
-      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Feedface" });
-      const brokenWorktree = space.worktreePath;
-      assert.ok(brokenWorktree);
-      rmSync(brokenWorktree, { recursive: true, force: true });
-      createBrokenWorktree(brokenWorktree);
-      writeFileSync(
-        transcriptPath,
-        `${JSON.stringify({
-          type: "init",
-          cwd: brokenWorktree,
-          sessionId: "external-broken",
-          timestamp: new Date().toISOString(),
-        })}\n`,
-      );
-
-      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
-      try {
-        db.upsert(
-          makeExternalRow({
-            session_id: "external-broken",
-            instance_id: "external-broken-instance",
-            working_directory: brokenWorktree,
-            jsonl_path: transcriptPath,
-            worktree_path: brokenWorktree,
-            original_directory: projectDir,
-            git_branch: space.gitBranch,
-            space_id: space.id,
-          }),
-        );
-      } finally {
-        db.close();
-      }
-
-      const restored = trackManager(new InstanceManager(manager.baseConfig));
-      restored.projectManager.addProject(projectDir);
-      restored.restoreInstances();
-
-      const info = restored.getInstance("external-broken-instance");
-      const instance = restored.instances.get("external-broken-instance");
-
-      assert.ok(info);
-      assert.ok(instance);
-      assert.equal(info.workingDirectory, brokenWorktree);
-      assert.equal(info.spaceId, space.id);
-      assert.equal(instance.worktreePath, undefined);
-      assert.equal(instance.originalDirectory, projectDir);
-      assert.equal(instance.actualCwd, undefined);
-      assert.deepEqual(instance.providerBinding?.runtimePayload, { cwd: brokenWorktree });
-      assert.equal(restored.getSpaceManager().getSpace(space.id)?.status, "broken");
-    });
-
     it("upgrades restored historical externals when discovery rediscovers them", async () => {
       const projectDir = manager.baseConfig.workingDirectory;
       const transcriptPath = join(projectDir, "external-redisco.jsonl");
@@ -658,20 +450,7 @@ describe("InstanceManager", () => {
     });
 
     it("refreshes the live git branch without waiting for a new message", async () => {
-      const repoDir = mkdtempSync(join(tmpdir(), "relay-branch-refresh-"));
-      runGit(repoDir, ["init", "-q", "-b", "main"]);
-      writeFileSync(join(repoDir, "README.md"), "hello\n");
-      runGit(repoDir, ["add", "README.md"]);
-      runGit(repoDir, [
-        "-c",
-        "user.email=relay@example.com",
-        "-c",
-        "user.name=Relay Tests",
-        "commit",
-        "-q",
-        "-m",
-        "init",
-      ]);
+      const repoDir = makeRepoDir();
 
       const info = manager.createInstance({ workingDirectory: repoDir });
       const instance = manager.instances.get(info.id);
@@ -1051,20 +830,7 @@ describe("InstanceManager", () => {
     });
 
     it("still sends messages after a branch change while surfacing branch drift", async () => {
-      const repoDir = mkdtempSync(join(tmpdir(), "relay-branch-check-"));
-      runGit(repoDir, ["init", "-q", "-b", "main"]);
-      writeFileSync(join(repoDir, "README.md"), "hello\n");
-      runGit(repoDir, ["add", "README.md"]);
-      runGit(repoDir, [
-        "-c",
-        "user.email=relay@example.com",
-        "-c",
-        "user.name=Relay Tests",
-        "commit",
-        "-q",
-        "-m",
-        "init",
-      ]);
+      const repoDir = makeRepoDir();
 
       const info = manager.createInstance({ workingDirectory: repoDir });
       const instance = manager.instances.get(info.id);

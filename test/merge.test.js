@@ -10,7 +10,7 @@ import "./test-env.js";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -36,14 +36,21 @@ const noopLogger = {
   debug() {},
 };
 
-/** Create a temporary git repo with an initial commit. Returns repo path. */
-function createTempRepo() {
-  const dir = mkdtempSync(join(tmpdir(), "relay-merge-test-"));
-  execSync("git init -b main", { cwd: dir, stdio: "pipe" });
-  execSync("git config user.email test@test.com", { cwd: dir, stdio: "pipe" });
-  execSync("git config user.name Test", { cwd: dir, stdio: "pipe" });
-  writeFileSync(join(dir, "README.md"), "# Test\n");
-  execSync("git add . && git commit -m 'initial'", { cwd: dir, stdio: "pipe" });
+let seedRepoDir;
+
+function ensureSeedRepo() {
+  if (seedRepoDir) return seedRepoDir;
+  seedRepoDir = mkdtempSync(join(tmpdir(), "relay-merge-seed-"));
+  execSync("git init -b main", { cwd: seedRepoDir, stdio: "pipe" });
+  writeFileSync(join(seedRepoDir, "README.md"), "# Test\n");
+  execSync("git add . && git commit -m initial", { cwd: seedRepoDir, stdio: "pipe" });
+  return seedRepoDir;
+}
+
+function makeRepoDir() {
+  const root = mkdtempSync(join(tmpdir(), "relay-merge-test-"));
+  const dir = join(root, "repo");
+  cpSync(ensureSeedRepo(), dir, { recursive: true });
   return dir;
 }
 
@@ -55,7 +62,7 @@ describe("git merge utilities", () => {
   let repoDir;
 
   beforeEach(() => {
-    repoDir = createTempRepo();
+    repoDir = makeRepoDir();
   });
 
   afterEach(() => {

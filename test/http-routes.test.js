@@ -90,10 +90,10 @@ describe("HTTP Routes — Additional Coverage", () => {
     auth = new AuthManager(config);
     manager = new InstanceManager(config);
     const handler = createRequestHandler(config, auth, manager, undefined, {
-      getProviderModels,
-      getProviderCapabilities,
-      getAvailableProviders,
-      getOpenTargets,
+      getProviderModels: (...args) => getProviderModels?.(...args),
+      getProviderCapabilities: (...args) => getProviderCapabilities?.(...args),
+      getAvailableProviders: () => getAvailableProviders?.(),
+      getOpenTargets: (...args) => getOpenTargets?.(...args),
       openNativePath: async (request) => {
         openPathCalls.push(request);
       },
@@ -237,34 +237,6 @@ describe("HTTP Routes — Additional Coverage", () => {
           capabilities: getProviderCapabilities(),
         },
       ];
-      await new Promise((resolve) => server.close(resolve));
-
-      const config = resolveConfig({
-        password: "testpass",
-        logger: noopLogger,
-        maxProcesses: 5,
-        serveUI: false,
-        rateLimitMax: 10,
-        rateLimitWindow: 60_000,
-        sessionFile: join(tempDir, "sessions.json"),
-        dbPath: join(tempDir, "sessions.db"),
-        providerDirs: {
-          claude: join(tempDir, ".claude"),
-          codex: join(tempDir, ".codex"),
-          gemini: join(tempDir, ".gemini"),
-        },
-      });
-      const handler = createRequestHandler(config, auth, manager, undefined, {
-        getProviderModels,
-        getProviderCapabilities,
-        getAvailableProviders,
-        getOpenTargets,
-        openNativePath: async (request) => {
-          openPathCalls.push(request);
-        },
-      });
-      server = http.createServer(handler);
-      await new Promise((resolve) => server.listen(0, resolve));
 
       const session = auth.createSession();
       const res = await request(server, "GET", "/api/provider-models?provider=codex", {
@@ -309,34 +281,6 @@ describe("HTTP Routes — Additional Coverage", () => {
           },
         },
       ];
-      await new Promise((resolve) => server.close(resolve));
-
-      const config = resolveConfig({
-        password: "testpass",
-        logger: noopLogger,
-        maxProcesses: 5,
-        serveUI: false,
-        rateLimitMax: 10,
-        rateLimitWindow: 60_000,
-        sessionFile: join(tempDir, "sessions.json"),
-        dbPath: join(tempDir, "sessions.db"),
-        providerDirs: {
-          claude: join(tempDir, ".claude"),
-          codex: join(tempDir, ".codex"),
-          gemini: join(tempDir, ".gemini"),
-        },
-      });
-      const handler = createRequestHandler(config, auth, manager, undefined, {
-        getProviderModels,
-        getProviderCapabilities,
-        getAvailableProviders,
-        getOpenTargets,
-        openNativePath: async (request) => {
-          openPathCalls.push(request);
-        },
-      });
-      server = http.createServer(handler);
-      await new Promise((resolve) => server.listen(0, resolve));
 
       const session = auth.createSession();
       const res = await request(server, "GET", "/api/providers", {
