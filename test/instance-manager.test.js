@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -173,6 +173,56 @@ describe("InstanceManager", () => {
         db.close();
       }
     });
+
+    it("refuses to create a chat in an isolated space whose worktree is missing", () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Broken space",
+      });
+      assert.ok(space.worktreePath);
+
+      rmSync(space.worktreePath, { recursive: true, force: true });
+
+      assert.throws(
+        () => manager.createInstance({ spaceId: space.id }),
+        /missing its worktree and is currently read-only/,
+      );
+    });
+
+    it("marks an isolated space as broken when its worktree disappears", () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Broken marker",
+      });
+      assert.ok(space.worktreePath);
+
+      rmSync(space.worktreePath, { recursive: true, force: true });
+
+      const refreshed = manager.getSpaceManager().getSpace(space.id);
+      assert.ok(refreshed);
+      assert.equal(refreshed.status, "broken");
+      assert.equal(refreshed.worktreePath, null);
+    });
+
+    it("reconciles missing in-memory ownership for current-space chats before persistence", () => {
+      const project = manager.projectManager.addProject(manager.baseConfig.workingDirectory);
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Reconcile owned",
+      });
+      const info = manager.createInstance({ spaceId: space.id });
+      const instance = manager.instances.get(info.id);
+
+      assert.ok(instance);
+      instance.info.spaceId = undefined;
+      instance.info.projectId = undefined;
+      instance.originalDirectory = undefined;
+      instance.info.originalDirectory = undefined;
+
+      manager.reconcileInstancePersistenceIdentity(instance);
+
+      assert.equal(instance.info.spaceId, space.id);
+      assert.equal(instance.info.projectId, project.id);
+      assert.equal(instance.originalDirectory, manager.baseConfig.workingDirectory);
+      assert.equal(instance.info.originalDirectory, manager.baseConfig.workingDirectory);
+    });
   });
 
   describe("listInstances / getInstance", () => {
@@ -195,10 +245,13 @@ describe("InstanceManager", () => {
       assert.equal(manager.getInstance("nonexistent"), undefined);
     });
 
-    it("restores managed sessions with missing worktrees into the original directory", () => {
-      const originalDirectory = manager.baseConfig.workingDirectory;
+    it("restores explicit space-owned managed sessions with missing worktrees as broken/read-only", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
       const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
-      const missingWorktree = join(originalDirectory, ".relay", "worktrees", "space-deadbeef");
+      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Deadbeef" });
+      const missingWorktree = space.worktreePath;
+      assert.ok(missingWorktree);
+      rmSync(missingWorktree, { recursive: true, force: true });
 
       try {
         db.upsertManaged(
@@ -206,9 +259,9 @@ describe("InstanceManager", () => {
             instance_id: "managed-stale",
             working_directory: missingWorktree,
             worktree_path: missingWorktree,
-            original_directory: originalDirectory,
-            git_branch: "relay-space/deadbeef",
-            space_id: "space-deadbeef",
+            original_directory: projectDir,
+            git_branch: space.gitBranch,
+            space_id: space.id,
           }),
         );
       } finally {
@@ -222,16 +275,21 @@ describe("InstanceManager", () => {
 
       assert.ok(info);
       assert.ok(instance);
-      assert.equal(info.workingDirectory, originalDirectory);
+      assert.equal(info.workingDirectory, missingWorktree);
+      assert.equal(info.spaceId, space.id);
       assert.equal(instance.worktreePath, undefined);
-      assert.equal(instance.originalDirectory, originalDirectory);
+      assert.equal(instance.originalDirectory, projectDir);
       assert.equal(instance.actualCwd, undefined);
+      assert.equal(restored.getSpaceManager().getSpace(space.id)?.status, "broken");
     });
 
-    it("restores managed sessions with broken linked worktrees into the original directory", () => {
-      const originalDirectory = manager.baseConfig.workingDirectory;
+    it("restores explicit space-owned managed sessions with broken linked worktrees as broken/read-only", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
       const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
-      const brokenWorktree = join(originalDirectory, ".relay", "worktrees", "space-badbeef");
+      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Badbeef" });
+      const brokenWorktree = space.worktreePath;
+      assert.ok(brokenWorktree);
+      rmSync(brokenWorktree, { recursive: true, force: true });
       createBrokenWorktree(brokenWorktree);
 
       try {
@@ -240,9 +298,9 @@ describe("InstanceManager", () => {
             instance_id: "managed-broken-worktree",
             working_directory: brokenWorktree,
             worktree_path: brokenWorktree,
-            original_directory: originalDirectory,
-            git_branch: "relay-space/badbeef",
-            space_id: "space-badbeef",
+            original_directory: projectDir,
+            git_branch: space.gitBranch,
+            space_id: space.id,
             runtime_payload_json: JSON.stringify({ cwd: brokenWorktree }),
           }),
         );
@@ -257,11 +315,96 @@ describe("InstanceManager", () => {
 
       assert.ok(info);
       assert.ok(instance);
-      assert.equal(info.workingDirectory, originalDirectory);
+      assert.equal(info.workingDirectory, brokenWorktree);
+      assert.equal(info.spaceId, space.id);
       assert.equal(instance.worktreePath, undefined);
-      assert.equal(instance.originalDirectory, originalDirectory);
+      assert.equal(instance.originalDirectory, projectDir);
       assert.equal(instance.actualCwd, undefined);
-      assert.deepEqual(instance.providerBinding?.runtimePayload, { cwd: originalDirectory });
+      assert.deepEqual(instance.providerBinding?.runtimePayload, { cwd: brokenWorktree });
+      assert.equal(restored.getSpaceManager().getSpace(space.id)?.status, "broken");
+    });
+
+    it("restores current-space managed sessions with inferred explicit ownership from the spaces table", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const space = manager
+        .getSpaceManager()
+        .createSpace(projectDir, { name: "Managed restore owned" });
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-space-owned",
+            provider_session_id: "managed-space-owned-session",
+            working_directory: space.worktreePath,
+            worktree_path: space.worktreePath,
+            original_directory: projectDir,
+            git_branch: space.gitBranch,
+            space_id: null,
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(manager.baseConfig);
+      restored.projectManager.addProject(projectDir);
+      restored.restoreInstances();
+
+      const info = restored.getInstance("managed-space-owned");
+      assert.ok(info);
+      assert.equal(info.spaceId, space.id);
+
+      const rows = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        assert.equal(rows.getManagedByInstanceId("managed-space-owned")?.space_id, space.id);
+      } finally {
+        rows.close();
+      }
+    });
+
+    it("skips restoring external shadow rows when a managed session already owns the transcript", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Shadow skip" });
+      const transcriptPath = join(projectDir, "shadow-skip.jsonl");
+      writeFileSync(transcriptPath, "{}\n");
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-shadow-owner",
+            provider_session_id: "shadow-session",
+            transcript_path: transcriptPath,
+            working_directory: space.worktreePath,
+            worktree_path: space.worktreePath,
+            original_directory: projectDir,
+            git_branch: space.gitBranch,
+            space_id: space.id,
+          }),
+        );
+        db.upsert(
+          makeExternalRow({
+            session_id: "shadow-session",
+            instance_id: "shadow-external-restore",
+            jsonl_path: transcriptPath,
+            working_directory: projectDir,
+            original_directory: projectDir,
+            worktree_path: space.worktreePath,
+            git_branch: space.gitBranch,
+            space_id: space.id,
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(manager.baseConfig);
+      restored.projectManager.addProject(projectDir);
+      restored.restoreInstances();
+
+      assert.ok(restored.getInstance("managed-shadow-owner"));
+      assert.equal(restored.getInstance("shadow-external-restore"), undefined);
     });
 
     it("falls back to persisted git metadata for originalGitBranch on restored managed sessions", () => {
@@ -329,10 +472,61 @@ describe("InstanceManager", () => {
       assert.equal(instance.watchState, undefined);
     });
 
-    it("restores external sessions with broken linked worktrees into the original directory", () => {
+    it("restores current-space external sessions with inferred explicit ownership from the spaces table", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Restore owned" });
+      const transcriptPath = join(projectDir, "external-space-owned.jsonl");
+      writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: "init",
+          cwd: space.worktreePath,
+          sessionId: "external-space-owned",
+          timestamp: new Date().toISOString(),
+        })}\n`,
+      );
+
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsert(
+          makeExternalRow({
+            session_id: "external-space-owned",
+            instance_id: "external-space-owned-instance",
+            working_directory: projectDir,
+            jsonl_path: transcriptPath,
+            worktree_path: space.worktreePath,
+            original_directory: projectDir,
+            git_branch: space.gitBranch,
+            space_id: null,
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = new InstanceManager(manager.baseConfig);
+      restored.projectManager.addProject(projectDir);
+      restored.restoreInstances();
+
+      const info = restored.getInstance("external-space-owned-instance");
+      assert.ok(info);
+      assert.equal(info.spaceId, space.id);
+
+      const rows = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        assert.equal(rows.getBySessionId("external-space-owned")?.space_id, space.id);
+      } finally {
+        rows.close();
+      }
+    });
+
+    it("restores explicit space-owned external sessions with broken linked worktrees as broken/read-only", () => {
       const projectDir = manager.baseConfig.workingDirectory;
       const transcriptPath = join(projectDir, "external-broken-worktree.jsonl");
-      const brokenWorktree = join(projectDir, ".relay", "worktrees", "space-feedface");
+      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Feedface" });
+      const brokenWorktree = space.worktreePath;
+      assert.ok(brokenWorktree);
+      rmSync(brokenWorktree, { recursive: true, force: true });
       createBrokenWorktree(brokenWorktree);
       writeFileSync(
         transcriptPath,
@@ -354,7 +548,8 @@ describe("InstanceManager", () => {
             jsonl_path: transcriptPath,
             worktree_path: brokenWorktree,
             original_directory: projectDir,
-            git_branch: "relay-space/feedface",
+            git_branch: space.gitBranch,
+            space_id: space.id,
           }),
         );
       } finally {
@@ -370,11 +565,13 @@ describe("InstanceManager", () => {
 
       assert.ok(info);
       assert.ok(instance);
-      assert.equal(info.workingDirectory, projectDir);
+      assert.equal(info.workingDirectory, brokenWorktree);
+      assert.equal(info.spaceId, space.id);
       assert.equal(instance.worktreePath, undefined);
       assert.equal(instance.originalDirectory, projectDir);
       assert.equal(instance.actualCwd, undefined);
-      assert.deepEqual(instance.providerBinding?.runtimePayload, { cwd: projectDir });
+      assert.deepEqual(instance.providerBinding?.runtimePayload, { cwd: brokenWorktree });
+      assert.equal(restored.getSpaceManager().getSpace(space.id)?.status, "broken");
     });
 
     it("upgrades restored historical externals when discovery rediscovers them", async () => {
@@ -534,7 +731,7 @@ describe("InstanceManager", () => {
   });
 
   describe("listProjectChats", () => {
-    it("dedupes managed transcript shadows and infers missing space ids from worktree metadata", () => {
+    it("dedupes managed transcript shadows after backfilling explicit space ids", () => {
       const project = manager.projectManager.addProject(manager.baseConfig.workingDirectory);
       const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
         name: "Space",
@@ -590,6 +787,8 @@ describe("InstanceManager", () => {
         db.close();
       }
 
+      manager.backfillMissingSpaceIds();
+
       const chats = manager.listProjectChats(project.id);
       assert.equal(
         chats.some((chat) => chat.id === "shadow-external"),
@@ -603,6 +802,13 @@ describe("InstanceManager", () => {
       const managed = chats.find((chat) => chat.id === "managed-space-chat");
       assert.ok(managed);
       assert.equal(managed.spaceId, space.id);
+
+      const rows = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        assert.equal(rows.getByInstanceId("external-space-only")?.space_id, space.id);
+      } finally {
+        rows.close();
+      }
     });
   });
 
@@ -615,6 +821,23 @@ describe("InstanceManager", () => {
 
     it("throws for unknown instance", () => {
       assert.throws(() => manager.getHistory("nope"), /not found/);
+    });
+  });
+
+  describe("broken spaces", () => {
+    it("blocks sending messages to chats in broken isolated spaces", async () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Broken send guard",
+      });
+      assert.ok(space.worktreePath);
+
+      const info = manager.createInstance({ spaceId: space.id });
+      rmSync(space.worktreePath, { recursive: true, force: true });
+
+      await assert.rejects(
+        () => manager.sendMessage(info.id, "hello"),
+        /missing its worktree and is currently read-only/,
+      );
     });
   });
 

@@ -136,12 +136,7 @@ export function SpaceView() {
     spaceQueryKey,
   ]);
 
-  const spaceInstances = buildSpaceInstances(
-    spaceId,
-    space ? [space] : [],
-    chatSummaries,
-    instances,
-  );
+  const spaceInstances = buildSpaceInstances(spaceId, chatSummaries, instances);
   const hasActiveChats = spaceInstances.some(
     (instance) => instance.status === "idle" || instance.status === "processing",
   );
@@ -234,6 +229,7 @@ export function SpaceView() {
   }, [editingSpaceName]);
 
   const isActive = space?.status === "active";
+  const isBroken = space?.status === "broken";
   const isMerged = space?.status === "completed";
   const isArchived = space?.status === "archived";
 
@@ -405,6 +401,7 @@ export function SpaceView() {
       aggregatedStats,
       fileChanges,
       isActive,
+      isBroken,
       isMerged,
       isArchived,
       isMobile,

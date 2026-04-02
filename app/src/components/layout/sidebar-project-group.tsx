@@ -440,6 +440,16 @@ export function SidebarProjectGroup({
                   />
                 ))}
 
+            <SidebarBrokenSpaces
+              spaces={spaces}
+              projectId={routeProjectId}
+              latestChatIdBySpace={latestChatIdBySpace}
+              activeSpaceId={activeSpaceId}
+              onRenameSpace={onRenameSpace}
+              onCompleteSpace={onCompleteSpace}
+              onDeleteSpace={onDeleteSpace}
+            />
+
             {/* Chats */}
             {visible.map(renderSessionItem)}
 
@@ -467,7 +477,9 @@ export function SidebarProjectGroup({
 
             {visible.length === 0 &&
               (!spaces ||
-                spaces.filter((s) => !s.isDefault && s.status === "active").length === 0) &&
+                spaces.filter(
+                  (s) => !s.isDefault && (s.status === "active" || s.status === "broken"),
+                ).length === 0) &&
               onCreateSpace && (
                 <div className="px-2 py-1">
                   <EmptyProjectActions
@@ -481,6 +493,59 @@ export function SidebarProjectGroup({
         </Collapsible.Content>
       </div>
     </Collapsible.Root>
+  );
+}
+
+function SidebarBrokenSpaces({
+  spaces,
+  projectId,
+  latestChatIdBySpace,
+  activeSpaceId,
+  onRenameSpace,
+  onCompleteSpace,
+  onDeleteSpace,
+}: {
+  spaces?: SpaceInfo[];
+  projectId: string;
+  latestChatIdBySpace?: Record<string, string>;
+  activeSpaceId?: string;
+  onRenameSpace?: (spaceId: string, name: string) => void;
+  onCompleteSpace?: (spaceId: string) => void;
+  onDeleteSpace?: (spaceId: string) => void;
+}) {
+  const brokenSpaces = spaces?.filter((s) => !s.isDefault && s.status === "broken");
+  const hasActiveChild = brokenSpaces?.some((s) => s.id === activeSpaceId) ?? false;
+  const [open, setOpen] = useState(hasActiveChild);
+
+  useEffect(() => {
+    if (hasActiveChild) setOpen(true);
+  }, [hasActiveChild]);
+
+  if (!brokenSpaces || brokenSpaces.length === 0) return null;
+
+  return (
+    <div className="mt-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-1 rounded-md py-1 pl-3 pr-2 text-left text-[0.6875rem] font-medium uppercase tracking-wide text-warning transition-colors hover:text-warning"
+      >
+        {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        Needs repair ({brokenSpaces.length})
+      </button>
+      {open &&
+        brokenSpaces.map((space) => (
+          <SidebarSpaceGroup
+            key={space.id}
+            space={space}
+            projectId={projectId}
+            latestChatId={latestChatIdBySpace?.[space.id]}
+            isActive={activeSpaceId === space.id}
+            onRename={onRenameSpace ?? (() => {})}
+            onComplete={onCompleteSpace ?? (() => {})}
+            onDelete={onDeleteSpace ?? (() => {})}
+          />
+        ))}
+    </div>
   );
 }
 

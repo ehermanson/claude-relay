@@ -21,6 +21,7 @@ export function SpaceViewBody() {
     onRenameTab: actions.handleRenameTab,
     onCloseTab: (id) => actions.setCloseTabId(id),
     onNewChat: actions.handleNewChat,
+    disableNewChat: shared.isBroken,
   };
 
   const openDiffAndCloseMobile = (scrollTo?: string) => {
@@ -52,6 +53,28 @@ export function SpaceViewBody() {
       {shared.isArchived && (
         <div className="flex items-center gap-2 border-b border-border bg-surface-dim px-4 py-2 text-xs text-text-muted">
           This space has been archived. Chats and history are still available.
+        </div>
+      )}
+      {shared.isBroken && (
+        <div className="flex items-center gap-3 border-b border-warning/30 bg-warning/8 px-4 py-2 text-xs text-text-muted">
+          <div className="min-w-0 flex-1">
+            This space is missing its worktree. Chats and history remain available, but new work is
+            blocked. To repair it, restore the missing worktree at{" "}
+            <code className="font-mono text-[0.6875rem] text-text">
+              {shared.space.missingWorktreePath ??
+                shared.space.worktreePath ??
+                "(path unavailable)"}
+            </code>{" "}
+            or archive the space if you no longer need it.
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => actions.setConfirmDelete(true)}
+            className="shrink-0"
+          >
+            Archive space
+          </Button>
         </div>
       )}
 

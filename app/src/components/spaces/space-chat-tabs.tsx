@@ -10,6 +10,7 @@ export function SpaceChatTabs({
   onRenameTab,
   onCloseTab,
   onNewChat,
+  disableNewChat = false,
 }: {
   instances: InstanceInfo[];
   activeTab: string | null;
@@ -17,6 +18,7 @@ export function SpaceChatTabs({
   onRenameTab: (instanceId: string, name: string) => void;
   onCloseTab: (id: string) => void;
   onNewChat: () => void;
+  disableNewChat?: boolean;
 }) {
   const tabsScrollRef = useRef<HTMLDivElement>(null);
   const [tabsOverflow, setTabsOverflow] = useState({ left: false, right: false });
@@ -77,7 +79,11 @@ export function SpaceChatTabs({
         ))}
         <button
           onClick={onNewChat}
-          className="flex h-full shrink-0 items-center px-2.5 py-2 text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+          disabled={disableNewChat}
+          title={
+            disableNewChat ? "This space is read-only until its worktree is repaired" : undefined
+          }
+          className="flex h-full shrink-0 items-center px-2.5 py-2 text-muted transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
         >
           <Plus size={13} strokeWidth={2.5} />
         </button>

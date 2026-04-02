@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { getSpaceRoute } from "@/lib/project-route";
-import { Archive, GitBranch, GitMerge, MoreVertical, Pencil } from "lucide-react";
+import { AlertTriangle, Archive, GitBranch, GitMerge, MoreVertical, Pencil } from "lucide-react";
 import { Menu } from "../ui/menu";
 import { Badge } from "../ui/badge";
 import type { SpaceInfo } from "@shared/types";
@@ -38,6 +38,7 @@ export function SidebarSpaceGroup({
   const inputRef = useRef<HTMLInputElement>(null);
   const hasMenu = !space.isDefault;
   const isSpaceActive = space.status === "active";
+  const isSpaceBroken = space.status === "broken";
   const isClosed = space.status === "completed" || space.status === "archived";
   const spaceRoute = getSpaceRoute(projectId, space.id, latestChatId);
 
@@ -114,6 +115,11 @@ export function SidebarSpaceGroup({
             >
               {space.name}
             </span>
+            {space.status === "broken" && (
+              <Badge variant="warning" size="xs">
+                Broken
+              </Badge>
+            )}
             {space.status === "completed" && (
               <Badge variant="success" size="xs">
                 Merged
@@ -128,13 +134,14 @@ export function SidebarSpaceGroup({
         )}
         {!editing && space.gitBranch && (
           <div className="mt-0.5 flex items-center gap-1 truncate text-[0.6875rem] leading-tight text-muted">
+            {isSpaceBroken && <AlertTriangle size={10} className="shrink-0 text-warning" />}
             <span className="truncate">{space.gitBranch}</span>
           </div>
         )}
       </div>
 
-      {/* Context menu — only for active spaces */}
-      {hasMenu && isSpaceActive && (
+      {/* Context menu — active and broken spaces can still be renamed/archived */}
+      {hasMenu && (isSpaceActive || isSpaceBroken) && (
         <span className="relative ml-auto flex w-12 shrink-0 items-center justify-end self-start">
           {menuOpen ? (
             <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
@@ -157,16 +164,20 @@ export function SidebarSpaceGroup({
                   <Pencil size={13} strokeWidth={2} className="text-muted" />
                   Rename
                 </Menu.Item>
-                <Menu.Item
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    onComplete(space.id);
-                  }}
-                >
-                  <GitMerge size={13} strokeWidth={2} className="text-muted" />
-                  Complete
-                </Menu.Item>
-                <Menu.Separator />
+                {isSpaceActive && (
+                  <>
+                    <Menu.Item
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        onComplete(space.id);
+                      }}
+                    >
+                      <GitMerge size={13} strokeWidth={2} className="text-muted" />
+                      Complete
+                    </Menu.Item>
+                    <Menu.Separator />
+                  </>
+                )}
                 <Menu.Item
                   danger
                   onClick={(e: React.MouseEvent) => {

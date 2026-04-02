@@ -22,6 +22,7 @@ type SpaceViewContextValue = {
     aggregatedStats: SessionStats | null;
     fileChanges: FileChange[];
     isActive: boolean;
+    isBroken: boolean;
     isMerged: boolean;
     isArchived: boolean;
     isMobile: boolean;

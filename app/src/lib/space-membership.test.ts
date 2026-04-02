@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getResolvedSpaceId, isSpaceOwnedInstance } from "./space-membership";
-import type { InstanceInfo, SpaceInfo } from "@shared/types";
+import type { InstanceInfo } from "@shared/types";
 
 function makeInstance(overrides: Partial<InstanceInfo> = {}): InstanceInfo {
   return {
@@ -15,47 +15,19 @@ function makeInstance(overrides: Partial<InstanceInfo> = {}): InstanceInfo {
   };
 }
 
-function makeSpace(overrides: Partial<SpaceInfo> = {}): SpaceInfo {
-  return {
-    id: "space-1",
-    name: "Space",
-    projectDirectory: "/repo",
-    gitBranch: null,
-    worktreePath: null,
-    status: "active",
-    isDefault: false,
-    createdAt: 1,
-    lastActivityAt: 1,
-    chatCount: 0,
-    ...overrides,
-  };
-}
-
 describe("space membership", () => {
   it("prefers the explicit spaceId when present", () => {
     const instance = makeInstance({ spaceId: "space-explicit" });
-    expect(getResolvedSpaceId(instance, [makeSpace()])).toBe("space-explicit");
+    expect(getResolvedSpaceId(instance)).toBe("space-explicit");
   });
 
-  it("infers space membership from the worktree path", () => {
-    const space = makeSpace({ worktreePath: "/tmp/relay-space/worktree" });
+  it("does not infer space membership from paths or branches in the client", () => {
     const instance = makeInstance({ workingDirectory: "/tmp/relay-space/worktree" });
-    expect(getResolvedSpaceId(instance, [space])).toBe(space.id);
-  });
-
-  it("infers space membership from the original repo plus branch", () => {
-    const space = makeSpace({ gitBranch: "relay-space/feature" });
-    const instance = makeInstance({
-      workingDirectory: "/tmp/relay-space/worktree",
-      originalDirectory: "/repo",
-      gitBranch: "relay-space/feature",
-    });
-    expect(getResolvedSpaceId(instance, [space])).toBe(space.id);
+    expect(getResolvedSpaceId(instance)).toBeUndefined();
   });
 
   it("does not treat the default space as a separate owned chat bucket", () => {
-    const space = makeSpace({ id: "default", isDefault: true, worktreePath: "/repo" });
     const instance = makeInstance({ workingDirectory: "/repo" });
-    expect(isSpaceOwnedInstance(instance, [space])).toBe(false);
+    expect(isSpaceOwnedInstance(instance)).toBe(false);
   });
 });

@@ -28,7 +28,7 @@ export interface TerminalInfo {
 // Space Types
 // =============================================================================
 
-export type SpaceStatus = "active" | "completed" | "archived";
+export type SpaceStatus = "active" | "broken" | "completed" | "archived";
 export type MergeMethod = "squash" | "merge-commit";
 
 export interface SpaceInfo {
@@ -37,6 +37,7 @@ export interface SpaceInfo {
   name: string;
   gitBranch: string | null;
   worktreePath: string | null;
+  missingWorktreePath?: string | null;
   isDefault: boolean;
   status: SpaceStatus;
   createdAt: number;

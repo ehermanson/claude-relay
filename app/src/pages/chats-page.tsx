@@ -167,6 +167,11 @@ function SpaceCard({
                 Merged
               </Badge>
             )}
+            {space.status === "broken" && (
+              <Badge variant="warning" size="xs">
+                Broken
+              </Badge>
+            )}
             {space.status === "archived" && (
               <Badge variant="default" size="xs">
                 Archived
@@ -325,6 +330,11 @@ export function ChatsPage() {
     .map(enrichSpace)
     .sort((a, b) => b.lastActivity - a.lastActivity);
 
+  const brokenSpaces = spaces
+    .filter((s) => !s.isDefault && s.status === "broken")
+    .map(enrichSpace)
+    .sort((a, b) => b.lastActivity - a.lastActivity);
+
   const closedSpaces = spaces
     .filter((s) => !s.isDefault && (s.status === "completed" || s.status === "archived"))
     .map(enrichSpace)
@@ -349,12 +359,16 @@ export function ChatsPage() {
     ? activeSpaces.filter(({ space, chats }) => matchesSearch(lq, space, chats))
     : activeSpaces;
 
+  const filteredBrokenSpaces = searchQuery
+    ? brokenSpaces.filter(({ space, chats }) => matchesSearch(lq, space, chats))
+    : brokenSpaces;
+
   const filteredClosedSpaces = searchQuery
     ? closedSpaces.filter(({ space, chats }) => matchesSearch(lq, space, chats))
     : closedSpaces;
 
   const hasMainChats = standaloneInstances.length > 0;
-  const hasSpaces = activeSpaces.length > 0;
+  const hasSpaces = activeSpaces.length > 0 || brokenSpaces.length > 0;
 
   const handleNewChat = () => {
     if (artifacts.directory) {
@@ -370,7 +384,10 @@ export function ChatsPage() {
   };
 
   const searchToolbar =
-    standaloneInstances.length > 0 || activeSpaces.length > 0 || closedSpaces.length > 0 ? (
+    standaloneInstances.length > 0 ||
+    activeSpaces.length > 0 ||
+    brokenSpaces.length > 0 ||
+    closedSpaces.length > 0 ? (
       <div className="relative">
         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
         <Input
@@ -397,6 +414,7 @@ export function ChatsPage() {
         </EmptyState>
       ) : filteredStandalone.length === 0 &&
         filteredActiveSpaces.length === 0 &&
+        filteredBrokenSpaces.length === 0 &&
         filteredClosedSpaces.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <p className="text-sm text-muted">No chats match "{searchQuery}"</p>
@@ -414,6 +432,14 @@ export function ChatsPage() {
                 <SpaceCard projectId={projectId} space={space} chats={chats} isMobile={isMobile} />
               </div>
             ))}
+
+          {filteredBrokenSpaces.length > 0 && (
+            <BrokenSpacesSection
+              spaces={filteredBrokenSpaces}
+              projectId={projectId}
+              isMobile={isMobile}
+            />
+          )}
 
           {/* Main workspace chats */}
           {filteredStandalone.length > 0 &&
@@ -483,6 +509,36 @@ function ClosedSpacesSection({
       {open &&
         spaces.map(({ space, chats }) => (
           <div key={space.id} className="opacity-75">
+            <SpaceCard projectId={projectId} space={space} chats={chats} isMobile={isMobile} />
+          </div>
+        ))}
+    </div>
+  );
+}
+
+function BrokenSpacesSection({
+  spaces,
+  projectId,
+  isMobile,
+}: {
+  spaces: Array<{ space: SpaceInfo; chats: InstanceInfo[]; lastActivity: number }>;
+  projectId: string;
+  isMobile: boolean;
+}) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium uppercase tracking-wide text-warning transition-colors hover:text-warning"
+      >
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        Needs repair ({spaces.length})
+      </button>
+      {open &&
+        spaces.map(({ space, chats }) => (
+          <div key={space.id}>
             <SpaceCard projectId={projectId} space={space} chats={chats} isMobile={isMobile} />
           </div>
         ))}

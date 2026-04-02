@@ -68,6 +68,11 @@ export function SpaceViewHeader() {
             Merged
           </Badge>
         )}
+        {shared.isBroken && (
+          <Badge variant="warning" size="sm">
+            Broken
+          </Badge>
+        )}
         {shared.isArchived && (
           <Badge variant="default" size="sm">
             Archived
@@ -121,7 +126,7 @@ export function SpaceViewHeader() {
             <EllipsisVertical size={14} />
           </Menu.Trigger>
           <Menu.Content>
-            {!shared.space.isDefault && shared.isActive && (
+            {!shared.space.isDefault && (shared.isActive || shared.isBroken) && (
               <Menu.Item onClick={actions.startRenamingSpace}>
                 <Pencil size={13} strokeWidth={2} className="text-muted" />
                 Rename
@@ -131,7 +136,7 @@ export function SpaceViewHeader() {
               <Bug size={13} strokeWidth={2} className="text-muted" />
               Debug
             </Menu.Item>
-            {!shared.space.isDefault && shared.isActive && (
+            {!shared.space.isDefault && (shared.isActive || shared.isBroken) && (
               <>
                 <Menu.Separator />
                 <Menu.Item danger onClick={() => actions.setConfirmDelete(true)}>

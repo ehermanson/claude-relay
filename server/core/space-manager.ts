@@ -39,6 +39,7 @@ function rowToInfo(row: SpaceRow, chatCount: number): SpaceInfo {
     name: row.name,
     gitBranch: row.git_branch,
     worktreePath: row.worktree_path,
+    missingWorktreePath: null,
     isDefault: row.is_default === 1,
     status: row.status as SpaceStatus,
     createdAt: row.created_at,
@@ -95,13 +96,20 @@ export class SpaceManager extends EventEmitter {
 
   private toInfo(row: SpaceRow): SpaceInfo {
     const worktreePath = this.getExistingWorktreePath(row.worktree_path);
-    return rowToInfo(
+    const status =
+      row.status === "active" && row.is_default === 0 && !worktreePath ? "broken" : row.status;
+    const info = rowToInfo(
       {
         ...row,
+        status,
         worktree_path: worktreePath,
       },
       this.db.getSpaceChatCount(row.id),
     );
+    if (status === "broken") {
+      info.missingWorktreePath = row.worktree_path;
+    }
+    return info;
   }
 
   private deriveRecoveredSpaceId(row: {
@@ -349,6 +357,9 @@ export class SpaceManager extends EventEmitter {
   }
 
   recoverSpacesFromSessionMetadata(): number {
+    // Compatibility-only recovery for legacy/orphaned rows. Current spaces
+    // should already exist explicitly in the `spaces` table and should not
+    // require reconstruction from session metadata in normal operation.
     const activeRows = this.db.getAllActive();
     const managedRows = this.db.getAllManagedActive();
     const repairedProjectDirs = new Set<string>();
@@ -511,11 +522,19 @@ export class SpaceManager extends EventEmitter {
         ? {
             ...matching,
             git_branch: matching.git_branch ?? row.git_branch,
-            worktree_path: recoveredMeta.worktree_path,
-            status: recoveredMeta.status,
+            // Existing explicit space rows are authoritative; recovery metadata
+            // should only fill gaps, not reinterpret an active space as merged.
+            worktree_path: matching.worktree_path ?? recoveredMeta.worktree_path,
+            status: matching.status,
             last_activity_at: Math.max(matching.last_activity_at, row.last_activity_at),
-            merged_at: matching.merged_at ?? recoveredMeta.merged_at,
-            target_branch: matching.target_branch ?? recoveredMeta.target_branch,
+            merged_at:
+              matching.status === "completed" || matching.status === "archived"
+                ? (matching.merged_at ?? recoveredMeta.merged_at)
+                : matching.merged_at,
+            target_branch:
+              matching.status === "completed" || matching.status === "archived"
+                ? (matching.target_branch ?? recoveredMeta.target_branch)
+                : matching.target_branch,
           }
         : {
             ...row,
@@ -599,6 +618,9 @@ export class SpaceManager extends EventEmitter {
     if (!row) throw new Error(`Space ${id} not found`);
     if (row.is_default) throw new Error("Cannot complete the default space");
     if (!row.git_branch || !row.worktree_path) {
+      throw new Error("Space has no worktree to complete");
+    }
+    if (!existsSync(row.worktree_path) || !isGitRepo(row.worktree_path)) {
       throw new Error("Space has no worktree to complete");
     }
 

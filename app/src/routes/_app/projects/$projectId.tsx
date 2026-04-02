@@ -247,10 +247,29 @@ function ProjectError({ error }: { error: Error }) {
   );
 }
 
+async function loadProjectArtifactsWithRetry(
+  projectId: string,
+): Promise<Awaited<ReturnType<typeof fetchProjectArtifacts>>> {
+  const attempts = 8;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await fetchProjectArtifacts(projectId);
+    } catch (err) {
+      const isRetryable404 =
+        err instanceof ApiError && err.status === 404 && attempt < attempts - 1;
+      if (!isRetryable404) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
+  throw new Error("Failed to load project artifacts");
+}
+
 export const Route = createFileRoute("/_app/projects/$projectId")({
   loader: async ({ params }) => {
     try {
-      return await fetchProjectArtifacts(params.projectId);
+      return await loadProjectArtifactsWithRetry(params.projectId);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         throw redirect({ to: "/" });
