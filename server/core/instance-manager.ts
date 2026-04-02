@@ -2497,6 +2497,20 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
+  /**
+   * Take over an external session — resumes it as a managed instance
+   * without sending any user message. Returns the updated InstanceInfo.
+   */
+  async takeoverInstance(id: string): Promise<InstanceInfo | undefined> {
+    return this.enqueueInstanceMutation(id, (instance) => {
+      if (!instance.info.external) throw new Error("Instance is not external");
+      this.hydrateInstance(id, instance);
+      this.assertSpaceWritable(instance);
+      const resumed = this.resumeInstanceLocked(id, instance);
+      return resumed;
+    });
+  }
+
   async cancelMessage(id: string): Promise<void> {
     await this.enqueueInstanceMutation(id, async (instance) => {
       if (instance.info.external) throw new Error("Cannot cancel on external instances");

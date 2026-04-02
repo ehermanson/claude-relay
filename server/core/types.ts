@@ -347,6 +347,11 @@ export interface InstanceInterruptAndSendPayload {
   instanceId: string;
 }
 
+export interface InstanceTakeoverPayload {
+  type: "instance_takeover";
+  instanceId: string;
+}
+
 export interface RespondToRequestPayload {
   type: "respond_to_request";
   instanceId: string;
@@ -492,6 +497,7 @@ export type ClientMessage =
   | InstanceMessagePayload
   | InstanceCancelPayload
   | InstanceInterruptAndSendPayload
+  | InstanceTakeoverPayload
   | RespondToRequestPayload
   | RenameInstancePayload
   | RenameSpacePayload

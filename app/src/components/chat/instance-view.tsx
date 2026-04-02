@@ -105,8 +105,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
 
   const handleTakeover = () => {
     if (!id) return;
-    send({ type: "instance_message", instanceId: id, text: "Continue." });
-    showThinking();
+    send({ type: "instance_takeover", instanceId: id });
   };
 
   const handleCancel = () => {

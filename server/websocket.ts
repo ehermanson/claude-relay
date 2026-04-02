@@ -601,6 +601,22 @@ export function createWebSocketServer(
             break;
           }
 
+          case "instance_takeover": {
+            try {
+              const resumed = await instanceManager.takeoverInstance(message.instanceId);
+              if (resumed) {
+                broadcast({ type: "instance_status", instanceId: resumed.id, instance: resumed });
+              }
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to take over session",
+                instanceId: message.instanceId,
+              });
+            }
+            break;
+          }
+
           case "instance_cancel": {
             try {
               await instanceManager.cancelMessage(message.instanceId);
