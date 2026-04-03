@@ -3852,6 +3852,15 @@ export class InstanceManager extends EventEmitter {
         // Check if this is a restored stopped external that should be upgraded to active
         const existingId = knownJsonls.get(jsonlPath)!;
         const existing = this.instances.get(existingId);
+        if (existing) {
+          this.baseConfig.logger.info(
+            `[Trace] discovery match ${existingId} jsonl=${active.transcriptPath} pid=${
+              active.pid ?? "none"
+            } hasProcess=${Boolean(existing.process)} hasExternalState=${Boolean(
+              existing.externalState,
+            )} status=${existing.info.status}`,
+          );
+        }
         if (existing && existing.info.external && existing.info.status === "stopped") {
           this.upgradeRestoredExternal(existingId, existing, jsonlPath);
         }
@@ -4990,18 +4999,42 @@ export class InstanceManager extends EventEmitter {
           closeSync(fd);
         }
 
+        this.baseConfig.logger.info(
+          `[Trace] watcher read ${instanceId} observedOffset=${observedOffset} readOffset=${readOffset} statSize=${stat.size} bytes=${newContent.length} hasProcess=${Boolean(
+            instance.process,
+          )} procIsProcessing=${instance.process?.isProcessing ?? false} hasExternalState=${Boolean(
+            instance.externalState,
+          )}`,
+        );
+
         void this.enqueueInstanceMutation(instanceId, (live) => {
           if (!live.watchState) return;
           if (live.watchState.fileOffset !== observedOffset) return;
+          this.baseConfig.logger.info(
+            `[Trace] watcher mutate ${instanceId} observedOffset=${observedOffset} liveOffset=${live.watchState.fileOffset} advanceTo=${stat.size} hasProcess=${Boolean(
+              live.process,
+            )} procIsProcessing=${live.process?.isProcessing ?? false} hasExternalState=${Boolean(
+              live.externalState,
+            )}`,
+          );
           live.watchState.fileOffset = stat.size;
           if (live.process?.isProcessing) return;
           for (const line of newContent.split("\n")) {
             if (!line.trim()) continue;
             try {
               const entry = JSON.parse(line);
+              this.baseConfig.logger.info(
+                `[Trace] watcher parsed ${instanceId} type=${entry?.type ?? "unknown"} timestamp=${
+                  entry?.timestamp ?? "none"
+                }`,
+              );
               this.applyWatcherEntry(instanceId, live, entry);
-            } catch {
-              // skip malformed lines
+            } catch (err) {
+              this.baseConfig.logger.warn(
+                `[Trace] watcher parse failed ${instanceId} lineLength=${line.length} lineTail=${JSON.stringify(
+                  line.slice(-120),
+                )} err=${err instanceof Error ? err.message : String(err)}`,
+              );
             }
           }
         }).catch((err) => this.logQueuedMutationError("watcher mutation", instanceId, err));
@@ -6459,6 +6492,15 @@ export class InstanceManager extends EventEmitter {
 
   private wireProcessEvents(id: string, proc: ProviderSession): void {
     proc.on("output", (message) => {
+      this.baseConfig.logger.info(
+        `[Trace] process output ${id} provider=${proc.getRuntimeBinding().provider} isWaiting=${
+          message.isWaiting
+        } hasProcess=${this.instances.get(id)?.process === proc} procIsProcessing=${
+          proc.isProcessing
+        } hasExternalState=${Boolean(this.instances.get(id)?.externalState)} watchOffset=${
+          this.instances.get(id)?.watchState?.fileOffset ?? "none"
+        }`,
+      );
       void this.enqueueInstanceMutation(id, (live) => {
         if (this.shuttingDown || live.process !== proc) return;
         this.noteManagedProcessActivity(live);
