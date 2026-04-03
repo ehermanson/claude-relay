@@ -111,6 +111,7 @@ export function InstanceViewContent() {
         <DebugModal
           instance={shared.instance}
           items={shared.items}
+          rawHistory={shared.rawHistory}
           isProcessing={shared.isActive}
           onClose={() => actions.setShowDebugPaste(false)}
         />

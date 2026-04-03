@@ -1,4 +1,5 @@
-import { CollapsedTerminalBar, TerminalPanel } from "@/components/terminal/terminal-panel";
+import { CollapsedTerminalBar } from "@/components/terminal/terminal-collapsed-bar";
+import { LazyTerminalPanel } from "@/components/terminal/lazy-terminal-panel";
 import { Sidecar } from "@/components/chat/sidecar";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { InstanceViewContent } from "@/components/chat/instance-view-content";
@@ -29,7 +30,7 @@ export function InstanceViewShell() {
           </div>
           {shared.showTerminalPanel && !shared.isMobile && (
             <ErrorBoundary name="Terminal panel">
-              <TerminalPanel
+              <LazyTerminalPanel
                 scope={shared.terminalScope}
                 height={shared.terminalHeight}
                 onResizeStart={actions.handleTerminalResizeStart}

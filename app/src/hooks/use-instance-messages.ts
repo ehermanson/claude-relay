@@ -548,12 +548,66 @@ function getActionSequence(action: Action): number | undefined {
   }
 }
 
+/**
+ * Convert a live action into a ServerMessage so we can append it to rawHistory
+ * (keeping raw history in sync with live WS events, not just replay snapshots).
+ */
+function actionToHistoryEntry(action: Action): HistoryEntry | null {
+  const now = Date.now();
+  switch (action.type) {
+    case "activity":
+      return { timestamp: now, message: action.message };
+    case "output":
+      return {
+        timestamp: now,
+        message: {
+          type: "output",
+          instanceId: "",
+          text: action.text,
+          isWaiting: action.isWaiting,
+          thinking: action.thinking,
+        } as ServerMessage,
+      };
+    case "user":
+      return {
+        timestamp: now,
+        message: {
+          type: "user",
+          instanceId: "",
+          text: action.text,
+          internal: action.internal,
+          queued: action.queued,
+        } as ServerMessage,
+      };
+    case "exit":
+      return {
+        timestamp: now,
+        message: {
+          type: "exit",
+          instanceId: "",
+          code: action.code,
+          signal: action.signal,
+          stderr: action.stderr,
+        } as ServerMessage,
+      };
+    default:
+      return null;
+  }
+}
+
 function reducer(state: State, action: Action): State {
   const seq = getActionSequence(action);
   if (seq !== undefined && seq <= state.lastSeenSequence) {
     return state;
   }
-  const next = coreReducer(state, action);
+  let next = coreReducer(state, action);
+
+  // Append live messages to rawHistory so the debug modal stays current
+  const entry = actionToHistoryEntry(action);
+  if (entry && next.rawHistory) {
+    next = { ...next, rawHistory: [...next.rawHistory, entry] };
+  }
+
   if (seq === undefined) return next;
   return {
     ...next,

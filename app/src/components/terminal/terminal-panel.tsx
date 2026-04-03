@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, ChevronDown, ChevronUp, Columns2 } from "lucide-react";
+import { X, ChevronDown, Columns2 } from "lucide-react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
@@ -16,28 +16,6 @@ import { TerminalView } from "./terminal-view";
 import type { ServerMessage, TerminalScope, TerminalInfo } from "@shared/types";
 
 const MAX_TERMINALS = 4;
-
-// ── Collapsed peek bar ────────────────────────────────────────────────
-
-interface CollapsedTerminalBarProps {
-  terminalCount: number;
-  onExpand: () => void;
-}
-
-export function CollapsedTerminalBar({ terminalCount, onExpand }: CollapsedTerminalBarProps) {
-  return (
-    <button
-      type="button"
-      onClick={onExpand}
-      className="group flex w-full items-center justify-center gap-1.5 border-t border-border/50 bg-surface-inset px-3 py-1 text-[0.6875rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
-    >
-      <ChevronUp size={12} className="transition-transform group-hover:-translate-y-0.5" />
-      <span>
-        {terminalCount} terminal{terminalCount !== 1 ? "s" : ""}
-      </span>
-    </button>
-  );
-}
 
 // ── Main Panel ───────────────────────────────────────────────────────
 

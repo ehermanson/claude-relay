@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { Spinner } from "@/components/ui/spinner";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
-import { CollapsedTerminalBar, TerminalPanel } from "@/components/terminal/terminal-panel";
+import { CollapsedTerminalBar } from "@/components/terminal/terminal-collapsed-bar";
+import { LazyTerminalPanel } from "@/components/terminal/lazy-terminal-panel";
 import type { InstanceInfo } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
@@ -171,7 +172,7 @@ export function SpaceViewBody() {
         </div>
         {shared.showTerminalPanel && !shared.isMobile && (
           <ErrorBoundary name="Terminal panel">
-            <TerminalPanel
+            <LazyTerminalPanel
               scope={shared.terminalScope}
               height={shared.terminalHeight}
               onResizeStart={actions.handleTerminalResizeStart}
