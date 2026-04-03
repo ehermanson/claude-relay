@@ -17,6 +17,124 @@ function isImageOnly(text: string): boolean {
   return IMAGE_ONLY_PATTERN.test(text);
 }
 
+/**
+ * Process raw history entries into ChatItem[] for display.
+ * Extracted so it can be reused outside the hook (e.g. space debug modal).
+ */
+export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
+  let items: ChatItem[] = [];
+  let assistantText = "";
+  let assistantTimestamp: number | undefined;
+  let currentActivities: ActivityMessage[] = [];
+
+  const flushActivities = () => {
+    if (currentActivities.length > 0) {
+      items.push({ kind: "activity-group", activities: [...currentActivities] });
+      currentActivities = [];
+    }
+  };
+
+  const flushAssistant = () => {
+    if (assistantText) {
+      items.push({ kind: "assistant", text: assistantText, timestamp: assistantTimestamp });
+      assistantText = "";
+      assistantTimestamp = undefined;
+    }
+  };
+
+  for (const entry of history) {
+    const msg = entry.message;
+    switch (msg.type) {
+      case "output":
+        if (msg.thinking) {
+          items.push({ kind: "thinking-block", text: msg.thinking });
+        } else if (msg.text && msg.text.trim()) {
+          if (!assistantText.endsWith(msg.text)) {
+            flushActivities();
+            if (!assistantText) assistantTimestamp = entry.timestamp;
+            assistantText += msg.text;
+          }
+        }
+        if (msg.isWaiting) {
+          flushActivities();
+          flushAssistant();
+        }
+        break;
+      case "user": {
+        if (msg.internal) break;
+        flushActivities();
+        flushAssistant();
+        const lastItem = items[items.length - 1];
+        if (
+          isImageOnly(msg.text) &&
+          lastItem?.kind === "user" &&
+          lastItem.timestamp &&
+          entry.timestamp &&
+          Math.abs(entry.timestamp - lastItem.timestamp) < 60_000
+        ) {
+          items[items.length - 1] = {
+            ...lastItem,
+            text: lastItem.text + "\n" + msg.text,
+          };
+        } else {
+          items.push({
+            kind: "user",
+            text: msg.text,
+            timestamp: entry.timestamp,
+            queued: msg.queued,
+          });
+        }
+        break;
+      }
+      case "activity":
+        if (msg.activity === "task_list" && msg.tasks) {
+          // skip — task lists don't produce chat items
+        } else if (msg.activity === "file_list" && msg.files) {
+          // skip — file lists don't produce chat items
+        } else if (msg.activity === "thinking") {
+          flushAssistant();
+          flushActivities();
+          items.push({ kind: "thinking-block", text: msg.detail || "" });
+        } else {
+          flushAssistant();
+          currentActivities.push(msg);
+        }
+        break;
+      case "transcript":
+        flushActivities();
+        flushAssistant();
+        items.push({
+          kind: "agent-transcript",
+          title: msg.title,
+          result: msg.result,
+          timestamp: entry.timestamp,
+        });
+        break;
+      case "exit":
+        flushActivities();
+        flushAssistant();
+        if (msg.code !== 0) {
+          let text = msg.signal
+            ? `Chat process killed by ${msg.signal}`
+            : `Chat process exited with code ${msg.code}`;
+          if (msg.stderr) text += `\n${msg.stderr}`;
+          items.push({ kind: "system", text, isError: true });
+        }
+        break;
+      case "error":
+        flushActivities();
+        flushAssistant();
+        items.push({ kind: "system", text: `Error: ${msg.message}`, isError: true });
+        break;
+    }
+  }
+
+  flushActivities();
+  flushAssistant();
+
+  return items;
+}
+
 interface State {
   items: ChatItem[];
   hasLoadedHistory: boolean;
@@ -122,120 +240,18 @@ function coreReducer(state: State, action: Action): State {
         };
       }
 
-      // Replay history to rebuild items
-      let items: ChatItem[] = [];
-      let assistantText = "";
-      let assistantTimestamp: number | undefined;
-      let currentActivities: ActivityMessage[] = [];
+      const items = replayHistoryToItems(action.history);
+
+      // Extract latest task/file lists from activity messages
       let currentTasks: TaskItem[] | null = null;
       let currentFiles: FileChange[] | null = null;
-
-      const flushActivities = () => {
-        if (currentActivities.length > 0) {
-          items.push({ kind: "activity-group", activities: [...currentActivities] });
-          currentActivities = [];
-        }
-      };
-
-      const flushAssistant = () => {
-        if (assistantText) {
-          items.push({ kind: "assistant", text: assistantText, timestamp: assistantTimestamp });
-          assistantText = "";
-          assistantTimestamp = undefined;
-        }
-      };
-
       for (const entry of action.history) {
         const msg = entry.message;
-        switch (msg.type) {
-          case "output":
-            if (msg.thinking) {
-              items.push({ kind: "thinking-block", text: msg.thinking });
-            } else if (msg.text && msg.text.trim()) {
-              // Dedup: skip if text is already at the end of accumulated assistant text
-              if (!assistantText.endsWith(msg.text)) {
-                flushActivities();
-                if (!assistantText) assistantTimestamp = entry.timestamp;
-                assistantText += msg.text;
-              }
-            }
-            if (msg.isWaiting) {
-              flushActivities();
-              flushAssistant();
-            }
-            break;
-          case "user": {
-            // Hide programmatically-injected messages (e.g. auto-continue after restart)
-            if (msg.internal) break;
-            flushActivities();
-            flushAssistant();
-            const lastItem = items[items.length - 1];
-            if (
-              isImageOnly(msg.text) &&
-              lastItem?.kind === "user" &&
-              lastItem.timestamp &&
-              entry.timestamp &&
-              Math.abs(entry.timestamp - lastItem.timestamp) < 60_000
-            ) {
-              items[items.length - 1] = {
-                ...lastItem,
-                text: lastItem.text + "\n" + msg.text,
-              };
-            } else {
-              items.push({
-                kind: "user",
-                text: msg.text,
-                timestamp: entry.timestamp,
-                queued: msg.queued,
-              });
-            }
-            break;
-          }
-          case "activity":
-            if (msg.activity === "task_list" && msg.tasks) {
-              currentTasks = msg.tasks;
-            } else if (msg.activity === "file_list" && msg.files) {
-              currentFiles = msg.files;
-            } else if (msg.activity === "thinking") {
-              flushAssistant();
-              flushActivities();
-              items.push({ kind: "thinking-block", text: msg.detail || "" });
-            } else {
-              flushAssistant();
-              currentActivities.push(msg);
-            }
-            break;
-          case "transcript":
-            flushActivities();
-            flushAssistant();
-            items.push({
-              kind: "agent-transcript",
-              title: msg.title,
-              result: msg.result,
-              timestamp: entry.timestamp,
-            });
-            break;
-          case "exit":
-            flushActivities();
-            flushAssistant();
-            if (msg.code !== 0) {
-              let text = msg.signal
-                ? `Chat process killed by ${msg.signal}`
-                : `Chat process exited with code ${msg.code}`;
-              if (msg.stderr) text += `\n${msg.stderr}`;
-              items.push({ kind: "system", text, isError: true });
-            }
-            break;
-          case "error":
-            flushActivities();
-            flushAssistant();
-            items.push({ kind: "system", text: `Error: ${msg.message}`, isError: true });
-            break;
+        if (msg.type === "activity") {
+          if (msg.activity === "task_list" && msg.tasks) currentTasks = msg.tasks;
+          else if (msg.activity === "file_list" && msg.files) currentFiles = msg.files;
         }
       }
-
-      flushActivities();
-      flushAssistant();
 
       return {
         items,

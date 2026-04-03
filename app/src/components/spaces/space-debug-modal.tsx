@@ -1,9 +1,11 @@
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
-import { StatusDot } from "@/components/ui/status-dot";
-import { instanceStatusVariant } from "@/lib/utils";
-import type { InstanceInfo, SpaceInfo } from "@shared/types";
+import { Select } from "@/components/ui/input";
+import { DebugPanel } from "@/components/chat/debug-panel";
+import { replayHistoryToItems } from "@/hooks/use-instance-messages";
+import { fetchInstanceHistory } from "@/lib/api";
+import { Tabs } from "@/components/ui/tabs";
+import type { HistoryEntry, InstanceInfo, SpaceInfo } from "@shared/types";
 
 export function SpaceDebugModal({
   space,
@@ -16,18 +18,66 @@ export function SpaceDebugModal({
   defaultInstanceId?: string;
   onClose: () => void;
 }) {
-  const [selectedId, setSelectedId] = useState(defaultInstanceId ?? instances[0]?.id ?? "");
+  const [selectedChatId, setSelectedChatId] = useState(defaultInstanceId ?? "");
+  const [chatHistory, setChatHistory] = useState<HistoryEntry[] | null>(null);
+  const [loadingChat, setLoadingChat] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState("space");
 
-  const selectedInstance = instances.find((instance) => instance.id === selectedId);
-  const debugDump = JSON.stringify({ space, instance: selectedInstance ?? null }, null, 2);
+  const selectedInstance = instances.find((i) => i.id === selectedChatId);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(debugDump).then(() => {
+  // Fetch history when a chat is selected
+  useEffect(() => {
+    if (!selectedChatId) {
+      setChatHistory(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingChat(true);
+    setChatHistory(null);
+    fetchInstanceHistory(selectedChatId)
+      .then((history) => {
+        if (!cancelled) setChatHistory(history);
+      })
+      .catch(() => {
+        if (!cancelled) setChatHistory([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingChat(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChatId]);
+
+  const spaceDump = useMemo(() => JSON.stringify(space, null, 2), [space]);
+
+  const chatItems = useMemo(
+    () => (chatHistory ? replayHistoryToItems(chatHistory) : []),
+    [chatHistory],
+  );
+
+  const chatDumps = useMemo(() => {
+    if (!selectedInstance || !chatHistory) return null;
+    return {
+      raw: JSON.stringify(chatHistory, null, 2),
+      processed: JSON.stringify(
+        { items: chatItems, isProcessing: selectedInstance.status === "processing" },
+        null,
+        2,
+      ),
+      instance: JSON.stringify(selectedInstance, null, 2),
+    };
+  }, [chatHistory, chatItems, selectedInstance]);
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
   };
+
+  const hasChatData = selectedChatId && !loadingChat && chatDumps !== null;
 
   return (
     <Dialog.Root
@@ -38,42 +88,83 @@ export function SpaceDebugModal({
     >
       <Dialog.Content maxWidth="max-w-3xl">
         <Dialog.Header>
-          <Dialog.Title>Debug - {space.name}</Dialog.Title>
+          <Dialog.Title>Debug — {space.name}</Dialog.Title>
           <Dialog.Close />
         </Dialog.Header>
-        {instances.length > 1 && (
-          <div className="flex gap-1 rounded-lg bg-bg p-1">
-            {instances.map((instance) => (
-              <button
-                key={instance.id}
-                onClick={() => setSelectedId(instance.id)}
-                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[0.75rem] font-medium transition-colors ${
-                  selectedId === instance.id
-                    ? "bg-surface-hover text-text-bright"
-                    : "text-muted hover:text-text"
-                }`}
-              >
-                <StatusDot variant={instanceStatusVariant(instance.status)} />
-                <span className="max-w-[120px] truncate">{instance.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        <pre
-          className="flex-1 overflow-auto rounded-lg border border-border bg-bg p-3.5 font-mono text-[0.75rem] leading-relaxed text-text"
-          style={{ maxHeight: "55vh" }}
-        >
-          {debugDump}
-        </pre>
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            onClick={handleCopy}
-            className={copied ? "bg-accent/15 text-accent hover:bg-accent/25" : ""}
+
+        {/* Chat selector */}
+        {instances.length > 0 && (
+          <Select
+            value={selectedChatId}
+            onChange={(e) => {
+              setSelectedChatId(e.target.value);
+              setCopied(false);
+              // Jump to raw history when a chat is picked
+              if (e.target.value) setActiveTab("raw");
+              else setActiveTab("space");
+            }}
           >
-            {copied ? "Copied!" : "Copy to Clipboard"}
-          </Button>
-        </div>
+            <option value="">Space only</option>
+            {instances.map((inst) => (
+              <option key={inst.id} value={inst.id}>
+                {inst.name} ({inst.status})
+              </option>
+            ))}
+          </Select>
+        )}
+
+        <Tabs.Root
+          value={activeTab}
+          onValueChange={(v) => {
+            setActiveTab(v);
+            setCopied(false);
+          }}
+        >
+          <Tabs.List className="mb-2">
+            <Tabs.Tab value="space">Space</Tabs.Tab>
+            {hasChatData && (
+              <>
+                <Tabs.Tab value="raw">Raw History ({chatHistory!.length})</Tabs.Tab>
+                <Tabs.Tab value="processed">Processed ({chatItems.length})</Tabs.Tab>
+                <Tabs.Tab value="instance">Instance</Tabs.Tab>
+              </>
+            )}
+          </Tabs.List>
+
+          <Tabs.Panel value="space">
+            <DebugPanel content={spaceDump} onCopy={() => handleCopy(spaceDump)} copied={copied} />
+          </Tabs.Panel>
+
+          {hasChatData && (
+            <>
+              <Tabs.Panel value="raw">
+                <DebugPanel
+                  content={chatDumps!.raw}
+                  onCopy={() => handleCopy(chatDumps!.raw)}
+                  copied={copied}
+                />
+              </Tabs.Panel>
+              <Tabs.Panel value="processed">
+                <DebugPanel
+                  content={chatDumps!.processed}
+                  onCopy={() => handleCopy(chatDumps!.processed)}
+                  copied={copied}
+                />
+              </Tabs.Panel>
+              <Tabs.Panel value="instance">
+                <DebugPanel
+                  content={chatDumps!.instance}
+                  onCopy={() => handleCopy(chatDumps!.instance)}
+                  copied={copied}
+                />
+              </Tabs.Panel>
+            </>
+          )}
+        </Tabs.Root>
+
+        {selectedChatId && loadingChat && (
+          <p className="py-4 text-center text-[0.8125rem] text-muted">Loading chat history…</p>
+        )}
       </Dialog.Content>
     </Dialog.Root>
   );
