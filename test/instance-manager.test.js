@@ -333,6 +333,68 @@ describe("InstanceManager", () => {
       assert.equal(restored.getInstance("shadow-external-restore"), undefined);
     });
 
+    it("removes a live external shadow once a managed session captures the same transcript", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const project = manager.projectManager.addProject(projectDir);
+      const space = manager.getSpaceManager().createSpace(projectDir, { name: "Shadow prune" });
+      const transcriptPath = join(projectDir, "shadow-prune.jsonl");
+      writeFileSync(transcriptPath, "{}\n");
+
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsert(
+          makeExternalRow({
+            session_id: "shadow-live-session",
+            instance_id: "shadow-live-external",
+            jsonl_path: transcriptPath,
+            working_directory: projectDir,
+            original_directory: projectDir,
+            worktree_path: space.worktreePath,
+            git_branch: space.gitBranch,
+            space_id: space.id,
+            project_id: project.id,
+          }),
+        );
+        const row = db.getBySessionId("shadow-live-session");
+        assert.ok(row);
+        assert.equal(manager.restoreExternalFromRow(row), true);
+      } finally {
+        db.close();
+      }
+
+      assert.ok(manager.getInstance("shadow-live-external"));
+
+      const managed = manager.createInstance({ spaceId: space.id });
+      const managedInstance = manager.instances.get(managed.id);
+      assert.ok(managedInstance);
+
+      manager.finalizeSessionCapture(
+        managed.id,
+        managedInstance,
+        managedInstance.process,
+        "shadow-live-session",
+        transcriptPath,
+      );
+
+      assert.equal(manager.instances.has("shadow-live-external"), false);
+      assert.equal(
+        manager.listSpaceChats(space.id).some((chat) => chat.id === "shadow-live-external"),
+        false,
+      );
+      assert.equal(
+        manager.listSpaceChats(space.id).filter((chat) => chat.sessionId === "shadow-live-session")
+          .length,
+        1,
+      );
+
+      const verifyDb = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        assert.equal(verifyDb.getByInstanceId("shadow-live-external"), undefined);
+      } finally {
+        verifyDb.close();
+      }
+    });
+
     it("falls back to persisted git metadata for originalGitBranch on restored managed sessions", () => {
       const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
 

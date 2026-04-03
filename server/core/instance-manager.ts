@@ -1786,6 +1786,7 @@ export class InstanceManager extends EventEmitter {
       }
 
       this.dbSave(instance);
+      this.removeLiveExternalShadow(info.id, resumeId, transcriptPath);
     } else {
       this.dbSave(instance);
       this.captureSessionId(id, instance, proc);
@@ -6205,6 +6206,7 @@ export class InstanceManager extends EventEmitter {
     ) {
       this.dbSave(instance);
     }
+    this.removeLiveExternalShadow(entry.instance_id, resumeSessionId ?? undefined, transcriptPath);
     this.emit("instance:created", entry.instance_id, { ...info });
     return true;
   }
@@ -6771,11 +6773,64 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
+    this.removeLiveExternalShadow(
+      id,
+      sessionId,
+      jsonlPath ?? instance.providerBinding?.transcriptPath ?? instance.jsonlPath,
+    );
+
     this.dbSave(instance);
 
     this.baseConfig.logger.debug(
       `[InstanceManager] Captured session ID "${sessionId}" for instance "${instance.info.name}"`,
     );
+  }
+
+  private removeLiveExternalShadow(
+    managedInstanceId: string,
+    providerSessionId?: string,
+    transcriptPath?: string,
+  ): void {
+    if (!providerSessionId && !transcriptPath) {
+      return;
+    }
+
+    for (const [instanceId, candidate] of this.instances) {
+      if (instanceId === managedInstanceId || !candidate.info.external) {
+        continue;
+      }
+
+      const candidateBinding = candidate.providerBinding ?? candidate.process?.getRuntimeBinding();
+      const candidateSessionId =
+        candidateBinding?.providerSessionId ?? candidate.sessionId ?? candidate.info.sessionId;
+      const candidateTranscriptPath =
+        candidateBinding?.transcriptPath ??
+        candidate.externalState?.jsonlPath ??
+        candidate.jsonlPath;
+      const sessionMatch = providerSessionId && candidateSessionId === providerSessionId;
+      const transcriptMatch = transcriptPath && candidateTranscriptPath === transcriptPath;
+
+      if (!sessionMatch && !transcriptMatch) {
+        continue;
+      }
+
+      const watchInterval = this.watchIntervals.get(instanceId);
+      if (watchInterval) {
+        clearInterval(watchInterval);
+        this.watchIntervals.delete(instanceId);
+      }
+      this.staleCounts.delete(instanceId);
+      this.instances.delete(instanceId);
+
+      if (candidate.sessionId) {
+        this.db.archive(candidate.sessionId);
+      }
+
+      this.emit("instance:removed", instanceId);
+      this.baseConfig.logger.info(
+        `[InstanceManager] Removed live external shadow ${instanceId} for managed instance ${managedInstanceId}`,
+      );
+    }
   }
 
   // ===========================================================================
