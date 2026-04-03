@@ -106,7 +106,7 @@ export function SpaceChatTabs({
       </div>
       <button
         onClick={onNewChat}
-        disabled={disableNewChat}
+        disabled={disableNewChat || pendingNewChat}
         title={
           disableNewChat ? "This space is read-only until its worktree is repaired" : undefined
         }

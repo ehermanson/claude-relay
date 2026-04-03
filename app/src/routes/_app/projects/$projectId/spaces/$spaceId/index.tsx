@@ -117,11 +117,13 @@ export function SpaceView() {
           message.instance.id === pendingCreatedChatIdRef.current
         ) {
           primeInstanceMessagesCache(message.instance.id);
+          creatingChatRef.current = false;
           setPendingNewChatActive(false);
         }
         return;
       }
       if (message.type === "error" && pendingNewChatActive) {
+        creatingChatRef.current = false;
         setPendingNewChatActive(false);
         pendingCreatedChatIdRef.current = null;
         setPendingNewChatId(null);
@@ -281,9 +283,14 @@ export function SpaceView() {
   const isMerged = space?.status === "completed";
   const isArchived = space?.status === "archived";
 
+  // Ref-based guard prevents double-creation even if the callback closure
+  // captures a stale `pendingNewChatActive` value (e.g. rapid double-click).
+  const creatingChatRef = useRef(false);
+
   const handleCreateChat = useCallback(
     async (initialPrompt?: string) => {
-      if (pendingNewChatActive) return;
+      if (creatingChatRef.current) return;
+      creatingChatRef.current = true;
       setPendingNewChatActive(true);
       setPendingNewChatId(PENDING_NEW_CHAT_TAB_ID);
       try {
@@ -298,13 +305,14 @@ export function SpaceView() {
           });
         }
       } catch (err) {
+        creatingChatRef.current = false;
         setPendingNewChatActive(false);
         setPendingNewChatId(null);
         pendingCreatedChatIdRef.current = null;
         toast.error(err instanceof Error ? err.message : "Failed to create chat");
       }
     },
-    [pendingNewChatActive, send, spaceId],
+    [send, spaceId],
   );
 
   // Listen for "Send to new chat" relay events from child instance views

@@ -1126,6 +1126,13 @@ export class InstanceManager extends EventEmitter {
   private discovering = false;
   /** Prevent late process/watcher events from mutating state after shutdown begins */
   private shuttingDown = false;
+  /**
+   * JSONL paths from instances the user explicitly removed.  Kept in memory
+   * so the external-discovery loop doesn't immediately re-import a managed
+   * session whose subprocess hasn't fully exited yet.  Entries are
+   * auto-expired after 60 s — long enough for the process to die.
+   */
+  private dismissedJsonlPaths = new Map<string, number>();
   /** Space lifecycle manager */
   private spaceManager: SpaceManager;
   /** Project manager for explicit project registration */
@@ -1800,6 +1807,29 @@ export class InstanceManager extends EventEmitter {
     return result;
   }
 
+  /** Record an instance's JSONL paths as dismissed so discovery ignores them. */
+  private dismissJsonlPaths(instance: Instance): void {
+    const now = Date.now();
+    if (instance.jsonlPath) this.dismissedJsonlPaths.set(instance.jsonlPath, now);
+    if (instance.providerBinding?.transcriptPath) {
+      this.dismissedJsonlPaths.set(instance.providerBinding.transcriptPath, now);
+    }
+    if (instance.externalState?.jsonlPath) {
+      this.dismissedJsonlPaths.set(instance.externalState.jsonlPath, now);
+    }
+  }
+
+  /** Check if a JSONL path was recently dismissed (within 60 s). */
+  private isJsonlDismissed(jsonlPath: string): boolean {
+    const dismissedAt = this.dismissedJsonlPaths.get(jsonlPath);
+    if (dismissedAt === undefined) return false;
+    if (Date.now() - dismissedAt > 60_000) {
+      this.dismissedJsonlPaths.delete(jsonlPath);
+      return false;
+    }
+    return true;
+  }
+
   private deleteInstanceTranscriptFiles(instance: Instance): void {
     const transcriptPaths = new Set<string>();
     const bindingTranscriptPath = instance.providerBinding?.transcriptPath;
@@ -1837,6 +1867,11 @@ export class InstanceManager extends EventEmitter {
     this.missingRunnableCwdWarnings.delete(id);
 
     instance.info.status = "stopped";
+
+    // Track JSONL paths so external discovery doesn't immediately re-import
+    // this session while the subprocess is still winding down.
+    this.dismissJsonlPaths(instance);
+
     this.instances.delete(id);
     if (purge) {
       if (instance.sessionId) this.db.deleteBySessionId(instance.sessionId);
@@ -3849,6 +3884,10 @@ export class InstanceManager extends EventEmitter {
 
     // Discover new sessions (and upgrade restored stopped externals)
     for (const [jsonlPath, active] of activeSessions) {
+      // Skip JSONL paths from instances the user recently deleted — the
+      // subprocess may still be alive for a few seconds after removal.
+      if (this.isJsonlDismissed(jsonlPath)) continue;
+
       if (knownJsonls.has(jsonlPath)) {
         // Check if this is a restored stopped external that should be upgraded to active
         const existingId = knownJsonls.get(jsonlPath)!;

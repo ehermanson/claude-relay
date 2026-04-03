@@ -186,11 +186,17 @@ export function InstanceViewContent() {
           />
         ) : (
           <ErrorBoundary name="Input area" inline>
-            {spaceId && shared.items.length === 0 && !shared.isActive && (
-              <div className="mx-auto w-full max-w-3xl px-6">
-                <SpaceSuggestionCards onSelect={(prompt) => actions.handleSend(prompt)} />
-              </div>
-            )}
+            {spaceId &&
+              shared.items.length === 0 &&
+              !shared.isActive &&
+              // Hide suggestions for brand-new spaces — they reference prior
+              // work that doesn't exist yet. Show only when the space already
+              // has other chats (i.e. this isn't the very first one).
+              allInstances.filter((inst) => inst.spaceId === spaceId).length > 1 && (
+                <div className="mx-auto w-full max-w-3xl px-6">
+                  <SpaceSuggestionCards onSelect={(prompt) => actions.handleSend(prompt)} />
+                </div>
+              )}
             <InputArea
               onSend={actions.handleSend}
               onAnswerUserInput={actions.handleAnswerUserInput}
