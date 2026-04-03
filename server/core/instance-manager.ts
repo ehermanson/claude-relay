@@ -311,14 +311,34 @@ function stripInternalTags(text: string): string {
   return text.replace(INTERNAL_TAG_RE, "").trim();
 }
 
+/** Human-readable label for a provider, used in fallback session titles. */
+function providerLabel(provider?: ProviderKind): string {
+  switch (provider) {
+    case "claude":
+      return "Claude";
+    case "codex":
+      return "Codex";
+    case "gemini":
+      return "Gemini";
+    default:
+      return "";
+  }
+}
+
+/** Default title when no content is available to derive one from. */
+function defaultSessionTitle(provider?: ProviderKind): string {
+  const label = providerLabel(provider);
+  return label ? `External ${label} Session` : "New Session";
+}
+
 /** Generate a short session title from a user message. */
-function generateTitle(text: string): string {
+function generateTitle(text: string, provider?: ProviderKind): string {
   // Take the first line, strip markdown/special chars
   const firstLine = text
     .split("\n")[0]
     .replace(/[#*`_~[\]>]/g, "")
     .trim();
-  if (!firstLine) return "New session";
+  if (!firstLine) return defaultSessionTitle(provider);
   if (firstLine.length <= MAX_TITLE_LENGTH) return firstLine;
   // Truncate at word boundary
   const truncated = firstLine.slice(0, MAX_TITLE_LENGTH);
@@ -4068,8 +4088,9 @@ export class InstanceManager extends EventEmitter {
     }
 
     const id = randomUUID();
-    const dirName = workingDirectory.split("/").pop() || "unknown";
-    const name = this.resolveSessionTitle(sessionId, workingDirectory, history) || dirName;
+    const name =
+      this.resolveSessionTitle(sessionId, workingDirectory, history, provider) ||
+      defaultSessionTitle(provider);
     const now = Date.now();
     const lastActivity = history.length > 0 ? history[history.length - 1].timestamp : now;
 
@@ -5630,7 +5651,9 @@ export class InstanceManager extends EventEmitter {
           }
 
           const firstMsg = readFirstUserMessage(jsonlPath);
-          const name = indexEntry?.summary || (firstMsg ? generateTitle(firstMsg) : "New session");
+          const name =
+            indexEntry?.summary ||
+            (firstMsg ? generateTitle(firstMsg, "claude") : defaultSessionTitle("claude"));
           const gitInfo = scanWorktreePath ? getGitInfo(scanWorktreePath) : getGitInfo(cwd);
           const lastMsg = readLastMessage(jsonlPath);
           const model = readModelFromJsonl(jsonlPath);
@@ -5796,7 +5819,9 @@ export class InstanceManager extends EventEmitter {
               session_id: meta.id,
               instance_id: randomUUID(),
               provider_name: "codex",
-              name: meta.firstUserMessage ? generateTitle(meta.firstUserMessage) : "New session",
+              name: meta.firstUserMessage
+                ? generateTitle(meta.firstUserMessage, "codex")
+                : defaultSessionTitle("codex"),
               working_directory: cwd,
               jsonl_path: fullPath,
               created_at: meta.createdAt,
@@ -6766,6 +6791,7 @@ export class InstanceManager extends EventEmitter {
     sessionId: string,
     cwd: string,
     history: HistoryEntry[],
+    provider?: ProviderKind,
   ): string | null {
     // Try sessions-index.json summary
     const summary = this.getSessionSummary(sessionId, cwd);
@@ -6774,7 +6800,7 @@ export class InstanceManager extends EventEmitter {
     // Fall back to first user message
     for (const h of history) {
       if (h.message.type === "user" && (h.message as UserMessage).text) {
-        return generateTitle((h.message as UserMessage).text);
+        return generateTitle((h.message as UserMessage).text, provider);
       }
     }
 

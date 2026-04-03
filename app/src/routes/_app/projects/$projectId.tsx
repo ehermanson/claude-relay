@@ -93,24 +93,29 @@ function ProjectLayout() {
   const isPlansTab = pathname.includes("/plans");
   const isTasksTab = pathname.includes("/tasks");
   const isSkillsTab = pathname.includes("/skills");
+  const isSpacesTab = pathname.includes("/spaces") && !spaceId;
   const isChatsTab = pathname.includes("/chats");
   const isSettingsTab = pathname.includes("/settings");
-  const isOverviewTab = !isPlansTab && !isTasksTab && !isSkillsTab && !isChatsTab && !isSettingsTab;
+  const isOverviewTab =
+    !isPlansTab && !isTasksTab && !isSkillsTab && !isSpacesTab && !isChatsTab && !isSettingsTab;
   const activeTab = isPlansTab
     ? "plans"
     : isTasksTab
       ? "tasks"
       : isSkillsTab
         ? "skills"
-        : isChatsTab
-          ? "chats"
-          : isSettingsTab
-            ? "settings"
-            : "overview";
+        : isSpacesTab
+          ? "spaces"
+          : isChatsTab
+            ? "chats"
+            : isSettingsTab
+              ? "settings"
+              : "overview";
 
   const planCount = artifacts.plans.length;
   const taskCount = artifacts.tasks?.length ?? 0;
   const skillCount = artifacts.skills.length;
+  const spaceCount = (artifacts.spaces ?? []).filter((s) => !s.isDefault).length;
 
   const ctxValue = { artifacts };
 
@@ -188,6 +193,15 @@ function ProjectLayout() {
               active={isSkillsTab}
               label="Skills"
               count={skillCount}
+            />
+          )}
+          {spaceCount > 0 && (
+            <NavTab
+              to="/projects/$projectId/spaces"
+              params={{ projectId }}
+              active={isSpacesTab}
+              label="Spaces"
+              count={spaceCount}
             />
           )}
           <NavTab

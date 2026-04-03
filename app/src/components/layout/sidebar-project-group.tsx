@@ -2,7 +2,7 @@
  * A collapsible project directory group in the sidebar header plus session items.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDown,
@@ -20,7 +20,6 @@ import {
   Plus,
   Settings,
   Toolbox,
-  Archive,
 } from "lucide-react";
 import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
@@ -412,13 +411,6 @@ export function SidebarProjectGroup({
                   />
                 ))}
 
-            <SidebarBrokenSpaces
-              spaces={spaces}
-              projectId={routeProjectId}
-              latestChatIdBySpace={latestChatIdBySpace}
-              activeSpaceId={activeSpaceId}
-            />
-
             {/* Chats */}
             {visible.map(renderSessionItem)}
 
@@ -433,19 +425,9 @@ export function SidebarProjectGroup({
               </Link>
             )}
 
-            {/* Closed spaces */}
-            <SidebarClosedSpaces
-              spaces={spaces}
-              projectId={routeProjectId}
-              latestChatIdBySpace={latestChatIdBySpace}
-              activeSpaceId={activeSpaceId}
-            />
-
             {visible.length === 0 &&
               (!spaces ||
-                spaces.filter(
-                  (s) => !s.isDefault && (s.status === "active" || s.status === "broken"),
-                ).length === 0) && (
+                spaces.filter((s) => !s.isDefault && s.status === "active").length === 0) && (
                 <div className="px-2 py-1">
                   <EmptyProjectActions
                     size="compact"
@@ -458,96 +440,5 @@ export function SidebarProjectGroup({
         </Collapsible.Content>
       </div>
     </Collapsible.Root>
-  );
-}
-
-function SidebarBrokenSpaces({
-  spaces,
-  projectId,
-  latestChatIdBySpace,
-  activeSpaceId,
-}: {
-  spaces?: SpaceInfo[];
-  projectId: string;
-  latestChatIdBySpace?: Record<string, string>;
-  activeSpaceId?: string;
-}) {
-  const brokenSpaces = spaces?.filter((s) => !s.isDefault && s.status === "broken");
-  const hasActiveChild = brokenSpaces?.some((s) => s.id === activeSpaceId) ?? false;
-  const [open, setOpen] = useState(hasActiveChild);
-
-  useEffect(() => {
-    if (hasActiveChild) setOpen(true);
-  }, [hasActiveChild]);
-
-  if (!brokenSpaces || brokenSpaces.length === 0) return null;
-
-  return (
-    <div className="mt-1">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-1 rounded-md py-1 pl-3 pr-2 text-left text-[0.6875rem] font-medium uppercase tracking-wide text-warning transition-colors hover:text-warning"
-      >
-        {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-        Needs repair ({brokenSpaces.length})
-      </button>
-      {open &&
-        brokenSpaces.map((space) => (
-          <SidebarSpaceGroup
-            key={space.id}
-            space={space}
-            projectId={projectId}
-            latestChatId={latestChatIdBySpace?.[space.id]}
-            isActive={activeSpaceId === space.id}
-          />
-        ))}
-    </div>
-  );
-}
-
-function SidebarClosedSpaces({
-  spaces,
-  projectId,
-  latestChatIdBySpace,
-  activeSpaceId,
-}: {
-  spaces?: SpaceInfo[];
-  projectId: string;
-  latestChatIdBySpace?: Record<string, string>;
-  activeSpaceId?: string;
-}) {
-  const closedSpaces = spaces?.filter(
-    (s) => !s.isDefault && (s.status === "completed" || s.status === "archived"),
-  );
-  // Auto-expand when the active space is in the closed list
-  const hasActiveChild = closedSpaces?.some((s) => s.id === activeSpaceId) ?? false;
-  const [open, setOpen] = useState(hasActiveChild);
-  // If the active space changes to a closed space, expand
-  useEffect(() => {
-    if (hasActiveChild) setOpen(true);
-  }, [hasActiveChild]);
-  if (!closedSpaces || closedSpaces.length === 0) return null;
-
-  return (
-    <div className="mt-1">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-1 rounded-md py-1 pl-3 pr-2 text-left text-[0.6875rem] font-medium uppercase tracking-wide text-muted transition-colors hover:text-text"
-      >
-        {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-        <Archive size={10} className="text-muted" />
-        Closed ({closedSpaces.length})
-      </button>
-      {open &&
-        closedSpaces.map((space) => (
-          <SidebarSpaceGroup
-            key={space.id}
-            space={space}
-            projectId={projectId}
-            latestChatId={latestChatIdBySpace?.[space.id]}
-            isActive={activeSpaceId === space.id}
-          />
-        ))}
-    </div>
   );
 }

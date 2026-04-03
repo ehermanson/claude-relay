@@ -21,6 +21,7 @@ import { Route as AppSettingsGeneralRouteImport } from './routes/_app/settings/g
 import { Route as AppProjectsProjectIdRouteImport } from './routes/_app/projects/$projectId'
 import { Route as AppProjectsProjectIdIndexRouteImport } from './routes/_app/projects/$projectId/index'
 import { Route as AppProjectsProjectIdTasksIndexRouteImport } from './routes/_app/projects/$projectId/tasks/index'
+import { Route as AppProjectsProjectIdSpacesIndexRouteImport } from './routes/_app/projects/$projectId/spaces/index'
 import { Route as AppProjectsProjectIdSkillsIndexRouteImport } from './routes/_app/projects/$projectId/skills/index'
 import { Route as AppProjectsProjectIdSettingsIndexRouteImport } from './routes/_app/projects/$projectId/settings/index'
 import { Route as AppProjectsProjectIdPlansIndexRouteImport } from './routes/_app/projects/$projectId/plans/index'
@@ -91,6 +92,12 @@ const AppProjectsProjectIdTasksIndexRoute =
     path: '/tasks/',
     getParentRoute: () => AppProjectsProjectIdRoute,
   } as any)
+const AppProjectsProjectIdSpacesIndexRoute =
+  AppProjectsProjectIdSpacesIndexRouteImport.update({
+    id: '/spaces/',
+    path: '/spaces/',
+    getParentRoute: () => AppProjectsProjectIdRoute,
+  } as any)
 const AppProjectsProjectIdSkillsIndexRoute =
   AppProjectsProjectIdSkillsIndexRouteImport.update({
     id: '/skills/',
@@ -157,6 +164,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectId/plans/': typeof AppProjectsProjectIdPlansIndexRoute
   '/projects/$projectId/settings/': typeof AppProjectsProjectIdSettingsIndexRoute
   '/projects/$projectId/skills/': typeof AppProjectsProjectIdSkillsIndexRoute
+  '/projects/$projectId/spaces/': typeof AppProjectsProjectIdSpacesIndexRoute
   '/projects/$projectId/tasks/': typeof AppProjectsProjectIdTasksIndexRoute
   '/projects/$projectId/spaces/$spaceId/$chatId': typeof AppProjectsProjectIdSpacesSpaceIdChatIdRoute
   '/projects/$projectId/spaces/$spaceId/': typeof AppProjectsProjectIdSpacesSpaceIdIndexRoute
@@ -177,6 +185,7 @@ export interface FileRoutesByTo {
   '/projects/$projectId/plans': typeof AppProjectsProjectIdPlansIndexRoute
   '/projects/$projectId/settings': typeof AppProjectsProjectIdSettingsIndexRoute
   '/projects/$projectId/skills': typeof AppProjectsProjectIdSkillsIndexRoute
+  '/projects/$projectId/spaces': typeof AppProjectsProjectIdSpacesIndexRoute
   '/projects/$projectId/tasks': typeof AppProjectsProjectIdTasksIndexRoute
   '/projects/$projectId/spaces/$spaceId/$chatId': typeof AppProjectsProjectIdSpacesSpaceIdChatIdRoute
   '/projects/$projectId/spaces/$spaceId': typeof AppProjectsProjectIdSpacesSpaceIdIndexRoute
@@ -200,6 +209,7 @@ export interface FileRoutesById {
   '/_app/projects/$projectId/plans/': typeof AppProjectsProjectIdPlansIndexRoute
   '/_app/projects/$projectId/settings/': typeof AppProjectsProjectIdSettingsIndexRoute
   '/_app/projects/$projectId/skills/': typeof AppProjectsProjectIdSkillsIndexRoute
+  '/_app/projects/$projectId/spaces/': typeof AppProjectsProjectIdSpacesIndexRoute
   '/_app/projects/$projectId/tasks/': typeof AppProjectsProjectIdTasksIndexRoute
   '/_app/projects/$projectId/spaces/$spaceId/$chatId': typeof AppProjectsProjectIdSpacesSpaceIdChatIdRoute
   '/_app/projects/$projectId/spaces/$spaceId/': typeof AppProjectsProjectIdSpacesSpaceIdIndexRoute
@@ -223,6 +233,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId/plans/'
     | '/projects/$projectId/settings/'
     | '/projects/$projectId/skills/'
+    | '/projects/$projectId/spaces/'
     | '/projects/$projectId/tasks/'
     | '/projects/$projectId/spaces/$spaceId/$chatId'
     | '/projects/$projectId/spaces/$spaceId/'
@@ -243,6 +254,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId/plans'
     | '/projects/$projectId/settings'
     | '/projects/$projectId/skills'
+    | '/projects/$projectId/spaces'
     | '/projects/$projectId/tasks'
     | '/projects/$projectId/spaces/$spaceId/$chatId'
     | '/projects/$projectId/spaces/$spaceId'
@@ -265,6 +277,7 @@ export interface FileRouteTypes {
     | '/_app/projects/$projectId/plans/'
     | '/_app/projects/$projectId/settings/'
     | '/_app/projects/$projectId/skills/'
+    | '/_app/projects/$projectId/spaces/'
     | '/_app/projects/$projectId/tasks/'
     | '/_app/projects/$projectId/spaces/$spaceId/$chatId'
     | '/_app/projects/$projectId/spaces/$spaceId/'
@@ -362,6 +375,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProjectsProjectIdTasksIndexRouteImport
       parentRoute: typeof AppProjectsProjectIdRoute
     }
+    '/_app/projects/$projectId/spaces/': {
+      id: '/_app/projects/$projectId/spaces/'
+      path: '/spaces'
+      fullPath: '/projects/$projectId/spaces/'
+      preLoaderRoute: typeof AppProjectsProjectIdSpacesIndexRouteImport
+      parentRoute: typeof AppProjectsProjectIdRoute
+    }
     '/_app/projects/$projectId/skills/': {
       id: '/_app/projects/$projectId/skills/'
       path: '/skills'
@@ -447,6 +467,7 @@ interface AppProjectsProjectIdRouteChildren {
   AppProjectsProjectIdPlansIndexRoute: typeof AppProjectsProjectIdPlansIndexRoute
   AppProjectsProjectIdSettingsIndexRoute: typeof AppProjectsProjectIdSettingsIndexRoute
   AppProjectsProjectIdSkillsIndexRoute: typeof AppProjectsProjectIdSkillsIndexRoute
+  AppProjectsProjectIdSpacesIndexRoute: typeof AppProjectsProjectIdSpacesIndexRoute
   AppProjectsProjectIdTasksIndexRoute: typeof AppProjectsProjectIdTasksIndexRoute
   AppProjectsProjectIdSpacesSpaceIdChatIdRoute: typeof AppProjectsProjectIdSpacesSpaceIdChatIdRoute
   AppProjectsProjectIdSpacesSpaceIdIndexRoute: typeof AppProjectsProjectIdSpacesSpaceIdIndexRoute
@@ -462,6 +483,7 @@ const AppProjectsProjectIdRouteChildren: AppProjectsProjectIdRouteChildren = {
   AppProjectsProjectIdSettingsIndexRoute:
     AppProjectsProjectIdSettingsIndexRoute,
   AppProjectsProjectIdSkillsIndexRoute: AppProjectsProjectIdSkillsIndexRoute,
+  AppProjectsProjectIdSpacesIndexRoute: AppProjectsProjectIdSpacesIndexRoute,
   AppProjectsProjectIdTasksIndexRoute: AppProjectsProjectIdTasksIndexRoute,
   AppProjectsProjectIdSpacesSpaceIdChatIdRoute:
     AppProjectsProjectIdSpacesSpaceIdChatIdRoute,

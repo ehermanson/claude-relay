@@ -5,10 +5,8 @@
 
 import { memo, useMemo, useState } from "react";
 import { FileDiff } from "lucide-react";
-import { Collapsible } from "../ui/collapsible";
 import { FileIcon } from "../ui/file-icon";
 import { Tooltip } from "../ui/tooltip";
-import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FileChange } from "@shared/types";
 
 // =============================================================================
@@ -55,62 +53,219 @@ function DiffStats({ additions, deletions }: { additions?: number; deletions?: n
   );
 }
 
-interface DirGroup {
-  dir: string;
-  files: { basename: string; file: FileChange }[];
-  totalEdits: number;
+// =============================================================================
+// Tree data structure
+// =============================================================================
+
+interface FileEntry {
+  basename: string;
+  file: FileChange;
+  relPath: string;
+}
+
+interface TreeNode {
+  /** Display label — may be a compressed multi-segment path like "components/layout" */
+  label: string;
+  /** Full relative path for this directory */
+  fullPath: string;
+  children: TreeNode[];
+  files: FileEntry[];
+  /** Aggregate stats */
   additions: number;
   deletions: number;
+  totalEdits: number;
   hasDiffStats: boolean;
 }
 
-function groupFilesByDir(files: FileChange[], cwd: string): DirGroup[] {
+function buildTree(files: FileChange[], cwd: string): TreeNode {
   const compare = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
-  const map = new Map<string, { basename: string; file: FileChange }[]>();
+  const root: TreeNode = {
+    label: "",
+    fullPath: "",
+    children: [],
+    files: [],
+    additions: 0,
+    deletions: 0,
+    totalEdits: 0,
+    hasDiffStats: false,
+  };
+
   for (const file of files) {
     const rel = relativePath(file.path, cwd);
     const parts = rel.split("/");
     const basename = parts.pop() || rel;
-    const dir = parts.join("/") || ".";
-    let group = map.get(dir);
-    if (!group) {
-      group = [];
-      map.set(dir, group);
+    let node = root;
+
+    // Walk directory segments, creating nodes as needed
+    for (let i = 0; i < parts.length; i++) {
+      const segment = parts[i];
+      let child = node.children.find((c) => c.label === segment);
+      if (!child) {
+        child = {
+          label: segment,
+          fullPath: parts.slice(0, i + 1).join("/"),
+          children: [],
+          files: [],
+          additions: 0,
+          deletions: 0,
+          totalEdits: 0,
+          hasDiffStats: false,
+        };
+        node.children.push(child);
+      }
+      node = child;
     }
-    group.push({ basename, file });
+
+    node.files.push({ basename, file, relPath: rel });
   }
 
-  return Array.from(map.entries())
-    .map(([dir, dirFiles]) => {
-      const sortedFiles = [...dirFiles].sort(
-        (a, b) =>
-          compare(a.basename, b.basename) ||
-          compare(relativePath(a.file.path, cwd), relativePath(b.file.path, cwd)),
-      );
-      let additions = 0;
-      let deletions = 0;
-      let hasDiffStats = false;
-      for (const { file } of sortedFiles) {
-        if (file.additions != null || file.deletions != null) {
-          hasDiffStats = true;
-          additions += file.additions ?? 0;
-          deletions += file.deletions ?? 0;
-        }
-      }
-      return {
-        dir,
-        files: sortedFiles,
-        totalEdits: sortedFiles.reduce((sum, f) => sum + f.file.editCount, 0),
-        additions,
-        deletions,
-        hasDiffStats,
-      };
-    })
-    .sort((a, b) => {
-      if (a.dir === "." && b.dir !== ".") return 1;
-      if (b.dir === "." && a.dir !== ".") return -1;
-      return compare(a.dir, b.dir);
-    });
+  // Sort children and files at every level
+  function sortTree(node: TreeNode) {
+    node.children.sort((a, b) => compare(a.label, b.label));
+    node.files.sort((a, b) => compare(a.basename, b.basename));
+    for (const child of node.children) sortTree(child);
+  }
+  sortTree(root);
+
+  // Compress single-child chains (no files at the intermediate node)
+  compressTree(root);
+
+  // Roll up stats
+  rollUpStats(root);
+
+  return root;
+}
+
+/** Merge single-child directories: if a folder has no files and one child folder, merge them */
+function compressTree(node: TreeNode): void {
+  for (const child of node.children) compressTree(child);
+  while (node.children.length === 1 && node.files.length === 0 && node.label !== "") {
+    const only = node.children[0];
+    node.label = node.label + "/" + only.label;
+    node.fullPath = only.fullPath;
+    node.children = only.children;
+    node.files = only.files;
+  }
+}
+
+/** Aggregate addition/deletion counts up the tree */
+function rollUpStats(node: TreeNode): void {
+  let additions = 0;
+  let deletions = 0;
+  let totalEdits = 0;
+  let hasDiffStats = false;
+
+  for (const { file } of node.files) {
+    if (file.additions != null || file.deletions != null) {
+      hasDiffStats = true;
+      additions += file.additions ?? 0;
+      deletions += file.deletions ?? 0;
+    }
+    totalEdits += file.editCount;
+  }
+
+  for (const child of node.children) {
+    rollUpStats(child);
+    additions += child.additions;
+    deletions += child.deletions;
+    totalEdits += child.totalEdits;
+    if (child.hasDiffStats) hasDiffStats = true;
+  }
+
+  node.additions = additions;
+  node.deletions = deletions;
+  node.totalEdits = totalEdits;
+  node.hasDiffStats = hasDiffStats;
+}
+
+// =============================================================================
+// Tree renderer
+// =============================================================================
+
+function TreeNodeView({
+  node,
+  depth,
+  collapsed,
+  toggleDir,
+  onFileClick,
+}: {
+  node: TreeNode;
+  depth: number;
+  collapsed: Set<string>;
+  toggleDir: (path: string) => void;
+  onFileClick?: (relPath: string) => void;
+}) {
+  const isRoot = node.label === "";
+  const isOpen = !collapsed.has(node.fullPath);
+  const indent = isRoot ? 0 : depth;
+
+  return (
+    <>
+      {/* Directory header (skip for root) */}
+      {!isRoot && (
+        <button
+          type="button"
+          onClick={() => toggleDir(node.fullPath)}
+          className="flex w-full items-center gap-1.5 rounded-lg py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover"
+          style={{ paddingLeft: `${indent * 20 + 10}px`, paddingRight: "10px" }}
+        >
+          <ChevronIcon open={isOpen} />
+          <FileIcon path={node.fullPath} kind="directory" size={15} />
+          <span className="min-w-0 flex-1 truncate text-left font-medium text-text-bright">
+            {node.label}
+          </span>
+          {node.hasDiffStats ? (
+            <DiffStats additions={node.additions} deletions={node.deletions} />
+          ) : (
+            <span className="sidecar-file-stats shrink-0 text-[0.6875rem] font-medium text-muted/60">
+              {node.totalEdits > node.files.length
+                ? `${node.files.length} · ×${node.totalEdits}`
+                : `${node.files.length}`}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Children (files + subdirectories) — collapsible for non-root */}
+      {(isRoot || isOpen) && (
+        <>
+          {node.files.map(({ basename, file, relPath }) => (
+            <Tooltip key={file.path} content={relPath} side="left">
+              <div
+                className={`flex items-center gap-1.5 rounded-lg py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover${onFileClick ? " cursor-pointer" : ""}`}
+                style={{
+                  paddingLeft: `${(indent + (isRoot ? 0 : 1)) * 20 + 10}px`,
+                  paddingRight: "10px",
+                }}
+                onClick={onFileClick ? () => onFileClick(relPath) : undefined}
+              >
+                <FileIcon path={file.path} size={15} />
+                <span className="min-w-0 flex-1 truncate text-text">{basename}</span>
+                {file.additions != null || file.deletions != null ? (
+                  <DiffStats additions={file.additions} deletions={file.deletions} />
+                ) : file.editCount > 1 ? (
+                  <span className="sidecar-file-stats shrink-0 text-[0.6875rem] font-medium text-muted/60">
+                    ×{file.editCount}
+                  </span>
+                ) : null}
+              </div>
+            </Tooltip>
+          ))}
+
+          {node.children.map((child) => (
+            <TreeNodeView
+              key={child.fullPath}
+              node={child}
+              depth={indent + (isRoot ? 0 : 1)}
+              collapsed={collapsed}
+              toggleDir={toggleDir}
+              onFileClick={onFileClick}
+            />
+          ))}
+        </>
+      )}
+    </>
+  );
 }
 
 // =============================================================================
@@ -128,7 +283,7 @@ export const FilesPanel = memo(function FilesPanel({
   onViewChanges?: () => void;
   onFileClick?: (filePath: string) => void;
 }) {
-  const groups = useMemo(() => groupFilesByDir(files, cwd), [files, cwd]);
+  const tree = useMemo(() => buildTree(files, cwd), [files, cwd]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleDir = (dir: string) => {
     setCollapsed((prev) => {
@@ -139,9 +294,7 @@ export const FilesPanel = memo(function FilesPanel({
     });
   };
 
-  const totalAdditions = groups.reduce((s, g) => s + g.additions, 0);
-  const totalDeletions = groups.reduce((s, g) => s + g.deletions, 0);
-  const hasDiffStats = groups.some((g) => g.hasDiffStats);
+  const hasDiffStats = tree.hasDiffStats;
 
   return (
     <>
@@ -153,9 +306,9 @@ export const FilesPanel = memo(function FilesPanel({
           </span>
           {hasDiffStats && (
             <span className="sidecar-header-stats text-[0.6875rem] font-medium tabular-nums">
-              <span className="text-green-400">+{totalAdditions}</span>
+              <span className="text-green-400">+{tree.additions}</span>
               <span className="text-muted/40"> / </span>
-              <span className="text-red-400">-{totalDeletions}</span>
+              <span className="text-red-400">-{tree.deletions}</span>
             </span>
           )}
           {onViewChanges && (
@@ -175,66 +328,13 @@ export const FilesPanel = memo(function FilesPanel({
 
       {/* File tree */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        <div className="flex flex-col">
-          {groups.map((group) => {
-            const isOpen = !collapsed.has(group.dir);
-            const showDir = group.dir !== ".";
-
-            return (
-              <Collapsible.Root
-                key={group.dir}
-                open={isOpen}
-                onOpenChange={() => toggleDir(group.dir)}
-              >
-                {showDir && (
-                  <Collapsible.Trigger className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover">
-                    <ChevronIcon open={isOpen} />
-                    <FileIcon path={group.dir} kind="directory" size={15} />
-                    <MiddleTruncate
-                      text={group.dir}
-                      className="min-w-0 flex-1 text-left font-medium text-text-bright"
-                    />
-                    {group.hasDiffStats ? (
-                      <DiffStats additions={group.additions} deletions={group.deletions} />
-                    ) : (
-                      <span className="sidecar-file-stats shrink-0 text-[0.6875rem] font-medium text-muted/60">
-                        {group.totalEdits > group.files.length
-                          ? `${group.files.length} · ×${group.totalEdits}`
-                          : `${group.files.length}`}
-                      </span>
-                    )}
-                  </Collapsible.Trigger>
-                )}
-                <Collapsible.Content>
-                  <div className={showDir ? "ml-5" : ""}>
-                    {group.files.map(({ basename, file }) => (
-                      <Tooltip key={file.path} content={relativePath(file.path, cwd)} side="left">
-                        <div
-                          className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.8125rem] leading-snug transition-colors hover:bg-surface-hover${onFileClick ? " cursor-pointer" : ""}`}
-                          onClick={
-                            onFileClick
-                              ? () => onFileClick(relativePath(file.path, cwd))
-                              : undefined
-                          }
-                        >
-                          <FileIcon path={file.path} size={15} />
-                          <span className="min-w-0 flex-1 truncate text-text">{basename}</span>
-                          {file.additions != null || file.deletions != null ? (
-                            <DiffStats additions={file.additions} deletions={file.deletions} />
-                          ) : file.editCount > 1 ? (
-                            <span className="sidecar-file-stats shrink-0 text-[0.6875rem] font-medium text-muted/60">
-                              ×{file.editCount}
-                            </span>
-                          ) : null}
-                        </div>
-                      </Tooltip>
-                    ))}
-                  </div>
-                </Collapsible.Content>
-              </Collapsible.Root>
-            );
-          })}
-        </div>
+        <TreeNodeView
+          node={tree}
+          depth={0}
+          collapsed={collapsed}
+          toggleDir={toggleDir}
+          onFileClick={onFileClick}
+        />
       </div>
     </>
   );

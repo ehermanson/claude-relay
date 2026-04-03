@@ -7,6 +7,7 @@ import { useTheme } from "@/stores/theme-store";
 import { fetchInstanceDiff } from "../../lib/api";
 import { Button } from "../ui/button";
 import { FileIcon } from "../ui/file-icon";
+import { MiddleTruncate } from "../ui/middle-truncate";
 import { Spinner } from "../ui/spinner";
 
 const GENERATED_PATTERNS = [
@@ -275,7 +276,7 @@ export function DiffDrawer({
                   className="flex w-full items-center gap-1.5 px-3 py-1 text-left text-[0.6875rem] transition-colors hover:bg-surface-hover"
                 >
                   <FileIcon path={file.path} size={13} />
-                  <span className="min-w-0 flex-1 truncate text-text">{basename(file.path)}</span>
+                  <MiddleTruncate text={file.path} className="min-w-0 flex-1 text-text" />
                   <span className="shrink-0 tabular-nums text-[0.625rem]">
                     <span className="text-green-400">+{file.additions}</span>
                     <span className="text-muted/30"> </span>
@@ -297,9 +298,7 @@ export function DiffDrawer({
                       className="flex w-full items-center gap-1.5 px-3 py-1 text-left text-[0.6875rem] transition-colors hover:bg-surface-hover"
                     >
                       <FileIcon path={file.path} size={13} />
-                      <span className="min-w-0 flex-1 truncate text-muted">
-                        {basename(file.path)}
-                      </span>
+                      <MiddleTruncate text={file.path} className="min-w-0 flex-1 text-muted" />
                     </button>
                   ))}
                 </>

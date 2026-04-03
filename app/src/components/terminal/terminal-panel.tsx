@@ -72,6 +72,17 @@ export function TerminalPanel({
   const [listReceived, setListReceived] = useState(false);
   const mountedRef = useRef(true);
 
+  // Delay showing the empty-state message so fast connections don't flash text
+  const [showEmptyHint, setShowEmptyHint] = useState(false);
+  useEffect(() => {
+    if (terminals.length > 0) {
+      setShowEmptyHint(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowEmptyHint(true), 400);
+    return () => clearTimeout(timer);
+  }, [terminals.length]);
+
   // Confirmation dialog for closing a terminal
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
 
@@ -170,9 +181,13 @@ export function TerminalPanel({
         {/* Terminal content */}
         <div className="min-h-0 flex-1 overflow-hidden">
           {terminals.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted">
-              No terminal
-            </div>
+            showEmptyHint ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted">
+                {listReceived ? "Opening terminal\u2026" : "Connecting\u2026"}
+              </div>
+            ) : (
+              <div className="h-full" />
+            )
           ) : isSplit ? (
             <Group orientation="horizontal" className="h-full">
               {terminals.map((t, i) => (

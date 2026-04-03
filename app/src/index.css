@@ -567,8 +567,8 @@ html.light ::selection {
 
 /* ── Diff Drawer (@pierre/diffs overrides) ─────────────────────────── */
 .diff-drawer diffs-container {
-  font-size: 12px;
-  line-height: 1.5;
+  --diffs-font-size: 11px;
+  --diffs-line-height: 18px;
 }
 
 /* ── Glass Surface ─────────────────────────────────────────────────── */

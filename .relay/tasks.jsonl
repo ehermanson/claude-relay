@@ -160,3 +160,4 @@
 {"id":"a1f62c9d","title":"Assess migration from better-sqlite3 to node:sqlite or bun:sqlite","description":"Inspect DB layer usage and runtime assumptions across server, tests, scripts, and tooling to estimate migration difficulty and identify Bun adoption risks beyond SQLite itself.","status":"done","priority":1,"type":"task","tags":["architecture","runtime","db"],"parent":null,"blockedBy":[],"createdAt":"2026-04-02T10:45:00-04:00","updatedAt":"2026-04-02T00:00:00-04:00"}
 {"id":"3c0a2be1","title":"Map SessionDB better-sqlite3 usage to node:sqlite","status":"done","type":"task","priority":2,"createdAt":"2026-04-02T00:05:00-04:00","updatedAt":"2026-04-02T00:10:00-04:00"}
 {"id":"b6d5c4a1","title":"Migrate SessionDB from better-sqlite3 to node:sqlite","status":"done","type":"task","priority":1,"createdAt":"2026-04-02T00:20:00-04:00","updatedAt":"2026-04-02T00:40:00-04:00"}
+{"id":"705d1e14","status":"done","updatedAt":"2026-04-02T00:00:00.000Z"}
