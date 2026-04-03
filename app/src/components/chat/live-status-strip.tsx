@@ -15,6 +15,7 @@ interface LiveStatusStripProps {
   processingStartedAt: number | null;
   isProcessing: boolean;
   instanceStatus?: string;
+  isCompacting?: boolean;
 }
 
 export function LiveStatusStrip({
@@ -22,6 +23,7 @@ export function LiveStatusStrip({
   processingStartedAt,
   isProcessing,
   instanceStatus,
+  isCompacting,
 }: LiveStatusStripProps) {
   const showStrip = isProcessing || instanceStatus === "processing";
   const [now, setNow] = useState(Date.now);
@@ -52,7 +54,13 @@ export function LiveStatusStrip({
 
   // Description text
   let description: string;
-  if (isVeryStale) {
+  if (isCompacting && isVeryStale) {
+    description = "No compaction activity for " + formatElapsed(silenceMs);
+  } else if (isCompacting && isStale) {
+    description = "Still compacting context...";
+  } else if (isCompacting) {
+    description = "Compacting context...";
+  } else if (isVeryStale) {
     description = "No activity for " + formatElapsed(silenceMs);
   } else if (isStale) {
     description = "Still working...";

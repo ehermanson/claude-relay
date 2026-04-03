@@ -120,14 +120,31 @@ describe("History Conversion", () => {
     }
   });
 
-  it("discards history before compact boundary", () => {
+  it("converts JSONL init entries into session_init system events", () => {
+    const parsed = manager["parseJsonl"](join(fixturesDir, "basic-session.jsonl"));
+    const initEvent = parsed.history.find(
+      (entry) => entry.message.type === "system_event" && entry.message.event === "session_init",
+    );
+
+    assert.ok(initEvent);
+    assert.equal(initEvent?.message.payload?.cwd, "/Users/test/projects/my-app");
+    assert.equal(initEvent?.message.raw?.subtype, "init");
+  });
+
+  it("preserves history across compact boundaries and records the boundary", () => {
     const parsed = manager["parseJsonl"](join(fixturesDir, "compact-session.jsonl"));
     const texts = parsed.history
       .filter((entry) => entry.message.type === "user")
       .map((entry) => entry.message.text);
+    const boundary = parsed.history.find(
+      (entry) =>
+        entry.message.type === "system_event" && entry.message.event === "compact_boundary",
+    );
 
-    assert.ok(!texts.includes("First message before compact"));
+    assert.ok(texts.includes("First message before compact"));
     assert.ok(texts.includes("Second message after compact"));
+    assert.equal(boundary?.message.type, "system_event");
+    assert.equal(boundary?.message.event, "compact_boundary");
   });
 
   it("converts thinking, tool_use, and tool_result blocks to activity messages", () => {

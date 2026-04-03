@@ -3,6 +3,7 @@
  * Extracted from activity-entry.tsx for cleaner separation.
  */
 
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { ActivityCodeBlock, DiffView, langFromPath } from "@/components/chat/activity-code";
 import type { UserInputAnswer } from "@shared/types";
@@ -258,116 +259,167 @@ export function PermissionDeniedContent({
 interface ToolContentProps {
   tool: string;
   input: Record<string, unknown>;
+  resultDetail?: string;
   onSendMessage?: (text: string) => void;
   onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
   isInteractive?: boolean;
   resolution?: "approved" | "dismissed" | "feedback";
 }
 
+/** Simple labeled section (non-collapsible) — matches Kanna's MetaCodeBlock label pattern. */
+function LabeledSection({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <span className="text-[10px] font-medium text-muted/60">{label}</span>
+      <div className="mt-0.5">{children}</div>
+    </div>
+  );
+}
+
 export function ToolContent({
   tool,
   input,
+  resultDetail,
   onSendMessage,
   onAnswerUserInput,
   isInteractive,
   resolution,
 }: ToolContentProps) {
-  switch (tool) {
-    case "Edit": {
-      const oldStr = input.old_string as string | undefined;
-      const newStr = input.new_string as string | undefined;
-      const filePath = (input.file_path as string) || undefined;
-      if (oldStr != null && newStr != null) {
+  // Tools with custom renderers for their input
+  const inputContent = (() => {
+    switch (tool) {
+      case "Edit": {
+        const oldStr = input.old_string as string | undefined;
+        const newStr = input.new_string as string | undefined;
+        const filePath = (input.file_path as string) || undefined;
+        if (oldStr != null && newStr != null) {
+          return (
+            <DiffView
+              oldStr={oldStr}
+              newStr={newStr}
+              filePath={filePath}
+              lang={langFromPath(filePath)}
+            />
+          );
+        }
+        return null;
+      }
+      case "Write": {
+        const content = input.content as string | undefined;
+        const filePath = (input.file_path as string) || undefined;
+        if (content) {
+          return (
+            <ActivityCodeBlock content={content} label={filePath} lang={langFromPath(filePath)} />
+          );
+        }
+        return null;
+      }
+      case "Bash": {
+        const command = input.command as string | undefined;
+        if (command) {
+          return <ActivityCodeBlock content={command} lang="bash" />;
+        }
+        return null;
+      }
+      case "Read": {
+        const filePath = (input.file_path as string) || undefined;
+        if (filePath) {
+          const parts = [];
+          if (input.offset) parts.push(`offset: ${input.offset}`);
+          if (input.limit) parts.push(`limit: ${input.limit}`);
+          const extra = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+          return <ActivityCodeBlock content={filePath + extra} />;
+        }
+        return null;
+      }
+      case "Grep": {
+        const pattern = input.pattern as string | undefined;
+        if (pattern) {
+          const parts = [`pattern: ${pattern}`];
+          if (input.path) parts.push(`path: ${input.path}`);
+          if (input.glob) parts.push(`glob: ${input.glob}`);
+          return <ActivityCodeBlock content={parts.join("\n")} />;
+        }
+        return null;
+      }
+      case "Glob": {
+        const pattern = input.pattern as string | undefined;
+        if (pattern) {
+          const parts = [`pattern: ${pattern}`];
+          if (input.path) parts.push(`path: ${input.path}`);
+          return <ActivityCodeBlock content={parts.join("\n")} />;
+        }
+        return null;
+      }
+      case "ExitPlanMode":
         return (
-          <DiffView
-            oldStr={oldStr}
-            newStr={newStr}
-            filePath={filePath}
-            lang={langFromPath(filePath)}
+          <div className="mt-1.5">
+            {resolution === "approved" && (
+              <span className="inline-block w-fit rounded-md bg-accent/15 px-2 py-0.5 text-[0.75rem] font-medium text-accent">
+                Approved
+              </span>
+            )}
+            {(resolution === "feedback" || resolution === "dismissed") && (
+              <span className="inline-block w-fit rounded-md bg-warning/15 px-2 py-0.5 text-[0.75rem] font-medium text-warning">
+                {resolution === "dismissed" ? "Dismissed" : "Changes requested"}
+              </span>
+            )}
+          </div>
+        );
+      case "AskUserQuestion":
+        return (
+          <AskUserQuestionContent
+            input={input}
+            onSendMessage={onSendMessage}
+            onAnswerUserInput={onAnswerUserInput}
+            isInteractive={isInteractive}
           />
         );
+      default: {
+        // Generic: show input parameters as JSON
+        const keys = Object.keys(input);
+        if (keys.length === 0) return null;
+        const formatted = JSON.stringify(input, null, 2);
+        return <ActivityCodeBlock content={formatted} lang="json" />;
       }
-      return null;
     }
-    case "Write": {
-      const content = input.content as string | undefined;
-      const filePath = (input.file_path as string) || undefined;
-      if (content) {
-        return (
-          <ActivityCodeBlock content={content} label={filePath} lang={langFromPath(filePath)} />
-        );
-      }
-      return null;
-    }
-    case "Bash": {
-      const command = input.command as string | undefined;
-      if (command) {
-        return (
-          <ActivityCodeBlock
-            content={command}
-            label={input.description as string | undefined}
-            lang="bash"
-          />
-        );
-      }
-      return null;
-    }
-    case "Read": {
-      const filePath = (input.file_path as string) || undefined;
-      if (filePath) {
-        const parts = [];
-        if (input.offset) parts.push(`offset: ${input.offset}`);
-        if (input.limit) parts.push(`limit: ${input.limit}`);
-        const extra = parts.length > 0 ? ` (${parts.join(", ")})` : "";
-        return <ActivityCodeBlock content={filePath + extra} />;
-      }
-      return null;
-    }
-    case "Grep": {
-      const pattern = input.pattern as string | undefined;
-      if (pattern) {
-        const parts = [`pattern: ${pattern}`];
-        if (input.path) parts.push(`path: ${input.path}`);
-        if (input.glob) parts.push(`glob: ${input.glob}`);
-        return <ActivityCodeBlock content={parts.join("\n")} />;
-      }
-      return null;
-    }
-    case "Glob": {
-      const pattern = input.pattern as string | undefined;
-      if (pattern) {
-        const parts = [`pattern: ${pattern}`];
-        if (input.path) parts.push(`path: ${input.path}`);
-        return <ActivityCodeBlock content={parts.join("\n")} />;
-      }
-      return null;
-    }
-    case "ExitPlanMode": {
-      return (
-        <div className="mt-1.5">
-          {resolution === "approved" && (
-            <span className="inline-block w-fit rounded-md bg-accent/15 px-2 py-0.5 text-[0.75rem] font-medium text-accent">
-              Approved
-            </span>
-          )}
-          {(resolution === "feedback" || resolution === "dismissed") && (
-            <span className="inline-block w-fit rounded-md bg-warning/15 px-2 py-0.5 text-[0.75rem] font-medium text-warning">
-              {resolution === "dismissed" ? "Dismissed" : "Changes requested"}
-            </span>
-          )}
-        </div>
-      );
-    }
-    case "AskUserQuestion":
-      return (
-        <AskUserQuestionContent
-          input={input}
-          onSendMessage={onSendMessage}
-          onAnswerUserInput={onAnswerUserInput}
-          isInteractive={isInteractive}
-        />
-      );
-    default:
-      return null;
+  })();
+
+  // Tools that handle their own full layout (interactive tools)
+  const isInteractiveTool = tool === "AskUserQuestion" || tool === "ExitPlanMode";
+  if (isInteractiveTool) return inputContent;
+
+  const hasResult = !!resultDetail;
+
+  // Edit: just the diff. The result ("file updated successfully") is noise.
+  if (tool === "Edit") return inputContent;
+
+  // Write: just the file content view.
+  if (tool === "Write") return inputContent;
+
+  // Bash: labeled Command + Result sections (like Kanna).
+  if (tool === "Bash") {
+    return (
+      <div className="flex flex-col gap-2">
+        {inputContent && <LabeledSection label="Command">{inputContent}</LabeledSection>}
+        {hasResult ? (
+          <LabeledSection label="Result">
+            <ActivityCodeBlock content={resultDetail!} />
+          </LabeledSection>
+        ) : (
+          <LabeledSection label="Result">
+            <div className="text-[10px] text-muted/50 italic">No output</div>
+          </LabeledSection>
+        )}
+      </div>
+    );
   }
+
+  // Other tools with results: show result directly (input is captured by the header name).
+  if (hasResult) {
+    return <ActivityCodeBlock content={resultDetail!} />;
+  }
+
+  // No result yet — show the input content directly
+  return inputContent;
 }

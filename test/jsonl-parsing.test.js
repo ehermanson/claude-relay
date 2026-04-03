@@ -91,7 +91,7 @@ describe("JSONL Parsing", () => {
   });
 
   describe("compact boundary handling", () => {
-    it("discards history before the last compact boundary", () => {
+    it("keeps compact boundary entries in the fixture transcript", () => {
       // Test the compact boundary fixture
       const jsonlPath = join(fixturesDir, "compact-session.jsonl");
       const content = readFileSync(jsonlPath, "utf-8");

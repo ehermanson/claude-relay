@@ -7,9 +7,14 @@
  *  - Response dividers with elapsed time
  */
 
-import type { ActivityMessage } from "@shared/types";
 import { INTERACTIVE_TOOLS } from "@shared/tools";
-import type { ChatItem, RenderRow, ToolGroupData, UserChatItem } from "@/lib/chat-types";
+import type {
+  ChatItem,
+  MergedActivity,
+  RenderRow,
+  ToolGroupData,
+  UserChatItem,
+} from "@/lib/chat-types";
 import { estimateUserHeight } from "@/lib/pretext";
 
 // Re-export for consumers
@@ -17,7 +22,7 @@ export type { RenderRow, ToolGroupData };
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const isManagedComposerPrompt = (activity: ActivityMessage | undefined) =>
+const isManagedComposerPrompt = (activity: MergedActivity | undefined) =>
   activity?.tool === "AskUserQuestion" &&
   typeof activity.input === "object" &&
   activity.input !== null &&
@@ -103,7 +108,7 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
       // Collect consecutive activity-groups into one tool container
       const runStart = i;
       const groups: ToolGroupData[] = [];
-      const allActivities: ActivityMessage[] = [];
+      const allActivities: MergedActivity[] = [];
       while (i < items.length && items[i].kind === "activity-group") {
         const g = items[i] as ChatItem & { kind: "activity-group" };
         const visibleActivities = g.activities.filter(
@@ -167,6 +172,13 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
             isError: item.isError,
           });
           break;
+        case "compact-boundary":
+          rows.push({
+            id: `compact-boundary-${i}`,
+            kind: "compact-boundary",
+            timestamp: item.timestamp,
+          });
+          break;
         case "thinking-block":
           rows.push({
             id: `thinking-${i}`,
@@ -203,6 +215,8 @@ export function estimateRowHeight(row: RenderRow, containerWidth?: number): numb
       return Math.max(80, Math.min(500, 60 + Math.ceil(row.text.length / 60) * 20));
     case "system":
       return 44;
+    case "compact-boundary":
+      return 48;
     case "thinking-block":
       return Math.min(420, 60 + Math.ceil(row.text.length / 80) * 16);
     case "agent-transcript":

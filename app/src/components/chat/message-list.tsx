@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { AgentTranscript } from "@/components/chat/agent-transcript";
+import { ChatTOC } from "@/components/chat/chat-toc";
 import { ClaudeMessage } from "@/components/chat/claude-message";
+import { CompactBoundary } from "@/components/chat/compact-boundary";
 import { LiveStatusStrip } from "@/components/chat/live-status-strip";
 import { ResponseDivider } from "@/components/chat/response-divider";
 import { SystemMessage } from "@/components/chat/system-message";
@@ -15,10 +17,6 @@ import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import type { ChatItem, LiveActivity, RenderRow } from "@/lib/chat-types";
 import type { UserInputAnswer } from "@shared/types";
 import { computeBubbleShrinkwrap, onFontReady } from "@/lib/pretext";
-
-// ── Threshold for "near bottom" detection ────────────────────────────
-
-const NEAR_BOTTOM_PX = 60;
 
 // Always keep the last N rows non-virtualized so the bottom of the chat
 // is real DOM with accurate measurements — reduces virtualizer churn
@@ -115,11 +113,13 @@ export function MessageList({
   });
 
   useEffect(() => {
-    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta, instance) => {
-      const viewportHeight = instance.scrollRect?.height ?? 0;
+    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+      // Only adjust scroll when the resized item is fully above the viewport.
+      // This keeps the viewport stable when visible items change size
+      // (e.g. user expanding/collapsing a tool call) — the content just
+      // grows/shrinks in place without shifting the scroll position.
       const scrollOffset = instance.scrollOffset ?? 0;
-      const remainingDistance = instance.getTotalSize() - (scrollOffset + viewportHeight);
-      return remainingDistance > NEAR_BOTTOM_PX;
+      return item.start + item.size < scrollOffset;
     };
     return () => {
       rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
@@ -143,6 +143,29 @@ export function MessageList({
   const showThinking =
     !pendingInteraction &&
     (!!showThinkingIndicator || !!isProcessing || instanceStatus === "processing");
+  const lastUserMessage = [...items].reverse().find((item) => item.kind === "user" && !item.queued);
+  const isCompactingTurn =
+    showThinking && !!lastUserMessage && /^\s*\/compact\b/i.test(lastUserMessage.text.trim());
+
+  // ── TOC scroll-to-row handler ─────────────────────────────────
+  const handleScrollToRow = useCallback(
+    (rowIndex: number) => {
+      if (rowIndex < virtualizedRowCount) {
+        // Row is in the virtualized section — use the virtualizer to scroll
+        rowVirtualizer.scrollToIndex(rowIndex, { align: "start", behavior: "smooth" });
+      } else {
+        // Row is in the non-virtualized tail — find the DOM element by row id
+        const row = rows[rowIndex];
+        if (row) {
+          const el = scrollRef.current?.querySelector(`[data-row-id="${row.id}"]`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }
+      }
+    },
+    [virtualizedRowCount, rowVirtualizer, rows, scrollRef],
+  );
 
   // ── Row renderer ─────────────────────────────────────────────────
   const renderRow = (row: RenderRow) => {
@@ -161,6 +184,8 @@ export function MessageList({
         return <ClaudeMessage text={row.text} timestamp={row.timestamp} isLast={row.isLast} />;
       case "system":
         return <SystemMessage text={row.text} isError={row.isError} />;
+      case "compact-boundary":
+        return <CompactBoundary timestamp={row.timestamp} />;
       case "thinking-block":
         return <ThinkingBlock text={row.text} />;
       case "agent-transcript":
@@ -193,6 +218,7 @@ export function MessageList({
 
   return (
     <div className="relative flex min-h-0 flex-1">
+      <ChatTOC rows={rows} onScrollToRow={handleScrollToRow} />
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div ref={containerRef} className="mx-auto max-w-3xl px-6 py-6">
           {/* Virtualized section — absolute-positioned items in a sized container */}
@@ -216,7 +242,7 @@ export function MessageList({
           {hasNonVirtual && (
             <div className={`flex flex-col gap-4${hasVirtual ? " mt-4" : ""}`}>
               {nonVirtualizedRows.map((row) => (
-                <div key={row.id} className="flex animate-fade-in flex-col">
+                <div key={row.id} data-row-id={row.id} className="flex animate-fade-in flex-col">
                   {renderRow(row)}
                 </div>
               ))}
@@ -226,6 +252,7 @@ export function MessageList({
                   processingStartedAt={processingStartedAt ?? null}
                   isProcessing={!!isProcessing}
                   instanceStatus={instanceStatus}
+                  isCompacting={isCompactingTurn}
                 />
               )}
             </div>

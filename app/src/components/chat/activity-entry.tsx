@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { ChevronRight, Brain, ShieldAlert, CircleX, CircleCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserInputAnswer } from "@shared/types";
 import type { ActivityKind, Resolution, ResultStatus } from "@/lib/chat-types";
 import { getToolIcon } from "@/lib/tool-icons";
-import { escapeHtml, getCollapsedDetail } from "@/lib/utils";
 import { ToolContent } from "@/components/chat/tool-content";
 import { PermissionDeniedContent } from "@/components/chat/tool-content";
+
+// Tools with rich input that's always worth seeing (diffs, file content, interactive UI).
+const ALWAYS_EXPANDABLE = new Set(["Edit", "Write", "AskUserQuestion", "ExitPlanMode"]);
 
 interface ActivityEntryProps {
   activity: ActivityKind;
@@ -26,6 +29,8 @@ interface ActivityEntryProps {
   resolution?: Resolution;
   /** Merged result status from the paired tool_result. */
   resultStatus?: ResultStatus;
+  /** Merged result detail from the paired tool_result. */
+  resultDetail?: string;
 }
 
 function ActivityIcon({
@@ -65,6 +70,38 @@ function ActivityIcon({
   return <Icon size={12} className={`mt-[3px] shrink-0 ${colorClass}`} />;
 }
 
+/**
+ * Compute a single clean display name for a tool call, following Kanna's pattern:
+ * one descriptive string that communicates what happened, no secondary detail.
+ */
+function computeDisplayName(
+  tool: string | undefined,
+  description: string,
+  detail: string | undefined,
+  inputDescription: string | undefined,
+): string {
+  if (!tool || !detail) return description;
+  switch (tool) {
+    case "Bash":
+      // Human description first, fall back to truncated command
+      if (inputDescription) return inputDescription;
+      return detail.length > 60 ? detail.slice(0, 60) + "\u2026" : detail;
+    case "Edit":
+    case "Write":
+    case "Read": {
+      const fileName = detail.split("/").pop() || detail;
+      const verb = tool === "Edit" ? "Edit" : tool === "Write" ? "Write" : "Read";
+      return `${verb} ${fileName}`;
+    }
+    case "Grep":
+      return `Find \`${detail}\` in files`;
+    case "Glob":
+      return `Search files matching ${detail}`;
+    default:
+      return description;
+  }
+}
+
 export function ActivityEntry({
   activity,
   description,
@@ -82,29 +119,34 @@ export function ActivityEntry({
   isExternalPending,
   resolution,
   resultStatus,
+  resultDetail,
 }: ActivityEntryProps) {
   const hasRichContent = !!input && !!tool;
   const isPermDenied = !!permissionDenied;
   const defaultExpanded = isPermDenied || (hasRichContent && tool === "AskUserQuestion");
   const [expanded, setExpanded] = useState(defaultExpanded);
+  // Lazy-mount: only render content once it's been expanded at least once,
+  // so collapsed-by-default items don't pay the render cost.
+  const hasBeenExpanded = useRef(defaultExpanded);
+  if (expanded) hasBeenExpanded.current = true;
 
   const isError = description === "Tool error";
-  const collapsedText = detail ? getCollapsedDetail(detail, tool) : "";
-  const detailTruncated = !!detail && collapsedText !== detail;
-  // Only expandable if expanding reveals content not already visible in the collapsed row.
-  // Edit/Write show diffs/full content; AskUserQuestion/ExitPlanMode have interactive UI.
-  // Other tools (Bash, Read, Grep, Glob) just re-render the same text as a code block —
-  // only worth expanding if the detail was truncated.
-  const RICH_EXPAND_TOOLS = new Set(["Edit", "Write", "AskUserQuestion", "ExitPlanMode"]);
-  const richExpandable = hasRichContent && (RICH_EXPAND_TOOLS.has(tool!) || detailTruncated);
-  const isExpandable = isPermDenied || richExpandable || detailTruncated;
+  const displayName = computeDisplayName(tool, description, detail, inputDescription);
+
+  // Any completed tool (has resultStatus) is expandable to see input+output.
+  const hasCompletedResult = !!resultStatus;
+  const isExpandable =
+    isPermDenied ||
+    (hasRichContent && ALWAYS_EXPANDABLE.has(tool!)) ||
+    (hasRichContent && hasCompletedResult) ||
+    (hasRichContent && !!resultDetail);
 
   return (
     <div className={`flex flex-col ${collapsed ? "hidden" : ""}`}>
       <div
-        className={`flex items-start gap-2.5 rounded-md px-2 py-1 text-[11px] leading-relaxed text-muted ${
+        className={`group/entry flex items-start gap-2.5 rounded-md py-1 text-[11px] leading-relaxed text-muted ${
           isError ? "bg-error-dim" : ""
-        } ${isExpandable ? "cursor-pointer transition-colors duration-150 hover:bg-hover-highlight" : ""}`}
+        } ${isExpandable ? "cursor-pointer" : ""}`}
         onClick={isExpandable ? () => setExpanded(!expanded) : undefined}
       >
         <ActivityIcon
@@ -113,83 +155,83 @@ export function ActivityEntry({
           resultStatus={resultStatus}
           isPermDenied={isPermDenied}
         />
-        <div
-          className={`flex min-w-0 flex-1 items-baseline gap-1.5 ${
-            expanded && !hasRichContent ? "flex-wrap" : ""
+        <span
+          className={`min-w-0 truncate text-[11px] ${
+            isError
+              ? "font-medium text-error"
+              : isExpandable
+                ? "transition-colors duration-150 group-hover/entry:text-text-bright"
+                : ""
           }`}
         >
-          <span
-            className={`whitespace-nowrap text-[11px] ${
-              isError
-                ? "font-medium text-error"
-                : activity === "tool_result"
-                  ? "text-muted/70"
-                  : "text-muted"
-            }`}
-          >
-            {description}
+          {displayName}
+        </span>
+        {isExternalPending && (
+          <span className="shrink-0 whitespace-nowrap rounded-md bg-claude-dim px-1.5 py-0.5 text-[10px] font-medium text-claude">
+            Pending in terminal
           </span>
-          {isExternalPending && (
-            <span className="whitespace-nowrap rounded-md bg-claude-dim px-1.5 py-0.5 text-[10px] font-medium text-claude">
-              Pending in terminal
-            </span>
-          )}
-          {resultStatus === "error" && (
-            <span className="whitespace-nowrap rounded-md bg-error-dim px-1.5 py-0.5 text-[10px] font-medium text-error">
-              Failed
-            </span>
-          )}
-          {!expanded && inputDescription && (
-            <span className="truncate text-[11px] text-muted/50">{inputDescription}</span>
-          )}
-          {!expanded && detail && !inputDescription && (
-            <div
-              className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-muted/50"
-              dangerouslySetInnerHTML={{
-                __html: escapeHtml(collapsedText),
-              }}
-            />
-          )}
-          {expanded && detail && !hasRichContent && (
-            <div
-              className="basis-full whitespace-pre-wrap break-words pt-0.5 pb-0.5 font-mono text-[11px] text-muted/60"
-              dangerouslySetInnerHTML={{
-                __html: escapeHtml(detail),
-              }}
-            />
-          )}
-        </div>
+        )}
         {isExpandable && (
           <ChevronRight
             size={10}
-            className={`mt-[5px] shrink-0 text-muted/40 transition-transform ${
-              expanded ? "rotate-90" : "opacity-0"
+            className={`mt-[5px] shrink-0 text-muted/40 transition-all duration-200 ${
+              expanded ? "rotate-90 opacity-100" : "opacity-0 group-hover/entry:opacity-100"
             }`}
           />
         )}
       </div>
-      {expanded && hasRichContent && (
-        <div className="pl-[18px] pr-2 pb-1.5">
-          <ToolContent
-            tool={tool!}
-            input={input!}
-            onSendMessage={onSendMessage}
-            onAnswerUserInput={onAnswerUserInput}
-            isInteractive={isInteractive}
-            resolution={resolution}
-          />
-        </div>
-      )}
-      {expanded && isPermDenied && (
-        <div className="pl-[18px] pr-2 pb-1.5">
-          <PermissionDeniedContent
-            tool={permissionDenied!}
-            onApproveTool={onApproveTool}
-            isInteractive={isInteractive}
-            approvedTools={approvedTools}
-          />
-        </div>
-      )}
+      {/* Expanded content — smooth animated open/close */}
+      <AnimatePresence initial={false}>
+        {expanded && hasRichContent && hasBeenExpanded.current && (
+          <motion.div
+            key="tool-content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              height: { duration: 0.2, ease: [0.25, 0.1, 0.25, 1] },
+              opacity: { duration: 0.15 },
+            }}
+            className="overflow-hidden"
+          >
+            <div className="pl-[18px] pr-2 pb-1.5">
+              <ToolContent
+                tool={tool!}
+                input={input!}
+                resultDetail={resultDetail}
+                onSendMessage={onSendMessage}
+                onAnswerUserInput={onAnswerUserInput}
+                isInteractive={isInteractive}
+                resolution={resolution}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {expanded && isPermDenied && (
+          <motion.div
+            key="perm-denied"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              height: { duration: 0.2, ease: [0.25, 0.1, 0.25, 1] },
+              opacity: { duration: 0.15 },
+            }}
+            className="overflow-hidden"
+          >
+            <div className="pl-[18px] pr-2 pb-1.5">
+              <PermissionDeniedContent
+                tool={permissionDenied!}
+                onApproveTool={onApproveTool}
+                isInteractive={isInteractive}
+                approvedTools={approvedTools}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

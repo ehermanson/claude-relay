@@ -3,7 +3,7 @@
  * Instead of "Tool calls (5)" we produce "2 reads, 1 edit, 3 commands".
  */
 
-import type { ActivityMessage } from "@shared/types";
+import type { MergedActivity } from "@/lib/chat-types";
 
 interface ToolCategory {
   singular: string;
@@ -41,7 +41,7 @@ const OTHER_CATEGORY: ToolCategory = { singular: "tool call", plural: "tool call
  *   "2 reads, 1 edit"
  *   "3 commands, 2 reads, 1 search"
  */
-export function getToolGroupLabel(activities: ActivityMessage[]): string | null {
+export function getToolGroupLabel(activities: MergedActivity[]): string | null {
   const counts = new Map<string, { category: ToolCategory; count: number }>();
   const order: string[] = [];
 

@@ -13,6 +13,7 @@ import type {
   ExitMessage,
   ActivityMessage,
   SessionStats,
+  SystemEventMessage,
   ProviderKind,
   ProviderModelOptions,
   ProviderRequest,
@@ -28,6 +29,7 @@ export interface ProviderSessionEvents {
   output: [OutputMessage];
   exit: [ExitMessage];
   activity: [ActivityMessage];
+  systemEvent: [SystemEventMessage];
   stats: [SessionStats];
   /** Emitted when the provider needs a user decision outside normal chat input. */
   permissionRequest: [ProviderRequest];
@@ -87,6 +89,9 @@ export interface ProviderSession extends EventEmitter {
 
   /** Toggle bypass-all-permissions mode at runtime. */
   setBypassPermissions(bypass: boolean): void;
+
+  /** Trigger provider-native compaction when supported. */
+  compactThread?(): void;
 
   /** Set the provider session ID (CLI provider discovers it post-hoc from transcripts). */
   setSessionId?(sessionId: string): void;

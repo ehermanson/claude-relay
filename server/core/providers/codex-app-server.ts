@@ -22,6 +22,7 @@ import type {
   ActivityMessage,
   FileChange,
   SessionStats,
+  SystemEventMessage,
   ProviderModelOptions,
   ProviderRequest,
   ProviderRequestResponse,
@@ -30,6 +31,7 @@ import type {
 } from "#core/types.js";
 import type { CoreConfig } from "#core/config.js";
 import type { ProviderSession } from "#core/provider.js";
+import { buildSessionInitEvent } from "#core/session-init.js";
 import { buildTaskListActivityFromPlan } from "#core/tools.js";
 import { ProposedPlanStreamParser } from "#core/proposed-plan.js";
 import { isPathWithinWorkspace } from "#core/workspace-paths.js";
@@ -150,6 +152,11 @@ interface DynamicToolCallItem extends ThreadItemBase {
   contentItems?: Array<{ text?: string; [key: string]: unknown }> | null;
 }
 
+interface ContextCompactionItem {
+  type: "compaction";
+  encrypted_content: string;
+}
+
 interface RequestUserInputParams {
   itemId: string;
   questions: UserInputQuestion[];
@@ -252,6 +259,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private stderrBuffer = "";
   private initialized = false;
   private _currentTurnId: string | null = null;
+  private _lastCompactionTurnId: string | null = null;
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private readonly proposedPlanParser = new ProposedPlanStreamParser();
 
@@ -347,6 +355,27 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     }).catch((err) => {
       this.logger.warn(`[CodexAppServer] Interrupt failed: ${err}`);
     });
+  }
+
+  compactThread(): void {
+    if (!this._sessionId) {
+      this.emit("providerError", "Cannot compact before the Codex thread has started.");
+      return;
+    }
+    if (this._isProcessing) {
+      this.emit("providerError", "Cannot compact while another Codex turn is still running.");
+      return;
+    }
+
+    this._isProcessing = true;
+    this._planDeltaBuffer = "";
+    this.resetTimeout();
+    if (!this.hasWritableTransport() || !this.initialized) {
+      this.spawnAndCompact();
+      return;
+    }
+
+    this.startCompaction();
   }
 
   close(): Promise<void> {
@@ -486,6 +515,27 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     });
   }
 
+  private spawnAndCompact(): void {
+    this._closingIntentionally = false;
+    this.process = this.spawnProcess(this.codexPath, ["app-server", "--listen", "stdio://"], {
+      cwd: this.cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    this.wireStdout(this.process.stdout);
+    this.wireStderr(this.process.stderr);
+    this.wireLifecycle(this.process);
+
+    this.initializeAndCompactThread().catch((err) => {
+      this.logger.error(`[CodexAppServer] Compact init failed: ${err}`);
+      this.clearTimeout();
+      this._isProcessing = false;
+      this.emit("providerError", `Failed to compact context: ${err}`);
+      this.emitExit(1, String(err));
+    });
+  }
+
   private async initializeAndStartThread(message: string): Promise<void> {
     // Step 1: Initialize
     await this.sendRpc("initialize", {
@@ -512,6 +562,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       if (result?.thread?.id) {
         this._sessionId = result.thread.id;
       }
+      this.emitSessionInitEvent(result);
     } else {
       const result = (await this.sendRpc("thread/start", {
         model: this._preferredModel ?? undefined,
@@ -525,10 +576,39 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       if (result?.thread?.id) {
         this._sessionId = result.thread.id;
       }
+      this.emitSessionInitEvent(result);
     }
 
     // Step 3: Start first turn
     this.startTurn(message);
+  }
+
+  private async initializeAndCompactThread(): Promise<void> {
+    await this.sendRpc("initialize", {
+      clientInfo: { name: "relay", version: "0.0.0" },
+      capabilities: { experimentalApi: true },
+    });
+    this.initialized = true;
+
+    this.sendNotification("initialized");
+
+    if (this._sessionId) {
+      this.logger.info(`[CodexAppServer] Resuming thread ${this._sessionId} for compaction`);
+      const result = (await this.sendRpc("thread/resume", {
+        threadId: this._sessionId,
+        model: this._preferredModel ?? undefined,
+        cwd: this.cwd,
+        approvalPolicy: this.resolveApprovalPolicy(),
+        sandbox: this.resolveSandboxMode(),
+        persistExtendedHistory: true,
+        ...this.resolveCodexModelParams(),
+      })) as { thread?: ThreadInfo };
+      if (result?.thread?.id) {
+        this._sessionId = result.thread.id;
+      }
+    }
+
+    this.startCompaction();
   }
 
   private startTurn(message: string): void {
@@ -553,6 +633,24 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     }).catch((err) => {
       this.logger.error(`[CodexAppServer] turn/start failed: ${err}`);
       this.finishTurn();
+    });
+  }
+
+  private startCompaction(): void {
+    if (!this._sessionId) {
+      this.clearTimeout();
+      this._isProcessing = false;
+      this.emit("providerError", "Cannot compact before the Codex thread has started.");
+      return;
+    }
+
+    this.sendRpc("thread/compact/start", {
+      threadId: this._sessionId,
+    }).catch((err) => {
+      this.clearTimeout();
+      this._isProcessing = false;
+      this.logger.warn(`[CodexAppServer] thread/compact/start failed: ${err}`);
+      this.emit("providerError", `Failed to compact context: ${err}`);
     });
   }
 
@@ -597,7 +695,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
   private sendRpc(method: string, params: unknown): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      if (!this.process?.stdin?.writable) {
+      const stdin = this.process?.stdin;
+      if (!stdin?.writable) {
         reject(new Error("Process stdin not writable"));
         return;
       }
@@ -612,24 +711,26 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         params,
       };
 
-      this.process.stdin.write(JSON.stringify(request) + "\n");
+      stdin.write(JSON.stringify(request) + "\n");
     });
   }
 
   private sendRpcResponse(id: number | string, result: unknown): void {
-    if (!this.process?.stdin?.writable) return;
+    const stdin = this.process?.stdin;
+    if (!stdin?.writable) return;
     const response = { jsonrpc: "2.0", id, result };
-    this.process.stdin.write(JSON.stringify(response) + "\n");
+    stdin.write(JSON.stringify(response) + "\n");
   }
 
   private sendNotification(method: string, params?: unknown): void {
-    if (!this.process?.stdin?.writable) return;
+    const stdin = this.process?.stdin;
+    if (!stdin?.writable) return;
     const notification: { jsonrpc: "2.0"; method: string; params?: unknown } = {
       jsonrpc: "2.0",
       method,
     };
     if (params !== undefined) notification.params = params;
-    this.process.stdin.write(JSON.stringify(notification) + "\n");
+    stdin.write(JSON.stringify(notification) + "\n");
   }
 
   // ===========================================================================
@@ -1025,6 +1126,25 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         // Extended thinking — we could emit these as activity if desired
         break;
 
+      case "rawResponseItem/completed": {
+        const turnId =
+          (typeof params.turnId === "string" ? params.turnId : undefined) ?? this._currentTurnId;
+        const item = params.item as ContextCompactionItem | undefined;
+        if (turnId && item?.type === "compaction") {
+          this.emitCompactionEvent(turnId, params);
+        }
+        break;
+      }
+
+      case "thread/compacted": {
+        const turnId =
+          (typeof params.turnId === "string" ? params.turnId : undefined) ?? this._currentTurnId;
+        if (turnId) {
+          this.emitCompactionEvent(turnId, params);
+        }
+        break;
+      }
+
       // -----------------------------------------------------------------------
       // Token usage
       // -----------------------------------------------------------------------
@@ -1288,6 +1408,31 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     }
   }
 
+  private emitCompactionEvent(turnId: string, raw?: unknown): void {
+    if (this._lastCompactionTurnId === turnId) return;
+    this._lastCompactionTurnId = turnId;
+    this.emit("systemEvent", {
+      type: "system_event",
+      event: "compact_boundary",
+      payload: {
+        threadId: this._sessionId,
+        turnId,
+      },
+      raw,
+    } as SystemEventMessage);
+  }
+
+  private emitSessionInitEvent(raw?: unknown): void {
+    this.emit(
+      "systemEvent",
+      buildSessionInitEvent(raw, {
+        sessionId: this._sessionId,
+        cwd: this.cwd,
+        model: this._preferredModel ?? undefined,
+      }),
+    );
+  }
+
   private emitExit(code: number, stderrOrSignal?: string): void {
     const exit: ExitMessage = {
       type: "exit",
@@ -1296,6 +1441,10 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       stderr: this.stderrBuffer.trim() || undefined,
     };
     this.emit("exit", exit);
+  }
+
+  private hasWritableTransport(): boolean {
+    return !!this.process?.stdin?.writable;
   }
 
   // ===========================================================================

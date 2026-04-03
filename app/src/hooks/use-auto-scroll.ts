@@ -128,15 +128,21 @@ export function useAutoScroll<T extends HTMLElement>() {
       }, 200);
     };
 
+    // pointerdown only counts as scroll intent when clicking the scrollbar
+    // track (x > clientWidth) — not when clicking content like tool rows.
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.offsetX > el.clientWidth) onUserIntent();
+    };
+
     el.addEventListener("scroll", onScroll, { passive: true });
     el.addEventListener("wheel", onUserIntent, { passive: true });
     el.addEventListener("touchstart", onUserIntent, { passive: true });
-    el.addEventListener("pointerdown", onUserIntent, { passive: true });
+    el.addEventListener("pointerdown", onPointerDown, { passive: true });
     return () => {
       el.removeEventListener("scroll", onScroll);
       el.removeEventListener("wheel", onUserIntent);
       el.removeEventListener("touchstart", onUserIntent);
-      el.removeEventListener("pointerdown", onUserIntent);
+      el.removeEventListener("pointerdown", onPointerDown);
       clearTimeout(userInteractingTimer.current);
     };
   }, [cancelForcedScroll, setShowScrollToBottomIfChanged]);

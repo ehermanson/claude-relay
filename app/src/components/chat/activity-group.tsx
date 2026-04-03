@@ -2,13 +2,13 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronRight } from "lucide-react";
 import { ActivityEntry } from "./activity-entry";
-import type { ActivityMessage } from "@shared/types";
+import type { MergedActivity } from "@/lib/chat-types";
 import { INTERACTIVE_TOOLS } from "@shared/tools";
 
 const VISIBLE_COUNT = 3;
 
 interface ActivityGroupProps {
-  activities: ActivityMessage[];
+  activities: MergedActivity[];
   onSendMessage?: (text: string) => void;
   onAnswerUserInput?: (
     requestId: string,
@@ -48,7 +48,6 @@ export function ActivityGroup({
   });
 
   // Hide earlier denied attempts when the same tool was retried within this group.
-  // For each tool with multiple denials, hide all but the last tool_use + tool_result pair.
   const superseded = new Set<number>();
   for (const [tool, lastIdx] of lastDenialIndex) {
     activities.forEach((act, i) => {
@@ -87,25 +86,25 @@ export function ActivityGroup({
     hiddenResults.add(0);
   }
 
-  // Merge tool_result into preceding tool_use: hide the result row and annotate
-  // the tool_use with a resultStatus so ActivityEntry can show an inline indicator.
-  const resultStatusMap = new Map<number, "success" | "error">();
+  // Hide any remaining standalone tool_result entries that weren't merged at the
+  // data level (permission denied results are kept, interactive results handled above).
   for (let i = 0; i < activities.length; i++) {
     const act = activities[i];
     if (act.activity !== "tool_result") continue;
     if (hiddenResults.has(i) || superseded.has(i)) continue;
-    // Don't merge permission denials — they have their own UI
     if (act.permissionDenied) continue;
-    // Find the preceding tool_use
-    for (let j = i - 1; j >= 0; j--) {
-      if (superseded.has(j) || hiddenResults.has(j)) continue;
-      if (activities[j].activity === "tool_use") {
-        resultStatusMap.set(j, act.description === "Tool error" ? "error" : "success");
-        hiddenResults.add(i);
-        break;
-      }
-      break; // only check the immediately preceding non-hidden entry
-    }
+    // This result wasn't merged at the data level — hide it
+    hiddenResults.add(i);
+  }
+
+  // Hide progress-update entries: tool_use without `input` (emitted by the server
+  // for long-running Bash commands as "Running... Ns"). Once the real result is
+  // merged into the original tool_use (which has `input`), these are stale noise.
+  for (let i = 0; i < activities.length; i++) {
+    const act = activities[i];
+    if (act.activity !== "tool_use" || act.input) continue;
+    // No input — this is a progress update. Hide it.
+    hiddenResults.add(i);
   }
 
   // Build visible list preserving original indices for key stability
@@ -130,7 +129,7 @@ export function ActivityGroup({
           >
             <button
               onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-1.5 border-none bg-transparent px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted/55 transition-colors duration-150 hover:text-muted/80"
+              className="flex items-center gap-1.5 border-none bg-transparent py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted/55 transition-colors duration-150 hover:text-muted/80"
             >
               <ChevronRight
                 size={8}
@@ -170,7 +169,8 @@ export function ActivityGroup({
                 input={act.input}
                 inputDescription={act.inputDescription}
                 isExternalPending={isPendingInTerminal}
-                resultStatus={resultStatusMap.get(origIndex)}
+                resultStatus={act.mergedResultStatus}
+                resultDetail={act.mergedResultDetail}
                 {...(act.tool === "AskUserQuestion" || act.tool === "ExitPlanMode"
                   ? {
                       onSendMessage,

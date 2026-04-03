@@ -17,6 +17,7 @@ import type {
   SessionStats,
   ProviderRequest,
   ProviderRuntimeBinding,
+  SystemEventMessage,
   UserInputQuestion,
 } from "#core/types.js";
 import type { CoreConfig } from "#core/config.js";
@@ -42,6 +43,8 @@ export interface ClaudeProcessEvents {
   output: [OutputMessage];
   exit: [ExitMessage];
   activity: [ActivityMessage];
+  /** CLI sessions never emit this — included for ProviderSession compatibility. */
+  systemEvent: [SystemEventMessage];
   stats: [SessionStats];
   /** CLI sessions never emit this — included for ProviderSession compatibility. */
   providerError: [string];

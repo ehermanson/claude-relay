@@ -66,6 +66,7 @@ import type {
   ReasoningEffort,
   ProviderModelOption,
   UserInputQuestion,
+  SystemEventMessage,
 } from "#core/types.js";
 import {
   captureManagedSessionForProvider,
@@ -101,6 +102,7 @@ import {
   FILE_WRITE_TOOLS,
   FILE_WRITE_GROUP,
 } from "#core/tools.js";
+import { buildSessionInitEvent } from "#core/session-init.js";
 import {
   isGitRepo,
   getRepoRoot,
@@ -234,6 +236,7 @@ interface Instance {
 export interface InstanceManagerEvents {
   "instance:output": [instanceId: string, message: OutputMessage];
   "instance:activity": [instanceId: string, message: ActivityMessage];
+  "instance:system_event": [instanceId: string, message: SystemEventMessage];
   "instance:exit": [instanceId: string, message: ExitMessage];
   "instance:status": [instanceId: string, info: InstanceInfo];
   "instance:created": [instanceId: string, info: InstanceInfo];
@@ -274,6 +277,7 @@ const STALE_THRESHOLD = 3; // 3 × 10s = 30s grace period
 const MAX_TITLE_LENGTH = 50;
 const PLAN_TRANSCRIPT_RE = /read the full transcript at:\s*(\S+\.jsonl)/;
 const TRANSCRIPT_AVAILABLE_RE = /^Full transcript available at:\s+(\S+)$/;
+const COMPACT_COMMAND_RE = /^\s*\/compact\s*$/i;
 
 /**
  * Strip internal Claude CLI XML tags from message text.
@@ -2275,6 +2279,18 @@ export class InstanceManager extends EventEmitter {
       instance.autoTitle = false;
     }
 
+    const isCompactCommand = !internal && !images?.length && COMPACT_COMMAND_RE.test(text);
+    const canUseNativeCompact =
+      isCompactCommand &&
+      instance.info.provider === "codex" &&
+      !!instance.process.compactThread &&
+      !!(
+        instance.sessionId ||
+        instance.info.sessionId ||
+        instance.providerBinding?.providerSessionId ||
+        instance.process.getRuntimeBinding().providerSessionId
+      );
+
     let messageText = text;
     if (images && images.length > 0) {
       const markers = images.map((p) => `[Image: source: ${p}]`).join("\n");
@@ -2323,7 +2339,11 @@ export class InstanceManager extends EventEmitter {
     instance.planFilePath = undefined;
     this.setStatus(instance, "processing");
 
-    instance.process.send(outboundMessage);
+    if (canUseNativeCompact) {
+      instance.process.compactThread!();
+    } else {
+      instance.process.send(outboundMessage);
+    }
     return resumed ? this.cloneInstanceInfo(resumed) : undefined;
   }
 
@@ -4352,21 +4372,21 @@ export class InstanceManager extends EventEmitter {
 
     const lines = content.split("\n");
 
-    // Pre-scan backwards for the last compact_boundary to avoid parsing
-    // thousands of lines that would be discarded anyway.
+    // Pre-scan backwards for the last compact_boundary. We still preserve the
+    // earlier conversation, but we only do full stateful parsing from the
+    // boundary forward; older history uses a lighter conversation-only pass.
     let boundaryLineIdx = -1;
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
-      if (line.includes('"compact_boundary"')) {
-        try {
-          const entry = JSON.parse(line);
-          if (entry.type === "system" && entry.subtype === "compact_boundary") {
-            boundaryLineIdx = i;
-            break;
-          }
-        } catch {
-          // not valid JSON, keep scanning
+      if (!line || !line.includes('"compact_boundary"')) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === "system" && entry.subtype === "compact_boundary") {
+          boundaryLineIdx = i;
+          break;
         }
+      } catch {
+        // skip malformed lines
       }
     }
 
@@ -4385,37 +4405,26 @@ export class InstanceManager extends EventEmitter {
       stats: { ...zeroStats },
     };
 
-    const fullParseStart = boundaryLineIdx > 0 ? boundaryLineIdx + 1 : 0;
+    const fullParseStart = boundaryLineIdx > 0 ? boundaryLineIdx : 0;
 
-    // Phase 1: Pre-boundary lightweight parse (cwd + stats only, skip convertJsonlEntry)
+    // Phase 1: pre-boundary lightweight parse. Preserve user/assistant
+    // conversation and usage/cwd, but skip expensive task/file/tool rebuilds.
     for (let i = 0; i < fullParseStart; i++) {
       const line = lines[i];
       if (!line) continue;
       try {
-        if (!cwd && line.includes('"cwd"')) {
-          const entry = JSON.parse(line);
-          if (entry.cwd) {
-            cwd = entry.cwd;
-            ctx.cwd = cwd;
-          }
+        const entry = JSON.parse(line);
+        if (!cwd && entry.cwd) {
+          cwd = entry.cwd;
+          ctx.cwd = cwd;
         }
-        if (line.includes('"assistant"') && line.includes('"usage"')) {
-          const entry = JSON.parse(line);
-          if (entry.type === "assistant" && entry.message?.usage && entry.message?.model) {
-            const u = entry.message.usage;
-            ctx.stats.inputTokens += u.input_tokens ?? 0;
-            ctx.stats.outputTokens += u.output_tokens ?? 0;
-            ctx.stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
-            ctx.stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
-            ctx.stats.model = entry.message.model;
-          }
-        }
+        history.push(...this.convertJsonlEntryLightweight(entry, ctx));
       } catch {
         // skip malformed lines
       }
     }
 
-    // Phase 2: Post-boundary full parse (history, tasks, files, stats)
+    // Phase 2: post-boundary full parse.
     for (let i = fullParseStart; i < lines.length; i++) {
       const line = lines[i];
       if (!line) continue;
@@ -4425,7 +4434,6 @@ export class InstanceManager extends EventEmitter {
           cwd = entry.cwd;
           ctx.cwd = cwd;
         }
-        if (entry.type === "system" && entry.subtype === "compact_boundary") continue;
         history.push(...this.convertJsonlEntry(entry, ctx));
       } catch {
         // skip malformed lines
@@ -4575,6 +4583,8 @@ export class InstanceManager extends EventEmitter {
   private convertJsonlEntry(
     entry: {
       type?: string;
+      subtype?: string;
+      cwd?: string;
       timestamp?: string;
       data?: Record<string, unknown>;
       message?: {
@@ -4613,6 +4623,28 @@ export class InstanceManager extends EventEmitter {
     const rawTimestamp = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
     const timestamp = isNaN(rawTimestamp) ? Date.now() : rawTimestamp;
 
+    if (entry.type === "system" && entry.subtype === "compact_boundary") {
+      return [
+        {
+          timestamp,
+          message: {
+            type: "system_event",
+            event: "compact_boundary",
+            raw: entry,
+          },
+          raw: entry,
+        },
+      ];
+    }
+    if (entry.type === "system" && entry.subtype === "init") {
+      return [
+        {
+          timestamp,
+          message: buildSessionInitEvent(entry),
+          raw: entry,
+        },
+      ];
+    }
     if (entry.type === "user" && entry.message?.content) {
       return this.convertUserEntry(entry.message.content, timestamp, ctx);
     }
@@ -4695,6 +4727,53 @@ export class InstanceManager extends EventEmitter {
       }
     }
     return results;
+  }
+
+  private convertJsonlEntryLightweight(
+    entry: {
+      type?: string;
+      subtype?: string;
+      cwd?: string;
+      timestamp?: string;
+      message?: {
+        model?: string;
+        usage?: {
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_creation_input_tokens?: number;
+          cache_read_input_tokens?: number;
+        };
+        content?:
+          | string
+          | Array<{
+              type: string;
+              text?: string;
+            }>;
+      };
+    },
+    ctx?: {
+      stats?: SessionStats;
+    },
+  ): HistoryEntry[] {
+    const rawTimestamp = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
+    const timestamp = isNaN(rawTimestamp) ? Date.now() : rawTimestamp;
+
+    if (entry.type === "system" && entry.subtype === "init") {
+      return [
+        {
+          timestamp,
+          message: buildSessionInitEvent(entry),
+          raw: entry,
+        },
+      ];
+    }
+    if (entry.type === "user" && entry.message?.content) {
+      return this.convertUserEntry(entry.message.content, timestamp);
+    }
+    if (entry.type === "assistant" && entry.message) {
+      return this.convertAssistantConversationEntry(entry.message, timestamp, ctx);
+    }
+    return [];
   }
 
   /** Parse an assistant JSONL entry into history entries. */
@@ -4785,6 +4864,81 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Accumulate token usage
+    if (ctx?.stats && message.usage && message.model) {
+      const usage = message.usage;
+      const u = {
+        input_tokens: usage.input_tokens ?? 0,
+        output_tokens: usage.output_tokens ?? 0,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens,
+      };
+      ctx.stats.inputTokens += u.input_tokens;
+      ctx.stats.outputTokens += u.output_tokens;
+      ctx.stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
+      ctx.stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
+      ctx.stats.model = message.model;
+      ctx.stats.contextTokens =
+        u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+    }
+
+    return results;
+  }
+
+  private convertAssistantConversationEntry(
+    message: {
+      model?: string;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      };
+      content?:
+        | string
+        | Array<{
+            type: string;
+            text?: string;
+          }>;
+    },
+    timestamp: number,
+    ctx?: {
+      stats?: SessionStats;
+    },
+  ): HistoryEntry[] {
+    const results: HistoryEntry[] = [];
+    const content = message.content;
+
+    if (typeof content === "string") {
+      const text = stripInternalTags(content);
+      if (text) {
+        results.push({
+          timestamp,
+          message: { type: "output", text, isWaiting: false } as OutputMessage,
+        });
+      }
+      results.push({
+        timestamp,
+        message: { type: "output", text: "", isWaiting: true } as OutputMessage,
+      });
+    } else if (Array.isArray(content)) {
+      const text = stripInternalTags(
+        content
+          .filter((block) => block.type === "text" && block.text)
+          .map((block) => block.text)
+          .join(""),
+      );
+      if (text) {
+        results.push({
+          timestamp,
+          message: { type: "output", text, isWaiting: false } as OutputMessage,
+        });
+      }
+      results.push({
+        timestamp,
+        message: { type: "output", text: "", isWaiting: true } as OutputMessage,
+      });
+    }
+
     if (ctx?.stats && message.usage && message.model) {
       const usage = message.usage;
       const u = {
@@ -6620,6 +6774,19 @@ export class InstanceManager extends EventEmitter {
         this.emit("instance:activity", id, message);
       }).catch((err) => this.logQueuedMutationError("activity handler", id, err));
     });
+
+    proc.on(
+      "systemEvent" as keyof import("./provider.js").ProviderSessionEvents,
+      ((message: SystemEventMessage) => {
+        void this.enqueueInstanceMutation(id, (live) => {
+          if (this.shuttingDown || live.process !== proc) return;
+          this.pushHistory(live, message);
+          live.info.lastActivityAt = Date.now();
+          this.dbSave(live);
+          this.emit("instance:system_event", id, message);
+        }).catch((err) => this.logQueuedMutationError("systemEvent handler", id, err));
+      }) as (...args: unknown[]) => void,
+    );
 
     proc.on("stats", (stats) => {
       void this.enqueueInstanceMutation(id, (live) => {

@@ -24,6 +24,7 @@ import type {
   OutputMessage,
   ExitMessage,
   ActivityMessage,
+  SystemEventMessage,
   TranscriptMessage,
   UserMessage,
 } from "#core/types.js";
@@ -69,6 +70,7 @@ export function createWebSocketServer(
   type ReplayableServerMessage =
     | OutputMessage
     | ActivityMessage
+    | SystemEventMessage
     | ExitMessage
     | TranscriptMessage
     | UserMessage;
@@ -266,6 +268,10 @@ export function createWebSocketServer(
   });
 
   instanceManager.on("instance:activity", (instanceId: string, message: ActivityMessage) => {
+    sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
+  });
+
+  instanceManager.on("instance:system_event", (instanceId: string, message: SystemEventMessage) => {
     sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
   });
 

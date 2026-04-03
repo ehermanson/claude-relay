@@ -13,6 +13,19 @@ export type ActivityKind = "tool_use" | "tool_result" | "thinking" | "task_list"
 export type Resolution = "approved" | "dismissed" | "feedback";
 export type ResultStatus = "success" | "error";
 
+/**
+ * Client-side enriched activity: a tool_use with its tool_result merged in.
+ * Created by the reducer so that each tool call is a single entry with
+ * both input and result data, matching the shape:
+ *   { toolType, input, result }
+ */
+export interface MergedActivity extends ActivityMessage {
+  /** Result detail text from the paired tool_result */
+  mergedResultDetail?: string;
+  /** Result status from the paired tool_result */
+  mergedResultStatus?: ResultStatus;
+}
+
 // ── ChatItem variants (source data from use-instance-messages) ──────
 
 export interface UserChatItem {
@@ -34,6 +47,11 @@ export interface SystemChatItem {
   isError?: boolean;
 }
 
+export interface CompactBoundaryChatItem {
+  kind: "compact-boundary";
+  timestamp?: number;
+}
+
 export interface ThinkingBlockChatItem {
   kind: "thinking-block";
   text: string;
@@ -41,7 +59,7 @@ export interface ThinkingBlockChatItem {
 
 export interface ActivityGroupChatItem {
   kind: "activity-group";
-  activities: ActivityMessage[];
+  activities: MergedActivity[];
 }
 
 export interface AgentTranscriptChatItem {
@@ -55,6 +73,7 @@ export type ChatItem =
   | UserChatItem
   | AssistantChatItem
   | SystemChatItem
+  | CompactBoundaryChatItem
   | ThinkingBlockChatItem
   | ActivityGroupChatItem
   | AgentTranscriptChatItem;
@@ -84,6 +103,12 @@ export interface SystemRow {
   isError?: boolean;
 }
 
+export interface CompactBoundaryRow {
+  id: string;
+  kind: "compact-boundary";
+  timestamp?: number;
+}
+
 export interface ThinkingBlockRow {
   id: string;
   kind: "thinking-block";
@@ -105,7 +130,7 @@ export interface ResponseDividerRow {
 }
 
 export interface ToolGroupData {
-  activities: ActivityMessage[];
+  activities: MergedActivity[];
   originalIndex: number;
   isLastActivityGroup: boolean;
   trailingResolution?: Resolution;
@@ -116,13 +141,14 @@ export interface ToolContainerRow {
   id: string;
   kind: "tool-container";
   groups: ToolGroupData[];
-  allActivities: ActivityMessage[];
+  allActivities: MergedActivity[];
 }
 
 export type RenderRow =
   | UserRow
   | AssistantRow
   | SystemRow
+  | CompactBoundaryRow
   | ThinkingBlockRow
   | AgentTranscriptRow
   | ResponseDividerRow

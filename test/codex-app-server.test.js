@@ -228,6 +228,31 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
+  it("emits a session_init system event when a thread starts", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const systemEvents = collectEvents(session, "systemEvent");
+
+    session.send("hello");
+    autoRespond(harness.children[0]);
+
+    await tick(50);
+
+    assert.equal(systemEvents.length, 1);
+    assert.equal(systemEvents[0][0].type, "system_event");
+    assert.equal(systemEvents[0][0].event, "session_init");
+    assert.equal(systemEvents[0][0].payload.sessionId, "thread-001");
+    assert.equal(systemEvents[0][0].payload.cwd, "/tmp/project");
+
+    session.close();
+  });
+
   it("passes collaborationMode=plan when plan mode is enabled", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
@@ -1242,6 +1267,205 @@ describe("CodexAppServerSession", () => {
     assert.equal(exitPlans.length, 1);
     assert.ok(exitPlans[0][0].input.plan.includes("Actual Plan"));
     assert.ok(!exitPlans[0][0].input.plan.includes("think about"));
+
+    session.close();
+  });
+
+  it("emits a compact boundary system event for raw compaction items", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const systemEvents = collectEvents(session, "systemEvent");
+
+    session.send("/compact");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/started",
+        params: { turn: { id: "turn-compact", status: "inProgress" } },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "rawResponseItem/completed",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-compact",
+          item: {
+            type: "compaction",
+            encrypted_content: "opaque",
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const compactEvents = systemEvents
+      .map(([event]) => event)
+      .filter((event) => event.event === "compact_boundary");
+    assert.equal(compactEvents.length, 1);
+    assert.equal(compactEvents[0].type, "system_event");
+    assert.equal(compactEvents[0].event, "compact_boundary");
+    assert.equal(compactEvents[0].payload.turnId, "turn-compact");
+
+    session.close();
+  });
+
+  it("dedupes thread/compacted when raw compaction already arrived", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const systemEvents = collectEvents(session, "systemEvent");
+
+    session.send("/compact");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/started",
+        params: { turn: { id: "turn-compact", status: "inProgress" } },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "rawResponseItem/completed",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-compact",
+          item: {
+            type: "compaction",
+            encrypted_content: "opaque",
+          },
+        },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "thread/compacted",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-compact",
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const compactEvents = systemEvents
+      .map(([event]) => event)
+      .filter((event) => event.event === "compact_boundary");
+    assert.equal(compactEvents.length, 1);
+    assert.equal(compactEvents[0].event, "compact_boundary");
+
+    session.close();
+  });
+
+  it("starts native thread compaction over RPC", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+      resumeSessionId: "thread-compactable",
+    });
+
+    session.send("hello");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { turn: { id: "turn-1", items: [], status: "completed", error: null } },
+      }) + "\n",
+    );
+    await tick(50);
+
+    session.compactThread();
+    await tick(50);
+
+    const msgs = child.getStdinMessages();
+    const compactStart = msgs.find((m) => m.method === "thread/compact/start");
+    assert.ok(compactStart, "Should send thread/compact/start");
+    assert.equal(compactStart.params.threadId, "thread-compactable");
+
+    session.close();
+  });
+
+  it("respawns and resumes before native compaction when the app-server stdin is no longer writable", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+      resumeSessionId: "thread-compactable",
+    });
+
+    session.send("hello");
+    const firstChild = harness.children[0];
+    autoRespond(firstChild);
+    await tick(50);
+
+    firstChild.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { turn: { id: "turn-1", items: [], status: "completed", error: null } },
+      }) + "\n",
+    );
+    await tick(50);
+
+    firstChild.stdin.end();
+    await tick();
+
+    session.compactThread();
+    const secondChild = harness.children[1];
+    autoRespond(secondChild);
+    await tick(50);
+
+    assert.equal(harness.spawns.length, 2);
+    const methods = secondChild
+      .getStdinMessages()
+      .filter((m) => m.method)
+      .map((m) => m.method);
+
+    assert.deepEqual(methods.slice(0, 4), [
+      "initialize",
+      "initialized",
+      "thread/resume",
+      "thread/compact/start",
+    ]);
+
+    const compactStart = secondChild
+      .getStdinMessages()
+      .find((m) => m.method === "thread/compact/start");
+    assert.ok(compactStart, "Should send thread/compact/start after respawn");
+    assert.equal(compactStart.params.threadId, "thread-compactable");
 
     session.close();
   });

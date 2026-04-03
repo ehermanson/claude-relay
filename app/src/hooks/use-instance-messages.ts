@@ -5,8 +5,10 @@ import type {
   HistoryEntry,
   TaskItem,
   FileChange,
+  SystemEventMessage,
 } from "@shared/types";
-import type { ChatItem, LiveActivity } from "@/lib/chat-types";
+import type { ChatItem, LiveActivity, MergedActivity } from "@/lib/chat-types";
+import { INTERACTIVE_TOOLS } from "@shared/tools";
 
 // Re-export for consumers
 export type { ChatItem, LiveActivity };
@@ -17,6 +19,45 @@ function isImageOnly(text: string): boolean {
   return IMAGE_ONLY_PATTERN.test(text);
 }
 
+function mergeToolResult(activities: MergedActivity[], result: ActivityMessage): boolean {
+  // Permission denials stay as separate entries — they have their own UI
+  if (result.permissionDenied) return false;
+  // Interactive tool resolutions stay separate — handled by resolvedInteractive logic
+  if (result.resolution && INTERACTIVE_TOOLS.has(result.tool || "")) return false;
+
+  const status = result.description === "Tool error" ? "error" : "success";
+
+  // Scan backwards for the best tool_use to merge into.
+  // Prefer entries with `input` (the original call) over progress updates
+  // (which the server emits without `input` for long-running Bash commands).
+  let fallbackIdx = -1;
+  for (let i = activities.length - 1; i >= 0; i--) {
+    const act = activities[i];
+    if (act.activity === "tool_use") {
+      if (act.input) {
+        // Found the original tool_use with input — merge here
+        activities[i] = {
+          ...act,
+          mergedResultDetail: result.detail,
+          mergedResultStatus: status,
+        };
+        return true;
+      }
+      if (fallbackIdx === -1) fallbackIdx = i;
+    }
+  }
+  // No tool_use with input found — fall back to last tool_use (progress entry)
+  if (fallbackIdx !== -1) {
+    activities[fallbackIdx] = {
+      ...activities[fallbackIdx],
+      mergedResultDetail: result.detail,
+      mergedResultStatus: status,
+    };
+    return true;
+  }
+  return false;
+}
+
 /**
  * Process raw history entries into ChatItem[] for display.
  * Extracted so it can be reused outside the hook (e.g. space debug modal).
@@ -25,7 +66,7 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
   let items: ChatItem[] = [];
   let assistantText = "";
   let assistantTimestamp: number | undefined;
-  let currentActivities: ActivityMessage[] = [];
+  let currentActivities: MergedActivity[] = [];
 
   const flushActivities = () => {
     if (currentActivities.length > 0) {
@@ -95,11 +136,49 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
           flushAssistant();
           flushActivities();
           items.push({ kind: "thinking-block", text: msg.detail || "" });
+        } else if (msg.activity === "tool_result") {
+          // Merge result into the matching tool_use
+          flushAssistant();
+          if (!mergeToolResult(currentActivities, msg)) {
+            // Couldn't merge into unflushed activities — scan backwards through
+            // flushed items (past assistant/thinking rows) to find the activity group.
+            let merged = false;
+            for (let j = items.length - 1; j >= 0; j--) {
+              if (items[j].kind === "activity-group") {
+                const acts = [
+                  ...(items[j] as { kind: "activity-group"; activities: MergedActivity[] })
+                    .activities,
+                ];
+                if (mergeToolResult(acts, msg)) {
+                  items[j] = { kind: "activity-group", activities: acts };
+                  merged = true;
+                } else {
+                  // Permission denied / interactive — append as separate entry in the group
+                  items[j] = { kind: "activity-group", activities: [...acts, msg] };
+                  merged = true;
+                }
+                break;
+              }
+              // Only skip past assistant and thinking items
+              if (items[j].kind !== "assistant" && items[j].kind !== "thinking-block") break;
+            }
+            if (!merged) {
+              currentActivities.push(msg);
+            }
+          }
         } else {
           flushAssistant();
           currentActivities.push(msg);
         }
         break;
+      case "system_event": {
+        flushActivities();
+        flushAssistant();
+        if (msg.event === "compact_boundary") {
+          items.push({ kind: "compact-boundary", timestamp: entry.timestamp });
+        }
+        break;
+      }
       case "transcript":
         flushActivities();
         flushAssistant();
@@ -178,6 +257,7 @@ type Action =
   | { type: "exit"; code: number; signal?: string; stderr?: string; eventSequence?: number }
   | { type: "error"; message: string }
   | { type: "notification"; message: string }
+  | { type: "system_event"; message: SystemEventMessage }
   | { type: "show_thinking" };
 
 // Module-level cache — persists across mounts/unmounts within a page session.
@@ -387,23 +467,57 @@ function coreReducer(state: State, action: Action): State {
         };
       } else {
         const items = [...state.items];
+        const msg = action.message;
 
-        // Append to the current activity group or create a new one
-        const lastIdx = items.length - 1;
-        if (lastIdx >= 0 && items[lastIdx].kind === "activity-group") {
-          const group = items[lastIdx] as {
-            kind: "activity-group";
-            activities: ActivityMessage[];
-          };
-          items[lastIdx] = {
-            kind: "activity-group",
-            activities: [...group.activities, action.message],
-          };
+        if (msg.activity === "tool_result") {
+          // Merge tool_result into the matching tool_use entry.
+          // The tool_use might be in the last activity group, or in an
+          // earlier group (if assistant text streamed between use and result).
+          let merged = false;
+
+          // Scan backwards through items to find an activity group
+          for (let i = items.length - 1; i >= 0; i--) {
+            if (items[i].kind === "activity-group") {
+              const group = items[i] as { kind: "activity-group"; activities: MergedActivity[] };
+              const acts = [...group.activities];
+              if (mergeToolResult(acts, msg)) {
+                items[i] = { kind: "activity-group", activities: acts };
+                merged = true;
+              } else {
+                // Couldn't merge (permission denied / interactive result) — append as
+                // a separate entry in this group. This is safe because the live reducer
+                // processes events sequentially; the most recent activity group always
+                // corresponds to the current tool call sequence.
+                // NOTE: ID-based matching (via toolUseId) would make this more robust
+                // but requires threading the ID through ActivityMessage on the server side.
+                items[i] = { kind: "activity-group", activities: [...group.activities, msg] };
+                merged = true;
+              }
+              break;
+            }
+            // Only skip past assistant and thinking items
+            if (items[i].kind !== "assistant" && items[i].kind !== "thinking-block") break;
+          }
+
+          if (!merged) {
+            // No activity group found — create one (shouldn't normally happen)
+            items.push({ kind: "activity-group", activities: [msg] });
+          }
         } else {
-          items.push({
-            kind: "activity-group",
-            activities: [action.message],
-          });
+          // tool_use or other non-result activity — append to current group or create new
+          const lastIdx = items.length - 1;
+          if (lastIdx >= 0 && items[lastIdx].kind === "activity-group") {
+            const group = items[lastIdx] as {
+              kind: "activity-group";
+              activities: MergedActivity[];
+            };
+            items[lastIdx] = {
+              kind: "activity-group",
+              activities: [...group.activities, msg],
+            };
+          } else {
+            items.push({ kind: "activity-group", activities: [msg] });
+          }
         }
 
         // Build a contextual description from the activity
@@ -534,6 +648,20 @@ function coreReducer(state: State, action: Action): State {
       return { ...state, items };
     }
 
+    case "system_event": {
+      if (action.message.event !== "compact_boundary") return state;
+      const items = [...state.items];
+      items.push({ kind: "compact-boundary", timestamp: Date.now() });
+      return {
+        ...state,
+        items,
+        isProcessing: false,
+        showThinkingIndicator: false,
+        lastActivity: null,
+        processingStartedAt: null,
+      };
+    }
+
     case "show_thinking": {
       const now = Date.now();
       return {
@@ -572,6 +700,8 @@ function actionToHistoryEntry(action: Action): HistoryEntry | null {
   const now = Date.now();
   switch (action.type) {
     case "activity":
+      return { timestamp: now, message: action.message };
+    case "system_event":
       return { timestamp: now, message: action.message };
     case "output":
       return {
@@ -709,6 +839,11 @@ export function useInstanceMessages() {
       case "notification":
         if (!message.instanceId || message.instanceId === instanceId) {
           dispatch({ type: "notification", message: message.message });
+        }
+        break;
+      case "system_event":
+        if (message.instanceId === instanceId) {
+          dispatch({ type: "system_event", message });
         }
         break;
       case "instance_status":

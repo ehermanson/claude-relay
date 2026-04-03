@@ -571,6 +571,18 @@ export interface NotificationMessage {
   instanceId?: string;
 }
 
+export type SystemEventType = "compact_boundary" | "session_init";
+
+export interface SystemEventMessage {
+  type: "system_event";
+  event: SystemEventType;
+  instanceId?: string;
+  eventSequence?: number;
+  payload?: Record<string, unknown>;
+  /** Raw SDK/provider message for debug display. */
+  raw?: unknown;
+}
+
 export interface TaskItem {
   id: string;
   subject: string;
@@ -734,6 +746,7 @@ export type ServerMessage =
   | ExitMessage
   | ErrorMessage
   | NotificationMessage
+  | SystemEventMessage
   | ActivityMessage
   | InstanceListMessage
   | InstanceCreatedMessage

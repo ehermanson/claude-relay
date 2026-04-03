@@ -326,6 +326,59 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
+    it("emits a session_init system event from Claude init messages", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness);
+      const systemEvents = collectEvents(session, "systemEvent");
+
+      harness.fakeQuery.emit({
+        type: "system",
+        subtype: "init",
+        session_id: "sess-init-1",
+        model: "claude-sonnet-4-6",
+        cwd: "/test",
+        tools: ["Read", "Write"],
+      });
+
+      await tick();
+      assert.equal(systemEvents.length, 1);
+      assert.equal(systemEvents[0][0].type, "system_event");
+      assert.equal(systemEvents[0][0].event, "session_init");
+      assert.equal(systemEvents[0][0].payload.sessionId, "sess-init-1");
+      assert.deepEqual(systemEvents[0][0].payload.tools, ["Read", "Write"]);
+      session.close();
+    });
+
+    it("emits a compact boundary system event from Claude compact_boundary messages", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness);
+      const systemEvents = collectEvents(session, "systemEvent");
+
+      harness.fakeQuery.emit({
+        type: "system",
+        subtype: "init",
+        session_id: "sess-compact-1",
+        model: "claude-sonnet-4-6",
+        cwd: "/test",
+        tools: ["Read", "Write"],
+      });
+      harness.fakeQuery.emit({
+        type: "system",
+        subtype: "compact_boundary",
+        session_id: "sess-compact-1",
+      });
+
+      await tick();
+      const compactEvent = systemEvents
+        .map(([event]) => event)
+        .find((event) => event.event === "compact_boundary");
+      assert.ok(compactEvent);
+      assert.equal(compactEvent.type, "system_event");
+      assert.equal(compactEvent.event, "compact_boundary");
+      assert.equal(compactEvent.payload.sessionId, "sess-compact-1");
+      session.close();
+    });
+
     it("emits output from assistant text blocks", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);

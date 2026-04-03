@@ -24,6 +24,7 @@ import type {
   ProviderRequest,
   ProviderRuntimeBinding,
   UserInputQuestion,
+  SystemEventMessage,
 } from "#core/types.js";
 import type { CoreConfig } from "#core/config.js";
 import type { ProviderSession } from "#core/provider.js";
@@ -36,6 +37,7 @@ import {
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
 } from "#core/tools.js";
+import { buildSessionInitEvent } from "#core/session-init.js";
 import { isPathWithinWorkspace } from "#core/workspace-paths.js";
 
 // =============================================================================
@@ -799,6 +801,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         this.logger.debug(
           `[SdkSession] Init: model=${msg.model}, cwd=${msg.cwd}, tools=${(msg.tools as string[])?.length}`,
         );
+        this.emit("systemEvent", buildSessionInitEvent(msg));
         break;
       case "hook_started":
       case "hook_progress":
@@ -806,6 +809,15 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         // Hook lifecycle — skip
         break;
       case "compact_boundary":
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "compact_boundary",
+          payload: {
+            sessionId: this._sessionId,
+          },
+          raw: msg,
+        } satisfies SystemEventMessage);
+        break;
       case "status":
       case "elicitation_complete":
       case "local_command_output":
