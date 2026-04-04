@@ -4,12 +4,15 @@ import { Menu } from "@/components/ui/menu";
 import { useMessageRelay } from "@/components/chat/message-relay-context";
 import { toast } from "sonner";
 
+type ToolbarPosition = "top" | "bottom";
+
 interface MessageHoverToolbarProps {
   text: string;
   visible: boolean;
+  position?: ToolbarPosition;
 }
 
-export function MessageHoverToolbar({ text, visible }: MessageHoverToolbarProps) {
+export function MessageHoverToolbar({ text, visible, position = "top" }: MessageHoverToolbarProps) {
   const relay = useMessageRelay();
   const [copied, setCopied] = useState(false);
 
@@ -27,8 +30,15 @@ export function MessageHoverToolbar({ text, visible }: MessageHoverToolbarProps)
 
   const hasSiblings = relay && relay.siblings.length > 0;
 
+  const positionClasses =
+    position === "top" ? "absolute -top-3 right-2 z-10" : "absolute bottom-3 right-2 z-10";
+
+  const menuSide = position === "top" ? "bottom" : "top";
+
   return (
-    <div className="absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-surface px-0.5 py-0.5 shadow-sm">
+    <div
+      className={`${positionClasses} flex items-center gap-0.5 rounded-md border border-border bg-surface px-0.5 py-0.5 shadow-sm`}
+    >
       <button
         onClick={handleCopy}
         className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text"
@@ -42,7 +52,7 @@ export function MessageHoverToolbar({ text, visible }: MessageHoverToolbarProps)
           <Menu.Trigger className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text">
             <Send size={12} />
           </Menu.Trigger>
-          <Menu.Content side="bottom" align="end">
+          <Menu.Content side={menuSide} align="end">
             {hasSiblings ? (
               <>
                 {relay.siblings.map((sibling) => (
