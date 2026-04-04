@@ -609,7 +609,8 @@ export function commitAll(
 ): { success: true } | { success: false; error: string } {
   try {
     const opts = { cwd: worktreePath, stdio: "pipe" as const, timeout: 30000 };
-    execFileSync("git", ["add", "-A"], opts);
+    // Exclude .relay/ so space-context.md and other relay metadata don't get committed
+    execFileSync("git", ["add", "-A", "--", ".", ":!.relay/"], opts);
     try {
       execFileSync("git", ["commit", "-m", message], opts);
     } catch (error) {

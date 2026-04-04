@@ -20,6 +20,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Relay space metadata (should never be committed)
+.relay/
+
 # Logs
 *.log
 npm-debug.log*

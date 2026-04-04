@@ -112,13 +112,20 @@ export function SpaceView() {
       }
       if (message.type === "instance_created") {
         void queryClient.invalidateQueries({ queryKey: ["spaceChats", spaceId] });
-        if (
-          message.instance.spaceId === spaceId &&
-          message.instance.id === pendingCreatedChatIdRef.current
-        ) {
-          primeInstanceMessagesCache(message.instance.id);
-          creatingChatRef.current = false;
-          setPendingNewChatActive(false);
+        if (message.instance.spaceId === spaceId) {
+          // Match by exact ID, or if the WS message arrived before the REST
+          // response set the ref (race condition), match any creation for this
+          // space while we're actively waiting for one.
+          const isOurPendingChat =
+            message.instance.id === pendingCreatedChatIdRef.current ||
+            (creatingChatRef.current && !pendingCreatedChatIdRef.current);
+          if (isOurPendingChat) {
+            pendingCreatedChatIdRef.current = message.instance.id;
+            setPendingNewChatId(message.instance.id);
+            primeInstanceMessagesCache(message.instance.id);
+            creatingChatRef.current = false;
+            setPendingNewChatActive(false);
+          }
         }
         return;
       }
@@ -295,7 +302,12 @@ export function SpaceView() {
       setPendingNewChatId(PENDING_NEW_CHAT_TAB_ID);
       try {
         const created = await createInstance({ spaceId });
-        pendingCreatedChatIdRef.current = created.id;
+        // If the WS `instance_created` already resolved (race), the ref is
+        // already set and pendingNewChatActive is already false — just ensure
+        // the ID is correct without re-entering the pending state.
+        if (!pendingCreatedChatIdRef.current) {
+          pendingCreatedChatIdRef.current = created.id;
+        }
         setPendingNewChatId(created.id);
         if (initialPrompt) {
           send({
