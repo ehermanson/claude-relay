@@ -10,18 +10,21 @@ import { MessageRelayProvider } from "@/components/chat/message-relay-context";
 import { PermissionBanner } from "@/components/chat/permission-banner";
 import { SpaceSuggestionCards } from "@/components/spaces/space-suggestion-cards";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
+import { TerminalInputBanner } from "@/components/chat/terminal-input-banner";
 import { TerminalContextStrip } from "@/components/terminal/terminal-context-strip";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { useInstanceViewContext } from "@/components/chat/instance-view-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
+import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
 
 const MotionLogo = motion.create(RelayLogo);
 
 export function InstanceViewContent() {
   const { shared, actions } = useInstanceViewContext();
   const { instances: allInstances } = useWSState();
+  const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
   const { send } = useWSMethods();
 
   const spaceId = shared.instance.spaceId;
@@ -113,6 +116,7 @@ export function InstanceViewContent() {
           items={shared.items}
           rawHistory={shared.rawHistory}
           isProcessing={shared.isActive}
+          providerGlobalState={providerGlobalState[shared.instance.provider]}
           onClose={() => actions.setShowDebugPaste(false)}
         />
       )}
@@ -136,21 +140,26 @@ export function InstanceViewContent() {
       />
 
       {shared.isPendingApproval &&
-        shared.pendingPermissionTool &&
-        shared.pendingPermissionRequestId &&
+        shared.pendingApprovalRequest &&
         !shared.instance.external &&
         !shared.instance.pendingPlan && (
           <PermissionBanner
-            key={shared.pendingPermissionRequestId}
+            key={shared.pendingApprovalRequest.requestId}
             provider={shared.instance.provider}
-            requestId={shared.pendingPermissionRequestId}
-            tool={shared.pendingPermissionTool}
-            description={shared.pendingPermissionDesc}
-            onApprove={actions.handleRespondToRequest}
+            request={shared.pendingApprovalRequest}
+            onRespond={actions.handleRespondToRequest}
           />
         )}
 
-      {shared.pendingTerminalTool && !shared.pendingUserInput && (
+      {shared.pendingTerminalInput && !shared.pendingUserInput && !shared.instance.external && (
+        <TerminalInputBanner
+          provider={shared.instance.provider}
+          request={shared.pendingTerminalInput}
+          onRespond={actions.handleRespondToRequest}
+        />
+      )}
+
+      {shared.pendingTerminalTool && !shared.pendingUserInput && !shared.pendingTerminalInput && (
         <TerminalPermissionBar
           provider={shared.instance.provider}
           pendingTool={shared.pendingTerminalTool}

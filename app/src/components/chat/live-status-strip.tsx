@@ -64,6 +64,8 @@ export function LiveStatusStrip({
     description = "No activity for " + formatElapsed(silenceMs);
   } else if (isStale) {
     description = "Still working...";
+  } else if (activity?.description) {
+    description = activity.description;
   } else {
     description = "Working...";
   }

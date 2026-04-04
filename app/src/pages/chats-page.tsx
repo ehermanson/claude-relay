@@ -16,11 +16,11 @@ import { fetchProjectChats, fetchAllSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
 import { isSpaceOwnedInstance } from "@/lib/space-membership";
 import {
+  deriveInstanceStatusPresentation,
   formatModel,
   formatTimeAgo,
   formatTokens,
   getDisplaySessionStats,
-  instanceStatusVariant,
 } from "@/lib/utils";
 import { PageShell } from "@/components/ui/page-shell";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -47,10 +47,7 @@ function SessionCard({
       className="group flex items-center gap-3 rounded-lg border border-border/80 bg-surface px-4 py-3 transition-all duration-150 hover:-translate-y-px hover:border-accent/30 hover:bg-surface-hover hover:shadow-sm"
     >
       {/* Status dot */}
-      <StatusDot
-        variant={instanceStatusVariant(instance.status, !!instance.pendingTool)}
-        size={6}
-      />
+      <StatusDot variant={deriveInstanceStatusPresentation(instance).variant} size={6} />
 
       {/* Main column — name, preview, parent */}
       <div className="min-w-0 flex-1">

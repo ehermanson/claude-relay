@@ -2,8 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { Button } from "../ui/button";
 import { Tabs } from "../ui/tabs";
-import type { HistoryEntry, InstanceInfo } from "@shared/types";
+import type { HistoryEntry, InstanceInfo, ProviderGlobalState } from "@shared/types";
 import type { ChatItem } from "../../hooks/use-instance-messages";
+
+const SESSION_EVENT_TYPES = new Set([
+  "session_init",
+  "provider_status",
+  "provider_notice",
+  "model_rerouted",
+]);
 
 /**
  * Tracks whether a scrollable element is near the top or bottom and exposes
@@ -89,22 +96,43 @@ export function ChatDebugTabs({
   items,
   rawHistory,
   isProcessing,
+  providerGlobalState,
 }: {
   instance: InstanceInfo;
   items: ChatItem[];
   rawHistory: HistoryEntry[] | null;
   isProcessing: boolean;
+  providerGlobalState?: ProviderGlobalState;
 }) {
   const [copied, setCopied] = useState(false);
 
-  const dumps = useMemo(
-    () => ({
+  const dumps = useMemo(() => {
+    const sessionEvents = (rawHistory ?? [])
+      .filter(
+        (entry) =>
+          entry.message.type === "system_event" &&
+          SESSION_EVENT_TYPES.has((entry.message as { event?: string }).event ?? ""),
+      )
+      .map((entry) => entry.message);
+
+    return {
       raw: JSON.stringify(rawHistory ?? [], null, 2),
       processed: JSON.stringify({ items, isProcessing }, null, 2),
+      provider: JSON.stringify(
+        {
+          provider: instance.provider,
+          preferredModel: instance.preferredModel ?? null,
+          activeModel: instance.stats?.model ?? null,
+          providerGlobalState: providerGlobalState ?? null,
+          providerInstanceState: instance.providerStatus ?? null,
+        },
+        null,
+        2,
+      ),
+      session: JSON.stringify(sessionEvents, null, 2),
       instance: JSON.stringify(instance, null, 2),
-    }),
-    [rawHistory, items, isProcessing, instance],
-  );
+    };
+  }, [rawHistory, items, isProcessing, instance, providerGlobalState]);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -114,14 +142,16 @@ export function ChatDebugTabs({
   };
 
   return (
-    <Tabs.Root defaultValue="raw" onValueChange={() => setCopied(false)}>
+    <Tabs.Root defaultValue="provider" onValueChange={() => setCopied(false)}>
       <Tabs.List className="mb-2">
+        <Tabs.Tab value="provider">Provider State</Tabs.Tab>
+        <Tabs.Tab value="session">Session Events</Tabs.Tab>
         <Tabs.Tab value="raw">Raw History{rawHistory ? ` (${rawHistory.length})` : ""}</Tabs.Tab>
         <Tabs.Tab value="processed">Processed Items ({items.length})</Tabs.Tab>
         <Tabs.Tab value="instance">Instance</Tabs.Tab>
       </Tabs.List>
 
-      {(["raw", "processed", "instance"] as const).map((key) => (
+      {(["provider", "session", "raw", "processed", "instance"] as const).map((key) => (
         <Tabs.Panel key={key} value={key}>
           <DebugPanel content={dumps[key]} onCopy={() => handleCopy(dumps[key])} copied={copied} />
         </Tabs.Panel>

@@ -56,7 +56,9 @@ export type InstanceViewContextValue = {
     terminalHeight: number;
     terminalContexts: Array<{ id: string; terminalName: string; text: string }>;
     pendingUserInput: ProviderRequest | null;
+    pendingTerminalInput: ProviderRequest | null;
     isPendingApproval: boolean;
+    pendingApprovalRequest: ProviderRequest | null;
     pendingPermissionTool: string | null;
     pendingPermissionRequestId: string | null;
     pendingPermissionDesc?: string;
@@ -87,7 +89,12 @@ export type InstanceViewContextValue = {
     ) => Promise<void>;
     setShowDebugPaste: (open: boolean) => void;
     setConfirmDelete: (open: boolean) => void;
-    handleRespondToRequest: (requestId: string, tool: string) => void;
+    handleRespondToRequest: (
+      requestId: string,
+      tool: string,
+      decision?: "accept" | "decline",
+      text?: string,
+    ) => void;
     handleApproveTool: (tool: string) => void;
     dismissBranchChangeBanner: () => void;
     togglePanel: (panel: SidecarTab) => void;

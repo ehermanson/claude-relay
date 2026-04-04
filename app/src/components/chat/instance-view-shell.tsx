@@ -5,9 +5,12 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { InstanceViewContent } from "@/components/chat/instance-view-content";
 import { InstanceViewHeader } from "@/components/chat/instance-view-header";
 import { useInstanceViewContext } from "@/components/chat/instance-view-context";
+import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
 
 export function InstanceViewShell() {
   const { shared, actions } = useInstanceViewContext();
+  const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
+  const currentProviderGlobalState = providerGlobalState[shared.instance.provider];
 
   if (shared.compact) {
     return (
@@ -72,6 +75,8 @@ export function InstanceViewShell() {
                   rawHistory={shared.rawHistory}
                   provider={shared.instance.provider}
                   preferredModel={shared.instance.preferredModel}
+                  providerStatus={shared.instance.providerStatus}
+                  providerGlobalState={currentProviderGlobalState}
                   instanceId={shared.id}
                   createdAt={shared.instance.createdAt}
                   lastActivityAt={shared.instance.lastActivityAt}
@@ -94,6 +99,8 @@ export function InstanceViewShell() {
             rawHistory={shared.rawHistory}
             provider={shared.instance.provider}
             preferredModel={shared.instance.preferredModel}
+            providerStatus={shared.instance.providerStatus}
+            providerGlobalState={currentProviderGlobalState}
             instanceId={shared.id}
             createdAt={shared.instance.createdAt}
             lastActivityAt={shared.instance.lastActivityAt}

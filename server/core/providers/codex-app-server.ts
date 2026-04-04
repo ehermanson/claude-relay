@@ -21,6 +21,11 @@ import type {
   ExitMessage,
   ActivityMessage,
   FileChange,
+  ProviderAccountStatus,
+  ProviderDiffStatus,
+  ProviderMcpServerStatus,
+  ProviderNotice,
+  ProviderRateLimitStatus,
   SessionStats,
   SystemEventMessage,
   ProviderModelOptions,
@@ -164,6 +169,16 @@ interface RequestUserInputParams {
   turnId: string;
 }
 
+interface TerminalInteractionParams {
+  itemId?: string;
+  command?: string;
+  cwd?: string;
+  prompt?: string;
+  text?: string;
+  isSecret?: boolean;
+  [key: string]: unknown;
+}
+
 type ThreadItem =
   | CommandExecutionItem
   | FileChangeItem
@@ -190,6 +205,14 @@ export interface CodexAppServerSessionOptions {
   modelOptions?: ProviderModelOptions;
 }
 
+export interface CodexProviderGlobalStateSnapshotOptions {
+  cwd: string;
+  logger: CoreConfig["logger"];
+  processTimeout?: number;
+  spawnProcess?: SpawnFn;
+  codexPath?: string;
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -208,6 +231,248 @@ function trackFileChange(
     return;
   }
   files.set(path, { path, editCount: 1, type });
+}
+
+function getString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function getStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0,
+  );
+  return strings.length > 0 ? strings : undefined;
+}
+
+function buildRequestDescription(params: Record<string, unknown>): string | undefined {
+  return (
+    getString(params.reason) ??
+    getString(params.prompt) ??
+    getString(params.command) ??
+    getString(params.description)
+  );
+}
+
+function buildProviderNotice(
+  level: ProviderNotice["level"],
+  scope: ProviderNotice["scope"],
+  source: string,
+  params: Record<string, unknown>,
+): ProviderNotice | null {
+  const message =
+    getString(params.message) ??
+    getString((params.warning as Record<string, unknown> | undefined)?.message) ??
+    getString((params.notice as Record<string, unknown> | undefined)?.message);
+  if (!message) return null;
+  return {
+    level,
+    scope,
+    source,
+    code:
+      getString(params.code) ??
+      getString((params.warning as Record<string, unknown> | undefined)?.code) ??
+      getString((params.notice as Record<string, unknown> | undefined)?.code),
+    message,
+    detail:
+      getString(params.detail) ??
+      getString((params.warning as Record<string, unknown> | undefined)?.detail) ??
+      getString((params.notice as Record<string, unknown> | undefined)?.detail),
+  };
+}
+
+function buildMcpServerStatusList(value: unknown): ProviderMcpServerStatus[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const servers: ProviderMcpServerStatus[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const name = getString(row.name) ?? getString(row.server);
+    if (!name) continue;
+    const tools = Array.isArray(row.tools) ? row.tools.length : undefined;
+    servers.push({
+      name,
+      status: getString(row.status),
+      authStatus: getString(row.authStatus) ?? getString(row.auth_status),
+      connected: typeof row.connected === "boolean" ? row.connected : undefined,
+      toolCount: tools,
+      detail: getString(row.detail) ?? getString(row.message),
+    });
+  }
+  return servers.length > 0 ? servers : undefined;
+}
+
+function buildAccountStatus(params: Record<string, unknown>): ProviderAccountStatus | undefined {
+  const account = (params.account as Record<string, unknown> | undefined) ?? params;
+  const rateLimits: NonNullable<ProviderAccountStatus["rateLimits"]> = [];
+  if (Array.isArray(account.rateLimits)) {
+    for (const entry of account.rateLimits) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as Record<string, unknown>;
+      rateLimits.push({
+        name: getString(row.name),
+        scope: getString(row.scope),
+        plan: getString(row.plan) ?? getString(row.planType),
+        windows: [
+          {
+            label: getString(row.label),
+            limit: typeof row.limit === "number" ? row.limit : undefined,
+            remaining: typeof row.remaining === "number" ? row.remaining : undefined,
+            usedPercent: typeof row.usedPercent === "number" ? row.usedPercent : undefined,
+            windowMinutes:
+              typeof row.windowMinutes === "number"
+                ? row.windowMinutes
+                : typeof row.windowDurationMins === "number"
+                  ? row.windowDurationMins
+                  : undefined,
+            resetAt: getString(row.resetAt) ?? getString(row.reset_at),
+          },
+        ],
+      });
+    }
+  }
+  const result: ProviderAccountStatus = {
+    plan: getString(account.plan) ?? getString(account.planType),
+    label: getString(account.label) ?? getString(account.name),
+    email: getString(account.email),
+    status: getString(account.status),
+    rateLimits: rateLimits.length ? rateLimits : undefined,
+  };
+  return result.plan || result.label || result.email || result.status || result.rateLimits
+    ? result
+    : undefined;
+}
+
+function buildDiffStatus(params: Record<string, unknown>): ProviderDiffStatus | undefined {
+  const changedFiles =
+    typeof params.changedFiles === "number"
+      ? params.changedFiles
+      : typeof params.changed_files === "number"
+        ? params.changed_files
+        : undefined;
+  const result: ProviderDiffStatus = {
+    status: getString(params.status),
+    changedFiles,
+    summary:
+      getString(params.summary) ??
+      (typeof changedFiles === "number"
+        ? `${changedFiles} file${changedFiles === 1 ? "" : "s"} changed`
+        : undefined),
+  };
+  return result.status || result.summary || typeof result.changedFiles === "number"
+    ? result
+    : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+
+function normalizeCodexAccountSnapshot(result: unknown): ProviderAccountStatus | undefined {
+  const payload = asRecord(result);
+  const account = asRecord(payload?.account);
+  const accountType = getString(account?.type);
+  const planType = getString(account?.planType);
+  const email = getString(account?.email);
+  const requiresOpenaiAuth =
+    typeof payload?.requiresOpenaiAuth === "boolean" ? payload.requiresOpenaiAuth : false;
+
+  const status =
+    getString(payload?.status) ??
+    (requiresOpenaiAuth ? "auth_required" : accountType === "apiKey" ? "api_key" : undefined);
+
+  const label =
+    getString(payload?.label) ??
+    (accountType === "chatgpt"
+      ? "ChatGPT account"
+      : accountType === "apiKey"
+        ? "API key"
+        : undefined);
+
+  const normalized: ProviderAccountStatus = {
+    plan: planType,
+    label,
+    email,
+    status,
+  };
+
+  return normalized.plan || normalized.label || normalized.email || normalized.status
+    ? normalized
+    : undefined;
+}
+
+function normalizeCodexRateLimitsSnapshot(
+  result: unknown,
+): ProviderAccountStatus["rateLimits"] | undefined {
+  const payload = asRecord(result);
+  const primary = payload?.rateLimits;
+  const byLimitId = asRecord(payload?.rateLimitsByLimitId);
+  const snapshots: unknown[] = [];
+  if (primary) snapshots.push(primary);
+  if (byLimitId) {
+    for (const value of Object.values(byLimitId)) {
+      if (value) snapshots.push(value);
+    }
+  }
+
+  const seen = new Set<string>();
+  const limits: NonNullable<ProviderAccountStatus["rateLimits"]> = [];
+  for (const snapshotValue of snapshots) {
+    const snapshot = asRecord(snapshotValue);
+    if (!snapshot) continue;
+    const primaryWindow = asRecord(snapshot.primary);
+    const secondaryWindow = asRecord(snapshot.secondary);
+    const name = getString(snapshot.limitName) ?? getString(snapshot.limitId);
+    const scope = getString(snapshot.limitId);
+    const dedupeKey = `${scope ?? ""}|${name ?? ""}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    const windows: NonNullable<ProviderRateLimitStatus["windows"]> = [];
+    if (primaryWindow) {
+      const usedPercent =
+        typeof primaryWindow.usedPercent === "number" ? primaryWindow.usedPercent : undefined;
+      windows.push({
+        label: "Primary",
+        usedPercent,
+        remaining:
+          typeof usedPercent === "number" ? Math.max(0, Math.round(100 - usedPercent)) : undefined,
+        windowMinutes:
+          typeof primaryWindow.windowDurationMins === "number"
+            ? primaryWindow.windowDurationMins
+            : undefined,
+        resetAt:
+          typeof primaryWindow.resetsAt === "number"
+            ? new Date(primaryWindow.resetsAt * 1000).toISOString()
+            : undefined,
+      });
+    }
+    if (secondaryWindow) {
+      const usedPercent =
+        typeof secondaryWindow.usedPercent === "number" ? secondaryWindow.usedPercent : undefined;
+      windows.push({
+        label: "Secondary",
+        usedPercent,
+        remaining:
+          typeof usedPercent === "number" ? Math.max(0, Math.round(100 - usedPercent)) : undefined,
+        windowMinutes:
+          typeof secondaryWindow.windowDurationMins === "number"
+            ? secondaryWindow.windowDurationMins
+            : undefined,
+        resetAt:
+          typeof secondaryWindow.resetsAt === "number"
+            ? new Date(secondaryWindow.resetsAt * 1000).toISOString()
+            : undefined,
+      });
+    }
+    limits.push({
+      name,
+      scope,
+      plan: getString(snapshot.planType),
+      windows: windows.length ? windows : undefined,
+    });
+  }
+
+  return limits.length ? limits : undefined;
 }
 
 // =============================================================================
@@ -247,10 +512,10 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private readonly pendingRequests = new Map<
     string,
     {
-      kind: "approval" | "user_input";
+      kind: "approval" | "user_input" | "terminal_input";
       method: string;
-      params: Record<string, unknown> | RequestUserInputParams;
-      rpcId: number | string;
+      params: Record<string, unknown> | RequestUserInputParams | TerminalInteractionParams;
+      rpcId?: number | string;
     }
   >();
 
@@ -451,7 +716,9 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     for (const [requestId, pending] of this.pendingRequests) {
       if (pending.kind !== "approval") continue;
       this.pendingRequests.delete(requestId);
-      this.sendRpcResponse(pending.rpcId, { decision: "accept" });
+      if (pending.rpcId !== undefined) {
+        this.sendRpcResponse(pending.rpcId, { decision: "accept" });
+      }
     }
   }
 
@@ -472,7 +739,9 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     if (pending.kind === "user_input") {
       const answers = decision === "accept" ? (response?.answers ?? {}) : {};
       const hasAnswers = Object.keys(answers).length > 0;
-      this.sendRpcResponse(pending.rpcId, { answers });
+      if (pending.rpcId !== undefined) {
+        this.sendRpcResponse(pending.rpcId, { answers });
+      }
       this.emit("activity", {
         type: "activity",
         activity: "tool_result",
@@ -486,8 +755,32 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       return true;
     }
 
+    if (pending.kind === "terminal_input") {
+      const text = decision === "accept" ? (response?.text?.trim() ?? "") : "";
+      if (pending.rpcId !== undefined) {
+        this.sendRpcResponse(pending.rpcId, { text });
+      } else if (decision === "accept" && text) {
+        const itemId = getString((pending.params as TerminalInteractionParams).itemId);
+        this.emit("activity", {
+          type: "activity",
+          activity: "tool_result",
+          tool: "Bash",
+          description: "Terminal input sent",
+          detail: text,
+          input: {
+            requestId,
+            itemId,
+            text,
+          },
+        } as ActivityMessage);
+      }
+      return true;
+    }
+
     const responseResult = { decision: decision === "accept" ? "accept" : "decline" };
-    this.sendRpcResponse(pending.rpcId, responseResult);
+    if (pending.rpcId !== undefined) {
+      this.sendRpcResponse(pending.rpcId, responseResult);
+    }
     return true;
   }
 
@@ -579,6 +872,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       this.emitSessionInitEvent(result);
     }
 
+    this.requestStartupSnapshots();
+
     // Step 3: Start first turn
     this.startTurn(message);
   }
@@ -608,7 +903,74 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       }
     }
 
+    this.requestStartupSnapshots();
+
     this.startCompaction();
+  }
+
+  private requestStartupSnapshots(): void {
+    void this.sendRpc("mcpServerStatus/list", {})
+      .then((result) => {
+        const payload = asRecord(result);
+        const mcpServers = buildMcpServerStatusList(payload?.servers ?? payload?.items ?? result);
+        if (!mcpServers?.length) return;
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: { mcpServers },
+        } as SystemEventMessage);
+      })
+      .catch((err) => {
+        this.logger.debug(`[CodexAppServer] mcpServerStatus/list snapshot unavailable: ${err}`);
+      });
+
+    void this.sendRpc("app/list", {})
+      .then((result) => {
+        const payload = asRecord(result);
+        const apps = getStringArray(payload?.apps ?? payload?.items ?? result);
+        if (!apps?.length) return;
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: { apps },
+        } as SystemEventMessage);
+      })
+      .catch((err) => {
+        this.logger.debug(`[CodexAppServer] app/list snapshot unavailable: ${err}`);
+      });
+
+    void this.sendRpc("account/read", { refreshToken: false })
+      .then((result) => {
+        const account = normalizeCodexAccountSnapshot(result);
+        if (account) {
+          this.emit("systemEvent", {
+            type: "system_event",
+            event: "provider_status",
+            payload: { account },
+          } as SystemEventMessage);
+        }
+      })
+      .catch((err) => {
+        this.logger.debug(`[CodexAppServer] account/read snapshot unavailable: ${err}`);
+      });
+
+    void this.sendRpc("account/rateLimits/read", undefined)
+      .then((result) => {
+        const rateLimits = normalizeCodexRateLimitsSnapshot(result);
+        if (!rateLimits?.length) return;
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            account: {
+              rateLimits,
+            },
+          },
+        } as SystemEventMessage);
+      })
+      .catch((err) => {
+        this.logger.debug(`[CodexAppServer] account/rateLimits/read snapshot unavailable: ${err}`);
+      });
   }
 
   private startTurn(message: string): void {
@@ -862,8 +1224,13 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         const request: ProviderRequest = {
           requestId,
           kind: "approval",
+          category: "command",
+          source: "command",
           tool: "Bash",
           description: command,
+          command,
+          cwd: getString(params.cwd),
+          raw: params,
         };
         this.emit("permissionRequest", request);
 
@@ -898,10 +1265,45 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         const request: ProviderRequest = {
           requestId,
           kind: "approval",
+          category: "file_change",
+          source: "agent",
           tool: "Edit",
           description: reason,
+          reason,
+          files: getStringArray(params.files),
+          raw: params,
         };
         this.emit("permissionRequest", request);
+        break;
+      }
+
+      case "item/permissions/requestApproval": {
+        const requestId = `codex-approval-${msg.id}`;
+        this.pendingRequests.set(requestId, {
+          kind: "approval",
+          method: msg.method,
+          params,
+          rpcId: msg.id,
+        });
+
+        if (this._bypassPermissions) {
+          this.respondToRequest(requestId, "accept");
+          return;
+        }
+
+        this.emit("permissionRequest", {
+          requestId,
+          kind: "approval",
+          category: "generic",
+          source: "provider",
+          tool: getString(params.tool) ?? getString(params.permission) ?? "Permissions",
+          description: buildRequestDescription(params) ?? "Permission request",
+          command: getString(params.command),
+          cwd: getString(params.cwd),
+          reason: getString(params.reason),
+          files: getStringArray(params.files),
+          raw: params,
+        } satisfies ProviderRequest);
         break;
       }
 
@@ -923,8 +1325,11 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         const request: ProviderRequest = {
           requestId,
           kind: "approval",
+          category: "file_change",
+          source: "provider",
           tool: "Edit",
           description: "Apply patch",
+          raw: params,
         };
         this.emit("permissionRequest", request);
         break;
@@ -948,8 +1353,13 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         const request: ProviderRequest = {
           requestId,
           kind: "approval",
+          category: "command",
+          source: "command",
           tool: "Bash",
           description: cmd,
+          command: cmd,
+          cwd: getString(params.cwd),
+          raw: params,
         };
         this.emit("permissionRequest", request);
         break;
@@ -970,9 +1380,11 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         this.emit("permissionRequest", {
           requestId,
           kind: "user_input",
+          source: "agent",
           tool: "AskUserQuestion",
           description: questions[0]?.question,
           questions,
+          raw: requestParams as unknown as Record<string, unknown>,
         } as ProviderRequest);
         this.emit("activity", {
           type: "activity",
@@ -985,6 +1397,49 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           },
           inputDescription: questions[0]?.question,
         } as ActivityMessage);
+        break;
+      }
+
+      case "mcpServer/elicitation/request": {
+        const requestId = `codex-input-${msg.id}`;
+        const prompt = getString(params.prompt) ?? buildRequestDescription(params);
+        const providedQuestions = Array.isArray(params.questions)
+          ? (params.questions as UserInputQuestion[])
+          : undefined;
+        const questions =
+          providedQuestions && providedQuestions.length > 0
+            ? providedQuestions
+            : prompt
+              ? ([
+                  {
+                    id: "response",
+                    header: "Input",
+                    question: prompt,
+                    isOther: true,
+                    isSecret: Boolean(params.secret ?? params.isSecret),
+                  },
+                ] satisfies UserInputQuestion[])
+              : undefined;
+
+        this.pendingRequests.set(requestId, {
+          kind: "user_input",
+          method: msg.method,
+          params,
+          rpcId: msg.id,
+        });
+
+        this.emit("permissionRequest", {
+          requestId,
+          kind: "user_input",
+          category: "generic",
+          source: "mcp",
+          tool: "MCP",
+          server: getString(params.server),
+          description: prompt ?? "MCP server needs input",
+          prompt,
+          questions,
+          raw: params,
+        } satisfies ProviderRequest);
         break;
       }
 
@@ -1021,6 +1476,15 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         break;
 
       case "thread/status/changed":
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            threadStatus: getString(params.status),
+            threadId: this._sessionId,
+          },
+          raw: msg,
+        } as SystemEventMessage);
         break;
 
       case "thread/name/updated": {
@@ -1039,11 +1503,30 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         if (turn?.id) {
           this._currentTurnId = turn.id;
         }
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            turnStatus: turn?.status ?? "inProgress",
+            turnId: turn?.id,
+          },
+          raw: msg,
+        } as SystemEventMessage);
         break;
       }
 
       case "turn/completed": {
+        const turn = params.turn as TurnInfo | undefined;
         this._currentTurnId = null;
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            turnStatus: turn?.status ?? "completed",
+            turnId: turn?.id,
+          },
+          raw: msg,
+        } as SystemEventMessage);
         this.finishTurn(params);
         break;
       }
@@ -1112,8 +1595,64 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         break;
       }
 
+      case "item/commandExecution/terminalInteraction": {
+        const terminal = params as TerminalInteractionParams;
+        const itemId = getString(terminal.itemId) ?? `${this._currentTurnId ?? "turn"}-terminal`;
+        const prompt = getString(terminal.prompt) ?? getString(terminal.text);
+        if (!prompt) break;
+        const requestId = `codex-terminal-${itemId}`;
+        this.pendingRequests.set(requestId, {
+          kind: "terminal_input",
+          method: msg.method,
+          params: terminal,
+        });
+        this.emit("permissionRequest", {
+          requestId,
+          kind: "terminal_input",
+          category: "command",
+          source: "command",
+          tool: "Bash",
+          description: prompt,
+          prompt,
+          command: getString(terminal.command),
+          cwd: getString(terminal.cwd),
+          raw: terminal,
+        } satisfies ProviderRequest);
+        this.emit("activity", {
+          type: "activity",
+          activity: "tool_use",
+          tool: "Bash",
+          description: "Terminal interaction required",
+          detail: prompt,
+          input: {
+            requestId,
+            prompt,
+            command: getString(terminal.command),
+            cwd: getString(terminal.cwd),
+          },
+          raw: terminal,
+        } as ActivityMessage);
+        break;
+      }
+
       case "item/fileChange/outputDelta": {
         // Similarly, patch output deltas — we track completed file changes
+        break;
+      }
+
+      case "item/mcpToolCall/progress": {
+        const server = getString(params.server) ?? getString(params.mcpServer) ?? "MCP";
+        const tool = getString(params.tool) ?? "tool";
+        const progress =
+          getString(params.message) ?? getString(params.status) ?? getString(params.detail);
+        this.emit("activity", {
+          type: "activity",
+          activity: "tool_use",
+          tool,
+          description: `${server}/${tool}${progress ? `: ${progress}` : ""}`,
+          detail: progress,
+          raw: msg,
+        } as ActivityMessage);
         break;
       }
 
@@ -1174,6 +1713,88 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         break;
       }
 
+      case "turn/diff/updated": {
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            diff: buildDiffStatus(params),
+          },
+          raw: msg,
+        } as SystemEventMessage);
+        break;
+      }
+
+      case "item/autoApprovalReview/started":
+      case "item/autoApprovalReview/completed": {
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            source: msg.method,
+            ...params,
+          },
+          raw: msg,
+        } as SystemEventMessage);
+        break;
+      }
+
+      case "mcpServerStatus/list": {
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            mcpServers: buildMcpServerStatusList(params.servers ?? params.items),
+          },
+          raw: msg,
+        } as SystemEventMessage);
+        break;
+      }
+
+      case "mcpServer/oauthLogin/completed": {
+        const notice = buildProviderNotice("info", "global", msg.method, params) ?? {
+          level: "info",
+          scope: "global",
+          source: msg.method,
+          message: `MCP login completed for ${getString(params.server) ?? "server"}`,
+        };
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_notice",
+          payload: notice as unknown as Record<string, unknown>,
+          raw: msg,
+        } as SystemEventMessage);
+        break;
+      }
+
+      case "account/updated":
+      case "account/rateLimits/updated": {
+        const account = buildAccountStatus(params);
+        if (!account) break;
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            account,
+          },
+          raw: msg,
+        } as SystemEventMessage);
+        break;
+      }
+
+      case "app/list/updated": {
+        const apps = getStringArray(params.apps ?? params.items);
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            apps,
+          },
+          raw: msg,
+        } as SystemEventMessage);
+        break;
+      }
+
       // -----------------------------------------------------------------------
       // Errors
       // -----------------------------------------------------------------------
@@ -1196,7 +1817,37 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         if (resolvedId !== undefined) {
           this.pendingRequests.delete(`codex-approval-${resolvedId}`);
           this.pendingRequests.delete(`codex-input-${resolvedId}`);
+          this.pendingRequests.delete(`codex-terminal-${resolvedId}`);
         }
+        break;
+      }
+
+      case "model/rerouted": {
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "model_rerouted",
+          payload: {
+            requestedModel: getString(params.requestedModel) ?? this._preferredModel ?? undefined,
+            effectiveModel: getString(params.effectiveModel) ?? getString(params.model),
+            reroutedFromModel:
+              getString(params.reroutedFromModel) ?? getString(params.requestedModel),
+            message: getString(params.message),
+          },
+          raw: msg,
+        } as SystemEventMessage);
+        break;
+      }
+
+      case "configWarning":
+      case "deprecationNotice": {
+        const notice = buildProviderNotice("warning", "global", msg.method, params);
+        if (!notice) break;
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_notice",
+          payload: notice as unknown as Record<string, unknown>,
+          raw: msg,
+        } as SystemEventMessage);
         break;
       }
 
@@ -1479,5 +2130,143 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     if (!this.timeoutHandle) return;
     clearTimeout(this.timeoutHandle);
     this.timeoutHandle = null;
+  }
+}
+
+export async function fetchCodexProviderGlobalStateSnapshot({
+  cwd,
+  logger,
+  processTimeout = 10_000,
+  spawnProcess = spawn,
+  codexPath = findCodexBinary() ?? "codex",
+}: CodexProviderGlobalStateSnapshotOptions): Promise<import("#core/types.js").ProviderGlobalState> {
+  const child = spawnProcess(codexPath, ["app-server", "--listen", "stdio://"], {
+    cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const stdin = child.stdin;
+  const stdout = child.stdout;
+  if (!stdin?.writable || !stdout) {
+    child.kill("SIGTERM");
+    throw new Error("Codex app-server transport unavailable");
+  }
+
+  let nextRpcId = 1;
+  let lineBuffer = "";
+  const pending = new Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  >();
+
+  const cleanup = () => {
+    stdout.removeAllListeners("data");
+    child.removeAllListeners();
+  };
+
+  const closeChild = () => {
+    cleanup();
+    if (!child.killed) child.kill("SIGTERM");
+  };
+
+  const rejectAll = (error: Error) => {
+    for (const [, entry] of pending) {
+      entry.reject(error);
+    }
+    pending.clear();
+  };
+
+  child.on("error", (err) => {
+    rejectAll(err instanceof Error ? err : new Error(String(err)));
+  });
+  child.on("close", (code, signal) => {
+    if (pending.size > 0) {
+      rejectAll(new Error(`Codex app-server exited (${code ?? signal ?? "unknown"})`));
+    }
+  });
+
+  stdout.on("data", (chunk: Buffer | string) => {
+    lineBuffer += chunk.toString();
+    let idx = lineBuffer.indexOf("\n");
+    while (idx !== -1) {
+      const line = lineBuffer.slice(0, idx).trim();
+      lineBuffer = lineBuffer.slice(idx + 1);
+      idx = lineBuffer.indexOf("\n");
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line) as JsonRpcMessage;
+        if ("id" in msg && msg.id !== undefined && !("method" in msg)) {
+          const id = typeof msg.id === "number" ? msg.id : Number(msg.id);
+          const entry = pending.get(id);
+          if (!entry) continue;
+          pending.delete(id);
+          if (msg.error) {
+            entry.reject(
+              new Error(msg.error.message ?? `RPC error ${msg.error.code ?? "unknown"}`),
+            );
+          } else {
+            entry.resolve(msg.result);
+          }
+        }
+      } catch {
+        logger.debug(`[CodexAppServer] Snapshot fetch ignoring non-JSON line: ${line}`);
+      }
+    }
+  });
+
+  const sendRpc = (method: string, params: unknown): Promise<unknown> =>
+    new Promise((resolve, reject) => {
+      const id = nextRpcId++;
+      pending.set(id, { resolve, reject });
+      stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    });
+
+  const sendNotification = (method: string, params?: unknown): void => {
+    const msg: { jsonrpc: "2.0"; method: string; params?: unknown } = { jsonrpc: "2.0", method };
+    if (params !== undefined) msg.params = params;
+    stdin.write(JSON.stringify(msg) + "\n");
+  };
+
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error("Timed out fetching Codex global state")), processTimeout);
+  });
+
+  try {
+    await Promise.race([
+      sendRpc("initialize", {
+        clientInfo: { name: "relay", version: "0.0.0" },
+        capabilities: { experimentalApi: true },
+      }),
+      timeout,
+    ]);
+    sendNotification("initialized");
+
+    const [mcpResult, appResult, accountResult, rateLimitsResult] = await Promise.all([
+      Promise.race([sendRpc("mcpServerStatus/list", {}), timeout]).catch(() => null),
+      Promise.race([sendRpc("app/list", {}), timeout]).catch(() => null),
+      Promise.race([sendRpc("account/read", { refreshToken: false }), timeout]).catch(() => null),
+      Promise.race([sendRpc("account/rateLimits/read", undefined), timeout]).catch(() => null),
+    ]);
+
+    const mcpPayload = asRecord(mcpResult);
+    const appPayload = asRecord(appResult);
+    const account = normalizeCodexAccountSnapshot(accountResult) ?? undefined;
+    const rateLimits = normalizeCodexRateLimitsSnapshot(rateLimitsResult);
+
+    return {
+      provider: "codex",
+      account:
+        account || rateLimits?.length
+          ? {
+              ...(account ?? {}),
+              rateLimits,
+            }
+          : undefined,
+      mcpServers: buildMcpServerStatusList(mcpPayload?.servers ?? mcpPayload?.items ?? mcpResult),
+      apps: getStringArray(appPayload?.apps ?? appPayload?.items ?? appResult),
+      updatedAt: Date.now(),
+    };
+  } finally {
+    closeChild();
   }
 }

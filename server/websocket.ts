@@ -27,6 +27,8 @@ import type {
   SystemEventMessage,
   TranscriptMessage,
   UserMessage,
+  ProviderGlobalState,
+  ProviderKind,
 } from "#core/types.js";
 
 function truncateSessionId(sessionId: string): string {
@@ -287,6 +289,13 @@ export function createWebSocketServer(
     broadcast({ type: "instance_status", instanceId, instance: info });
   });
 
+  instanceManager.on(
+    "provider_global_state:updated",
+    (provider: ProviderKind, state: ProviderGlobalState) => {
+      broadcast({ type: "provider_global_state", provider, state });
+    },
+  );
+
   // External session discovery events
   instanceManager.on("instance:created", (instanceId: string, info: InstanceInfo) => {
     broadcast({ type: "instance_created", instanceId, instance: info });
@@ -429,6 +438,11 @@ export function createWebSocketServer(
       type: "instance_list",
       instances: instanceManager.listInstances(),
     });
+    sendMessage(ws, {
+      type: "provider_global_state_list",
+      states: instanceManager.listProviderGlobalState(),
+    });
+    void instanceManager.ensureProviderGlobalState("codex");
     sendMessage(ws, {
       type: "projects_changed",
       projects: instanceManager.projectManager.listProjects(),
@@ -661,6 +675,7 @@ export function createWebSocketServer(
                 message.decision,
                 {
                   answers: message.answers,
+                  text: message.text,
                 },
               );
             } catch (err) {

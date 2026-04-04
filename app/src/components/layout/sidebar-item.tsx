@@ -5,7 +5,7 @@ import { Menu } from "@/components/ui/menu";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { getInstanceProjectRouteId } from "@/lib/project-route";
-import { formatTimeAgo } from "@/lib/utils";
+import { deriveInstanceStatusPresentation, formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
 interface SidebarItemProps {
@@ -71,31 +71,7 @@ export function SidebarItem({
     }
   };
 
-  const hasPendingTool = !!instance.pendingTool;
-  const isStopped = instance.status === "stopped";
-
-  // Status dot color + tooltip — matches instance-header.tsx logic
-  let dotClass: string;
-  let statusTip: string;
-  if (isStopped) {
-    dotClass = "bg-muted";
-    statusTip = instance.external ? "External chat (ended)" : "Ended";
-  } else if (hasPendingTool) {
-    dotClass = "animate-pulse-dot bg-warning";
-    statusTip = "Waiting for permission";
-  } else if (instance.status === "processing") {
-    dotClass = "animate-pulse-dot bg-warning";
-    statusTip = instance.external ? "External chat (active)" : "Processing";
-  } else if (instance.status === "error") {
-    dotClass = "bg-error";
-    statusTip = "Error";
-  } else if (instance.external) {
-    dotClass = "bg-accent";
-    statusTip = "External chat";
-  } else {
-    dotClass = "bg-accent";
-    statusTip = "Idle";
-  }
+  const status = deriveInstanceStatusPresentation(instance);
 
   return (
     <Link
@@ -110,8 +86,8 @@ export function SidebarItem({
     >
       {/* Status indicator — absolutely positioned in the left padding */}
       <span className="absolute left-2.5 top-2 flex h-3 w-3 items-center justify-center">
-        <Tooltip content={statusTip} side="right">
-          <span className={`h-[6px] w-[6px] rounded-full ${dotClass}`} />
+        <Tooltip content={status.label} side="right">
+          <span className={`h-[6px] w-[6px] rounded-full ${status.dotClass}`} />
         </Tooltip>
       </span>
 

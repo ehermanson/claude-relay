@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import {
+  AlertTriangle,
   Bug,
   Columns2,
   EllipsisVertical,
@@ -33,8 +34,12 @@ import { HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
 import { CommitMessageDialog } from "../git/commit-message-dialog";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
 import { gitCommitInstance, gitPushInstance } from "../../lib/api";
-import { formatTokens, getDisplaySessionStats } from "../../lib/utils";
-import type { InstanceInfo, SessionStats } from "@shared/types";
+import {
+  deriveInstanceStatusPresentation,
+  formatTokens,
+  getDisplaySessionStats,
+} from "../../lib/utils";
+import type { InstanceInfo, ProviderNotice, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
 import "./instance-header.css";
 
@@ -170,6 +175,13 @@ interface InstanceHeaderProps {
   terminalOpen?: boolean;
 }
 
+function shouldPromoteProviderNotice(notice: ProviderNotice | undefined): boolean {
+  if (!notice) return false;
+  if (notice.code === "auth_required") return false;
+  if (notice.source === "account/read") return false;
+  return notice.source === "configWarning" || notice.source === "deprecationNotice";
+}
+
 export function InstanceHeader({
   instance,
   isMobile,
@@ -188,27 +200,11 @@ export function InstanceHeader({
   onToggleTerminal,
   terminalOpen,
 }: InstanceHeaderProps) {
-  const isStopped = instance.status === "stopped";
   const displayBranch = instance.gitInfo?.branch || instance.gitBranch;
   const displayBranchIsWorktree =
     instance.gitInfo?.isWorktree ?? Boolean(instance.originalDirectory && displayBranch);
 
-  // Status dot + label
-  let dotClass: string;
-  let statusLabel: string;
-  if (isStopped) {
-    dotClass = "bg-muted";
-    statusLabel = instance.external ? "External chat (ended)" : "Ended";
-  } else if (instance.status === "processing") {
-    dotClass = "animate-pulse-dot bg-warning";
-    statusLabel = instance.external ? "External chat (active)" : "Processing";
-  } else if (instance.external) {
-    dotClass = "bg-accent";
-    statusLabel = "External chat";
-  } else {
-    dotClass = "bg-accent";
-    statusLabel = "Idle";
-  }
+  const instanceStatus = deriveInstanceStatusPresentation(instance);
 
   const projectId = getInstanceProjectRouteId(instance);
   const displayStats = instance.stats
@@ -216,6 +212,13 @@ export function InstanceHeader({
     : null;
   const totalTokens = displayStats?.totalTokens ?? 0;
   const displayBranchName = displayBranch || undefined;
+  const providerNotices = instance.providerStatus?.notices ?? [];
+  const latestProviderNotice = providerNotices[providerNotices.length - 1];
+  const promotedProviderNotice = shouldPromoteProviderNotice(latestProviderNotice)
+    ? latestProviderNotice
+    : null;
+  const reroutedModel = instance.providerStatus?.effectiveModel;
+  const rerouteSource = instance.providerStatus?.reroutedFromModel;
 
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
 
@@ -250,8 +253,8 @@ export function InstanceHeader({
           label={getProjectName(instance.workingDirectory)}
         />
       </span>
-      <Tooltip content={statusLabel}>
-        <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
+      <Tooltip content={instanceStatus.label}>
+        <span className={`h-2 w-2 shrink-0 rounded-full ${instanceStatus.dotClass}`} />
       </Tooltip>
       <ViewHeaderTitle>
         <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
@@ -285,6 +288,30 @@ export function InstanceHeader({
               ) : undefined
             }
           />
+          {promotedProviderNotice ? (
+            <Tooltip
+              content={
+                <div className="max-w-64">
+                  <div className="font-medium">{promotedProviderNotice.message}</div>
+                  {promotedProviderNotice.detail ? (
+                    <div className="mt-1 text-muted">{promotedProviderNotice.detail}</div>
+                  ) : null}
+                </div>
+              }
+            >
+              <span className="inline-flex items-center gap-1 rounded-md border border-warning/25 bg-warning/10 px-2 py-0.5 text-[0.6875rem] font-medium text-warning">
+                <AlertTriangle size={11} />
+                Notice
+              </span>
+            </Tooltip>
+          ) : null}
+          {reroutedModel && rerouteSource && reroutedModel !== rerouteSource ? (
+            <Tooltip content={`Codex rerouted ${rerouteSource} to ${reroutedModel}`}>
+              <span className="inline-flex items-center rounded-md border border-border/70 bg-panel px-2 py-0.5 text-[0.6875rem] font-medium text-muted">
+                {reroutedModel}
+              </span>
+            </Tooltip>
+          ) : null}
         </span>
         <Menu.Root>
           <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">

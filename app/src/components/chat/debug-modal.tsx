@@ -1,6 +1,6 @@
 import { Dialog } from "../ui/dialog";
 import { ChatDebugTabs } from "./debug-panel";
-import type { HistoryEntry, InstanceInfo } from "@shared/types";
+import type { HistoryEntry, InstanceInfo, ProviderGlobalState } from "@shared/types";
 import type { ChatItem } from "../../hooks/use-instance-messages";
 
 export function DebugModal({
@@ -8,12 +8,14 @@ export function DebugModal({
   items,
   rawHistory,
   isProcessing,
+  providerGlobalState,
   onClose,
 }: {
   instance: InstanceInfo;
   items: ChatItem[];
   rawHistory: HistoryEntry[] | null;
   isProcessing: boolean;
+  providerGlobalState?: ProviderGlobalState;
   onClose: () => void;
 }) {
   return (
@@ -34,6 +36,7 @@ export function DebugModal({
           items={items}
           rawHistory={rawHistory}
           isProcessing={isProcessing}
+          providerGlobalState={providerGlobalState}
         />
       </Dialog.Content>
     </Dialog.Root>

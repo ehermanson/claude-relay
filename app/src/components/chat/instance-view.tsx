@@ -141,7 +141,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         targetProvider,
         sourceName: instance.name,
         workingDirectory: instance.workingDirectory,
-        history,
+        history: history as Parameters<typeof buildProviderSwitchHandoffPrompt>[0]["history"],
         changedFiles: currentFiles,
       });
       send({
@@ -262,17 +262,24 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     maxWidth: (cw) => cw * 0.45,
   });
 
-  const handleRespondToRequest = (requestId: string, tool: string) => {
+  const handleRespondToRequest = (
+    requestId: string,
+    tool: string,
+    decision: "accept" | "decline" = "accept",
+    text?: string,
+  ) => {
     if (!id) return;
+    send({
+      type: "respond_to_request",
+      instanceId: id,
+      requestId,
+      decision,
+      ...(text ? { text } : {}),
+    });
+    showThinking();
+    if (decision !== "accept") return;
     setApprovedTools((prev) => {
       if (prev.has(tool)) return prev;
-      send({
-        type: "respond_to_request",
-        instanceId: id,
-        requestId,
-        decision: "accept",
-      });
-      showThinking();
       const next = new Set(prev);
       next.add(tool);
       return next;
@@ -319,8 +326,19 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     rawPermission && typeof rawPermission === "object" ? rawPermission.description : undefined;
   const isPendingApproval =
     rawPermission && typeof rawPermission === "object" ? rawPermission.kind === "approval" : false;
+  const pendingApprovalRequest =
+    rawPermission && typeof rawPermission === "object" && rawPermission.kind === "approval"
+      ? rawPermission
+      : null;
   const pendingUserInput =
     rawPermission && typeof rawPermission === "object" && rawPermission.kind === "user_input"
+      ? rawPermission
+      : null;
+  const pendingTerminalInput =
+    rawPermission &&
+    typeof rawPermission === "object" &&
+    rawPermission.kind === "terminal_input" &&
+    (instance.status === "processing" || instance.providerStatus?.turnStatus === "inProgress")
       ? rawPermission
       : null;
   const isLoadingSession = connectionId > 0 && !hasLoadedHistory;
@@ -362,7 +380,9 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       terminalHeight,
       terminalContexts,
       pendingUserInput,
+      pendingTerminalInput,
       isPendingApproval,
+      pendingApprovalRequest,
       pendingPermissionTool: pendingPermissionTool ?? null,
       pendingPermissionRequestId: pendingPermissionRequestId ?? null,
       pendingPermissionDesc,

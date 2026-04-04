@@ -106,7 +106,7 @@ If you use `--tunnel`, set a password. Open mode plus a public tunnel exposes th
 - **Resume external sessions** — take over a terminal-started session from the web UI
 - **Per-session controls** — model picker, reasoning effort, and build/plan mode toggle, driven by provider capabilities
 - **Provider handoff** — switch providers mid-project, optionally carrying recent context into the new session
-- **Interactive tool responses** — when the agent asks a question or requests approval, the composer becomes an answer form
+- **Interactive tool responses** — answer agent questions, approve or deny tool requests, and respond to Codex terminal-input prompts directly in the UI
 - **Slash commands** — `/model` and `/reasoning` from the composer command palette
 - **`@` file mentions** — workspace search with inline mention chips
 - **Lazy hydration** — sidebar renders instantly from cached metadata; full transcript replay happens when you open a session

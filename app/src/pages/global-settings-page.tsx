@@ -8,12 +8,22 @@ import {
   fetchProviders,
   fetchProviderModels,
 } from "../lib/api";
+
 import { Input, Textarea, Select } from "../components/ui/input";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import { ProviderLogo } from "@/components/ui/provider-logo";
+import { RateLimitBar, flattenRateLimitWindows } from "@/components/ui/rate-limit-bar";
 import { SettingsSection, SettingRow } from "@/components/settings/settings-shared";
 import { useThemeStore, type ThemePreference } from "@/stores/theme-store";
-import type { GlobalSettings, ProviderDefaults, ProviderDescriptor } from "@shared/types";
+import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
+import type {
+  GlobalSettings,
+  ProviderDefaults,
+  ProviderDescriptor,
+  ProviderGlobalState,
+} from "@shared/types";
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
 
 // ─── Defaults & hooks ──────────────────────────────────────────────────────
 
@@ -135,6 +145,7 @@ function ThemeToggle({
 export function ProvidersSettingsSection() {
   const { data: settings } = useGlobalSettings();
   const save = useAutoSave();
+  const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
 
   const { data: providers = [] } = useQuery({
     queryKey: ["providers"],
@@ -197,6 +208,7 @@ export function ProvidersSettingsSection() {
           provider={p}
           defaults={providerDefaults[p.provider] ?? {}}
           onChange={(field, value) => handleProviderDefaultChange(p.provider, field, value)}
+          runtimeState={providerGlobalState[p.provider]}
         />
       ))}
     </SettingsSection>
@@ -209,10 +221,12 @@ function ProviderDefaultsRow({
   provider,
   defaults,
   onChange,
+  runtimeState,
 }: {
   provider: ProviderDescriptor;
   defaults: ProviderDefaults;
   onChange: (field: keyof ProviderDefaults, value: string) => void;
+  runtimeState?: ProviderGlobalState;
 }) {
   const { data: providerModels } = useQuery({
     queryKey: ["provider-models", provider.provider],
@@ -233,109 +247,151 @@ function ProviderDefaultsRow({
     caps.permissionModes ||
     (caps.supportsFastMode && caps.fastModes);
 
-  if (!hasAnyControls) return null;
+  const hasRuntime = runtimeState != null;
+  const accountLabel =
+    runtimeState?.account?.label ?? runtimeState?.account?.email ?? runtimeState?.account?.plan;
+
+  if (!hasAnyControls && !hasRuntime) return null;
 
   return (
     <div className="py-5">
       <div className="flex items-center gap-2.5 mb-4">
         <ProviderLogo provider={provider.provider} className="h-4 w-4" />
         <div>
-          <div className="text-[0.8125rem] font-medium text-text-bright">
-            {provider.label} Defaults
-          </div>
+          <div className="text-[0.8125rem] font-medium text-text-bright">{provider.label}</div>
           <div className="mt-0.5 text-[0.75rem] text-muted">
             Saved defaults when using {provider.label}.
           </div>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-4 pl-7">
-        {caps.supportsModelSelection && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[0.6875rem] font-medium text-muted">Model</label>
-            <Select
-              inputSize="md"
-              value={defaults.model ?? ""}
-              onChange={(e) => onChange("model", e.target.value)}
-            >
-              <option value="">
-                {defaultModel ? `${defaultModel.label} (default)` : "Provider default"}
-              </option>
-              {models
-                .filter((m) => !m.hidden)
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
+      {hasAnyControls && (
+        <div className="flex flex-wrap gap-4 pl-7">
+          {caps.supportsModelSelection && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[0.6875rem] font-medium text-muted">Model</label>
+              <Select
+                inputSize="md"
+                value={defaults.model ?? ""}
+                onChange={(e) => onChange("model", e.target.value)}
+              >
+                <option value="">
+                  {defaultModel ? `${defaultModel.label} (default)` : "Provider default"}
+                </option>
+                {models
+                  .filter((m) => !m.hidden)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+              </Select>
+            </div>
+          )}
+          {caps.supportsReasoningEffort && caps.reasoningEffortLevels && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[0.6875rem] font-medium text-muted">Reasoning</label>
+              <Select
+                inputSize="md"
+                value={defaults.reasoningEffort ?? ""}
+                onChange={(e) => onChange("reasoningEffort", e.target.value)}
+              >
+                <option value="">Medium (default)</option>
+                {caps.reasoningEffortLevels.map((level) => (
+                  <option key={level.effort} value={level.effort}>
+                    {level.label}
                   </option>
                 ))}
-            </Select>
-          </div>
-        )}
-        {caps.supportsReasoningEffort && caps.reasoningEffortLevels && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[0.6875rem] font-medium text-muted">Reasoning</label>
-            <Select
-              inputSize="md"
-              value={defaults.reasoningEffort ?? ""}
-              onChange={(e) => onChange("reasoningEffort", e.target.value)}
-            >
-              <option value="">Medium (default)</option>
-              {caps.reasoningEffortLevels.map((level) => (
-                <option key={level.effort} value={level.effort}>
-                  {level.label}
+              </Select>
+            </div>
+          )}
+          {caps.supportsReasoningBudget && caps.reasoningBudgetLevels && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[0.6875rem] font-medium text-muted">Reasoning</label>
+              <Select
+                inputSize="md"
+                value={defaults.reasoningBudget != null ? String(defaults.reasoningBudget) : ""}
+                onChange={(e) => onChange("reasoningBudget", e.target.value)}
+              >
+                <option value="">Medium (default)</option>
+                {caps.reasoningBudgetLevels.map((level) => (
+                  <option key={level.budget} value={String(level.budget)}>
+                    {level.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+          {caps.permissionModes && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[0.6875rem] font-medium text-muted">Permissions</label>
+              <Select
+                inputSize="md"
+                value={defaults.runtimeMode ?? ""}
+                onChange={(e) => onChange("runtimeMode", e.target.value)}
+              >
+                <option value="">
+                  {defaultPermLabel ? `${defaultPermLabel} (default)` : "Default"}
                 </option>
+                <option value="approval-required">{caps.permissionModes.restricted.label}</option>
+                <option value="full-access">{caps.permissionModes.fullAccess.label}</option>
+              </Select>
+            </div>
+          )}
+          {caps.supportsFastMode && caps.fastModes && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[0.6875rem] font-medium text-muted">Speed</label>
+              <Select
+                inputSize="md"
+                value={defaults.fastMode != null ? String(defaults.fastMode) : ""}
+                onChange={(e) => onChange("fastMode", e.target.value)}
+              >
+                <option value="">{caps.fastModes.off.label} (default)</option>
+                <option value="true">{caps.fastModes.on.label}</option>
+                <option value="false">{caps.fastModes.off.label}</option>
+              </Select>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Runtime state (account, MCP, rate limits) */}
+      {hasRuntime && (
+        <div className={`pl-7 ${hasAnyControls ? "mt-4 border-t border-border/30 pt-4" : ""}`}>
+          <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[0.75rem]">
+            {accountLabel && (
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[0.6875rem] text-muted">Account</span>
+                <span className="font-medium text-text-bright">{accountLabel}</span>
+              </div>
+            )}
+            {runtimeState?.account?.plan && runtimeState.account.plan !== accountLabel && (
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[0.6875rem] text-muted">Plan</span>
+                <span className="font-medium text-text-bright capitalize">
+                  {runtimeState.account.plan}
+                </span>
+              </div>
+            )}
+            {typeof runtimeState?.mcpServers?.length === "number" && (
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[0.6875rem] text-muted">MCP Servers</span>
+                <span className="font-medium text-text-bright">
+                  {runtimeState.mcpServers.length}
+                </span>
+              </div>
+            )}
+          </div>
+          {runtimeState?.account?.rateLimits?.length ? (
+            <div className="mt-3 space-y-2">
+              <div className="text-[0.6875rem] text-muted">Rate Limits</div>
+              {flattenRateLimitWindows(runtimeState.account.rateLimits).map(({ window, key }) => (
+                <RateLimitBar key={key} window={window} size="md" />
               ))}
-            </Select>
-          </div>
-        )}
-        {caps.supportsReasoningBudget && caps.reasoningBudgetLevels && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[0.6875rem] font-medium text-muted">Reasoning</label>
-            <Select
-              inputSize="md"
-              value={defaults.reasoningBudget != null ? String(defaults.reasoningBudget) : ""}
-              onChange={(e) => onChange("reasoningBudget", e.target.value)}
-            >
-              <option value="">Medium (default)</option>
-              {caps.reasoningBudgetLevels.map((level) => (
-                <option key={level.budget} value={String(level.budget)}>
-                  {level.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-        )}
-        {caps.permissionModes && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[0.6875rem] font-medium text-muted">Permissions</label>
-            <Select
-              inputSize="md"
-              value={defaults.runtimeMode ?? ""}
-              onChange={(e) => onChange("runtimeMode", e.target.value)}
-            >
-              <option value="">
-                {defaultPermLabel ? `${defaultPermLabel} (default)` : "Default"}
-              </option>
-              <option value="approval-required">{caps.permissionModes.restricted.label}</option>
-              <option value="full-access">{caps.permissionModes.fullAccess.label}</option>
-            </Select>
-          </div>
-        )}
-        {caps.supportsFastMode && caps.fastModes && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[0.6875rem] font-medium text-muted">Speed</label>
-            <Select
-              inputSize="md"
-              value={defaults.fastMode != null ? String(defaults.fastMode) : ""}
-              onChange={(e) => onChange("fastMode", e.target.value)}
-            >
-              <option value="">{caps.fastModes.off.label} (default)</option>
-              <option value="true">{caps.fastModes.on.label}</option>
-              <option value="false">{caps.fastModes.off.label}</option>
-            </Select>
-          </div>
-        )}
-      </div>
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

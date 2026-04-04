@@ -4,7 +4,7 @@ import { ArrowDown } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { AgentTranscript } from "@/components/chat/agent-transcript";
 import { ChatTOC } from "@/components/chat/chat-toc";
-import { ClaudeMessage } from "@/components/chat/claude-message";
+import { AgentMessage } from "@/components/chat/agent-message";
 import { CompactBoundary } from "@/components/chat/compact-boundary";
 import { LiveStatusStrip } from "@/components/chat/live-status-strip";
 import { ResponseDivider } from "@/components/chat/response-divider";
@@ -143,7 +143,11 @@ export function MessageList({
   const showThinking =
     !pendingInteraction &&
     (!!showThinkingIndicator || !!isProcessing || instanceStatus === "processing");
-  const lastUserMessage = [...items].reverse().find((item) => item.kind === "user" && !item.queued);
+  const lastUserMessage = [...items]
+    .reverse()
+    .find(
+      (item): item is Extract<ChatItem, { kind: "user" }> => item.kind === "user" && !item.queued,
+    );
   const isCompactingTurn =
     showThinking && !!lastUserMessage && /^\s*\/compact\b/i.test(lastUserMessage.text.trim());
 
@@ -181,7 +185,7 @@ export function MessageList({
           />
         );
       case "assistant":
-        return <ClaudeMessage text={row.text} timestamp={row.timestamp} isLast={row.isLast} />;
+        return <AgentMessage text={row.text} timestamp={row.timestamp} />;
       case "system":
         return <SystemMessage text={row.text} isError={row.isError} />;
       case "compact-boundary":

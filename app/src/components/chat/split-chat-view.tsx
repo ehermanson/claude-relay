@@ -10,14 +10,8 @@ import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useWSState } from "@/context/websocket-context";
 import { createInstance } from "@/lib/api";
-import { formatTimeAgo } from "@/lib/utils";
+import { deriveInstanceStatusPresentation, formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
-
-function statusDot(instance: InstanceInfo): string {
-  if (instance.status === "stopped") return "bg-muted";
-  if (instance.status === "processing") return "animate-pulse-dot bg-warning";
-  return "bg-accent";
-}
 
 function PaneHeader({
   instance,
@@ -30,7 +24,9 @@ function PaneHeader({
     <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/50 px-3">
       {instance ? (
         <>
-          <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(instance)}`} />
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${deriveInstanceStatusPresentation(instance).dotClass}`}
+          />
           <span className="min-w-0 truncate text-[0.8125rem] font-medium text-text-bright">
             {instance.name}
           </span>
@@ -132,7 +128,7 @@ function SessionPicker({
                 className="flex items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-hover"
               >
                 <span
-                  className={`mt-1.5 h-[6px] w-[6px] shrink-0 rounded-full ${statusDot(inst)}`}
+                  className={`mt-1.5 h-[6px] w-[6px] shrink-0 rounded-full ${deriveInstanceStatusPresentation(inst).dotClass}`}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">

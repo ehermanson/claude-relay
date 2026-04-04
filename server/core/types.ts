@@ -94,16 +94,107 @@ export interface UserInputAnswer {
   answers: string[];
 }
 
+export type ProviderRequestKind = "approval" | "user_input" | "terminal_input";
+export type ProviderRequestCategory = "command" | "file_change" | "generic";
+export type ProviderRequestSource = "agent" | "command" | "mcp" | "provider";
+
+export interface ProviderNotice {
+  level: "info" | "warning";
+  scope?: "global" | "project" | "instance";
+  source?: string;
+  code?: string;
+  message: string;
+  detail?: string;
+}
+
+export interface ProviderMcpServerStatus {
+  name: string;
+  status?: string;
+  authStatus?: string;
+  connected?: boolean;
+  toolCount?: number;
+  detail?: string;
+}
+
+export interface ProviderRateLimitWindow {
+  label?: string;
+  limit?: number;
+  remaining?: number;
+  usedPercent?: number;
+  windowMinutes?: number;
+  resetAt?: string;
+}
+
+export interface ProviderRateLimitStatus {
+  name?: string;
+  scope?: string;
+  plan?: string;
+  windows?: ProviderRateLimitWindow[];
+}
+
+export interface ProviderAccountStatus {
+  plan?: string;
+  label?: string;
+  email?: string;
+  status?: string;
+  rateLimits?: ProviderRateLimitStatus[];
+}
+
+export interface ProviderGlobalState {
+  provider: ProviderKind;
+  account?: ProviderAccountStatus;
+  mcpServers?: ProviderMcpServerStatus[];
+  apps?: string[];
+  notices?: ProviderNotice[];
+  updatedAt: number;
+}
+
+// Reserved for future provider state that is shared across chats in the same
+// project/workspace but not necessarily global across the whole provider.
+export interface ProviderProjectState {
+  provider: ProviderKind;
+  projectId: string;
+}
+
+export interface ProviderDiffStatus {
+  status?: string;
+  changedFiles?: number;
+  summary?: string;
+}
+
+export interface ProviderStatusSummary {
+  threadStatus?: string;
+  turnStatus?: string;
+  requestedModel?: string;
+  effectiveModel?: string;
+  reroutedFromModel?: string;
+  mcpServers?: ProviderMcpServerStatus[];
+  account?: ProviderAccountStatus;
+  diff?: ProviderDiffStatus;
+  apps?: string[];
+  notices?: ProviderNotice[];
+}
+
 export interface ProviderRequest {
   requestId: string;
-  kind: "approval" | "user_input";
+  kind: ProviderRequestKind;
+  category?: ProviderRequestCategory;
+  source?: ProviderRequestSource;
   tool?: string;
   description?: string;
   questions?: UserInputQuestion[];
+  prompt?: string;
+  command?: string;
+  cwd?: string;
+  reason?: string;
+  files?: string[];
+  server?: string;
+  raw?: Record<string, unknown>;
 }
 
 export interface ProviderRequestResponse {
   answers?: Record<string, UserInputAnswer>;
+  text?: string;
 }
 
 export interface ProviderRuntimeBinding {
@@ -224,6 +315,8 @@ export interface InstanceInfo {
   pendingTool?: string;
   /** Pending managed-provider request awaiting user action */
   pendingPermission?: ProviderRequest;
+  /** Provider-native live status/details that do not belong in transcript history */
+  providerStatus?: ProviderStatusSummary;
   sessionId?: string;
   /** True when the user has manually set the title (prevents auto-refresh) */
   customTitle?: boolean;
@@ -358,6 +451,7 @@ export interface RespondToRequestPayload {
   requestId: string;
   decision: "accept" | "decline";
   answers?: Record<string, UserInputAnswer>;
+  text?: string;
 }
 
 export interface RenameInstancePayload {
@@ -571,7 +665,12 @@ export interface NotificationMessage {
   instanceId?: string;
 }
 
-export type SystemEventType = "compact_boundary" | "session_init";
+export type SystemEventType =
+  | "compact_boundary"
+  | "session_init"
+  | "provider_status"
+  | "provider_notice"
+  | "model_rerouted";
 
 export interface SystemEventMessage {
   type: "system_event";
@@ -640,6 +739,17 @@ export interface InstanceStatusMessage {
   type: "instance_status";
   instanceId: string;
   instance: InstanceInfo;
+}
+
+export interface ProviderGlobalStateListMessage {
+  type: "provider_global_state_list";
+  states: ProviderGlobalState[];
+}
+
+export interface ProviderGlobalStateMessage {
+  type: "provider_global_state";
+  provider: ProviderKind;
+  state: ProviderGlobalState;
 }
 
 export interface InstanceHistoryMessage {
@@ -752,6 +862,8 @@ export type ServerMessage =
   | InstanceCreatedMessage
   | InstanceRemovedMessage
   | InstanceStatusMessage
+  | ProviderGlobalStateListMessage
+  | ProviderGlobalStateMessage
   | InstanceHistoryMessage
   | TranscriptMessage
   | ScanCompleteMessage

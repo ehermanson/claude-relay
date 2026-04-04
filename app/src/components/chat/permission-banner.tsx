@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Lock, X } from "lucide-react";
-import type { ProviderKind } from "@shared/types";
+import type { ProviderKind, ProviderRequest } from "@shared/types";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 
@@ -19,20 +19,23 @@ function getPermissionLabel(provider: ProviderKind, tool: string): string {
 
 export function PermissionBanner({
   provider,
-  requestId,
-  tool,
-  description,
-  onApprove,
+  request,
+  onRespond,
 }: {
   provider: ProviderKind;
-  requestId: string;
-  tool: string;
-  description?: string;
-  onApprove: (requestId: string, tool: string) => void;
+  request: ProviderRequest;
+  onRespond: (requestId: string, tool: string, decision?: "accept" | "decline") => void;
 }) {
   const [exiting, setExiting] = useState(false);
   const [gone, setGone] = useState(false);
-  const [pendingApprove, setPendingApprove] = useState(false);
+  const [pendingDecision, setPendingDecision] = useState<"accept" | "decline" | null>(null);
+
+  const tool = request.tool ?? "Permissions";
+  const detail =
+    request.command ??
+    request.reason ??
+    request.description ??
+    (request.files?.length ? request.files.join(", ") : undefined);
 
   if (gone) return null;
 
@@ -41,7 +44,12 @@ export function PermissionBanner({
   };
 
   const handleApprove = () => {
-    setPendingApprove(true);
+    setPendingDecision("accept");
+    setExiting(true);
+  };
+
+  const handleDecline = () => {
+    setPendingDecision("decline");
     setExiting(true);
   };
 
@@ -51,7 +59,7 @@ export function PermissionBanner({
       onAnimationEnd={() => {
         if (exiting) {
           setGone(true);
-          if (pendingApprove) onApprove(requestId, tool);
+          if (pendingDecision) onRespond(request.requestId, tool, pendingDecision);
         }
       }}
     >
@@ -64,8 +72,11 @@ export function PermissionBanner({
             <p className="text-[0.8125rem] font-medium text-text-bright">
               {getPermissionLabel(provider, tool)}
             </p>
-            {description && <p className="truncate text-[0.75rem] text-muted">{description}</p>}
+            {detail && <p className="truncate text-[0.75rem] text-muted">{detail}</p>}
           </div>
+          <Button variant="ghost" className="shrink-0" onClick={handleDecline}>
+            Deny
+          </Button>
           <Button variant="primary" className="shrink-0" onClick={handleApprove}>
             Allow
           </Button>

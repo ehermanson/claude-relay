@@ -1,5 +1,6 @@
 import { useReducer, useRef, useEffect, useState, useCallback } from "react";
 import type { ServerMessage, InstanceInfo, ClientMessage } from "@shared/types";
+import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
 
 // Instance list reducer
 type InstanceAction =
@@ -54,6 +55,8 @@ export function useWebSocket() {
   const graceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageRef = useRef(0);
   const staleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const setProviderGlobalStateList = useProviderRuntimeStore((s) => s.setProviderGlobalStateList);
+  const updateProviderGlobalState = useProviderRuntimeStore((s) => s.updateProviderGlobalState);
 
   const send = useCallback((message: ClientMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -130,6 +133,12 @@ export function useWebSocket() {
           case "instance_list":
             dispatch({ type: "set_list", instances: message.instances });
             break;
+          case "provider_global_state_list":
+            setProviderGlobalStateList(message.states);
+            break;
+          case "provider_global_state":
+            updateProviderGlobalState(message.provider, message.state);
+            break;
           case "instance_created":
             dispatch({ type: "created", instance: message.instance });
             break;
@@ -187,7 +196,7 @@ export function useWebSocket() {
         console.debug("WebSocket connect failed; waiting to retry");
       }
     };
-  }, []);
+  }, [setProviderGlobalStateList, updateProviderGlobalState]);
 
   useEffect(() => {
     connect();

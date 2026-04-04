@@ -1,12 +1,70 @@
-import type { ProviderKind } from "@shared/types";
+import type { InstanceInfo, ProviderKind } from "@shared/types";
 import type { StatusDotVariant } from "@/components/ui/status-dot";
 
-/** Map an instance status to a StatusDot variant. */
-export function instanceStatusVariant(status: string, pendingTool?: boolean): StatusDotVariant {
-  if (pendingTool || status === "processing") return "active";
-  if (status === "error") return "error";
-  if (status === "idle") return "success";
-  return "default";
+export interface InstanceStatusPresentation {
+  variant: StatusDotVariant;
+  dotClass: string;
+  label: string;
+}
+
+export function deriveInstanceStatusPresentation(
+  instance: Pick<InstanceInfo, "status" | "external" | "pendingTool">,
+): InstanceStatusPresentation {
+  if (instance.status === "stopped") {
+    return {
+      variant: "default",
+      dotClass: "bg-muted",
+      label: instance.external ? "External chat (ended)" : "Ended",
+    };
+  }
+  if (instance.pendingTool) {
+    return {
+      variant: "active",
+      dotClass: "animate-pulse-dot bg-warning",
+      label: "Waiting for permission",
+    };
+  }
+  if (instance.status === "processing") {
+    return {
+      variant: "active",
+      dotClass: "animate-pulse-dot bg-warning",
+      label: instance.external ? "External chat (active)" : "Processing",
+    };
+  }
+  if (instance.status === "error") {
+    return {
+      variant: "error",
+      dotClass: "bg-error",
+      label: "Error",
+    };
+  }
+  if (instance.external) {
+    return {
+      variant: "success",
+      dotClass: "bg-accent",
+      label: "External chat",
+    };
+  }
+  return {
+    variant: "success",
+    dotClass: "bg-accent",
+    label: "Idle",
+  };
+}
+
+/** Map an instance to a StatusDot variant. */
+export function instanceStatusVariant(
+  statusOrInstance: string | Pick<InstanceInfo, "status" | "external" | "pendingTool">,
+  pendingTool?: boolean,
+): StatusDotVariant {
+  if (typeof statusOrInstance === "string") {
+    return deriveInstanceStatusPresentation({
+      status: statusOrInstance as InstanceInfo["status"],
+      external: false,
+      pendingTool: pendingTool ? "pending" : undefined,
+    }).variant;
+  }
+  return deriveInstanceStatusPresentation(statusOrInstance).variant;
 }
 
 export function escapeHtml(text: string): string {
@@ -25,6 +83,20 @@ export function formatTimeAgo(timestamp: number | string): string {
   const days = Math.floor(diff / 86_400_000);
   if (days < 30) return days + "d ago";
   return new Date(ms).toLocaleDateString();
+}
+
+export function formatTimeUntil(timestamp: number | string): string {
+  const ms = typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp;
+  const diff = ms - Date.now();
+  if (isNaN(diff) || diff <= 0) return "";
+  if (diff < 60_000) return "<1m";
+  if (diff < 3_600_000) return Math.ceil(diff / 60_000) + "m";
+  if (diff < 86_400_000) {
+    const h = Math.floor(diff / 3_600_000);
+    const m = Math.ceil((diff % 3_600_000) / 60_000);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  return Math.ceil(diff / 86_400_000) + "d";
 }
 
 export function formatTimestamp(ts: number): string {

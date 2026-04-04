@@ -30,6 +30,7 @@ import type { ProviderSession } from "#core/provider.js";
 import { resolveQueryFn } from "#core/providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "#core/providers/claude-sdk.js";
 import { convertCodexTranscriptEntry } from "#core/providers/codex-transcript.js";
+import { fetchCodexProviderGlobalStateSnapshot } from "#core/providers/codex-app-server.js";
 import { SessionDB } from "#core/db.js";
 import type { SessionRow, ManagedInstanceRow } from "#core/db.js";
 import { BUILTIN_PROVIDER_MODELS } from "#core/provider-catalog.js";
@@ -247,6 +248,10 @@ export interface InstanceManagerEvents {
   "scan:complete": [];
   "projects:changed": [];
   "tasks:changed": [projectId: string, tasks: Task[]];
+  "provider_global_state:updated": [
+    provider: import("#core/types.js").ProviderKind,
+    state: import("#core/types.js").ProviderGlobalState,
+  ];
 }
 
 export interface InstanceManager {
@@ -1103,6 +1108,11 @@ function statsChanged(before: SessionStats, after: SessionStats): boolean {
 }
 
 export class InstanceManager extends EventEmitter {
+  private providerGlobalState = new Map<
+    import("#core/types.js").ProviderKind,
+    import("#core/types.js").ProviderGlobalState
+  >();
+  private providerGlobalHydrationInFlight = new Map<ProviderKind, Promise<void>>();
   private instances = new Map<string, Instance>();
   private instanceMutationChains = new Map<string, Promise<void>>();
   private missingRunnableCwdWarnings = new Map<string, string>();
@@ -1985,6 +1995,23 @@ export class InstanceManager extends EventEmitter {
             })),
           }
         : undefined,
+      providerStatus: info.providerStatus
+        ? {
+            ...info.providerStatus,
+            mcpServers: info.providerStatus.mcpServers?.map((server) => ({ ...server })),
+            account: info.providerStatus.account
+              ? {
+                  ...info.providerStatus.account,
+                  rateLimits: info.providerStatus.account.rateLimits?.map((limit) => ({
+                    ...limit,
+                  })),
+                }
+              : undefined,
+            diff: info.providerStatus.diff ? { ...info.providerStatus.diff } : undefined,
+            apps: info.providerStatus.apps ? [...info.providerStatus.apps] : undefined,
+            notices: info.providerStatus.notices?.map((notice) => ({ ...notice })),
+          }
+        : undefined,
       stats: info.stats ? { ...info.stats } : undefined,
       gitInfo: info.gitInfo ? { ...info.gitInfo } : undefined,
       branchChanged: info.branchChanged ? { ...info.branchChanged } : undefined,
@@ -1994,6 +2021,103 @@ export class InstanceManager extends EventEmitter {
 
   private deriveInstanceView(instance: Instance): InstanceInfo {
     return this.cloneInstanceInfo(instance.info);
+  }
+
+  private cloneProviderGlobalState(
+    state: import("#core/types.js").ProviderGlobalState,
+  ): import("#core/types.js").ProviderGlobalState {
+    return {
+      ...state,
+      account: state.account
+        ? {
+            ...state.account,
+            rateLimits: state.account.rateLimits?.map((limit) => ({ ...limit })),
+          }
+        : undefined,
+      mcpServers: state.mcpServers?.map((server) => ({ ...server })),
+      apps: state.apps ? [...state.apps] : undefined,
+      notices: state.notices?.map((notice) => ({ ...notice })),
+    };
+  }
+
+  listProviderGlobalState(): import("#core/types.js").ProviderGlobalState[] {
+    return Array.from(this.providerGlobalState.values()).map((state) =>
+      this.cloneProviderGlobalState(state),
+    );
+  }
+
+  async ensureProviderGlobalState(provider: ProviderKind, force = false): Promise<void> {
+    const existing = this.providerGlobalState.get(provider);
+    if (!force && existing && Date.now() - existing.updatedAt < 5 * 60_000) {
+      return;
+    }
+    const inFlight = this.providerGlobalHydrationInFlight.get(provider);
+    if (inFlight) return inFlight;
+
+    const run = (async () => {
+      try {
+        if (provider !== "codex") return;
+        const cwd =
+          Array.from(this.instances.values()).find(
+            (instance) => instance.info.provider === provider,
+          )?.actualCwd ??
+          Array.from(this.instances.values()).find(
+            (instance) => instance.info.provider === provider,
+          )?.info.workingDirectory ??
+          this.baseConfig.workingDirectory ??
+          process.cwd();
+        const snapshot = await fetchCodexProviderGlobalStateSnapshot({
+          cwd,
+          logger: this.baseConfig.logger,
+        });
+        this.updateProviderGlobalState(provider, snapshot);
+      } catch (err) {
+        this.baseConfig.logger.debug(
+          `[InstanceManager] Failed to hydrate provider global state for ${provider}: ${err}`,
+        );
+      } finally {
+        this.providerGlobalHydrationInFlight.delete(provider);
+      }
+    })();
+
+    this.providerGlobalHydrationInFlight.set(provider, run);
+    return run;
+  }
+
+  private updateProviderGlobalState(
+    provider: import("#core/types.js").ProviderKind,
+    patch: Partial<import("#core/types.js").ProviderGlobalState>,
+  ): void {
+    const prev = this.providerGlobalState.get(provider);
+    const next: import("#core/types.js").ProviderGlobalState = {
+      provider,
+      updatedAt: Date.now(),
+      ...prev,
+      ...patch,
+      account: patch.account
+        ? {
+            ...(prev?.account ?? {}),
+            ...patch.account,
+            rateLimits: patch.account.rateLimits
+              ? patch.account.rateLimits.map((limit) => ({ ...limit }))
+              : prev?.account?.rateLimits?.map((limit) => ({ ...limit })),
+          }
+        : prev?.account
+          ? {
+              ...prev.account,
+              rateLimits: prev.account.rateLimits?.map((limit) => ({ ...limit })),
+            }
+          : undefined,
+      mcpServers: patch.mcpServers
+        ? patch.mcpServers.map((server) => ({ ...server }))
+        : prev?.mcpServers?.map((server) => ({ ...server })),
+      apps: patch.apps ? [...patch.apps] : prev?.apps ? [...prev.apps] : undefined,
+      notices: patch.notices
+        ? patch.notices.map((notice) => ({ ...notice }))
+        : prev?.notices?.map((notice) => ({ ...notice })),
+    };
+    this.providerGlobalState.set(provider, next);
+    this.emit("provider_global_state:updated", provider, this.cloneProviderGlobalState(next));
   }
 
   private emitInstanceStatus(instance: Instance): void {
@@ -2418,6 +2542,22 @@ export class InstanceManager extends EventEmitter {
       this.pushHistory(instance, activity);
       this.emit("instance:activity", id, activity);
       this.dispatchUserMessageLocked(id, instance, reply.text);
+      return;
+    }
+
+    if (pendingRequest.kind === "terminal_input") {
+      instance.info.pendingTool = undefined;
+      instance.info.pendingPermission = undefined;
+      this.emitPendingStateIfChanged(instance, pendingStateBefore);
+      if (instance.process.respondToRequest?.(requestId, decision, response)) {
+        this.setStatus(instance, "processing");
+        return;
+      }
+
+      const text = decision === "accept" ? (response?.text?.trim() ?? "") : "";
+      if (text) {
+        this.dispatchUserMessageLocked(id, instance, text);
+      }
       return;
     }
 
@@ -2961,6 +3101,15 @@ export class InstanceManager extends EventEmitter {
         return;
       }
 
+      if (
+        activity.activity === "tool_use" &&
+        activity.tool === "Bash" &&
+        activity.description === "Terminal interaction required"
+      ) {
+        instance.info.pendingTool = "Bash";
+        return;
+      }
+
       if (activity.activity === "tool_use" && INTERACTIVE_TOOLS.has(activity.tool || "")) {
         // For managed sessions, plan mode tools are handled by the UI — only
         // set pendingTool for external/terminal sessions so the TerminalPermissionBar shows.
@@ -2991,6 +3140,12 @@ export class InstanceManager extends EventEmitter {
         ) {
           instance.info.pendingPermission = undefined;
         }
+        if (
+          activity.tool === "Bash" &&
+          instance.info.pendingPermission?.kind === "terminal_input"
+        ) {
+          instance.info.pendingPermission = undefined;
+        }
       }
       return;
     }
@@ -2998,7 +3153,10 @@ export class InstanceManager extends EventEmitter {
     if (message.type === "user") {
       instance.info.pendingTool = undefined;
       instance.info.pendingPlan = undefined;
-      if (instance.info.pendingPermission?.kind === "user_input") {
+      if (
+        instance.info.pendingPermission?.kind === "user_input" ||
+        instance.info.pendingPermission?.kind === "terminal_input"
+      ) {
         instance.info.pendingPermission = undefined;
       }
     }
@@ -6780,6 +6938,109 @@ export class InstanceManager extends EventEmitter {
       ((message: SystemEventMessage) => {
         void this.enqueueInstanceMutation(id, (live) => {
           if (this.shuttingDown || live.process !== proc) return;
+          if (message.event === "provider_status") {
+            const payload = message.payload ?? {};
+            const globalPatch: Partial<import("./types.js").ProviderGlobalState> = {};
+            if (Array.isArray(payload.mcpServers)) {
+              globalPatch.mcpServers = payload.mcpServers.map((server) => ({ ...server }));
+            }
+            if (payload.account && typeof payload.account === "object") {
+              globalPatch.account = {
+                ...(payload.account as Record<string, unknown>),
+                rateLimits: Array.isArray((payload.account as Record<string, unknown>).rateLimits)
+                  ? (
+                      (payload.account as Record<string, unknown>).rateLimits as Array<
+                        Record<string, unknown>
+                      >
+                    ).map((limit) => ({ ...limit }))
+                  : undefined,
+              };
+            }
+            if (Array.isArray(payload.apps)) {
+              globalPatch.apps = payload.apps.filter(
+                (app): app is string => typeof app === "string",
+              );
+            }
+            if (globalPatch.account || globalPatch.mcpServers || globalPatch.apps) {
+              this.updateProviderGlobalState(live.info.provider, globalPatch);
+            }
+            live.info.providerStatus = {
+              ...live.info.providerStatus,
+              threadStatus:
+                typeof payload.threadStatus === "string"
+                  ? payload.threadStatus
+                  : live.info.providerStatus?.threadStatus,
+              turnStatus:
+                typeof payload.turnStatus === "string"
+                  ? payload.turnStatus
+                  : live.info.providerStatus?.turnStatus,
+              diff:
+                payload.diff && typeof payload.diff === "object"
+                  ? { ...(payload.diff as Record<string, unknown>) }
+                  : live.info.providerStatus?.diff,
+            };
+            if (
+              typeof payload.turnStatus === "string" &&
+              payload.turnStatus !== "inProgress" &&
+              live.info.pendingPermission?.kind === "terminal_input"
+            ) {
+              live.info.pendingPermission = undefined;
+              live.info.pendingTool = undefined;
+            }
+            this.emitInstanceStatus(live);
+          } else if (message.event === "model_rerouted") {
+            const payload = message.payload ?? {};
+            live.info.providerStatus = {
+              ...live.info.providerStatus,
+              requestedModel:
+                typeof payload.requestedModel === "string"
+                  ? payload.requestedModel
+                  : live.info.providerStatus?.requestedModel,
+              effectiveModel:
+                typeof payload.effectiveModel === "string"
+                  ? payload.effectiveModel
+                  : live.info.providerStatus?.effectiveModel,
+              reroutedFromModel:
+                typeof payload.reroutedFromModel === "string"
+                  ? payload.reroutedFromModel
+                  : live.info.providerStatus?.reroutedFromModel,
+            };
+            this.emitInstanceStatus(live);
+          } else if (message.event === "provider_notice") {
+            const payload = message.payload ?? {};
+            if (typeof payload.message === "string" && payload.message.trim()) {
+              const notice = {
+                level: payload.level === "info" ? "info" : "warning",
+                scope:
+                  payload.scope === "global" ||
+                  payload.scope === "project" ||
+                  payload.scope === "instance"
+                    ? payload.scope
+                    : undefined,
+                source: typeof payload.source === "string" ? payload.source : undefined,
+                code: typeof payload.code === "string" ? payload.code : undefined,
+                message: payload.message,
+                detail: typeof payload.detail === "string" ? payload.detail : undefined,
+              } satisfies import("./types.js").ProviderNotice;
+
+              if (notice.scope === "global") {
+                const existing = this.providerGlobalState.get(live.info.provider);
+                const notices = existing?.notices ? [...existing.notices] : [];
+                notices.push(notice);
+                this.updateProviderGlobalState(live.info.provider, { notices: notices.slice(-5) });
+              } else {
+                const notices = live.info.providerStatus?.notices
+                  ? [...live.info.providerStatus.notices]
+                  : [];
+                notices.push(notice);
+                live.info.providerStatus = {
+                  ...live.info.providerStatus,
+                  notices: notices.slice(-5),
+                };
+                this.emitInstanceStatus(live);
+              }
+            }
+          }
           this.pushHistory(live, message);
           live.info.lastActivityAt = Date.now();
           this.dbSave(live);

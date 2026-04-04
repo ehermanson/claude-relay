@@ -228,6 +228,139 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
+  it("requests startup snapshots for MCP servers and apps", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+
+    session.send("hello");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    const methods = child
+      .getStdinMessages()
+      .filter((m) => m.method)
+      .map((m) => m.method);
+
+    assert.ok(methods.includes("mcpServerStatus/list"), "Should request MCP server snapshot");
+    assert.ok(methods.includes("app/list"), "Should request app snapshot");
+    assert.ok(methods.includes("account/read"), "Should request account snapshot");
+    assert.ok(methods.includes("account/rateLimits/read"), "Should request rate-limit snapshot");
+
+    session.close();
+  });
+
+  it("normalizes startup account snapshots into provider status", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const systemEvents = collectEvents(session, "systemEvent");
+
+    session.send("hello");
+    const child = harness.children[0];
+    child.stdin.on("data", (chunk) => {
+      const lines = chunk.toString().trim().split("\n");
+      for (const line of lines) {
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (msg.id === undefined || !msg.method) continue;
+        if (msg.method === "initialize") {
+          child.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: { userAgent: "codex-test/1.0" },
+            }) + "\n",
+          );
+        } else if (msg.method === "thread/start") {
+          child.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: {
+                thread: {
+                  id: "thread-001",
+                  cwd: msg.params?.cwd ?? "/tmp",
+                },
+              },
+            }) + "\n",
+          );
+        } else if (msg.method === "turn/start") {
+          child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\n");
+        } else if (msg.method === "account/read") {
+          child.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: {
+                account: { type: "chatgpt", email: "user@example.com", planType: "pro" },
+                requiresOpenaiAuth: true,
+              },
+            }) + "\n",
+          );
+        } else if (msg.method === "account/rateLimits/read") {
+          child.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: {
+                rateLimits: {
+                  limitId: "codex",
+                  limitName: "Codex",
+                  primary: { usedPercent: 82, windowDurationMins: 60, resetsAt: 1760000000 },
+                  secondary: null,
+                  credits: null,
+                  planType: "pro",
+                },
+                rateLimitsByLimitId: null,
+              },
+            }) + "\n",
+          );
+        } else {
+          child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\n");
+        }
+      }
+    });
+
+    await tick(50);
+
+    const providerStatusEvents = systemEvents
+      .map(([event]) => event)
+      .filter((event) => event.event === "provider_status");
+    assert.ok(
+      providerStatusEvents.some(
+        (event) =>
+          event.payload.account?.email === "user@example.com" &&
+          event.payload.account?.plan === "pro",
+      ),
+      "Should emit normalized account snapshot",
+    );
+    assert.ok(
+      providerStatusEvents.some(
+        (event) => event.payload.account?.rateLimits?.[0]?.windows?.[0]?.usedPercent === 82,
+      ),
+      "Should emit normalized rate-limit snapshot",
+    );
+
+    session.close();
+  });
+
   it("emits a session_init system event when a thread starts", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
@@ -892,6 +1025,321 @@ describe("CodexAppServerSession", () => {
     );
     assert.ok(resolution, "Expected a tool_result activity for request_user_input");
     assert.equal(resolution[0].resolution, "approved");
+  });
+
+  it("maps generic permission approvals into Relay approval categories", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const requests = collectEvents(session, "permissionRequest");
+
+    session.send("use provider permission");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 88,
+        method: "item/permissions/requestApproval",
+        params: {
+          tool: "network",
+          reason: "Needs network access",
+          command: "curl https://example.com",
+          cwd: "/tmp/project",
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0][0].kind, "approval");
+    assert.equal(requests[0][0].category, "generic");
+    assert.equal(requests[0][0].source, "provider");
+    assert.equal(requests[0][0].command, "curl https://example.com");
+  });
+
+  it("maps MCP elicitation requests into user_input requests", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const requests = collectEvents(session, "permissionRequest");
+
+    session.send("use MCP");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 91,
+        method: "mcpServer/elicitation/request",
+        params: {
+          server: "github",
+          prompt: "Pick a repository",
+          questions: [
+            {
+              id: "repo",
+              header: "Repository",
+              question: "Which repository?",
+              options: [{ label: "relay", description: "Current repo" }],
+            },
+          ],
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0][0].kind, "user_input");
+    assert.equal(requests[0][0].source, "mcp");
+    assert.equal(requests[0][0].tool, "MCP");
+    assert.equal(requests[0][0].server, "github");
+  });
+
+  it("maps plain-text MCP elicitation into synthesized user_input", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const requests = collectEvents(session, "permissionRequest");
+
+    session.send("use MCP");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 92,
+        method: "mcpServer/elicitation/request",
+        params: {
+          server: "github",
+          prompt: "Enter repository name",
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0][0].kind, "user_input");
+    assert.equal(requests[0][0].source, "mcp");
+    assert.equal(requests[0][0].questions?.length, 1);
+    assert.equal(requests[0][0].questions?.[0]?.question, "Enter repository name");
+    assert.equal(requests[0][0].questions?.[0]?.isOther, true);
+  });
+
+  it("maps terminal interaction requests into terminal_input requests", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const requests = collectEvents(session, "permissionRequest");
+
+    session.send("run prompting command");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/commandExecution/terminalInteraction",
+        params: {
+          itemId: "cmd-44",
+          command: "pnpm db:migrate",
+          cwd: "/tmp/project",
+          prompt: "Proceed with migration? [y/N]",
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0][0].kind, "terminal_input");
+    assert.equal(requests[0][0].category, "command");
+    assert.equal(requests[0][0].source, "command");
+    assert.equal(requests[0][0].prompt, "Proceed with migration? [y/N]");
+  });
+
+  it("ignores empty terminal interaction notifications", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const requests = collectEvents(session, "permissionRequest");
+
+    session.send("run command");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "item/commandExecution/terminalInteraction",
+        params: {
+          itemId: "cmd-45",
+          command: "pnpm typecheck",
+          cwd: "/tmp/project",
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    assert.equal(requests.length, 0);
+  });
+
+  it("emits explicit provider status for MCP, account, and live diff updates", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const systemEvents = collectEvents(session, "systemEvent");
+
+    session.send("status updates");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "mcpServerStatus/list",
+        params: {
+          servers: [
+            { name: "github", status: "connected", authStatus: "authenticated", connected: true },
+          ],
+        },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "account/rateLimits/updated",
+        params: {
+          account: {
+            label: "Plus",
+            email: "user@example.com",
+            rateLimits: [{ name: "gpt-5.4", remaining: 42, limit: 100 }],
+          },
+        },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/diff/updated",
+        params: {
+          status: "inProgress",
+          changedFiles: 3,
+          summary: "3 files changed",
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const providerStatusEvents = systemEvents
+      .map(([event]) => event)
+      .filter((event) => event.event === "provider_status");
+    assert.ok(providerStatusEvents.length >= 3);
+    assert.deepEqual(providerStatusEvents[0].payload.mcpServers, [
+      {
+        name: "github",
+        status: "connected",
+        authStatus: "authenticated",
+        connected: true,
+        toolCount: undefined,
+        detail: undefined,
+      },
+    ]);
+    assert.equal(providerStatusEvents[1].payload.account.label, "Plus");
+    assert.equal(providerStatusEvents[1].payload.account.rateLimits[0].windows[0].remaining, 42);
+    assert.equal(providerStatusEvents[2].payload.diff.changedFiles, 3);
+  });
+
+  it("emits reroute and notice system events with normalized payloads", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4-mini",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const systemEvents = collectEvents(session, "systemEvent");
+
+    session.send("reroute me");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "model/rerouted",
+        params: {
+          requestedModel: "gpt-5.4-mini",
+          effectiveModel: "gpt-5.4",
+          message: "Fallback applied",
+        },
+      }) + "\n",
+    );
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "configWarning",
+        params: {
+          message: "GitHub MCP requires re-authentication",
+          detail: "Reconnect to continue using GitHub tools.",
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const reroute = systemEvents
+      .map(([event]) => event)
+      .find((event) => event.event === "model_rerouted");
+    assert.ok(reroute);
+    assert.equal(reroute.payload.requestedModel, "gpt-5.4-mini");
+    assert.equal(reroute.payload.effectiveModel, "gpt-5.4");
+
+    const notice = systemEvents
+      .map(([event]) => event)
+      .find((event) => event.event === "provider_notice");
+    assert.ok(notice);
+    assert.equal(notice.payload.message, "GitHub MCP requires re-authentication");
+    assert.equal(notice.payload.scope, "global");
   });
 
   it("auto-approves when bypass permissions is enabled", async () => {

@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import { Tooltip } from "../ui/tooltip";
 import { Collapsible } from "../ui/collapsible";
+import { Badge } from "../ui/badge";
 import type { ChatItem } from "@/hooks/use-instance-messages";
 import hljs from "../../lib/markdown";
 import {
@@ -12,9 +13,18 @@ import {
   getDisplaySessionStats,
   instanceStatusVariant,
 } from "../../lib/utils";
-import type { SessionStats, HistoryEntry, InstanceInfo } from "@shared/types";
+import type {
+  SessionStats,
+  HistoryEntry,
+  InstanceInfo,
+  ProviderStatusSummary,
+  ProviderGlobalState,
+  ProviderKind,
+} from "@shared/types";
 import { ChevronIcon } from "./files-panel";
 import { StatusDot } from "../ui/status-dot";
+import { ProviderLogo } from "../ui/provider-logo";
+import { RateLimitBar, flattenRateLimitWindows } from "../ui/rate-limit-bar";
 
 // =============================================================================
 // Shared primitives
@@ -40,6 +50,14 @@ function StatRow({ label, value, help }: { label: string; value: React.ReactNode
       <span className="text-[0.8125rem] font-medium text-text-bright">{value}</span>
     </div>
   );
+}
+
+function statusTone(status: string | undefined): "default" | "active" | "success" | "warning" {
+  const normalized = status?.toLowerCase() ?? "";
+  if (/(inprogress|running|working|connected|authenticated)/.test(normalized)) return "active";
+  if (/(completed|done|ready|idle|available)/.test(normalized)) return "success";
+  if (/(warning|limited|pending|auth|disconnected|failed|error)/.test(normalized)) return "warning";
+  return "default";
 }
 
 // =============================================================================
@@ -330,11 +348,13 @@ function RawEntryRow({ entry }: { entry: RawEntry }) {
 
 interface InstanceContextProps {
   mode: "instance";
-  stats: SessionStats;
+  stats: SessionStats | null;
   items: ChatItem[];
   rawHistory: HistoryEntry[] | null;
   provider?: string;
   preferredModel?: string;
+  providerStatus?: ProviderStatusSummary;
+  providerGlobalState?: ProviderGlobalState;
   createdAt: number;
   lastActivityAt: number;
 }
@@ -369,21 +389,43 @@ function InstanceContext({
   rawHistory,
   provider,
   preferredModel,
+  providerStatus,
+  providerGlobalState,
   createdAt,
   lastActivityAt,
 }: InstanceContextProps) {
+  const safeStats: SessionStats = stats ?? {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+  };
   const userCount = useMemo(() => items.filter((i) => i.kind === "user").length, [items]);
   const assistantCount = useMemo(() => items.filter((i) => i.kind === "assistant").length, [items]);
   const totalMessages = userCount + assistantCount;
 
   const rawEntries = useMemo(() => extractRawEntries(rawHistory ?? []), [rawHistory]);
 
-  const displayStats = getDisplaySessionStats(provider, stats);
+  const displayStats = getDisplaySessionStats(provider, safeStats);
   const totalTokens = displayStats.totalTokens;
-  const contextUsage = getContextWindowUsage(stats);
-  const reasoning = stats.reasoningTokens ?? 0;
-  const displayModel = stats.model ?? preferredModel;
-  const segments = computeSegments(stats, provider);
+  const contextUsage = getContextWindowUsage(safeStats);
+  const reasoning = safeStats.reasoningTokens ?? 0;
+  const displayModel = safeStats.model ?? preferredModel;
+  const segments = computeSegments(safeStats, provider);
+  const globalProviderState = providerGlobalState;
+  const hasProviderSummary = Boolean(
+    providerStatus?.threadStatus ||
+    providerStatus?.turnStatus ||
+    providerStatus?.effectiveModel ||
+    providerStatus?.diff?.summary ||
+    globalProviderState?.account?.label ||
+    globalProviderState?.account?.email ||
+    globalProviderState?.account?.plan ||
+    globalProviderState?.account?.rateLimits?.length ||
+    globalProviderState?.mcpServers?.length ||
+    providerStatus?.notices?.length ||
+    globalProviderState?.notices?.length,
+  );
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -427,7 +469,7 @@ function InstanceContext({
           <StatRow
             label="Output Tokens"
             help="Tokens generated in model responses during this chat."
-            value={formatTokens(stats.outputTokens)}
+            value={formatTokens(safeStats.outputTokens)}
           />
           {reasoning > 0 && (
             <StatRow
@@ -475,6 +517,150 @@ function InstanceContext({
           </div>
         )}
       </div>
+
+      {hasProviderSummary && (
+        <div className="border-t border-border/30 px-3.5 py-2.5">
+          <div className="mb-1.5 text-[0.6875rem] text-muted">Provider Status</div>
+          <div className="flex flex-col gap-1.5">
+            {/* Provider identity + status row */}
+            <div className="flex items-center gap-2">
+              {provider ? (
+                <ProviderLogo
+                  provider={provider as ProviderKind}
+                  className="h-3.5 w-3.5 shrink-0"
+                />
+              ) : null}
+              <span className="text-[0.8125rem] font-medium text-text-bright">
+                {provider === "codex"
+                  ? "Codex"
+                  : provider === "claude"
+                    ? "Claude Code"
+                    : (provider ?? "Provider")}
+              </span>
+              {globalProviderState?.account?.plan ? (
+                <>
+                  <span className="text-muted/40">·</span>
+                  <span className="text-[0.75rem] text-muted capitalize">
+                    {globalProviderState.account.plan}
+                  </span>
+                </>
+              ) : null}
+              {providerStatus?.turnStatus || providerStatus?.threadStatus ? (
+                <>
+                  <span className="text-muted/40">·</span>
+                  <StatusDot
+                    variant={
+                      statusTone(providerStatus?.turnStatus ?? providerStatus?.threadStatus) ===
+                      "active"
+                        ? "active"
+                        : statusTone(providerStatus?.turnStatus ?? providerStatus?.threadStatus) ===
+                            "success"
+                          ? "success"
+                          : statusTone(
+                                providerStatus?.turnStatus ?? providerStatus?.threadStatus,
+                              ) === "warning"
+                            ? "error"
+                            : "default"
+                    }
+                    size={6}
+                  />
+                  <span className="text-[0.75rem] text-muted">
+                    {providerStatus?.turnStatus ?? providerStatus?.threadStatus}
+                  </span>
+                </>
+              ) : null}
+            </div>
+
+            {/* Effective model */}
+            {providerStatus?.effectiveModel ? (
+              <span className="text-[0.75rem] text-muted ml-5.5">
+                {formatModel(providerStatus?.effectiveModel)}
+                {providerStatus?.reroutedFromModel &&
+                providerStatus.reroutedFromModel !== providerStatus.effectiveModel
+                  ? ` (from ${formatModel(providerStatus?.reroutedFromModel)})`
+                  : ""}
+              </span>
+            ) : null}
+
+            {/* Diff summary */}
+            {providerStatus?.diff?.summary ? (
+              <div className="flex items-center gap-1.5">
+                <StatusDot
+                  variant={
+                    statusTone(providerStatus?.diff?.status) === "active"
+                      ? "active"
+                      : statusTone(providerStatus?.diff?.status) === "success"
+                        ? "success"
+                        : "default"
+                  }
+                  size={6}
+                />
+                <span className="text-[0.75rem] text-text">{providerStatus?.diff?.summary}</span>
+              </div>
+            ) : null}
+
+            {/* Rate limit bars */}
+            {globalProviderState?.account?.rateLimits?.length ? (
+              <div className="flex flex-col gap-2 mt-0.5">
+                {flattenRateLimitWindows(globalProviderState.account.rateLimits).map(
+                  ({ window, key }) => (
+                    <RateLimitBar key={key} window={window} size="sm" />
+                  ),
+                )}
+              </div>
+            ) : null}
+
+            {/* MCP servers */}
+            {globalProviderState?.mcpServers?.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {globalProviderState.mcpServers.map((server) => (
+                  <Badge
+                    key={server.name}
+                    variant={
+                      statusTone(server.authStatus ?? server.status) === "warning"
+                        ? "warning"
+                        : statusTone(server.authStatus ?? server.status) === "success"
+                          ? "success"
+                          : "default"
+                    }
+                    size="xs"
+                    dot
+                    dotClass={
+                      statusTone(server.authStatus ?? server.status) === "active"
+                        ? "bg-warning animate-pulse-dot"
+                        : statusTone(server.authStatus ?? server.status) === "success"
+                          ? "bg-accent"
+                          : "bg-muted"
+                    }
+                  >
+                    {server.name}
+                    {typeof server.toolCount === "number" ? ` (${server.toolCount})` : ""}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+
+            {/* Notices */}
+            {providerStatus?.notices?.length || globalProviderState?.notices?.length ? (
+              <div className="flex flex-col gap-1">
+                {[...(globalProviderState?.notices ?? []), ...(providerStatus?.notices ?? [])].map(
+                  (notice, index) => (
+                    <div
+                      key={`${notice.source ?? "notice"}-${index}`}
+                      className="text-[0.75rem] text-warning"
+                    >
+                      {notice.message}
+                      {notice.detail ? (
+                        <span className="ml-1 text-muted">{notice.detail}</span>
+                      ) : null}
+                    </div>
+                  ),
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       {/* Raw messages */}
       {rawEntries.length > 0 && (

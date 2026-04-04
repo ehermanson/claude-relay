@@ -4,7 +4,13 @@ import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
 import type { ChatItem } from "@/hooks/use-instance-messages";
-import type { TaskItem, FileChange, SessionStats, HistoryEntry } from "@shared/types";
+import type {
+  TaskItem,
+  FileChange,
+  SessionStats,
+  HistoryEntry,
+  ProviderStatusSummary,
+} from "@shared/types";
 import { MarkdownContent } from "./markdown-content";
 import { FilesPanel } from "./files-panel";
 import { ContextPanel } from "./context-panel";
@@ -141,6 +147,7 @@ const TasksPanel = memo(function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
 
 import type { SidecarTab } from "@/stores/sidecar-store";
 export type { SidecarTab } from "@/stores/sidecar-store";
+import type { ProviderGlobalState } from "@shared/types";
 
 function samePanelSets(a: ReadonlySet<SidecarTab>, b: ReadonlySet<SidecarTab>): boolean {
   if (a.size !== b.size) return false;
@@ -157,6 +164,8 @@ interface SidecarProps {
   rawHistory?: HistoryEntry[] | null;
   provider?: string;
   preferredModel?: string;
+  providerStatus?: ProviderStatusSummary;
+  providerGlobalState?: ProviderGlobalState;
   instanceId?: string;
   createdAt?: number;
   lastActivityAt?: number;
@@ -178,6 +187,8 @@ export const Sidecar = memo(
     rawHistory,
     provider,
     preferredModel,
+    providerStatus,
+    providerGlobalState,
     instanceId,
     createdAt,
     lastActivityAt,
@@ -190,6 +201,17 @@ export const Sidecar = memo(
     const hasFiles = files && files.length > 0;
     const hasPlan = !!planContent;
     const hasStats = !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
+    const hasProviderContext = Boolean(
+      providerStatus?.threadStatus ||
+      providerStatus?.turnStatus ||
+      providerStatus?.effectiveModel ||
+      providerStatus?.diff?.summary ||
+      providerStatus?.notices?.length ||
+      providerGlobalState?.account ||
+      providerGlobalState?.mcpServers?.length ||
+      providerGlobalState?.apps?.length ||
+      providerGlobalState?.notices?.length,
+    );
 
     const [diffDrawerOpen, setDiffDrawerOpen] = useState(false);
     const [diffScrollToFile, setDiffScrollToFile] = useState<string | undefined>();
@@ -207,10 +229,10 @@ export const Sidecar = memo(
       if (hasFiles && activePanels.has("files"))
         tabs.push({ key: "files", label: "Files", count: files.length });
       if (hasPlan && activePanels.has("plan")) tabs.push({ key: "plan", label: "Plan", count: 0 });
-      if (hasStats && activePanels.has("context"))
+      if ((hasStats || hasProviderContext) && activePanels.has("context"))
         tabs.push({ key: "context", label: "Context", count: 0 });
       return tabs;
-    }, [activePanels, files, hasFiles, hasTasks, hasStats, tasks]);
+    }, [activePanels, files, hasFiles, hasTasks, hasStats, hasProviderContext, tasks]);
 
     const [activeTab, setActiveTab] = useState<SidecarTab>("tasks");
 
@@ -290,14 +312,16 @@ export const Sidecar = memo(
             onFileClick={instanceId ? (path) => openDiffDrawer(path) : undefined}
           />
         )}
-        {effectiveTab === "context" && hasStats && (
+        {effectiveTab === "context" && (hasStats || hasProviderContext) && (
           <ContextPanel
             mode="instance"
-            stats={stats!}
+            stats={stats ?? null}
             items={items ?? []}
             rawHistory={rawHistory ?? null}
             provider={provider}
             preferredModel={preferredModel}
+            providerStatus={providerStatus}
+            providerGlobalState={providerGlobalState}
             createdAt={createdAt ?? Date.now()}
             lastActivityAt={lastActivityAt ?? Date.now()}
           />
