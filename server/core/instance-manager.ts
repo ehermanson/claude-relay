@@ -40,6 +40,8 @@ import type { Project } from "#core/types.js";
 import { discoverSkills } from "#core/skills.js";
 import { hasTasks, loadTasks } from "#core/task-manager.js";
 import type { CoreConfig } from "#core/config.js";
+import { createPatch } from "diff";
+import { extFromPath } from "#core/paths.js";
 import type {
   ServerMessage,
   OutputMessage,
@@ -68,6 +70,7 @@ import type {
   ProviderModelOption,
   UserInputQuestion,
   SystemEventMessage,
+  EditToolInput,
 } from "#core/types.js";
 import {
   captureManagedSessionForProvider,
@@ -340,13 +343,25 @@ function defaultSessionTitle(provider?: ProviderKind): string {
   return label ? `External ${label} Session` : "New Session";
 }
 
+/**
+ * Clean `@task:<id>:<encodedTitle>` references out of text for title generation.
+ * Replaces each with the decoded human-readable title.
+ */
+function cleanTaskReferences(text: string): string {
+  return text.replace(/@task:([a-f0-9]{8})(?::([^\s@]*))?/g, (_m, _id, encoded) => {
+    if (!encoded) return "";
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  });
+}
+
 /** Generate a short session title from a user message. */
 function generateTitle(text: string, provider?: ProviderKind): string {
-  // Take the first line, strip markdown/special chars
-  const firstLine = text
-    .split("\n")[0]
-    .replace(/[#*`_~[\]>]/g, "")
-    .trim();
+  // Take the first line, strip markdown/special chars and task references
+  const firstLine = cleanTaskReferences(text.split("\n")[0].replace(/[#*`_~[\]>]/g, "")).trim();
   if (!firstLine) return defaultSessionTitle(provider);
   if (firstLine.length <= MAX_TITLE_LENGTH) return firstLine;
   // Truncate at word boundary
@@ -402,6 +417,16 @@ function buildUserInputReply(
   };
 }
 
+function countPatchLines(diff: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) additions++;
+    else if (line.startsWith("-") && !line.startsWith("---")) deletions++;
+  }
+  return { additions, deletions };
+}
+
 function buildToolActivityInput(
   toolName: string | undefined,
   input: Record<string, unknown> | undefined,
@@ -409,6 +434,26 @@ function buildToolActivityInput(
 ): Record<string, unknown> | undefined {
   if (toolName === "AskUserQuestion" && toolUseId) {
     return { ...input, requestId: toolUseId };
+  }
+  // Normalize Edit input: generate a patch diff from old/new strings so the
+  // UI has the same EditToolInput shape as the live provider path.
+  if (toolName === "Edit" && input) {
+    const filePath = (input.file_path ?? input.path) as string | undefined;
+    const oldStr = input.old_string as string | undefined;
+    const newStr = input.new_string as string | undefined;
+    if (filePath && typeof oldStr === "string" && typeof newStr === "string") {
+      const raw = createPatch(filePath, oldStr, newStr, undefined, undefined, { context: 3 });
+      const diff = raw.split("\n").slice(4).join("\n");
+      const { additions, deletions } = countPatchLines(diff);
+      const editInput: EditToolInput = {
+        file_path: filePath,
+        extension: extFromPath(filePath),
+        diff,
+        additions,
+        deletions,
+      };
+      return editInput as unknown as Record<string, unknown>;
+    }
   }
   return input;
 }
@@ -2056,6 +2101,22 @@ export class InstanceManager extends EventEmitter {
 
     const run = (async () => {
       try {
+        if (provider === "claude") {
+          // Claude doesn't have an RPC to poll — try to harvest rate limit
+          // data from any active session that has already received events.
+          for (const instance of this.instances.values()) {
+            if (instance.info.provider !== "claude" || !instance.process) continue;
+            const session =
+              instance.process as import("#core/providers/claude-sdk.js").ClaudeSdkSession;
+            if (typeof session.getRateLimitSnapshot !== "function") continue;
+            const rateLimits = session.getRateLimitSnapshot();
+            if (rateLimits?.length) {
+              this.updateProviderGlobalState("claude", { account: { rateLimits } });
+              break;
+            }
+          }
+          return;
+        }
         if (provider !== "codex") return;
         const cwd =
           Array.from(this.instances.values()).find(

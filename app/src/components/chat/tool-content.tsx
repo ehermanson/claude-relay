@@ -290,8 +290,25 @@ export function ToolContent({
     switch (tool) {
       case "Edit": {
         const edit = input as unknown as EditToolInput;
-        if (!edit.diff) return null;
-        return <PatchDiffView diff={edit.diff} label={edit.file_path} />;
+        if (edit.diff) {
+          return <PatchDiffView diff={edit.diff} label={edit.file_path} />;
+        }
+        // Fallback: raw old_string/new_string (legacy persisted data or unexpected input shape)
+        const oldStr = (input as Record<string, unknown>).old_string as string | undefined;
+        const newStr = (input as Record<string, unknown>).new_string as string | undefined;
+        if (typeof oldStr === "string" && typeof newStr === "string") {
+          const filePath = (input.file_path as string) || undefined;
+          // Build a minimal unified diff from old/new strings
+          const oldLines = oldStr.split("\n");
+          const newLines = newStr.split("\n");
+          const diffLines = [
+            `@@ -1,${oldLines.length} +1,${newLines.length} @@`,
+            ...oldLines.map((l) => `-${l}`),
+            ...newLines.map((l) => `+${l}`),
+          ];
+          return <PatchDiffView diff={diffLines.join("\n")} label={filePath} />;
+        }
+        return null;
       }
       case "Write": {
         const content = input.content as string | undefined;

@@ -443,6 +443,7 @@ export function createWebSocketServer(
       states: instanceManager.listProviderGlobalState(),
     });
     void instanceManager.ensureProviderGlobalState("codex");
+    void instanceManager.ensureProviderGlobalState("claude");
     sendMessage(ws, {
       type: "projects_changed",
       projects: instanceManager.projectManager.listProjects(),

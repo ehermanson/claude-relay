@@ -76,6 +76,15 @@ interface SDKMessageBase {
 }
 
 /** Minimal subset of the Query interface we use */
+interface AccountInfo {
+  email?: string;
+  organization?: string;
+  subscriptionType?: string;
+  tokenSource?: string;
+  apiKeySource?: string;
+  apiProvider?: "firstParty" | "bedrock" | "vertex" | "foundry";
+}
+
 interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   interrupt(): Promise<void>;
   setPermissionMode(
@@ -83,6 +92,7 @@ interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   ): Promise<void>;
   setModel(model?: string): Promise<void>;
   setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
+  accountInfo(): Promise<AccountInfo>;
   close(): void | Promise<void>;
 }
 
@@ -238,6 +248,8 @@ export interface ClaudeSdkSessionOptions {
 export interface ClaudeSdkSession extends ProviderSession {
   /** The session ID assigned by the SDK (available after first message from stream) */
   readonly sessionId: string | undefined;
+  /** Return accumulated rate limit data from received events, if any. */
+  getRateLimitSnapshot(): import("#core/types.js").ProviderRateLimitStatus[] | undefined;
 }
 
 /** Cached query function from the SDK — resolved once, reused for all sessions. */
@@ -379,6 +391,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       prompt: this.promptQueue,
       options: sdkOptions,
     });
+
+    // Fetch account info (plan, email, org) and emit as provider status
+    this.fetchAccountInfo();
 
     // Start consuming the message stream
     this.consumeStream();
@@ -798,9 +813,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         // Informational — skip for now
         break;
       case "auth_status":
-      case "rate_limit_event":
       case "prompt_suggestion":
         // Telemetry / informational — skip
+        break;
+      case "rate_limit_event":
+        this.handleRateLimitEvent(msg);
         break;
       default:
         this.logger.debug(`[SdkSession] Unhandled message type: ${type}`);
@@ -1106,6 +1123,134 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       };
       this.emit("activity", activity);
     }
+  }
+
+  // ===========================================================================
+  // Account Info
+  // ===========================================================================
+
+  private accountInfoFetched = false;
+
+  /**
+   * Fetch account info from the SDK (plan, email, org) and emit as a
+   * provider_status system event. Called once after session init.
+   */
+  private fetchAccountInfo(): void {
+    if (this.accountInfoFetched) return;
+    this.accountInfoFetched = true;
+
+    void this.query
+      .accountInfo()
+      .then((info) => {
+        const account: Record<string, unknown> = {};
+        if (info.subscriptionType) account.plan = info.subscriptionType;
+        if (info.email) account.email = info.email;
+        if (info.organization) account.label = info.organization;
+
+        if (Object.keys(account).length === 0) return;
+
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: { account },
+        } as SystemEventMessage);
+      })
+      .catch((err) => {
+        this.logger.debug(`[SdkSession] accountInfo() unavailable: ${err}`);
+      });
+  }
+
+  // ===========================================================================
+  // Rate Limit Events
+  // ===========================================================================
+
+  /**
+   * Map from rateLimitType → { utilization, resetsAt, status }. We accumulate
+   * across events because each event reports only one window at a time.
+   * `utilization` may be undefined for `allowed` status — Claude only sends it
+   * for `allowed_warning` or `rejected`.
+   */
+  private rateLimitWindows = new Map<
+    string,
+    { utilization: number | undefined; resetsAt: number | undefined; status: string }
+  >();
+
+  /** Known rateLimitType → window duration in minutes. */
+  private static readonly rateLimitWindowMinutes: Record<string, number> = {
+    five_hour: 300,
+    seven_day: 10080,
+    seven_day_opus: 10080,
+    seven_day_sonnet: 10080,
+    overage: 10080,
+  };
+
+  /**
+   * Handle `rate_limit_event` from the Claude SDK stream. Converts the
+   * SDK-specific payload into the same ProviderAccountStatus/rateLimits
+   * shape used by Codex, then emits a `provider_status` system event.
+   */
+  private handleRateLimitEvent(msg: Record<string, unknown>): void {
+    const info = msg.rate_limit_info as Record<string, unknown> | undefined;
+    if (!info) return;
+
+    const rateLimitType = info.rateLimitType as string | undefined;
+    this.logger.debug(
+      `[SdkSession] rate_limit_event: type=${rateLimitType} utilization=${info.utilization} status=${info.status} resetsAt=${info.resetsAt}`,
+    );
+    if (!rateLimitType) return;
+
+    // utilization is 0-1 fraction; only present for `allowed_warning` or
+    // `rejected` status. For `allowed`, we still store the window so we can
+    // show the reset time even without a percentage.
+    const utilization = typeof info.utilization === "number" ? info.utilization : undefined;
+    const resetsAt = typeof info.resetsAt === "number" ? info.resetsAt : undefined;
+    const status = typeof info.status === "string" ? info.status : "allowed";
+
+    this.rateLimitWindows.set(rateLimitType, { utilization, resetsAt, status });
+
+    const rateLimits = this.buildRateLimitsSnapshot();
+    if (!rateLimits.length) return;
+
+    this.emit("systemEvent", {
+      type: "system_event",
+      event: "provider_status",
+      payload: {
+        account: { rateLimits },
+      },
+    } as SystemEventMessage);
+  }
+
+  /** Build the normalized rate limits array from accumulated windows. */
+  private buildRateLimitsSnapshot(): import("#core/types.js").ProviderRateLimitStatus[] {
+    return [...this.rateLimitWindows.entries()].map(([type, data]) => {
+      const usedPercent = typeof data.utilization === "number" ? data.utilization * 100 : undefined;
+      const windowMinutes = ClaudeSdkSessionImpl.rateLimitWindowMinutes[type];
+      return {
+        name: type,
+        scope: type,
+        windows: [
+          {
+            usedPercent,
+            remaining:
+              typeof usedPercent === "number"
+                ? Math.max(0, Math.round(100 - usedPercent))
+                : undefined,
+            windowMinutes,
+            resetAt: data.resetsAt ? new Date(data.resetsAt * 1000).toISOString() : undefined,
+          },
+        ],
+      };
+    });
+  }
+
+  /**
+   * Public accessor so the instance manager can harvest accumulated rate limit
+   * data from active sessions (e.g. to hydrate provider global state on
+   * client reconnect without waiting for a new turn).
+   */
+  getRateLimitSnapshot(): import("#core/types.js").ProviderRateLimitStatus[] | undefined {
+    const snapshot = this.buildRateLimitsSnapshot();
+    return snapshot.length ? snapshot : undefined;
   }
 
   // ===========================================================================
