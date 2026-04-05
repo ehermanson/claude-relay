@@ -344,24 +344,43 @@ function defaultSessionTitle(provider?: ProviderKind): string {
 }
 
 /**
- * Clean `@task:<id>:<encodedTitle>` references out of text for title generation.
- * Replaces each with the decoded human-readable title.
+ * Sanitise user message text into plain-text suitable for a session title.
+ * 1. Strip XML/HTML-style tags (self-closing and paired) — covers
+ *    task_reference, terminal_context, image tags, and anything else.
+ * 2. Decode `@task:<id>:<encoded>` inline mentions to readable titles.
+ * 3. Unescape common XML/HTML entities that may survive after tag removal.
+ * 4. Collapse whitespace.
  */
-function cleanTaskReferences(text: string): string {
-  return text.replace(/@task:([a-f0-9]{8})(?::([^\s@]*))?/g, (_m, _id, encoded) => {
-    if (!encoded) return "";
-    try {
-      return decodeURIComponent(encoded);
-    } catch {
-      return encoded;
-    }
-  });
+export function sanitiseForTitle(text: string): string {
+  return (
+    text
+      // Strip XML/HTML tags (opening, closing, and self-closing)
+      .replace(/<\/?[a-zA-Z_][\w.-]*(?:\s[^>]*)?\/?>/g, "")
+      // Decode @task:id:encoded inline mentions
+      .replace(/@task:([a-f0-9]{8})(?::([^\s@]*))?/g, (_m, _id, encoded) => {
+        if (!encoded) return "";
+        try {
+          return decodeURIComponent(encoded);
+        } catch {
+          return encoded;
+        }
+      })
+      // Unescape common XML/HTML entities
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, "&") // must be last
+      // Collapse runs of whitespace into a single space
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /** Generate a short session title from a user message. */
 function generateTitle(text: string, provider?: ProviderKind): string {
-  // Take the first line, strip markdown/special chars and task references
-  const firstLine = cleanTaskReferences(text.split("\n")[0].replace(/[#*`_~[\]>]/g, "")).trim();
+  // Take the first line, strip markdown/special chars, then sanitise
+  const firstLine = sanitiseForTitle(text.split("\n")[0].replace(/[#*`_~[\]>]/g, ""));
   if (!firstLine) return defaultSessionTitle(provider);
   if (firstLine.length <= MAX_TITLE_LENGTH) return firstLine;
   // Truncate at word boundary

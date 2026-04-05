@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { InstanceManager } from "../dist/server/core/instance-manager.js";
+import { InstanceManager, sanitiseForTitle } from "../dist/server/core/instance-manager.js";
 import { SessionDB } from "../dist/server/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
 
@@ -1147,5 +1147,57 @@ describe("Plan Discovery", () => {
     assert.ok(artifacts);
     assert.equal(artifacts.plans.length, 0);
     manager.stopAll();
+  });
+});
+
+// ── sanitiseForTitle ─────────────────────────────────────────────────
+
+describe("sanitiseForTitle", () => {
+  it("strips task_reference XML tags and keeps surrounding text", () => {
+    const input =
+      'pick up <task_reference id="c4e91a7b" title="Fix login bug">Fix login bug</task_reference> please';
+    assert.equal(sanitiseForTitle(input), "pick up Fix login bug please");
+  });
+
+  it("strips terminal_context tags entirely", () => {
+    const input =
+      'do this <terminal_context source="Terminal">$ ls\nfoo\nbar</terminal_context> now';
+    assert.equal(sanitiseForTitle(input), "do this $ ls foo bar now");
+  });
+
+  it("strips self-closing tags", () => {
+    assert.equal(sanitiseForTitle('hello <image src="foo.png"/> world'), "hello world");
+  });
+
+  it("strips nested / multiple tags", () => {
+    const input = "<a><b>inner</b></a> plain <c />";
+    assert.equal(sanitiseForTitle(input), "inner plain");
+  });
+
+  it("decodes @task inline mentions", () => {
+    assert.equal(sanitiseForTitle("@task:abcd1234:Hello%20World rest"), "Hello World rest");
+  });
+
+  it("handles @task mention without encoded title", () => {
+    assert.equal(sanitiseForTitle("@task:abcd1234 rest"), "rest");
+  });
+
+  it("unescapes XML entities", () => {
+    assert.equal(
+      sanitiseForTitle("a &amp; b &lt; c &gt; d &quot;e&quot; f&#39;g"),
+      'a & b < c > d "e" f\'g',
+    );
+  });
+
+  it("collapses whitespace from stripped tags", () => {
+    assert.equal(sanitiseForTitle("  hello   <b>  </b>   world  "), "hello world");
+  });
+
+  it("returns empty string for tag-only input", () => {
+    assert.equal(sanitiseForTitle('<task_reference id="a" title="b">c</task_reference>'), "c");
+  });
+
+  it("passes through plain text unchanged", () => {
+    assert.equal(sanitiseForTitle("just a normal message"), "just a normal message");
   });
 });
