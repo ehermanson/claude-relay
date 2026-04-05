@@ -20,6 +20,7 @@ import type {
   OutputMessage,
   ExitMessage,
   ActivityMessage,
+  EditToolInput,
   FileChange,
   ProviderAccountStatus,
   ProviderDiffStatus,
@@ -42,6 +43,7 @@ import { ProposedPlanStreamParser } from "#core/proposed-plan.js";
 import { isPathWithinWorkspace } from "#core/workspace-paths.js";
 import { findCodexBinary } from "#core/providers/codex-cli.js";
 import { getBuiltinProviderModels } from "#core/provider-catalog.js";
+import { extFromPath } from "#core/paths.js";
 
 type SpawnFn = typeof spawn;
 
@@ -243,6 +245,25 @@ function getStringArray(value: unknown): string[] | undefined {
     (entry): entry is string => typeof entry === "string" && entry.length > 0,
   );
   return strings.length > 0 ? strings : undefined;
+}
+
+function countDiffLines(diff: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
+  }
+  return { additions, deletions };
+}
+
+function extractAddedFileContent(diff: string): string {
+  return diff
+    .split("\n")
+    .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+    .map((line) => line.slice(1))
+    .join("\n");
 }
 
 function buildRequestDescription(params: Record<string, unknown>): string | undefined {
@@ -1881,16 +1902,43 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       }
 
       case "fileChange": {
+        // Emit one activity per file so the shape matches Claude's Edit tool:
+        // flat input with file_path, additions, deletions, extension, etc.
         const changes = (item as FileChangeItem).changes;
-        const paths = changes.map((c) => c.path).join(", ");
-        this.emit("activity", {
-          type: "activity",
-          activity: "tool_use",
-          tool: "Edit",
-          description: "Editing files",
-          detail: paths || undefined,
-          raw: item,
-        } as ActivityMessage);
+        for (const change of changes) {
+          const fileName = change.path.split("/").pop() || change.path;
+          const tool = change.kind.type === "add" ? "Write" : "Edit";
+          const commonInput = {
+            file_path: change.path,
+            extension: extFromPath(change.path),
+            kind: change.kind.type,
+            movePath:
+              change.kind.type === "update" && change.kind.move_path
+                ? change.kind.move_path
+                : undefined,
+            ...countDiffLines(change.diff),
+          };
+          const activityInput =
+            tool === "Write"
+              ? {
+                  ...commonInput,
+                  content: extractAddedFileContent(change.diff),
+                }
+              : ({
+                  ...commonInput,
+                  diff: change.diff,
+                } satisfies EditToolInput);
+          this.emit("activity", {
+            type: "activity",
+            activity: "tool_use",
+            tool,
+            description: tool === "Write" ? "Writing file" : "Editing file",
+            detail: change.path,
+            input: activityInput as Record<string, unknown>,
+            inputDescription: fileName,
+            raw: item,
+          } as ActivityMessage);
+        }
         break;
       }
 

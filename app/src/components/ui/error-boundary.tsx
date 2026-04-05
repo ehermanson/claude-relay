@@ -52,7 +52,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
 
     return (
-      <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-muted">
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-muted">
         <AlertTriangle size={20} className="text-warning" />
         <p className="text-[0.875rem] font-medium text-text">
           {name ? `${name} failed to render` : "Something went wrong"}

@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronRight, Brain, ShieldAlert, CircleX, CircleCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { UserInputAnswer } from "@shared/types";
+import type { EditToolInput, UserInputAnswer } from "@shared/types";
 import type { ActivityKind, Resolution, ResultStatus } from "@/lib/chat-types";
 import { getToolIcon } from "@/lib/tool-icons";
 import { ToolContent } from "@/components/chat/tool-content";
@@ -87,10 +87,16 @@ function computeDisplayName(
       if (inputDescription) return inputDescription;
       return detail.length > 60 ? detail.slice(0, 60) + "\u2026" : detail;
     case "Edit":
+      if (inputDescription) return `Edit ${inputDescription}`;
+      return `Edit ${detail.split("/").pop() || detail}`;
     case "Write":
     case "Read": {
+      if (inputDescription) {
+        const verb = tool === "Write" ? "Write" : "Read";
+        return `${verb} ${inputDescription}`;
+      }
       const fileName = detail.split("/").pop() || detail;
-      const verb = tool === "Edit" ? "Edit" : tool === "Write" ? "Write" : "Read";
+      const verb = tool === "Write" ? "Write" : "Read";
       return `${verb} ${fileName}`;
     }
     case "Grep":
@@ -132,6 +138,9 @@ export function ActivityEntry({
 
   const isError = description === "Tool error";
   const displayName = computeDisplayName(tool, description, detail, inputDescription);
+  const edit = tool === "Edit" && input ? (input as unknown as EditToolInput) : null;
+  const hasEditCounts =
+    edit != null && (typeof edit.additions === "number" || typeof edit.deletions === "number");
 
   // Any completed tool (has resultStatus) is expandable to see input+output.
   const hasCompletedResult = !!resultStatus;
@@ -166,6 +175,13 @@ export function ActivityEntry({
         >
           {displayName}
         </span>
+        {hasEditCounts ? (
+          <span className="shrink-0 text-[0.6875rem] font-medium tabular-nums">
+            <span className="text-green-400">+{edit!.additions ?? 0}</span>
+            <span className="text-muted/40"> / </span>
+            <span className="text-red-400">-{edit!.deletions ?? 0}</span>
+          </span>
+        ) : null}
         {isExternalPending && (
           <span className="shrink-0 whitespace-nowrap rounded-md bg-claude-dim px-1.5 py-0.5 text-[10px] font-medium text-claude">
             Pending in terminal

@@ -1,12 +1,12 @@
 /**
- * Rich content renderers for individual tool calls.
- * Extracted from activity-entry.tsx for cleaner separation.
+ * Rich content renderers for individual tool-call activities.
+ * Extracted from activity-entry for cleaner separation.
  */
 
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { ActivityCodeBlock, DiffView, langFromPath } from "@/components/chat/activity-code";
-import type { UserInputAnswer } from "@shared/types";
+import { ActivityCodeBlock, PatchDiffView, langFromPath } from "@/components/chat/activity-code";
+import type { EditToolInput, UserInputAnswer } from "@shared/types";
 
 // ── AskUserQuestion ──────────────────────────────────────────────────
 
@@ -289,28 +289,21 @@ export function ToolContent({
   const inputContent = (() => {
     switch (tool) {
       case "Edit": {
-        const oldStr = input.old_string as string | undefined;
-        const newStr = input.new_string as string | undefined;
-        const filePath = (input.file_path as string) || undefined;
-        if (oldStr != null && newStr != null) {
-          return (
-            <DiffView
-              oldStr={oldStr}
-              newStr={newStr}
-              filePath={filePath}
-              lang={langFromPath(filePath)}
-            />
-          );
-        }
-        return null;
+        const edit = input as unknown as EditToolInput;
+        if (!edit.diff) return null;
+        return <PatchDiffView diff={edit.diff} label={edit.file_path} />;
       }
       case "Write": {
         const content = input.content as string | undefined;
+        const diff = input.diff as string | undefined;
         const filePath = (input.file_path as string) || undefined;
         if (content) {
           return (
             <ActivityCodeBlock content={content} label={filePath} lang={langFromPath(filePath)} />
           );
+        }
+        if (diff) {
+          return <PatchDiffView diff={diff} label={filePath} />;
         }
         return null;
       }
@@ -394,7 +387,8 @@ export function ToolContent({
   // Edit: just the diff. The result ("file updated successfully") is noise.
   if (tool === "Edit") return inputContent;
 
-  // Write: just the file content view.
+  // Write: show the created file content when available, otherwise fall back
+  // to the patch diff for providers that only emit diff-style payloads.
   if (tool === "Write") return inputContent;
 
   // Bash: labeled Command + Result sections (like Kanna).

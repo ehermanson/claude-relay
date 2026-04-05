@@ -405,7 +405,6 @@ function InstanceContext({
   const totalMessages = userCount + assistantCount;
 
   const rawEntries = useMemo(() => extractRawEntries(rawHistory ?? []), [rawHistory]);
-
   const displayStats = getDisplaySessionStats(provider, safeStats);
   const totalTokens = displayStats.totalTokens;
   const contextUsage = getContextWindowUsage(safeStats);
@@ -417,7 +416,6 @@ function InstanceContext({
     providerStatus?.threadStatus ||
     providerStatus?.turnStatus ||
     providerStatus?.effectiveModel ||
-    providerStatus?.diff?.summary ||
     globalProviderState?.account?.label ||
     globalProviderState?.account?.email ||
     globalProviderState?.account?.plan ||
@@ -580,23 +578,6 @@ function InstanceContext({
                   ? ` (from ${formatModel(providerStatus?.reroutedFromModel)})`
                   : ""}
               </span>
-            ) : null}
-
-            {/* Diff summary */}
-            {providerStatus?.diff?.summary ? (
-              <div className="flex items-center gap-1.5">
-                <StatusDot
-                  variant={
-                    statusTone(providerStatus?.diff?.status) === "active"
-                      ? "active"
-                      : statusTone(providerStatus?.diff?.status) === "success"
-                        ? "success"
-                        : "default"
-                  }
-                  size={6}
-                />
-                <span className="text-[0.75rem] text-text">{providerStatus?.diff?.summary}</span>
-              </div>
             ) : null}
 
             {/* Rate limit bars */}

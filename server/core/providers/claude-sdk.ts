@@ -18,6 +18,7 @@ import type {
   OutputMessage,
   ExitMessage,
   ActivityMessage,
+  EditToolInput,
   TaskItem,
   FileChange,
   SessionStats,
@@ -39,6 +40,19 @@ import {
 } from "#core/tools.js";
 import { buildSessionInitEvent } from "#core/session-init.js";
 import { isPathWithinWorkspace } from "#core/workspace-paths.js";
+import { extFromPath } from "#core/paths.js";
+import { createPatch } from "diff";
+
+function countPatchLines(diff: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
+  }
+  return { additions, deletions };
+}
 
 // =============================================================================
 // SDK Types — imported dynamically to avoid hard dep at module level
@@ -1133,8 +1147,30 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // File change tracking
     this.trackFileChange(toolName, input);
 
-    const activityInput =
-      toolName === "AskUserQuestion" && toolUseId ? { ...input, requestId: toolUseId } : input;
+    // Normalize Edit input into the same EditToolInput shape as Codex:
+    // generate a patch diff from old/new strings so the UI has one rendering path.
+    let activityInput: Record<string, unknown> | undefined = input;
+    if (toolName === "Edit" && input) {
+      const filePath = (input.file_path ?? input.path) as string | undefined;
+      const oldStr = input.old_string as string | undefined;
+      const newStr = input.new_string as string | undefined;
+      if (filePath && typeof oldStr === "string" && typeof newStr === "string") {
+        // Generate a patch diff string, stripping the Index/=== header lines
+        const raw = createPatch(filePath, oldStr, newStr, undefined, undefined, { context: 3 });
+        const diff = raw.split("\n").slice(4).join("\n"); // skip Index, ===, ---, +++
+        const { additions, deletions } = countPatchLines(diff);
+        const editInput: EditToolInput = {
+          file_path: filePath,
+          extension: extFromPath(filePath),
+          diff,
+          additions,
+          deletions,
+        };
+        activityInput = editInput as unknown as Record<string, unknown>;
+      }
+    } else if (toolName === "AskUserQuestion" && toolUseId) {
+      activityInput = { ...input, requestId: toolUseId };
+    }
 
     // Note: AskUserQuestion user_input permissionRequest is emitted from
     // handleCanUseTool (which always blocks for this tool). No duplicate here.

@@ -1,8 +1,7 @@
 /**
- * Code display helpers for activity entries — syntax highlighting, diff views, etc.
+ * Code display helpers for activity entries — syntax-highlighted code blocks, patch diffs, etc.
  */
 
-import { escapeHtml } from "../../lib/utils";
 import hljs from "../../lib/markdown";
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -62,48 +61,62 @@ function highlightCode(code: string, lang?: string): string | undefined {
   }
 }
 
-export function DiffView({
-  oldStr,
-  newStr,
-  filePath,
-  lang,
-}: {
-  oldStr: string;
-  newStr: string;
-  filePath?: string;
-  lang?: string;
-}) {
-  const oldHighlighted = highlightCode(oldStr, lang);
-  const newHighlighted = highlightCode(newStr, lang);
-  const oldLines = (oldHighlighted ?? escapeHtml(oldStr)).split("\n");
-  const newLines = (newHighlighted ?? escapeHtml(newStr)).split("\n");
+/**
+ * Renders a patch diff (the `@@` / `+` / `-` format) with proper line coloring.
+ * Provider-agnostic — works with any patch/unified diff string.
+ */
+export function PatchDiffView({ diff, label }: { diff: string; label?: string }) {
+  const lines = diff.split("\n");
 
   return (
     <div className="mt-1.5 overflow-hidden rounded-md border border-border/70 text-[11px] leading-relaxed">
-      {filePath && (
+      {label && (
         <div className="border-b border-border/70 bg-panel-header px-2.5 py-1 font-mono text-[10px] text-muted/70">
-          {filePath}
+          {label}
         </div>
       )}
-      <div className="hljs overflow-x-auto bg-transparent">
-        {oldLines.map((line, i) => (
-          <div
-            key={`old-${i}`}
-            className="whitespace-pre bg-diff-remove-bg px-2.5 py-px font-mono text-[11px]"
-          >
-            <span className="mr-2 inline-block w-3 select-none text-error/60">-</span>
-            <span dangerouslySetInnerHTML={{ __html: line || " " }} />
-          </div>
-        ))}
-        {newLines.map((line, i) => (
-          <div
-            key={`new-${i}`}
-            className="whitespace-pre bg-diff-add-bg px-2.5 py-px font-mono text-[11px]"
-          >
-            <span className="mr-2 inline-block w-3 select-none text-accent/60">+</span>
-            <span dangerouslySetInnerHTML={{ __html: line || " " }} />
-          </div>
-        ))}
+      <div className="overflow-x-auto bg-bg/80">
+        {lines.map((line, i) => {
+          let bgClass = "";
+          let textClass = "text-text/80";
+          let prefix = " ";
+
+          if (line.startsWith("@@")) {
+            bgClass = "bg-muted/5";
+            textClass = "text-muted/60";
+            prefix = "";
+          } else if (line.startsWith("+")) {
+            bgClass = "bg-diff-add-bg";
+            textClass = "text-text/90";
+            prefix = "+";
+          } else if (line.startsWith("-")) {
+            bgClass = "bg-diff-remove-bg";
+            textClass = "text-text/90";
+            prefix = "-";
+          }
+
+          // Strip the leading +/- from the display content (we show it as a styled prefix)
+          const content = prefix === "+" || prefix === "-" ? line.slice(1) : line;
+
+          return (
+            <div key={i} className={`whitespace-pre px-2.5 py-px font-mono text-[11px] ${bgClass}`}>
+              {prefix !== "" && (
+                <span
+                  className={`mr-2 inline-block w-3 select-none ${
+                    prefix === "+"
+                      ? "text-accent/60"
+                      : prefix === "-"
+                        ? "text-error/60"
+                        : "text-transparent"
+                  }`}
+                >
+                  {prefix}
+                </span>
+              )}
+              <span className={textClass}>{content || " "}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -14,9 +14,60 @@ import { INTERACTIVE_TOOLS } from "@shared/tools";
 export type { ChatItem, LiveActivity };
 
 const IMAGE_ONLY_PATTERN = /^\s*(\[Image: source: [^\]]+\]\s*)+$/;
+const GENERIC_LIVE_STRIP_TOOLS = new Set(["Edit", "Write", "Read", "Grep", "Glob"]);
 
 function isImageOnly(text: string): boolean {
   return IMAGE_ONLY_PATTERN.test(text);
+}
+
+function buildLiveActivity(
+  update: Omit<LiveActivity, "startedAt">,
+  previous?: LiveActivity | null,
+): LiveActivity {
+  const shouldPreserveStart =
+    previous &&
+    previous.phase === update.phase &&
+    previous.presentation === update.presentation &&
+    previous.tool === update.tool &&
+    previous.description === update.description;
+  return {
+    ...update,
+    startedAt: shouldPreserveStart ? previous.startedAt : Date.now(),
+  };
+}
+
+function classifyActivityForStrip(message: ActivityMessage): Omit<LiveActivity, "startedAt"> {
+  if (message.activity === "task_list") {
+    return {
+      phase: "task_list",
+      presentation: "generic",
+      description: "Updating tasks...",
+    };
+  }
+  if (message.activity === "file_list") {
+    return {
+      phase: "file_list",
+      presentation: "generic",
+      description: "Writing files...",
+    };
+  }
+  if (message.activity === "thinking") {
+    return {
+      phase: "thinking",
+      presentation: "generic",
+      description: "Thinking...",
+    };
+  }
+
+  const tool = message.tool;
+  const genericTool =
+    message.activity === "tool_use" && (tool ? GENERIC_LIVE_STRIP_TOOLS.has(tool) : false);
+  return {
+    phase: "tool",
+    presentation: genericTool ? "generic" : "detailed",
+    description: message.description || tool || "Working...",
+    tool,
+  };
 }
 
 function mergeToolResult(activities: MergedActivity[], result: ActivityMessage): boolean {
@@ -357,13 +408,14 @@ function coreReducer(state: State, action: Action): State {
           items,
           isProcessing: true,
           showThinkingIndicator: true,
-          lastActivity: {
-            description: "Thinking...",
-            startedAt:
-              state.lastActivity?.description === "Thinking..."
-                ? state.lastActivity.startedAt
-                : Date.now(),
-          },
+          lastActivity: buildLiveActivity(
+            {
+              phase: "thinking",
+              presentation: "generic",
+              description: "Thinking...",
+            },
+            state.lastActivity,
+          ),
         };
       }
 
@@ -414,7 +466,14 @@ function coreReducer(state: State, action: Action): State {
           items,
           isProcessing: true,
           showThinkingIndicator: false,
-          lastActivity: { description: "Responding...", startedAt: Date.now() },
+          lastActivity: buildLiveActivity(
+            {
+              phase: "responding",
+              presentation: "generic",
+              description: "Responding...",
+            },
+            state.lastActivity,
+          ),
         };
       }
 
@@ -432,14 +491,20 @@ function coreReducer(state: State, action: Action): State {
     }
 
     case "activity": {
-      const now = Date.now();
       if (action.message.activity === "task_list" && action.message.tasks) {
         return {
           ...state,
           isProcessing: true,
           showThinkingIndicator: true,
           currentTasks: action.message.tasks,
-          lastActivity: { description: "Updating tasks...", startedAt: now },
+          lastActivity: buildLiveActivity(
+            {
+              phase: "task_list",
+              presentation: "generic",
+              description: "Updating tasks...",
+            },
+            state.lastActivity,
+          ),
         };
       } else if (action.message.activity === "file_list" && action.message.files) {
         return {
@@ -447,7 +512,14 @@ function coreReducer(state: State, action: Action): State {
           isProcessing: true,
           showThinkingIndicator: true,
           currentFiles: action.message.files,
-          lastActivity: { description: "Writing files...", startedAt: now },
+          lastActivity: buildLiveActivity(
+            {
+              phase: "file_list",
+              presentation: "generic",
+              description: "Writing files...",
+            },
+            state.lastActivity,
+          ),
         };
       } else if (action.message.activity === "thinking") {
         const items = [...state.items];
@@ -457,13 +529,14 @@ function coreReducer(state: State, action: Action): State {
           items,
           isProcessing: true,
           showThinkingIndicator: true,
-          lastActivity: {
-            description: "Thinking...",
-            startedAt:
-              state.lastActivity?.description === "Thinking..."
-                ? state.lastActivity.startedAt
-                : now,
-          },
+          lastActivity: buildLiveActivity(
+            {
+              phase: "thinking",
+              presentation: "generic",
+              description: "Thinking...",
+            },
+            state.lastActivity,
+          ),
         };
       } else {
         const items = [...state.items];
@@ -521,13 +594,15 @@ function coreReducer(state: State, action: Action): State {
         }
 
         // Build a contextual description from the activity
-        const desc = action.message.description || action.message.tool || "Working...";
         return {
           ...state,
           items,
           isProcessing: true,
           showThinkingIndicator: true,
-          lastActivity: { description: desc, tool: action.message.tool, startedAt: now },
+          lastActivity: buildLiveActivity(
+            classifyActivityForStrip(action.message),
+            state.lastActivity,
+          ),
         };
       }
     }
@@ -663,13 +738,18 @@ function coreReducer(state: State, action: Action): State {
     }
 
     case "show_thinking": {
-      const now = Date.now();
       return {
         ...state,
         isProcessing: true,
         showThinkingIndicator: true,
-        processingStartedAt: state.processingStartedAt ?? now,
-        lastActivity: state.lastActivity ?? { description: "Starting...", startedAt: now },
+        processingStartedAt: state.processingStartedAt ?? Date.now(),
+        lastActivity:
+          state.lastActivity ??
+          buildLiveActivity({
+            phase: "starting",
+            presentation: "generic",
+            description: "Thinking...",
+          }),
       };
     }
 

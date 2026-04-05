@@ -710,6 +710,26 @@ describe("CodexAppServerSession", () => {
     child.stdout.write(
       JSON.stringify({
         jsonrpc: "2.0",
+        method: "item/started",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-1",
+          item: {
+            type: "fileChange",
+            id: "fc-1",
+            changes: [
+              { path: "src/app.ts", kind: { type: "update", move_path: null }, diff: "+foo\n-bar" },
+              { path: "src/new.ts", kind: { type: "add" }, diff: "+new file" },
+            ],
+            status: "inProgress",
+          },
+        },
+      }) + "\n",
+    );
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
         method: "item/completed",
         params: {
           threadId: "thread-001",
@@ -728,6 +748,33 @@ describe("CodexAppServerSession", () => {
     );
 
     await tick();
+
+    // fileChange emits one activity per file, mapped by change kind
+    const editActivities = activities.filter(
+      ([a]) => a.activity === "tool_use" && a.tool === "Edit",
+    );
+    const writeActivities = activities.filter(
+      ([a]) => a.activity === "tool_use" && a.tool === "Write",
+    );
+    assert.equal(editActivities.length, 1, "Expected 1 Edit activity for updated file");
+    assert.equal(writeActivities.length, 1, "Expected 1 Write activity for added file");
+
+    const [first] = editActivities[0];
+    assert.equal(first.input.file_path, "src/app.ts");
+    assert.equal(first.input.kind, "update");
+    assert.equal(first.input.additions, 1);
+    assert.equal(first.input.deletions, 1);
+    assert.equal(first.input.extension, "ts");
+    assert.equal(first.inputDescription, "app.ts");
+
+    const [second] = writeActivities[0];
+    assert.equal(second.input.file_path, "src/new.ts");
+    assert.equal(second.input.kind, "add");
+    assert.equal(second.input.additions, 1);
+    assert.equal(second.input.deletions, 0);
+    assert.equal(second.input.extension, "ts");
+    assert.equal(second.input.content, "new file");
+    assert.equal(second.description, "Writing file");
 
     const fileList = activities.find(([a]) => a.activity === "file_list");
     assert.ok(fileList, "Expected a file_list activity");

@@ -205,7 +205,6 @@ export const Sidecar = memo(
       providerStatus?.threadStatus ||
       providerStatus?.turnStatus ||
       providerStatus?.effectiveModel ||
-      providerStatus?.diff?.summary ||
       providerStatus?.notices?.length ||
       providerGlobalState?.account ||
       providerGlobalState?.mcpServers?.length ||
@@ -374,6 +373,9 @@ export const Sidecar = memo(
       prev.items === next.items &&
       prev.rawHistory === next.rawHistory &&
       prev.preferredModel === next.preferredModel &&
+      prev.provider === next.provider &&
+      prev.providerStatus === next.providerStatus &&
+      prev.providerGlobalState === next.providerGlobalState &&
       prev.planContent === next.planContent &&
       sameTasks(prev.tasks, next.tasks) &&
       sameFiles(prev.files, next.files)

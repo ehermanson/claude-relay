@@ -106,7 +106,6 @@ export function RateLimitBar({
 export function flattenRateLimitWindows(
   rateLimits: { windows?: ProviderRateLimitWindow[] }[],
 ): { window: ProviderRateLimitWindow; key: string }[] {
-  console.log({ rateLimits });
   return rateLimits.flatMap((limit, li) =>
     (limit.windows ?? []).map((w, wi) => ({
       window: w,

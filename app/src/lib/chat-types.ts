@@ -156,7 +156,19 @@ export type RenderRow =
 
 // ── Live activity (for status strip) ────────────────────────────────
 
+export type LiveActivityPhase =
+  | "starting"
+  | "thinking"
+  | "responding"
+  | "task_list"
+  | "file_list"
+  | "tool";
+
 export interface LiveActivity {
+  /** Structured phase so the strip can decide between generic and detailed text. */
+  phase: LiveActivityPhase;
+  /** Whether the strip should show the detailed label or fall back to generic copy. */
+  presentation: "generic" | "detailed";
   /** Human-readable description of what's happening */
   description: string;
   /** Tool name if applicable */

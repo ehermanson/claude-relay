@@ -700,6 +700,27 @@ export interface FileChange {
   deletions?: number;
 }
 
+/**
+ * Normalized Edit tool input — provider-agnostic shape emitted by both
+ * Claude and Codex. Always contains a patch diff string; both providers
+ * convert to this format server-side.
+ * One activity per file; counts are pre-computed.
+ */
+export interface EditToolInput {
+  file_path: string;
+  /** File extension without the dot (e.g. "ts", "tsx"). */
+  extension?: string;
+  /** Patch diff string (the `@@` / `+` / `-` format). */
+  diff?: string;
+  /** Server-computed line counts so the UI can display +/- without recomputing. */
+  additions?: number;
+  deletions?: number;
+  /** File change kind: "add", "update", "delete". */
+  kind?: string;
+  /** Destination path when a file is moved/renamed. */
+  movePath?: string;
+}
+
 export interface ActivityMessage {
   type: "activity";
   activity: "tool_use" | "tool_result" | "thinking" | "task_list" | "file_list";

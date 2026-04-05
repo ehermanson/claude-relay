@@ -61,11 +61,11 @@ export function LiveStatusStrip({
   } else if (isCompacting) {
     description = "Compacting context...";
   } else if (isVeryStale) {
-    description = "No activity for " + formatElapsed(silenceMs);
+    description = "Still working...";
   } else if (isStale) {
     description = "Still working...";
-  } else if (activity?.description) {
-    description = activity.description;
+  } else if (activity?.phase === "thinking" || activity?.phase === "starting") {
+    description = "Thinking...";
   } else {
     description = "Working...";
   }
