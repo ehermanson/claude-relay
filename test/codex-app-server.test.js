@@ -719,7 +719,7 @@ describe("CodexAppServerSession", () => {
             id: "fc-1",
             changes: [
               { path: "src/app.ts", kind: { type: "update", move_path: null }, diff: "+foo\n-bar" },
-              { path: "src/new.ts", kind: { type: "add" }, diff: "+new file" },
+              { path: "src/new.ts", kind: { type: "add" }, diff: "new file\n" },
             ],
             status: "inProgress",
           },
@@ -739,7 +739,7 @@ describe("CodexAppServerSession", () => {
             id: "fc-1",
             changes: [
               { path: "src/app.ts", kind: { type: "update", move_path: null }, diff: "+foo\n-bar" },
-              { path: "src/new.ts", kind: { type: "add" }, diff: "+new file" },
+              { path: "src/new.ts", kind: { type: "add" }, diff: "new file\n" },
             ],
             status: "completed",
           },

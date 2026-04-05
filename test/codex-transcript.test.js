@@ -293,6 +293,48 @@ describe("convertCodexTranscriptEntry", () => {
 
       assert.equal(ctx.files.size, 0);
     });
+
+    it("reconstructs Write and Edit activities from apply_patch input", () => {
+      const ctx = createContext();
+      const patch = `*** Begin Patch
+*** Add File: src/new.tsx
++export function Demo() {
++  return <div>Hello</div>;
++}
+*** Update File: src/existing.ts
+@@
+-old line
++new line
+*** End Patch`;
+
+      const results = convertCodexTranscriptEntry(
+        {
+          type: "response_item",
+          payload: {
+            type: "custom_tool_call",
+            name: "apply_patch",
+            call_id: "p4",
+            input: patch,
+          },
+        },
+        ctx,
+      );
+
+      const write = results.find((entry) => entry.message.tool === "Write");
+      const edit = results.find((entry) => entry.message.tool === "Edit");
+      const fileList = results.find((entry) => entry.message.activity === "file_list");
+
+      assert.ok(write, "expected reconstructed Write activity");
+      assert.equal(write.message.input.file_path, "src/new.tsx");
+      assert.match(write.message.input.content, /return <div>Hello<\/div>;/);
+
+      assert.ok(edit, "expected reconstructed Edit activity");
+      assert.equal(edit.message.input.file_path, "src/existing.ts");
+      assert.match(edit.message.input.diff, /new line/);
+
+      assert.ok(fileList, "expected file_list activity");
+      assert.equal(fileList.message.files.length, 2);
+    });
   });
 
   describe("token tracking", () => {

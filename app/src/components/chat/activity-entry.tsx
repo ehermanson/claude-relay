@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import type { EditToolInput, UserInputAnswer } from "@shared/types";
 import type { ActivityKind, Resolution, ResultStatus } from "@/lib/chat-types";
 import { getToolIcon } from "@/lib/tool-icons";
+import { FileIcon } from "@/components/ui/file-icon";
 import { ToolContent } from "@/components/chat/tool-content";
 import { PermissionDeniedContent } from "@/components/chat/tool-content";
 
@@ -33,17 +34,34 @@ interface ActivityEntryProps {
   resultDetail?: string;
 }
 
+/** Tools where we show a file-type icon instead of the generic tool icon. */
+const FILE_TOOLS = new Set(["Edit", "Write", "Read"]);
+
 function ActivityIcon({
   activity,
   tool,
   resultStatus,
   isPermDenied,
+  filePath,
 }: {
   activity: ActivityKind;
   tool?: string;
   resultStatus?: ResultStatus;
   isPermDenied?: boolean;
+  /** When set and the tool is a file tool, renders the file-type icon (grayscale). */
+  filePath?: string;
 }) {
+  // For file tools with a known path, show the file-type icon instead of a Lucide icon.
+  if (filePath && tool && FILE_TOOLS.has(tool) && !isPermDenied && activity !== "tool_result") {
+    return (
+      <FileIcon
+        path={filePath}
+        size={12}
+        className="mt-[3px] shrink-0 !opacity-100 ![filter:grayscale(1)]"
+      />
+    );
+  }
+
   let Icon: LucideIcon;
   let colorClass: string;
 
@@ -142,6 +160,12 @@ export function ActivityEntry({
   const hasEditCounts =
     edit != null && (typeof edit.additions === "number" || typeof edit.deletions === "number");
 
+  // Extract file path for file-tool icon rendering
+  const filePath =
+    tool && FILE_TOOLS.has(tool) && input
+      ? (((input as Record<string, unknown>).file_path as string | undefined) ?? detail)
+      : undefined;
+
   // Any completed tool (has resultStatus) is expandable to see input+output.
   const hasCompletedResult = !!resultStatus;
   const isExpandable =
@@ -163,6 +187,7 @@ export function ActivityEntry({
           tool={tool}
           resultStatus={resultStatus}
           isPermDenied={isPermDenied}
+          filePath={filePath}
         />
         <span
           className={`min-w-0 truncate text-[11px] ${

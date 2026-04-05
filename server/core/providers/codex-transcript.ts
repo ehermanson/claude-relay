@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import type {
   ActivityMessage,
+  EditToolInput,
   FileChange,
   HistoryEntry,
   OutputMessage,
@@ -10,6 +11,7 @@ import type {
   UserMessage,
 } from "#core/types.js";
 import { isInternalInjectedUserText, stripInjectedWrapper } from "#core/internal-user-messages.js";
+import { extFromPath } from "#core/paths.js";
 import { convertProposedPlanText } from "#core/proposed-plan.js";
 import { buildTaskListActivityFromPlan } from "#core/tools.js";
 import { isPathWithinWorkspace } from "#core/workspace-paths.js";
@@ -88,40 +90,108 @@ function trackFileChange(
   files.set(path, { path, editCount: 1, type });
 }
 
-function extractPatchFiles(patch: string): Array<{ path: string; type: "added" | "edited" }> {
-  const files = new Map<string, { path: string; type: "added" | "edited" }>();
-  let pendingPath: string | null = null;
-  let pendingType: "added" | "edited" = "edited";
+function countPatchLines(patch: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("+++")) continue;
+    if (line.startsWith("---")) continue;
+    if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
+  }
+  return { additions, deletions };
+}
 
-  for (const rawLine of patch.split("\n")) {
-    const line = rawLine.trimEnd();
+type ApplyPatchChange =
+  | {
+      path: string;
+      type: "added";
+      content: string;
+      additions: number;
+      deletions: number;
+    }
+  | {
+      path: string;
+      type: "edited";
+      diff: string;
+      additions: number;
+      deletions: number;
+      movePath?: string;
+    };
+
+function parseApplyPatchChanges(patch: string): ApplyPatchChange[] {
+  const lines = patch.split("\n");
+  const changes: ApplyPatchChange[] = [];
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
     if (line.startsWith("*** Add File: ")) {
-      pendingPath = line.slice("*** Add File: ".length).trim();
-      pendingType = "added";
-      files.set(pendingPath, { path: pendingPath, type: pendingType });
+      const path = line.slice("*** Add File: ".length).trim();
+      i += 1;
+      const contentLines: string[] = [];
+      let additions = 0;
+      while (i < lines.length) {
+        const current = lines[i];
+        if (current.startsWith("*** ") && !current.startsWith("*** End of File")) break;
+        if (current.startsWith("+")) {
+          additions++;
+          contentLines.push(current.slice(1));
+        }
+        i += 1;
+      }
+      changes.push({
+        path,
+        type: "added",
+        content: contentLines.join("\n"),
+        additions,
+        deletions: 0,
+      });
       continue;
     }
-    if (line.startsWith("*** Update File: ")) {
-      pendingPath = line.slice("*** Update File: ".length).trim();
-      pendingType = "edited";
-      files.set(pendingPath, { path: pendingPath, type: pendingType });
+
+    if (line.startsWith("*** Update File: ") || line.startsWith("*** Delete File: ")) {
+      const isDelete = line.startsWith("*** Delete File: ");
+      const marker = isDelete ? "*** Delete File: " : "*** Update File: ";
+      const path = line.slice(marker.length).trim();
+      i += 1;
+      const diffLines: string[] = [];
+      let movePath: string | undefined;
+      while (i < lines.length) {
+        const current = lines[i];
+        if (
+          (current.startsWith("*** Add File: ") ||
+            current.startsWith("*** Update File: ") ||
+            current.startsWith("*** Delete File: ") ||
+            current.startsWith("*** End Patch")) &&
+          !current.startsWith("*** End of File")
+        ) {
+          break;
+        }
+        if (current.startsWith("*** Move to: ")) {
+          movePath = current.slice("*** Move to: ".length).trim();
+        } else {
+          diffLines.push(current);
+        }
+        i += 1;
+      }
+      const diff = diffLines.join("\n").trim();
+      const { additions, deletions } = countPatchLines(diff);
+      changes.push({
+        path,
+        type: "edited",
+        diff,
+        additions,
+        deletions,
+        ...(movePath ? { movePath } : {}),
+      });
       continue;
     }
-    if (line.startsWith("*** Delete File: ")) {
-      pendingPath = line.slice("*** Delete File: ".length).trim();
-      pendingType = "edited";
-      files.set(pendingPath, { path: pendingPath, type: pendingType });
-      continue;
-    }
-    if (line.startsWith("*** Move to: ") && pendingPath) {
-      const movedPath = line.slice("*** Move to: ".length).trim();
-      files.delete(pendingPath);
-      pendingPath = movedPath;
-      files.set(movedPath, { path: movedPath, type: pendingType });
-    }
+
+    i += 1;
   }
 
-  return Array.from(files.values());
+  return changes;
 }
 
 function normalizeToolName(name: string): string {
@@ -287,21 +357,54 @@ export function convertCodexTranscriptEntry(
           ctx.tasks.set(task.id, { ...task });
         }
         results.push({ timestamp, message: taskListActivity });
-      } else {
-        results.push({
-          timestamp,
-          message: buildToolUseActivity(
-            payload.name,
-            rawArguments,
-            typeof payload.call_id === "string" && payload.name === "request_user_input"
-              ? `codex-input-${payload.call_id}`
-              : undefined,
-          ),
-        });
-      }
-      if (payload.name === "apply_patch" && typeof payload.input === "string") {
-        for (const file of extractPatchFiles(payload.input)) {
-          trackFileChange(ctx.files, ctx.cwd, file.path, file.type);
+      } else if (payload.name === "apply_patch" && typeof payload.input === "string") {
+        const changes = parseApplyPatchChanges(payload.input);
+        for (const change of changes) {
+          trackFileChange(ctx.files, ctx.cwd, change.path, change.type);
+          if (ctx.cwd && !isPathWithinWorkspace(ctx.cwd, change.path)) continue;
+          const fileName = change.path.split("/").pop() || change.path;
+          if (change.type === "added") {
+            results.push({
+              timestamp,
+              message: {
+                type: "activity",
+                activity: "tool_use",
+                tool: "Write",
+                description: "Writing file",
+                detail: change.path,
+                input: {
+                  file_path: change.path,
+                  extension: extFromPath(change.path),
+                  kind: "add",
+                  content: change.content,
+                  additions: change.additions,
+                  deletions: change.deletions,
+                },
+                inputDescription: fileName,
+              } as ActivityMessage,
+            });
+          } else {
+            results.push({
+              timestamp,
+              message: {
+                type: "activity",
+                activity: "tool_use",
+                tool: "Edit",
+                description: "Editing file",
+                detail: change.path,
+                input: {
+                  file_path: change.path,
+                  extension: extFromPath(change.path),
+                  kind: change.movePath ? "move" : "update",
+                  movePath: change.movePath,
+                  diff: change.diff,
+                  additions: change.additions,
+                  deletions: change.deletions,
+                } satisfies EditToolInput,
+                inputDescription: fileName,
+              } as ActivityMessage,
+            });
+          }
         }
         if (ctx.files.size > 0) {
           results.push({
@@ -314,6 +417,17 @@ export function convertCodexTranscriptEntry(
             } as ActivityMessage,
           });
         }
+      } else {
+        results.push({
+          timestamp,
+          message: buildToolUseActivity(
+            payload.name,
+            rawArguments,
+            typeof payload.call_id === "string" && payload.name === "request_user_input"
+              ? `codex-input-${payload.call_id}`
+              : undefined,
+          ),
+        });
       }
     } else if (
       payload.type === "function_call_output" ||

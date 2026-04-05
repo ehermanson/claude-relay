@@ -248,9 +248,22 @@ function getStringArray(value: unknown): string[] | undefined {
 }
 
 function countDiffLines(diff: string): { additions: number; deletions: number } {
+  const lines = diff.split("\n");
+  const looksLikePatch = lines.some(
+    (line) =>
+      line.startsWith("@@") ||
+      line.startsWith("+++") ||
+      line.startsWith("---") ||
+      line.startsWith("+") ||
+      line.startsWith("-"),
+  );
+  if (!looksLikePatch) {
+    const additions = diff.length === 0 ? 0 : lines.filter((line) => line.length > 0).length;
+    return { additions, deletions: 0 };
+  }
   let additions = 0;
   let deletions = 0;
-  for (const line of diff.split("\n")) {
+  for (const line of lines) {
     if (line.startsWith("+++") || line.startsWith("---")) continue;
     if (line.startsWith("+")) additions++;
     else if (line.startsWith("-")) deletions++;
@@ -259,6 +272,13 @@ function countDiffLines(diff: string): { additions: number; deletions: number } 
 }
 
 function extractAddedFileContent(diff: string): string {
+  const lines = diff.split("\n");
+  const hasPatchMarkers = lines.some(
+    (line) => line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@"),
+  );
+  if (!hasPatchMarkers && lines.every((line) => !line.startsWith("+") && !line.startsWith("-"))) {
+    return diff;
+  }
   return diff
     .split("\n")
     .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
