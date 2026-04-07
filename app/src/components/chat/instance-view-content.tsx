@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { motion } from "motion/react";
 import { BranchChangeBanner } from "@/components/chat/branch-change-banner";
 import { ConnectionStatusBanner } from "@/components/chat/connection-status-banner";
-import { DebugModal } from "@/components/chat/debug-modal";
+import { ChatDebug } from "@/components/chat/chat-debug";
 import { ExternalSessionBar } from "@/components/chat/external-session-bar";
 import { InputArea } from "@/components/chat/input-area";
 import { MessageList } from "@/components/chat/message-list";
@@ -111,7 +111,7 @@ export function InstanceViewContent() {
       )}
 
       {shared.showDebugPaste && (
-        <DebugModal
+        <ChatDebug
           instance={shared.instance}
           items={shared.items}
           rawHistory={shared.rawHistory}

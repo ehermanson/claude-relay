@@ -46,7 +46,7 @@ function MenuContent({
 }: MenuContentProps) {
   return (
     <BaseMenu.Portal>
-      <BaseMenu.Positioner side={side} align={align} sideOffset={sideOffset}>
+      <BaseMenu.Positioner side={side} align={align} sideOffset={sideOffset} className="z-[9999]">
         <BaseMenu.Popup className={`${popupClass} ${className}`}>{children}</BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
@@ -119,6 +119,7 @@ function MenuSubContent({
         align={align}
         sideOffset={sideOffset}
         alignOffset={alignOffset}
+        className="z-[9999]"
       >
         <BaseMenu.Popup className={`${popupClass} ${className}`}>{children}</BaseMenu.Popup>
       </BaseMenu.Positioner>

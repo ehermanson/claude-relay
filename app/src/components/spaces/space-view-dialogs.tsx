@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 import { AlertTriangle, Check } from "lucide-react";
 import { ConfirmMergeDialog } from "@/components/spaces/confirm-merge-dialog";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
-import { SpaceDebugModal } from "@/components/spaces/space-debug-modal";
+import { SpaceDebug } from "@/components/spaces/space-debug";
 import { useSpaceViewContext } from "@/components/spaces/space-view-context";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -149,7 +149,7 @@ export function SpaceViewDialogs() {
       />
 
       {shared.showDebug && (
-        <SpaceDebugModal
+        <SpaceDebug
           space={shared.space}
           instances={shared.spaceInstances}
           defaultInstanceId={shared.activeTab ?? undefined}

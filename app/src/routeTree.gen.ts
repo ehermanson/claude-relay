@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppSandboxRouteImport } from './routes/_app/sandbox'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsInstructionsRouteImport } from './routes/_app/settings/instructions'
 import { Route as AppSettingsGitRouteImport } from './routes/_app/settings/git'
@@ -53,6 +54,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSandboxRoute = AppSandboxRouteImport.update({
+  id: '/sandbox',
+  path: '/sandbox',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsProvidersRoute = AppSettingsProvidersRouteImport.update({
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/$': typeof SplatRoute
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
+  '/sandbox': typeof AppSandboxRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/projects/$projectId': typeof AppProjectsProjectIdRouteWithChildren
   '/settings/general': typeof AppSettingsGeneralRoute
@@ -172,6 +179,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/$': typeof SplatRoute
   '/login': typeof LoginRoute
+  '/sandbox': typeof AppSandboxRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/': typeof AppIndexRoute
   '/settings/general': typeof AppSettingsGeneralRoute
@@ -195,6 +203,7 @@ export interface FileRoutesById {
   '/$': typeof SplatRoute
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/_app/sandbox': typeof AppSandboxRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/': typeof AppIndexRoute
   '/_app/projects/$projectId': typeof AppProjectsProjectIdRouteWithChildren
@@ -220,6 +229,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/'
     | '/login'
+    | '/sandbox'
     | '/settings'
     | '/projects/$projectId'
     | '/settings/general'
@@ -241,6 +251,7 @@ export interface FileRouteTypes {
   to:
     | '/$'
     | '/login'
+    | '/sandbox'
     | '/settings'
     | '/'
     | '/settings/general'
@@ -263,6 +274,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/_app'
     | '/login'
+    | '/_app/sandbox'
     | '/_app/settings'
     | '/_app/'
     | '/_app/projects/$projectId'
@@ -324,6 +336,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sandbox': {
+      id: '/_app/sandbox'
+      path: '/sandbox'
+      fullPath: '/sandbox'
+      preLoaderRoute: typeof AppSandboxRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/providers': {
@@ -495,12 +514,14 @@ const AppProjectsProjectIdRouteWithChildren =
   AppProjectsProjectIdRoute._addFileChildren(AppProjectsProjectIdRouteChildren)
 
 interface AppRouteChildren {
+  AppSandboxRoute: typeof AppSandboxRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
   AppProjectsProjectIdRoute: typeof AppProjectsProjectIdRouteWithChildren
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppSandboxRoute: AppSandboxRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
   AppProjectsProjectIdRoute: AppProjectsProjectIdRouteWithChildren,

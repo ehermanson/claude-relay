@@ -37,13 +37,15 @@ interface TabProps {
   value: string;
   children: ReactNode;
   className?: string;
+  disabled?: boolean;
 }
 
-function Tab({ value, children, className = "" }: TabProps) {
+function Tab({ value, children, className = "", disabled }: TabProps) {
   return (
     <BaseTabs.Tab
       value={value}
-      className={`rounded px-2 py-0.5 text-[0.75rem] font-medium transition-colors text-muted hover:text-text data-[active]:bg-surface data-[active]:text-text-bright data-[active]:shadow-sm ${className}`}
+      disabled={disabled}
+      className={`rounded px-2 py-0.5 text-[0.75rem] font-medium transition-colors text-muted hover:text-text data-[active]:bg-surface data-[active]:text-text-bright data-[active]:shadow-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-40 ${className}`}
     >
       {children}
     </BaseTabs.Tab>

@@ -3568,7 +3568,7 @@ export class InstanceManager extends EventEmitter {
     // Fallback: check active instances whose encoded workingDirectory matches
     if (!directory && resolvedId) {
       for (const instance of this.instances.values()) {
-        if (instance.info.workingDirectory.replace(/\//g, "-") === resolvedId) {
+        if (instance.info.workingDirectory.replace(/[^A-Za-z0-9_-]/g, "-") === resolvedId) {
           directory = instance.info.workingDirectory;
           break;
         }
@@ -4193,7 +4193,7 @@ export class InstanceManager extends EventEmitter {
   }
 
   private cwdToProjectDir(cwd: string, projectsDir: string): string | null {
-    const encoded = cwd.replace(/\//g, "-");
+    const encoded = cwd.replace(/[^A-Za-z0-9_-]/g, "-");
     const projectDir = join(projectsDir, encoded);
     return existsSync(projectDir) ? projectDir : null;
   }
@@ -4250,7 +4250,7 @@ export class InstanceManager extends EventEmitter {
       if (instance.info.external || instance.jsonlPath) continue;
       if (instance.info.provider !== "claude") continue;
       const cwd = instance.actualCwd || instance.info.workingDirectory;
-      const encoded = cwd.replace(/\//g, "-");
+      const encoded = cwd.replace(/[^A-Za-z0-9_-]/g, "-");
       const projectDir = join(this.providerDirs.claude, "projects", encoded);
       if (!existsSync(projectDir)) continue;
       for (const candidate of this.findRecentJsonls(projectDir, 5)) {
@@ -7413,7 +7413,7 @@ export class InstanceManager extends EventEmitter {
    * Look up the summary for a session from sessions-index.json.
    */
   private getSessionSummary(sessionId: string, cwd: string): string | null {
-    const encoded = cwd.replace(/\//g, "-");
+    const encoded = cwd.replace(/[^A-Za-z0-9_-]/g, "-");
     const indexPath = join(this.providerDirs.claude, "projects", encoded, "sessions-index.json");
     try {
       const indexData = JSON.parse(readFileSync(indexPath, "utf-8"));
