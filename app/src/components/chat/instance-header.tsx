@@ -451,7 +451,7 @@ export function InstanceHeader({
             ahead={gitStatus?.aheadBehind?.ahead}
             behind={gitStatus?.aheadBehind?.behind}
             statusLoading={gitStatusLoading}
-            onCommit={() => setCommitDialogOpen(true)}
+            onCommit={gitStatus?.dirty ? () => setCommitDialogOpen(true) : undefined}
             onPush={openPushDialog}
           />
         )}
