@@ -1,11 +1,10 @@
 /**
  * Shared header primitives for chat and space views.
- * Keeps breadcrumb, branch badge, and token badge consistent.
+ * Keeps token badge and layout consistent.
  */
 
 import type { ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
-import { ChevronLeft, Menu as MenuIcon, Zap } from "lucide-react";
+import { Menu as MenuIcon, Zap } from "lucide-react";
 import { Tooltip } from "./tooltip";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useLayoutStore } from "@/stores/layout-store";
@@ -47,56 +46,6 @@ export function MobileSidebarToggle() {
       </button>
     </Tooltip>
   );
-}
-
-// ── Breadcrumb: [project] > ──────────────────────────────────────────
-
-interface ViewHeaderBreadcrumbProps {
-  to: string;
-  params: Record<string, string>;
-  label: string;
-  /** Show as mobile back button only (hidden on desktop) */
-  mobileOnly?: boolean;
-}
-
-export function ViewHeaderBreadcrumb({ to, params, label, mobileOnly }: ViewHeaderBreadcrumbProps) {
-  return (
-    <>
-      {/* Desktop: text link + chevron */}
-      {!mobileOnly && (
-        <>
-          <Link
-            to={to}
-            params={params}
-            className="hidden text-[0.8125rem] font-medium text-muted transition-colors hover:text-text sm:block"
-          >
-            {label}
-          </Link>
-          <ChevronLeft
-            size={12}
-            strokeWidth={2.5}
-            className="hidden shrink-0 rotate-180 text-muted/40 sm:block"
-          />
-        </>
-      )}
-    </>
-  );
-}
-
-// ── Branch badge ─────────────────────────────────────────────────────
-
-interface BranchBadgeProps {
-  branch: string;
-  tooltip?: string;
-}
-
-export function BranchBadge({ branch, tooltip }: BranchBadgeProps) {
-  const badge = (
-    <span className="hidden shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-[0.6875rem] font-medium text-muted sm:inline-flex">
-      {branch}
-    </span>
-  );
-  return tooltip ? <Tooltip content={tooltip}>{badge}</Tooltip> : badge;
 }
 
 // ── Token badge ──────────────────────────────────────────────────────

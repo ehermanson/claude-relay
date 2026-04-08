@@ -48,7 +48,13 @@ function PopoverContent({
 }: PopoverContentProps) {
   return (
     <BasePopover.Portal>
-      <BasePopover.Positioner side={side} align={align} sideOffset={sideOffset} anchor={anchor}>
+      <BasePopover.Positioner
+        side={side}
+        align={align}
+        sideOffset={sideOffset}
+        anchor={anchor}
+        className="z-[9999]"
+      >
         <BasePopover.Popup className={`glass z-50 rounded-xl p-4 animate-fade-in ${className}`}>
           {children}
         </BasePopover.Popup>

@@ -2,14 +2,9 @@ import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Menu } from "@/components/ui/menu";
-import { GitMenu } from "@/components/ui/git-menu";
-import {
-  ViewHeader,
-  ViewHeaderBreadcrumb,
-  ViewHeaderTitle,
-  BranchBadge,
-  MobileSidebarToggle,
-} from "@/components/ui/view-header";
+import { GitBadge } from "@/components/ui/git-badge";
+import { ViewHeader, ViewHeaderTitle, MobileSidebarToggle } from "@/components/ui/view-header";
+import { ProjectBreadcrumb } from "@/components/ui/project-breadcrumb";
 import { HeaderContextToggle, HeaderIconSkeleton } from "@/components/chat/header-actions";
 import { OpenInMenu } from "@/components/project/open-in-menu";
 import { GhCliRequiredDialog } from "@/components/git/gh-cli-required-dialog";
@@ -36,11 +31,7 @@ export function SpaceViewHeader() {
     <ViewHeader style={{ containerName: "space-header", containerType: "inline-size" }}>
       <MobileSidebarToggle />
       <span className="space-header-breadcrumb contents">
-        <ViewHeaderBreadcrumb
-          to="/projects/$projectId"
-          params={{ projectId: shared.projectId }}
-          label={shared.projectName}
-        />
+        <ProjectBreadcrumb projectId={shared.projectId} label={shared.projectName} />
       </span>
       <GitBranch size={14} className="shrink-0 text-accent" />
       <ViewHeaderTitle>
@@ -59,7 +50,6 @@ export function SpaceViewHeader() {
           </span>
         )}
         <span className="space-header-badge contents">
-          {shared.space.gitBranch && <BranchBadge branch={shared.space.gitBranch} />}
           {shared.isMerged && (
             <Badge variant="success" size="sm">
               Merged
@@ -137,14 +127,17 @@ export function SpaceViewHeader() {
         {shared.isActive && (
           <>
             <OpenInMenu path={shared.openInPath} className="hidden sm:flex" />
-            <GitMenu
-              onCommit={() => actions.setCommitDialogOpen(true)}
-              onMerge={() => actions.setMergeDialog({ phase: "confirm" })}
-              mergeDisabled={shared.spaceInstances.length === 0}
-              onPush={() => void actions.handlePush(false)}
-              onPushAndCreatePR={() => void actions.handlePush(true)}
-              worktreePath={shared.space.worktreePath || undefined}
-            />
+            {shared.space.gitBranch && (
+              <GitBadge
+                branch={shared.space.gitBranch}
+                onCommit={() => actions.setCommitDialogOpen(true)}
+                onPush={() => void actions.handlePush(false)}
+                onPushAndCreatePR={() => void actions.handlePush(true)}
+                onMerge={() => actions.setMergeDialog({ phase: "confirm" })}
+                mergeDisabled={shared.spaceInstances.length === 0}
+                worktreePath={shared.space.worktreePath || undefined}
+              />
+            )}
             {!shared.isMobile && (
               <Tooltip
                 content={

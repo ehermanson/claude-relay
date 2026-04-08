@@ -3,7 +3,8 @@
  * and action buttons (open-in, debug, sidecar toggles).
  */
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Bug,
@@ -22,14 +23,9 @@ import { Dialog } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { Menu } from "../ui/menu";
-import { GitMenu } from "../ui/git-menu";
-import {
-  ViewHeader,
-  ViewHeaderBreadcrumb,
-  ViewHeaderTitle,
-  BranchBadge,
-  MobileSidebarToggle,
-} from "../ui/view-header";
+import { GitBadge } from "../ui/git-badge";
+import { ViewHeader, ViewHeaderTitle, MobileSidebarToggle } from "../ui/view-header";
+import { ProjectBreadcrumb } from "../ui/project-breadcrumb";
 import { OpenInMenu } from "../project/open-in-menu";
 import { HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
 import { CommitMessageDialog } from "../git/commit-message-dialog";
@@ -294,8 +290,6 @@ export function InstanceHeader({
   terminalOpen,
 }: InstanceHeaderProps) {
   const displayBranch = instance.gitInfo?.branch || instance.gitBranch;
-  const displayBranchIsWorktree =
-    instance.gitInfo?.isWorktree ?? Boolean(instance.originalDirectory && displayBranch);
 
   const instanceStatus = deriveInstanceStatusPresentation(instance);
 
@@ -309,6 +303,22 @@ export function InstanceHeader({
   const reroutedModel = instance.providerStatus?.effectiveModel;
   const rerouteSource = instance.providerStatus?.reroutedFromModel;
 
+  const queryClient = useQueryClient();
+  const invalidateGitStatus = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ["instance-git-status", instance.id] }),
+    [queryClient, instance.id],
+  );
+
+  // Lightweight git status query for the badge indicators
+  const { data: gitStatus, isLoading: gitStatusLoading } = useQuery({
+    queryKey: ["instance-git-status", instance.id],
+    queryFn: () => fetchInstanceGitStatus(instance.id),
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+    // Only fetch when we have a branch (instance is in a git repo)
+    enabled: !!displayBranch,
+  });
+
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const [pushDialogOpen, setPushDialogOpen] = useState(false);
   const [pushStatus, setPushStatus] = useState<InstanceGitStatus | null>(null);
@@ -319,6 +329,7 @@ export function InstanceHeader({
     const result = await gitCommitInstance(instance.id, { message });
     if (result.success) {
       toast.success("Changes committed");
+      invalidateGitStatus();
     } else {
       toast.error(result.error || "Commit failed");
     }
@@ -348,6 +359,7 @@ export function InstanceHeader({
         return;
       }
       setPushDialogOpen(false);
+      invalidateGitStatus();
       if (result.pushed === false) {
         toast.warning(result.message || "Nothing to push");
         return;
@@ -364,9 +376,8 @@ export function InstanceHeader({
     <ViewHeader style={{ containerName: "chat-header", containerType: "inline-size" }}>
       <MobileSidebarToggle />
       <span className="chat-header-breadcrumb contents">
-        <ViewHeaderBreadcrumb
-          to="/projects/$projectId/chats"
-          params={{ projectId }}
+        <ProjectBreadcrumb
+          projectId={projectId}
           label={getProjectName(instance.workingDirectory)}
         />
       </span>
@@ -378,16 +389,6 @@ export function InstanceHeader({
           {instance.name}
         </h1>
         <span className="chat-header-badge contents">
-          {displayBranch && (
-            <BranchBadge
-              branch={displayBranch}
-              tooltip={
-                displayBranchIsWorktree
-                  ? `Working in worktree on branch ${displayBranch}${instance.originalDirectory ? ` (from ${instance.originalDirectory})` : ""}`
-                  : `On branch ${displayBranch}`
-              }
-            />
-          )}
           {promotedProviderNotice ? (
             <Tooltip
               content={
@@ -442,7 +443,18 @@ export function InstanceHeader({
       </ViewHeaderTitle>
       <div className="flex items-center gap-1">
         <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
-        <GitMenu onCommit={() => setCommitDialogOpen(true)} onPush={openPushDialog} />
+        {displayBranch && (
+          <GitBadge
+            branch={displayBranch}
+            projectId={instance.gitInfo?.isWorktree ? undefined : projectId}
+            dirty={gitStatus?.dirty}
+            ahead={gitStatus?.aheadBehind?.ahead}
+            behind={gitStatus?.aheadBehind?.behind}
+            statusLoading={gitStatusLoading}
+            onCommit={() => setCommitDialogOpen(true)}
+            onPush={openPushDialog}
+          />
+        )}
         {onToggleTerminal && !isMobile && (
           <Tooltip content={terminalOpen ? "Hide terminal" : "Show terminal"}>
             <Button
