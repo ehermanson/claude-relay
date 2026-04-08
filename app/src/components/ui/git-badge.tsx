@@ -94,8 +94,13 @@ function BranchSubmenu({
     [projectId, current, onBranchChanged],
   );
 
-  const localBranches = data?.local ?? [];
-  const remoteBranches = (data?.remote ?? []).filter((b) => !localBranches.includes(b));
+  // Filter out space branches (relay-space/*) to avoid worktree conflicts
+  const isSpaceBranch = (b: string) => b.startsWith("relay-space/");
+
+  const localBranches = (data?.local ?? []).filter((b) => !isSpaceBranch(b));
+  const remoteBranches = (data?.remote ?? []).filter(
+    (b) => !localBranches.includes(b) && !isSpaceBranch(b),
+  );
 
   if (isLoading) {
     return (
