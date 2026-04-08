@@ -171,12 +171,12 @@ html.light {
   --shadow-raised: 0 4px 12px hsl(0 0% 0% / 0.08), 0 0 0 1px hsl(0 0% 0% / 0.04);
   --shadow-overlay: 0 8px 30px hsl(0 0% 0% / 0.12), 0 0 0 1px hsl(0 0% 0% / 0.06);
   --color-bg: hsl(0 0% 100%);
-  --color-surface: hsl(230 20% 99%);
-  --color-surface-hover: hsl(220 8% 95%);
+  --color-surface: hsl(0 0% 100%);
+  --color-surface-hover: hsl(220 10% 96.5%);
   --color-surface-raised: hsl(0 0% 100%);
-  --color-border: hsl(222 11% 90%);
+  --color-border: hsl(220 13% 91%);
   --color-border-hover: hsl(216 6% 82%);
-  --color-border-subtle: hsl(0 0% 0% / 0.06);
+  --color-border-subtle: hsl(0 0% 0% / 0.05);
   --color-text: hsl(218 17% 27%);
   --color-text-bright: hsl(222 47% 11%);
   --color-muted: hsl(220 9% 46%);
@@ -187,8 +187,8 @@ html.light {
   --color-claude: hsl(263 82% 58%);
   --color-claude-dim: hsl(263 82% 58% / 0.06);
   --color-claude-hover: hsl(263 70% 50%);
-  --color-user-bg: hsl(220 16% 96%);
-  --color-user-border: hsl(222 11% 90%);
+  --color-user-bg: hsl(220 14% 97%);
+  --color-user-border: hsl(220 13% 91%);
   --color-user-text: hsl(218 17% 27%);
   --color-user-label: hsl(217 91% 60%);
   --color-error: hsl(0 72% 51%);
@@ -200,16 +200,16 @@ html.light {
   --color-warning-dim: hsl(32 95% 44% / 0.06);
   --color-tool-use-bg: hsl(217 91% 60% / 0.06);
   --color-tool-use-text: hsl(217 91% 60%);
-  --color-panel-header: hsl(0 0% 0% / 0.03);
-  --color-panel-content: hsl(0 0% 0% / 0.02);
-  --color-panel-options: hsl(0 0% 0% / 0.015);
+  --color-panel-header: hsl(0 0% 0% / 0.02);
+  --color-panel-content: hsl(0 0% 0% / 0.015);
+  --color-panel-options: hsl(0 0% 0% / 0.01);
   --color-diff-remove-bg: hsl(0 72% 51% / 0.08);
   --color-diff-add-bg: hsl(161 94% 30% / 0.08);
-  --color-code-bg: hsl(0 0% 0% / 0.04);
-  --color-pre-bg: hsl(220 16% 96%);
+  --color-code-bg: hsl(0 0% 0% / 0.03);
+  --color-pre-bg: hsl(220 14% 97%);
   --color-blockquote-bg: hsl(263 82% 58% / 0.03);
-  --color-table-header-bg: hsl(0 0% 0% / 0.03);
-  --color-hover-highlight: hsl(0 0% 0% / 0.04);
+  --color-table-header-bg: hsl(0 0% 0% / 0.02);
+  --color-hover-highlight: hsl(0 0% 0% / 0.03);
 }
 
 /* ── Highlight.js Light Overrides ─────────────────────────────────── */
@@ -362,30 +362,55 @@ html.light ::selection {
 }
 
 /* ── Scrollbars ────────────────────────────────────────────────────── */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+body, body * {
+  --sb-size: 8px;
+  --scrollbar-thumb: hsl(0 0% 100% / 0.08);
+  --scrollbar-thumb-hover: hsl(0 0% 100% / 0.2);
 }
-*:hover {
-  scrollbar-color: var(--color-border) transparent;
+html.light body, html.light body * {
+  --scrollbar-thumb: hsl(0 0% 0% / 0.07);
+  --scrollbar-thumb-hover: hsl(0 0% 0% / 0.15);
 }
 
-*::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+body::-webkit-scrollbar,
+body *::-webkit-scrollbar {
+  width: var(--sb-size);
+  height: var(--sb-size);
 }
-*::-webkit-scrollbar-track {
+
+body::-webkit-scrollbar-track,
+body *::-webkit-scrollbar-track {
   background: transparent;
+  border-radius: 999px;
 }
-*::-webkit-scrollbar-thumb {
+
+body::-webkit-scrollbar-thumb,
+body *::-webkit-scrollbar-thumb {
   background: transparent;
-  border-radius: 3px;
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
 }
-*:hover::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+
+body:hover > ::-webkit-scrollbar-thumb,
+body *:hover > ::-webkit-scrollbar-thumb,
+body:hover::-webkit-scrollbar-thumb,
+body *:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  background-clip: content-box;
 }
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--color-muted);
+
+body::-webkit-scrollbar-thumb:hover,
+body *::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  body, body * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
 }
 
 /* ── Markdown ──────────────────────────────────────────────────────── */
