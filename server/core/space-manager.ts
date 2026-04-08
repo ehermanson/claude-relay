@@ -843,6 +843,9 @@ export class SpaceManager extends EventEmitter {
     if (!pushResult.success) {
       return { pushed: false, error: pushResult.error || "Push failed" };
     }
+    if (pushResult.pushed === false && !opts?.createPR) {
+      return { pushed: false, error: pushResult.message || "Nothing to push" };
+    }
 
     this.logger.info(`[SpaceManager] Pushed space "${row.name}" branch ${row.git_branch}`);
 

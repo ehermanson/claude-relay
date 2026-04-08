@@ -459,6 +459,33 @@ export function isWorktreeDirty(worktreePath: string): boolean {
   }
 }
 
+export interface GitWorktreeStatus {
+  dirty: boolean;
+  changeCount: number;
+  aheadBehind: { ahead: number; behind: number };
+}
+
+export function getWorktreeStatus(worktreePath: string): GitWorktreeStatus {
+  let changeCount = 0;
+  try {
+    const output = execFileSync("git", ["status", "--porcelain"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 10000,
+    }).trim();
+    changeCount = output ? output.split(/\r?\n/).length : 0;
+  } catch {
+    changeCount = 1;
+  }
+
+  return {
+    dirty: changeCount > 0,
+    changeCount,
+    aheadBehind: getAheadBehind(worktreePath),
+  };
+}
+
 /**
  * Merge a worktree branch into whatever branch is checked out in the primary worktree.
  *
@@ -1296,7 +1323,7 @@ export async function gitPush(
   dir: string,
   branch?: string,
   setUpstream?: boolean,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; pushed?: boolean; message?: string }> {
   try {
     const args = ["push"];
     const remote = getPrimaryRemote(dir);
@@ -1305,11 +1332,19 @@ export async function gitPush(
     } else if (branch) {
       args.push(remote, branch);
     }
-    await execFileAsync("git", args, {
+    const { stdout, stderr } = await execFileAsync("git", args, {
       cwd: dir,
       timeout: 30000,
     });
-    return { success: true };
+    const output = `${stdout ?? ""}\n${stderr ?? ""}`.trim();
+    if (output.includes("Everything up-to-date")) {
+      return {
+        success: true,
+        pushed: false,
+        message: "Nothing to push — branch is already up to date",
+      };
+    }
+    return { success: true, pushed: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }

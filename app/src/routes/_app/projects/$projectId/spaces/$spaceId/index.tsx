@@ -429,6 +429,10 @@ export function SpaceView() {
     try {
       const result = await pushSpace(spaceId, { createPR });
       if (!result.pushed) {
+        if (result.error?.includes("Nothing to push")) {
+          toast.warning(result.error);
+          return;
+        }
         toast.error(result.error || "Push failed");
         return;
       }

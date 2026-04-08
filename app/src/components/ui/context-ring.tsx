@@ -22,8 +22,8 @@ export function ContextRing({
 
   const pct = usage.usagePct / 100;
   const used = Math.round(usage.usagePct);
-  const r = 5;
-  const size = 14;
+  const r = 9;
+  const size = 24;
   const cx = size / 2;
   const cy = size / 2;
   const circ = 2 * Math.PI * r;
@@ -34,15 +34,13 @@ export function ContextRing({
     <Tooltip
       content={
         <div className="space-y-0.5 text-center">
-          <div className="font-semibold text-text">Current context</div>
+          <div className="font-semibold text-text">Context Window</div>
           <div>
             {used}% used &middot; {100 - used}% left
           </div>
           <div>
             {formatTokens(usage.contextTokens)} / {formatTokens(usage.contextWindow)} tokens
           </div>
-          <div className="pt-1 text-muted">Latest prompt footprint, not session total</div>
-          <div className="text-muted">Auto-compacts when full</div>
         </div>
       }
       delay={200}
@@ -56,7 +54,7 @@ export function ContextRing({
             fill="none"
             stroke="currentColor"
             strokeOpacity={0.2}
-            strokeWidth={2}
+            strokeWidth={2.5}
           />
           <circle
             cx={cx}
@@ -64,12 +62,23 @@ export function ContextRing({
             r={r}
             fill="none"
             stroke={ringColor}
-            strokeWidth={2}
+            strokeWidth={2.5}
             strokeLinecap="round"
             strokeDasharray={circ}
             strokeDashoffset={dashOffset}
             transform={`rotate(-90 ${cx} ${cy})`}
           />
+          <text
+            x={cx}
+            y={cy}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill="currentColor"
+            fontSize="8"
+            fontWeight="500"
+          >
+            {used}
+          </text>
         </svg>
       </Button>
     </Tooltip>

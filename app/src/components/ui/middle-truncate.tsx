@@ -23,13 +23,14 @@ function middleTruncate(text: string, maxWidth: number, font: string): string {
     return text;
   }
 
-  // Binary search: find max chars we can keep (split evenly start/end)
+  // Binary search: find max chars we can keep (biased toward the end
+  // so filenames stay readable — ~30% start, ~70% end)
   let lo = 1;
   let hi = text.length - 1;
 
   while (lo < hi) {
     const mid = (lo + hi + 1) >>> 1;
-    const startLen = Math.ceil(mid / 2);
+    const startLen = Math.max(1, Math.round(mid * 0.3));
     const endLen = mid - startLen;
     const candidate = text.slice(0, startLen) + ELLIPSIS + text.slice(text.length - endLen);
     const p = prepare(candidate, font);
@@ -40,7 +41,7 @@ function middleTruncate(text: string, maxWidth: number, font: string): string {
     }
   }
 
-  const startLen = Math.ceil(lo / 2);
+  const startLen = Math.max(1, Math.round(lo * 0.3));
   const endLen = lo - startLen;
   if (endLen === 0) {
     return text.slice(0, startLen) + ELLIPSIS;

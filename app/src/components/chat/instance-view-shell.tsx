@@ -72,7 +72,6 @@ export function InstanceViewShell() {
                   planContent={shared.instance.planContent}
                   stats={shared.instance.stats}
                   items={shared.items}
-                  rawHistory={shared.rawHistory}
                   provider={shared.instance.provider}
                   preferredModel={shared.instance.preferredModel}
                   providerStatus={shared.instance.providerStatus}
@@ -96,7 +95,6 @@ export function InstanceViewShell() {
             planContent={shared.instance.planContent}
             stats={shared.instance.stats}
             items={shared.items}
-            rawHistory={shared.rawHistory}
             provider={shared.instance.provider}
             preferredModel={shared.instance.preferredModel}
             providerStatus={shared.instance.providerStatus}

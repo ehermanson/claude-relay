@@ -13,6 +13,17 @@ import { INTERACTIVE_TOOLS } from "@shared/tools";
 // Re-export for consumers
 export type { ChatItem, LiveActivity };
 
+/** Merge incoming file list into the existing accumulated list.
+ *  Later entries for the same path win (updated editCount, type, stats). */
+function mergeFileLists(existing: FileChange[] | null, incoming: FileChange[]): FileChange[] {
+  const map = new Map<string, FileChange>();
+  if (existing) {
+    for (const f of existing) map.set(f.path, f);
+  }
+  for (const f of incoming) map.set(f.path, f);
+  return Array.from(map.values());
+}
+
 const IMAGE_ONLY_PATTERN = /^\s*(\[Image: source: [^\]]+\]\s*)+$/;
 const GENERIC_LIVE_STRIP_TOOLS = new Set(["Edit", "Write", "Read", "Grep", "Glob"]);
 
@@ -380,7 +391,8 @@ function coreReducer(state: State, action: Action): State {
         const msg = entry.message;
         if (msg.type === "activity") {
           if (msg.activity === "task_list" && msg.tasks) currentTasks = msg.tasks;
-          else if (msg.activity === "file_list" && msg.files) currentFiles = msg.files;
+          else if (msg.activity === "file_list" && msg.files)
+            currentFiles = mergeFileLists(currentFiles, msg.files);
         }
       }
 
@@ -511,7 +523,7 @@ function coreReducer(state: State, action: Action): State {
           ...state,
           isProcessing: true,
           showThinkingIndicator: true,
-          currentFiles: action.message.files,
+          currentFiles: mergeFileLists(state.currentFiles, action.message.files),
           lastActivity: buildLiveActivity(
             {
               phase: "file_list",

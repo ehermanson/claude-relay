@@ -8,7 +8,6 @@ import {
   ViewHeaderBreadcrumb,
   ViewHeaderTitle,
   BranchBadge,
-  TokenBadge,
   MobileSidebarToggle,
 } from "@/components/ui/view-header";
 import { HeaderContextToggle, HeaderIconSkeleton } from "@/components/chat/header-actions";
@@ -29,18 +28,10 @@ import {
   Pencil,
   TerminalSquare,
 } from "lucide-react";
-import { formatTokens } from "@/lib/utils";
 import "./space-view-header.css";
 
 export function SpaceViewHeader() {
   const { shared, actions } = useSpaceViewContext();
-  const totalTokens = shared.aggregatedStats
-    ? shared.aggregatedStats.inputTokens +
-      shared.aggregatedStats.outputTokens +
-      shared.aggregatedStats.cacheCreationTokens +
-      shared.aggregatedStats.cacheReadTokens
-    : 0;
-
   return (
     <ViewHeader style={{ containerName: "space-header", containerType: "inline-size" }}>
       <MobileSidebarToggle />
@@ -107,26 +98,6 @@ export function SpaceViewHeader() {
               Local only
             </Badge>
           )}
-          <TokenBadge
-            tokens={totalTokens}
-            label="Session"
-            tooltip={
-              shared.aggregatedStats ? (
-                <div className="flex flex-col gap-0.5">
-                  <div className="font-medium">Space usage</div>
-                  <div className="text-muted">
-                    Across {shared.spaceInstances.length} chat
-                    {shared.spaceInstances.length !== 1 ? "s" : ""}
-                  </div>
-                  <div>Total: {formatTokens(totalTokens)}</div>
-                  <div>Input: {formatTokens(shared.aggregatedStats.inputTokens)}</div>
-                  <div>Output: {formatTokens(shared.aggregatedStats.outputTokens)}</div>
-                  <div>Cache write: {formatTokens(shared.aggregatedStats.cacheCreationTokens)}</div>
-                  <div>Cache read: {formatTokens(shared.aggregatedStats.cacheReadTokens)}</div>
-                </div>
-              ) : undefined
-            }
-          />
         </span>
         <Menu.Root>
           <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">

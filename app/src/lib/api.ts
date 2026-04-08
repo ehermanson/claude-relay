@@ -319,7 +319,7 @@ export async function fetchInstanceDiff(instanceId: string, filePath?: string): 
 
 export async function gitPushInstance(
   instanceId: string,
-  opts?: { branch?: string; setUpstream?: boolean },
+  opts?: { branch?: string; setUpstream?: boolean; commitMessage?: string },
 ): Promise<GitOpResult> {
   const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/git/push`, {
     method: "POST",
@@ -327,6 +327,15 @@ export async function gitPushInstance(
     body: JSON.stringify(opts ?? {}),
   });
   return res.json();
+}
+
+export async function fetchInstanceGitStatus(instanceId: string): Promise<GitWorktreeStatus> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/git/status`);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to read git status");
+  }
+  return data;
 }
 
 export async function gitCommitInstance(
@@ -515,6 +524,14 @@ interface BranchesResponse {
 interface GitOpResult {
   success: boolean;
   error?: string;
+  pushed?: boolean;
+  message?: string;
+}
+
+interface GitWorktreeStatus {
+  dirty: boolean;
+  changeCount: number;
+  aheadBehind: { ahead: number; behind: number };
 }
 
 export async function fetchBranches(projectId: string): Promise<BranchesResponse> {

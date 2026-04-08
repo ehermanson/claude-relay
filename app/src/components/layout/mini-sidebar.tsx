@@ -36,8 +36,6 @@ function ProjectFlyout({
   const mainInstances = instances.filter((inst) => !inst.spaceId);
   const visibleSpaces =
     spaces?.filter((space) => !space.isDefault && space.status === "active") ?? [];
-  const brokenSpaces =
-    spaces?.filter((space) => !space.isDefault && space.status === "broken") ?? [];
 
   return (
     <div className="flex max-h-full flex-col overflow-hidden">
@@ -70,32 +68,6 @@ function ProjectFlyout({
             </div>
             <div className="space-y-0.5">
               {visibleSpaces.map((space) => (
-                <Link
-                  key={space.id}
-                  {...getSpaceRoute(projectId, space.id, latestChatIdBySpace[space.id])}
-                  className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-[0.75rem] transition-colors ${
-                    activeSpaceId === space.id
-                      ? "bg-accent-dim text-accent"
-                      : "text-text hover:bg-surface-hover"
-                  }`}
-                >
-                  <span className="truncate font-medium">{space.name}</span>
-                  {space.gitBranch && (
-                    <span className="truncate text-[0.625rem] text-muted">{space.gitBranch}</span>
-                  )}
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {brokenSpaces.length > 0 && (
-          <div className="px-2 pb-2">
-            <div className="px-2 py-1 text-[0.625rem] font-semibold uppercase tracking-[0.08em] text-warning/80">
-              Needs repair
-            </div>
-            <div className="space-y-0.5">
-              {brokenSpaces.map((space) => (
                 <Link
                   key={space.id}
                   {...getSpaceRoute(projectId, space.id, latestChatIdBySpace[space.id])}

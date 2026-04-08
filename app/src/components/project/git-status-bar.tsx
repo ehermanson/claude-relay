@@ -212,6 +212,11 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
         setUpstream: true,
       });
       if (result.success) {
+        if (result.pushed === false) {
+          toast.warning(result.message || "Nothing to push");
+          invalidate();
+          return;
+        }
         toast.success("Pushed to remote");
         invalidate();
       } else {

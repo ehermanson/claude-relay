@@ -2,10 +2,12 @@ import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Columns2, GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { Menu } from "@/components/ui/menu";
+import { SessionIndicator } from "@/components/ui/session-indicator";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { getInstanceProjectRouteId } from "@/lib/project-route";
-import { deriveInstanceStatusPresentation, formatTimeAgo } from "@/lib/utils";
+import { formatTimeAgo } from "@/lib/utils";
+import { useUnreadStore, selectHasUnread } from "@/stores/unread-store";
 import type { InstanceInfo } from "@shared/types";
 
 interface SidebarItemProps {
@@ -71,7 +73,25 @@ export function SidebarItem({
     }
   };
 
-  const status = deriveInstanceStatusPresentation(instance);
+  const unread = useUnreadStore((s) => selectHasUnread(s, instance.id, instance.lastActivityAt));
+
+  // For non-external sessions the indicator mounts/unmounts; fade it out gracefully.
+  const showIndicator = unread || !!instance.external;
+  const [indicatorMounted, setIndicatorMounted] = useState(showIndicator);
+  const [indicatorFading, setIndicatorFading] = useState(false);
+  useEffect(() => {
+    if (showIndicator) {
+      setIndicatorMounted(true);
+      setIndicatorFading(false);
+    } else if (indicatorMounted) {
+      setIndicatorFading(true);
+      const timer = setTimeout(() => {
+        setIndicatorMounted(false);
+        setIndicatorFading(false);
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [showIndicator]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Link
@@ -84,15 +104,15 @@ export function SidebarItem({
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
     >
-      {/* Status indicator — absolutely positioned in the left padding */}
-      <span className="absolute left-2.5 top-2 flex h-3 w-3 items-center justify-center">
-        <Tooltip content={status.label} side="right">
-          <span className={`h-[6px] w-[6px] rounded-full ${status.dotClass}`} />
-        </Tooltip>
-      </span>
-
+      {/* Session indicator — always reserves space; content fades in/out */}
+      <SessionIndicator
+        instance={instance}
+        unread={unread}
+        visible={indicatorMounted}
+        fading={indicatorFading}
+      />
       {/* Name + preview */}
-      <div className="min-w-0 flex-1 pl-5">
+      <div className="min-w-0 flex-1">
         {editing ? (
           <input
             ref={inputRef}

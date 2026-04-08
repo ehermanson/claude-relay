@@ -1,11 +1,9 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { Tooltip } from "../ui/tooltip";
-import { Collapsible } from "../ui/collapsible";
 import { Badge } from "../ui/badge";
 import type { ChatItem } from "@/hooks/use-instance-messages";
-import hljs from "../../lib/markdown";
+import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
 import {
-  escapeHtml,
   formatTokens,
   formatModel,
   formatTimestamp,
@@ -15,13 +13,11 @@ import {
 } from "../../lib/utils";
 import type {
   SessionStats,
-  HistoryEntry,
   InstanceInfo,
   ProviderStatusSummary,
   ProviderGlobalState,
   ProviderKind,
 } from "@shared/types";
-import { ChevronIcon } from "./files-panel";
 import { StatusDot } from "../ui/status-dot";
 import { ProviderLogo } from "../ui/provider-logo";
 import { RateLimitBar, flattenRateLimitWindows } from "../ui/rate-limit-bar";
@@ -111,238 +107,6 @@ function TokenBreakdownBar({ segments }: { segments: TokenBreakdownSegment[] }) 
 }
 
 // =============================================================================
-// Raw messages (instance mode only)
-// =============================================================================
-
-interface RawEntry {
-  role: string;
-  timestamp: number;
-  json: unknown;
-  label?: string;
-  id?: string;
-  preview?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function getNestedValue(value: unknown, path: string[]): unknown {
-  let current: unknown = value;
-  for (const segment of path) {
-    if (!isRecord(current)) return undefined;
-    current = current[segment];
-  }
-  return current;
-}
-
-function firstNonEmptyString(...values: unknown[]): string | undefined {
-  for (const value of values) {
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (trimmed) return trimmed;
-    }
-  }
-  return undefined;
-}
-
-function truncateInline(text: string, max = 120): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
-function findRawEntryId(json: unknown): string | undefined {
-  return firstNonEmptyString(
-    getNestedValue(json, ["message", "id"]),
-    getNestedValue(json, ["message", "message", "id"]),
-    getNestedValue(json, ["id"]),
-    getNestedValue(json, ["toolUseId"]),
-    getNestedValue(json, ["tool_use_id"]),
-    getNestedValue(json, ["requestId"]),
-    getNestedValue(json, ["request_id"]),
-  );
-}
-
-function findPreviewText(value: unknown, depth = 0): string | undefined {
-  if (depth > 4 || value == null) return undefined;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed ? truncateInline(trimmed) : undefined;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const preview = findPreviewText(item, depth + 1);
-      if (preview) return preview;
-    }
-    return undefined;
-  }
-  if (!isRecord(value)) return undefined;
-
-  const priorityKeys = [
-    "text",
-    "description",
-    "summary",
-    "title",
-    "message",
-    "content",
-    "parts",
-    "input",
-    "result",
-    "arguments",
-  ];
-  for (const key of priorityKeys) {
-    const preview = findPreviewText(value[key], depth + 1);
-    if (preview) return preview;
-  }
-  for (const nested of Object.values(value)) {
-    const preview = findPreviewText(nested, depth + 1);
-    if (preview) return preview;
-  }
-  return undefined;
-}
-
-function stringifyJson(value: unknown): string {
-  const formatted = JSON.stringify(value, null, 2);
-  if (formatted !== undefined) return formatted;
-  if (typeof value === "string") return value;
-  return String(value);
-}
-
-function extractRawEntries(history: HistoryEntry[]): RawEntry[] {
-  const entries: RawEntry[] = [];
-  for (const entry of history) {
-    const msg = entry.message;
-    const json = entry.raw ?? msg;
-    const id = findRawEntryId(json);
-    const preview =
-      msg.type === "user"
-        ? firstNonEmptyString((msg as { text?: string }).text)
-        : msg.type === "output"
-          ? firstNonEmptyString((msg as { text?: string }).text)
-          : msg.type === "activity"
-            ? firstNonEmptyString((msg as { description?: string }).description)
-            : undefined;
-    const fallbackPreview = findPreviewText(json);
-    if (msg.type === "user") {
-      entries.push({
-        role: "user",
-        timestamp: entry.timestamp,
-        json,
-        id,
-        preview: truncateInline(preview ?? fallbackPreview ?? "User message"),
-      });
-    } else if (msg.type === "output" && msg.isWaiting) {
-      entries.push({
-        role: "assistant",
-        timestamp: entry.timestamp,
-        json,
-        id,
-        preview: truncateInline(preview ?? fallbackPreview ?? "Assistant output"),
-      });
-    } else if (msg.type === "activity") {
-      const act = msg as {
-        activity?: string;
-        tool?: string;
-        description?: string;
-      };
-      const label = act.tool
-        ? `${act.activity === "tool_result" ? "result" : "tool"}: ${act.tool}`
-        : act.description;
-      entries.push({
-        role: "activity",
-        timestamp: entry.timestamp,
-        json,
-        label,
-        id,
-        preview: truncateInline(fallbackPreview ?? label ?? "Activity"),
-      });
-    }
-  }
-  return entries;
-}
-
-function RawJsonBlock({ json }: { json: unknown }) {
-  const formattedJson = useMemo(() => stringifyJson(json), [json]);
-  const highlightedJson = useMemo(() => {
-    try {
-      return hljs.highlight(formattedJson, { language: "json" }).value;
-    } catch {
-      return escapeHtml(formattedJson);
-    }
-  }, [formattedJson]);
-  const lines = useMemo(() => highlightedJson.split("\n"), [highlightedJson]);
-
-  return (
-    <div className="mx-3 mb-3 overflow-hidden rounded-md border border-border/50 bg-pre-bg/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-      <div className="overflow-auto">
-        <div className="hljs min-w-max bg-transparent">
-          {lines.map((line, index) => (
-            <div
-              key={index}
-              className="grid grid-cols-[2.25rem_minmax(0,1fr)] border-b border-border/30 last:border-b-0"
-            >
-              <span className="select-none border-r border-border/40 bg-panel-header/70 px-2 py-0.5 text-right font-mono text-[10px] leading-5 text-muted/55">
-                {index + 1}
-              </span>
-              <span
-                className="whitespace-pre px-3 py-0.5 font-mono text-[10px] leading-5 text-text/90"
-                dangerouslySetInnerHTML={{ __html: line || " " }}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RawEntryRow({ entry }: { entry: RawEntry }) {
-  const [open, setOpen] = useState(false);
-  const roleClass =
-    entry.role === "user"
-      ? "border-user-label/20 bg-user-label/10 text-user-label"
-      : entry.role === "assistant"
-        ? "border-claude/20 bg-claude-dim text-claude"
-        : "border-border/70 bg-panel-header text-muted/90";
-  const headline = entry.id ?? entry.label ?? `${entry.role} message`;
-
-  return (
-    <Collapsible.Root open={open} onOpenChange={setOpen}>
-      <div
-        className={`overflow-hidden border-b transition-all border-border/60 bg-surface/70 hover:border-border/80 hover:bg-surface-hover/60`}
-      >
-        <Collapsible.Trigger className="flex w-full items-center gap-1 px-2 py-2 text-left">
-          <div className="pt-0.5">
-            <ChevronIcon open={open} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-1">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[0.5rem] font-semibold tracking-[0.08em] ${roleClass}`}
-                  >
-                    {entry.role}
-                  </span>
-                  <span className="truncate font-mono text-[0.6875rem] font-medium text-text-bright">
-                    {headline}
-                  </span>
-                </div>
-              </div>
-              <div className="flex shrink-0 flex-col items-end gap-1 text-[0.625rem] text-muted/65">
-                <span className="tabular-nums">{formatTimestamp(entry.timestamp)}</span>
-              </div>
-            </div>
-          </div>
-        </Collapsible.Trigger>
-        <Collapsible.Content className="border-t border-border/50 bg-panel-content/40 pt-2">
-          <RawJsonBlock json={entry.json} />
-        </Collapsible.Content>
-      </div>
-    </Collapsible.Root>
-  );
-}
-
-// =============================================================================
 // Context Panel — unified for instance and space views
 // =============================================================================
 
@@ -350,7 +114,6 @@ interface InstanceContextProps {
   mode: "instance";
   stats: SessionStats | null;
   items: ChatItem[];
-  rawHistory: HistoryEntry[] | null;
   provider?: string;
   preferredModel?: string;
   providerStatus?: ProviderStatusSummary;
@@ -386,7 +149,6 @@ export const ContextPanel = memo(function ContextPanel(props: ContextPanelProps)
 function InstanceContext({
   stats,
   items,
-  rawHistory,
   provider,
   preferredModel,
   providerStatus,
@@ -404,7 +166,6 @@ function InstanceContext({
   const assistantCount = useMemo(() => items.filter((i) => i.kind === "assistant").length, [items]);
   const totalMessages = userCount + assistantCount;
 
-  const rawEntries = useMemo(() => extractRawEntries(rawHistory ?? []), [rawHistory]);
   const displayStats = getDisplaySessionStats(provider, safeStats);
   const totalTokens = displayStats.totalTokens;
   const contextUsage = getContextWindowUsage(safeStats);
@@ -516,146 +277,156 @@ function InstanceContext({
         )}
       </div>
 
-      {hasProviderSummary && (
+      {hasProviderSummary && provider && (
         <div className="border-t border-border/30 px-3.5 py-2.5">
           <div className="mb-1.5 text-[0.6875rem] text-muted">Provider Status</div>
-          <div className="flex flex-col gap-1.5">
-            {/* Provider identity + status row */}
-            <div className="flex items-center gap-2">
-              {provider ? (
-                <ProviderLogo
-                  provider={provider as ProviderKind}
-                  className="h-3.5 w-3.5 shrink-0"
-                />
-              ) : null}
-              <span className="text-[0.8125rem] font-medium text-text-bright">
-                {provider === "codex"
-                  ? "Codex"
-                  : provider === "claude"
-                    ? "Claude Code"
-                    : (provider ?? "Provider")}
-              </span>
-              {globalProviderState?.account?.plan ? (
-                <>
-                  <span className="text-muted/40">·</span>
-                  <span className="text-[0.75rem] text-muted capitalize">
-                    {globalProviderState.account.plan}
-                  </span>
-                </>
-              ) : null}
-              {providerStatus?.turnStatus || providerStatus?.threadStatus ? (
-                <>
-                  <span className="text-muted/40">·</span>
-                  <StatusDot
-                    variant={
-                      statusTone(providerStatus?.turnStatus ?? providerStatus?.threadStatus) ===
-                      "active"
-                        ? "active"
-                        : statusTone(providerStatus?.turnStatus ?? providerStatus?.threadStatus) ===
-                            "success"
-                          ? "success"
-                          : statusTone(
-                                providerStatus?.turnStatus ?? providerStatus?.threadStatus,
-                              ) === "warning"
-                            ? "error"
-                            : "default"
-                    }
-                    size={6}
-                  />
-                  <span className="text-[0.75rem] text-muted">
-                    {providerStatus?.turnStatus ?? providerStatus?.threadStatus}
-                  </span>
-                </>
-              ) : null}
-            </div>
-
-            {/* Effective model */}
-            {providerStatus?.effectiveModel ? (
-              <span className="text-[0.75rem] text-muted ml-5.5">
-                {formatModel(providerStatus?.effectiveModel)}
-                {providerStatus?.reroutedFromModel &&
-                providerStatus.reroutedFromModel !== providerStatus.effectiveModel
-                  ? ` (from ${formatModel(providerStatus?.reroutedFromModel)})`
-                  : ""}
-              </span>
-            ) : null}
-
-            {/* Rate limit bars */}
-            {globalProviderState?.account?.rateLimits?.length ? (
-              <div className="flex flex-col gap-2 mt-0.5">
-                {flattenRateLimitWindows(globalProviderState.account.rateLimits).map(
-                  ({ window, key }) => (
-                    <RateLimitBar key={key} window={window} size="sm" />
-                  ),
-                )}
-              </div>
-            ) : null}
-
-            {/* MCP servers */}
-            {globalProviderState?.mcpServers?.length ? (
-              <div className="flex flex-wrap gap-1.5">
-                {globalProviderState.mcpServers.map((server) => (
-                  <Badge
-                    key={server.name}
-                    variant={
-                      statusTone(server.authStatus ?? server.status) === "warning"
-                        ? "warning"
-                        : statusTone(server.authStatus ?? server.status) === "success"
-                          ? "success"
-                          : "default"
-                    }
-                    size="xs"
-                    dot
-                    dotClass={
-                      statusTone(server.authStatus ?? server.status) === "active"
-                        ? "bg-warning animate-pulse-dot"
-                        : statusTone(server.authStatus ?? server.status) === "success"
-                          ? "bg-accent"
-                          : "bg-muted"
-                    }
-                  >
-                    {server.name}
-                    {typeof server.toolCount === "number" ? ` (${server.toolCount})` : ""}
-                  </Badge>
-                ))}
-              </div>
-            ) : null}
-
-            {/* Notices */}
-            {providerStatus?.notices?.length || globalProviderState?.notices?.length ? (
-              <div className="flex flex-col gap-1">
-                {[...(globalProviderState?.notices ?? []), ...(providerStatus?.notices ?? [])].map(
-                  (notice, index) => (
-                    <div
-                      key={`${notice.source ?? "notice"}-${index}`}
-                      className="text-[0.75rem] text-warning"
-                    >
-                      {notice.message}
-                      {notice.detail ? (
-                        <span className="ml-1 text-muted">{notice.detail}</span>
-                      ) : null}
-                    </div>
-                  ),
-                )}
-              </div>
-            ) : null}
-          </div>
+          <ProviderStatusBlock
+            provider={provider}
+            providerStatus={providerStatus}
+            globalState={globalProviderState}
+          />
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* Raw messages */}
-      {rawEntries.length > 0 && (
-        <div className="border-t border-border/30">
-          <div className="px-3.5 py-2.5 text-[0.6875rem] text-muted">Raw Messages</div>
-          <div className="px-2 pb-2">
-            <div className="flex flex-col gap-0 border border-border/60 rounded-md overflow-hidden">
-              {rawEntries.map((entry, i) => (
-                <RawEntryRow key={i} entry={entry} />
-              ))}
-            </div>
-          </div>
+// =============================================================================
+// Shared: Provider status block (reused by instance + space context)
+// =============================================================================
+
+function ProviderStatusBlock({
+  provider,
+  providerStatus,
+  globalState,
+}: {
+  provider: string;
+  providerStatus?: ProviderStatusSummary;
+  globalState?: ProviderGlobalState;
+}) {
+  const hasContent = Boolean(
+    providerStatus?.threadStatus ||
+    providerStatus?.turnStatus ||
+    providerStatus?.effectiveModel ||
+    globalState?.account?.label ||
+    globalState?.account?.email ||
+    globalState?.account?.plan ||
+    globalState?.account?.rateLimits?.length ||
+    globalState?.mcpServers?.length ||
+    providerStatus?.notices?.length ||
+    globalState?.notices?.length,
+  );
+
+  if (!hasContent && !provider) return null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {/* Provider identity + status row */}
+      <div className="flex items-center gap-2">
+        <ProviderLogo provider={provider as ProviderKind} className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-[0.8125rem] font-medium text-text-bright">
+          {provider === "codex"
+            ? "Codex"
+            : provider === "claude"
+              ? "Claude Code"
+              : provider.charAt(0).toUpperCase() + provider.slice(1)}
+        </span>
+        {globalState?.account?.plan ? (
+          <>
+            <span className="text-muted/40">·</span>
+            <span className="text-[0.75rem] text-muted capitalize">{globalState.account.plan}</span>
+          </>
+        ) : null}
+        {providerStatus?.turnStatus || providerStatus?.threadStatus ? (
+          <>
+            <span className="text-muted/40">·</span>
+            <StatusDot
+              variant={
+                statusTone(providerStatus?.turnStatus ?? providerStatus?.threadStatus) === "active"
+                  ? "active"
+                  : statusTone(providerStatus?.turnStatus ?? providerStatus?.threadStatus) ===
+                      "success"
+                    ? "success"
+                    : statusTone(providerStatus?.turnStatus ?? providerStatus?.threadStatus) ===
+                        "warning"
+                      ? "error"
+                      : "default"
+              }
+              size={6}
+            />
+            <span className="text-[0.75rem] text-muted">
+              {providerStatus?.turnStatus ?? providerStatus?.threadStatus}
+            </span>
+          </>
+        ) : null}
+      </div>
+
+      {/* Effective model */}
+      {providerStatus?.effectiveModel ? (
+        <span className="text-[0.75rem] text-muted ml-5.5">
+          {formatModel(providerStatus?.effectiveModel)}
+          {providerStatus?.reroutedFromModel &&
+          providerStatus.reroutedFromModel !== providerStatus.effectiveModel
+            ? ` (from ${formatModel(providerStatus?.reroutedFromModel)})`
+            : ""}
+        </span>
+      ) : null}
+
+      {/* Rate limit bars */}
+      {globalState?.account?.rateLimits?.length ? (
+        <div className="flex flex-col gap-2 mt-0.5">
+          {flattenRateLimitWindows(globalState.account.rateLimits).map(({ window, key }) => (
+            <RateLimitBar key={key} window={window} size="sm" />
+          ))}
         </div>
-      )}
+      ) : null}
+
+      {/* MCP servers */}
+      {globalState?.mcpServers?.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {globalState.mcpServers.map((server) => (
+            <Badge
+              key={server.name}
+              variant={
+                statusTone(server.authStatus ?? server.status) === "warning"
+                  ? "warning"
+                  : statusTone(server.authStatus ?? server.status) === "success"
+                    ? "success"
+                    : "default"
+              }
+              size="xs"
+              dot
+              dotClass={
+                statusTone(server.authStatus ?? server.status) === "active"
+                  ? "bg-warning animate-pulse-dot"
+                  : statusTone(server.authStatus ?? server.status) === "success"
+                    ? "bg-accent"
+                    : "bg-muted"
+              }
+            >
+              {server.name}
+              {typeof server.toolCount === "number" ? ` (${server.toolCount})` : ""}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Notices */}
+      {providerStatus?.notices?.length || globalState?.notices?.length ? (
+        <div className="flex flex-col gap-1">
+          {[...(globalState?.notices ?? []), ...(providerStatus?.notices ?? [])].map(
+            (notice, index) => (
+              <div
+                key={`${notice.source ?? "notice"}-${index}`}
+                className="text-[0.75rem] text-warning"
+              >
+                {notice.message}
+                {notice.detail ? <span className="ml-1 text-muted">{notice.detail}</span> : null}
+              </div>
+            ),
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -677,6 +448,16 @@ function SpaceContext({
     ? stats.inputTokens + stats.outputTokens + stats.cacheCreationTokens + stats.cacheReadTokens
     : 0;
   const segments = stats ? computeSegments(stats) : [];
+
+  // Collect unique providers used in this space
+  const providerGlobalStates = useProviderRuntimeStore((s) => s.providerGlobalState);
+  const uniqueProviders = useMemo(() => {
+    const seen = new Set<string>();
+    for (const inst of instances) {
+      if (inst.provider) seen.add(inst.provider);
+    }
+    return Array.from(seen);
+  }, [instances]);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -705,6 +486,22 @@ function SpaceContext({
 
         <TokenBreakdownBar segments={segments} />
       </div>
+
+      {/* Provider status — one block per provider used in the space */}
+      {uniqueProviders.length > 0 && (
+        <div className="border-t border-border/30 px-3.5 py-2.5">
+          <div className="mb-1.5 text-[0.6875rem] text-muted">Provider Status</div>
+          <div className="flex flex-col gap-3">
+            {uniqueProviders.map((p) => (
+              <ProviderStatusBlock
+                key={p}
+                provider={p}
+                globalState={providerGlobalStates[p as ProviderKind]}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Per-chat breakdown */}
       {instances.length > 0 && (

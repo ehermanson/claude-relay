@@ -8,6 +8,7 @@ import { useConnectionBanner } from "@/hooks/use-connection-banner";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { useSidecarPanels } from "@/stores/sidecar-store";
+import { useUnreadStore } from "@/stores/unread-store";
 import { useTerminalStore, scopeKey } from "@/stores/terminal-store";
 import { useTerminalShortcut } from "@/hooks/use-terminal-shortcut";
 import { useVerticalResize } from "@/hooks/use-vertical-resize";
@@ -56,12 +57,21 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   // button shows even on fresh navigation or WS reconnect to an active instance.
   const isActive = isProcessing || instance?.status === "processing";
 
+  const markRead = useUnreadStore((s) => s.markRead);
+
   // Track which instance we're viewing (independent of connection)
   useEffect(() => {
     if (!id) return;
     setInstanceId(id);
     return () => setInstanceId(null);
   }, [id, setInstanceId]);
+
+  // Mark as read after a dwell threshold — quick click-throughs don't count
+  useEffect(() => {
+    if (!id) return;
+    const timer = setTimeout(() => markRead(id), 1500);
+    return () => clearTimeout(timer);
+  }, [id, markRead]);
 
   // Subscribe/unsubscribe — re-runs on each new WS connection (connectionId)
   useEffect(() => {

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { Menu } from "@/components/ui/menu";
-import { StatusDot } from "@/components/ui/status-dot";
-import { instanceStatusVariant } from "@/lib/utils";
+import { SessionIndicator } from "@/components/ui/session-indicator";
+import { useUnreadStore, selectHasUnread } from "@/stores/unread-store";
 import type { InstanceInfo } from "@shared/types";
 
 export function SpaceChatTab({
@@ -66,7 +66,10 @@ export function SpaceChatTab({
           : "text-muted hover:bg-surface-hover hover:text-text"
       }`}
     >
-      <StatusDot variant={instanceStatusVariant(instance.status)} />
+      <SessionIndicator
+        instance={instance}
+        unread={useUnreadStore((s) => selectHasUnread(s, instance.id, instance.lastActivityAt))}
+      />
       {editing ? (
         <input
           ref={inputRef}

@@ -4,13 +4,7 @@ import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
 import type { ChatItem } from "@/hooks/use-instance-messages";
-import type {
-  TaskItem,
-  FileChange,
-  SessionStats,
-  HistoryEntry,
-  ProviderStatusSummary,
-} from "@shared/types";
+import type { TaskItem, FileChange, SessionStats, ProviderStatusSummary } from "@shared/types";
 import { MarkdownContent } from "./markdown-content";
 import { FilesPanel } from "./files-panel";
 import { ContextPanel } from "./context-panel";
@@ -161,7 +155,6 @@ interface SidecarProps {
   planContent?: string | null;
   stats?: SessionStats | null;
   items?: ChatItem[];
-  rawHistory?: HistoryEntry[] | null;
   provider?: string;
   preferredModel?: string;
   providerStatus?: ProviderStatusSummary;
@@ -184,7 +177,6 @@ export const Sidecar = memo(
     planContent,
     stats,
     items,
-    rawHistory,
     provider,
     preferredModel,
     providerStatus,
@@ -316,7 +308,6 @@ export const Sidecar = memo(
             mode="instance"
             stats={stats ?? null}
             items={items ?? []}
-            rawHistory={rawHistory ?? null}
             provider={provider}
             preferredModel={preferredModel}
             providerStatus={providerStatus}
@@ -371,7 +362,6 @@ export const Sidecar = memo(
       prev.lastActivityAt === next.lastActivityAt &&
       prev.stats === next.stats &&
       prev.items === next.items &&
-      prev.rawHistory === next.rawHistory &&
       prev.preferredModel === next.preferredModel &&
       prev.provider === next.provider &&
       prev.providerStatus === next.providerStatus &&

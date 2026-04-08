@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { commitAll, gitPush, isWorktreeDirty } from "#core/git.js";
+import { commitAll, getWorktreeStatus, gitPush, isWorktreeDirty } from "#core/git.js";
 import type { ProviderKind, ProviderModelOptions } from "#core/types.js";
 import { readJsonBody } from "#server/hono-utils.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
@@ -103,6 +103,21 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
     }
   });
 
+  app.get("/api/instances/:id/git/status", (c) => {
+    const instance = instanceManager.getInstance(c.req.param("id"));
+    if (!instance) {
+      return c.json({ error: "Instance not found" }, 404);
+    }
+    try {
+      return c.json(getWorktreeStatus(instance.workingDirectory));
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Failed to read git status" },
+        400,
+      );
+    }
+  });
+
   app.post("/api/instances/:id/git/push", async (c) => {
     const instance = instanceManager.getInstance(c.req.param("id"));
     if (!instance) {
@@ -112,7 +127,22 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
       const body = await readJsonBody<{
         branch?: string;
         setUpstream?: boolean;
+        commitMessage?: string;
       }>(c);
+      const dirty = isWorktreeDirty(instance.workingDirectory);
+      const commitMessage = body.commitMessage?.trim();
+      if (dirty && !commitMessage) {
+        return c.json(
+          { success: false, error: "Commit or stash uncommitted changes before pushing" },
+          400,
+        );
+      }
+      if (dirty && commitMessage) {
+        const commitResult = commitAll(instance.workingDirectory, commitMessage);
+        if (!commitResult.success) {
+          return c.json(commitResult, 400);
+        }
+      }
       const result = await gitPush(
         instance.workingDirectory,
         body.branch || instance.gitInfo?.branch || instance.gitBranch,

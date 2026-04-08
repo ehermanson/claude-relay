@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
+import { Dialog } from "../ui/dialog";
+import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { Menu } from "../ui/menu";
 import { GitMenu } from "../ui/git-menu";
@@ -26,19 +28,14 @@ import {
   ViewHeaderBreadcrumb,
   ViewHeaderTitle,
   BranchBadge,
-  TokenBadge,
   MobileSidebarToggle,
 } from "../ui/view-header";
 import { OpenInMenu } from "../project/open-in-menu";
 import { HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
 import { CommitMessageDialog } from "../git/commit-message-dialog";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
-import { gitCommitInstance, gitPushInstance } from "../../lib/api";
-import {
-  deriveInstanceStatusPresentation,
-  formatTokens,
-  getDisplaySessionStats,
-} from "../../lib/utils";
+import { fetchInstanceGitStatus, gitCommitInstance, gitPushInstance } from "../../lib/api";
+import { deriveInstanceStatusPresentation } from "../../lib/utils";
 import type { InstanceInfo, ProviderNotice, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
 import "./instance-header.css";
@@ -182,6 +179,102 @@ function shouldPromoteProviderNotice(notice: ProviderNotice | undefined): boolea
   return notice.source === "configWarning" || notice.source === "deprecationNotice";
 }
 
+type InstanceGitStatus = Awaited<ReturnType<typeof fetchInstanceGitStatus>>;
+
+interface PushBranchDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  branch?: string;
+  status: InstanceGitStatus | null;
+  statusError: string | null;
+  pushing: boolean;
+  onConfirm: (commitMessage?: string) => void;
+}
+
+function PushBranchDialog({
+  open,
+  onOpenChange,
+  branch,
+  status,
+  statusError,
+  pushing,
+  onConfirm,
+}: PushBranchDialogProps) {
+  const [commitMessage, setCommitMessage] = useState("");
+  const changeCount = status?.changeCount ?? 0;
+  const hasUncommittedChanges = changeCount > 0;
+  const canConfirm = !pushing && (!hasUncommittedChanges || commitMessage.trim().length > 0);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) setCommitMessage("");
+    onOpenChange(nextOpen);
+  };
+
+  return (
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
+      {open && (
+        <Dialog.Content maxWidth="max-w-md">
+          <Dialog.Header>
+            <Dialog.Title>Push Branch?</Dialog.Title>
+            <Dialog.Close />
+          </Dialog.Header>
+          <div className="space-y-3 text-[0.8125rem] text-muted">
+            <p>
+              Push <span className="font-medium text-text">{branch || "the current branch"}</span>{" "}
+              to its remote.
+            </p>
+            {!status && !statusError ? <p>Checking working tree…</p> : null}
+            {statusError ? <p className="text-warning">{statusError}</p> : null}
+            {status ? (
+              <p>
+                {hasUncommittedChanges
+                  ? `${changeCount} uncommitted ${changeCount === 1 ? "change" : "changes"} will be committed before pushing.`
+                  : "No uncommitted changes detected."}
+                {status.aheadBehind.ahead > 0
+                  ? ` ${status.aheadBehind.ahead} local ${status.aheadBehind.ahead === 1 ? "commit is" : "commits are"} ahead of upstream.`
+                  : ""}
+              </p>
+            ) : null}
+            {hasUncommittedChanges ? (
+              <div className="space-y-1.5">
+                <label
+                  className="text-[0.75rem] font-medium text-muted"
+                  htmlFor="push-commit-message-input"
+                >
+                  Commit message
+                </label>
+                <Input
+                  id="push-commit-message-input"
+                  autoFocus
+                  value={commitMessage}
+                  onChange={(event) => setCommitMessage(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && canConfirm) onConfirm(commitMessage.trim());
+                  }}
+                  placeholder="Describe changes before pushing"
+                />
+              </div>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => handleOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!canConfirm || (!status && !statusError)}
+                onClick={() => onConfirm(hasUncommittedChanges ? commitMessage.trim() : undefined)}
+              >
+                {pushing ? "Pushing…" : hasUncommittedChanges ? "Commit & Push" : "Push Branch"}
+              </Button>
+            </div>
+          </div>
+        </Dialog.Content>
+      )}
+    </Dialog.Root>
+  );
+}
+
 export function InstanceHeader({
   instance,
   isMobile,
@@ -207,10 +300,6 @@ export function InstanceHeader({
   const instanceStatus = deriveInstanceStatusPresentation(instance);
 
   const projectId = getInstanceProjectRouteId(instance);
-  const displayStats = instance.stats
-    ? getDisplaySessionStats(instance.provider, instance.stats)
-    : null;
-  const totalTokens = displayStats?.totalTokens ?? 0;
   const displayBranchName = displayBranch || undefined;
   const providerNotices = instance.providerStatus?.notices ?? [];
   const latestProviderNotice = providerNotices[providerNotices.length - 1];
@@ -221,6 +310,10 @@ export function InstanceHeader({
   const rerouteSource = instance.providerStatus?.reroutedFromModel;
 
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+  const [pushDialogOpen, setPushDialogOpen] = useState(false);
+  const [pushStatus, setPushStatus] = useState<InstanceGitStatus | null>(null);
+  const [pushStatusError, setPushStatusError] = useState<string | null>(null);
+  const [pushing, setPushing] = useState(false);
 
   const handleCommit = async (message: string) => {
     const result = await gitCommitInstance(instance.id, { message });
@@ -231,16 +324,40 @@ export function InstanceHeader({
     }
   };
 
-  const handlePush = async () => {
-    const result = await gitPushInstance(instance.id, {
-      branch: displayBranchName,
-      setUpstream: true,
-    });
-    if (!result.success) {
-      toast.error(result.error || "Push failed");
-      return;
+  const openPushDialog = () => {
+    setPushDialogOpen(true);
+    setPushStatus(null);
+    setPushStatusError(null);
+    fetchInstanceGitStatus(instance.id)
+      .then(setPushStatus)
+      .catch((err) => {
+        setPushStatusError(err instanceof Error ? err.message : "Failed to read git status");
+      });
+  };
+
+  const handlePush = async (commitMessage?: string) => {
+    setPushing(true);
+    try {
+      const result = await gitPushInstance(instance.id, {
+        branch: displayBranchName,
+        setUpstream: true,
+        commitMessage,
+      });
+      if (!result.success) {
+        toast.error(result.error || "Push failed");
+        return;
+      }
+      setPushDialogOpen(false);
+      if (result.pushed === false) {
+        toast.warning(result.message || "Nothing to push");
+        return;
+      }
+      toast.success(commitMessage ? "Changes committed and branch pushed" : "Branch pushed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Push failed");
+    } finally {
+      setPushing(false);
     }
-    toast.success("Pushed successfully");
   };
 
   return (
@@ -271,23 +388,6 @@ export function InstanceHeader({
               }
             />
           )}
-          <TokenBadge
-            tokens={totalTokens}
-            label="Session"
-            tooltip={
-              instance.stats ? (
-                <div className="flex flex-col gap-0.5">
-                  <div className="font-medium">Session usage</div>
-                  <div className="text-muted">{instance.stats.model ?? "Unknown model"}</div>
-                  <div>Total: {formatTokens(totalTokens)}</div>
-                  <div>Input: {formatTokens(displayStats?.inputTokens ?? 0)}</div>
-                  <div>Output: {formatTokens(instance.stats.outputTokens)}</div>
-                  <div>Cache write: {formatTokens(instance.stats.cacheCreationTokens)}</div>
-                  <div>Cache read: {formatTokens(instance.stats.cacheReadTokens)}</div>
-                </div>
-              ) : undefined
-            }
-          />
           {promotedProviderNotice ? (
             <Tooltip
               content={
@@ -342,7 +442,7 @@ export function InstanceHeader({
       </ViewHeaderTitle>
       <div className="flex items-center gap-1">
         <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
-        <GitMenu onCommit={() => setCommitDialogOpen(true)} onPush={handlePush} />
+        <GitMenu onCommit={() => setCommitDialogOpen(true)} onPush={openPushDialog} />
         {onToggleTerminal && !isMobile && (
           <Tooltip content={terminalOpen ? "Hide terminal" : "Show terminal"}>
             <Button
@@ -359,6 +459,15 @@ export function InstanceHeader({
           open={commitDialogOpen}
           onOpenChange={setCommitDialogOpen}
           onCommit={(msg) => void handleCommit(msg)}
+        />
+        <PushBranchDialog
+          open={pushDialogOpen}
+          onOpenChange={setPushDialogOpen}
+          branch={displayBranchName}
+          status={pushStatus}
+          statusError={pushStatusError}
+          pushing={pushing}
+          onConfirm={(commitMessage) => void handlePush(commitMessage)}
         />
         <SidecarToggles
           loading={loadingSidecarActions}
