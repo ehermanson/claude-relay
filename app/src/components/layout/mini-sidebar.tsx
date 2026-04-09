@@ -141,9 +141,11 @@ function ProjectIcon({
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
       className={`relative flex h-9 w-9 items-center justify-center rounded-lg text-[0.8125rem] font-bold transition-all duration-150 ${
-        isActive || isHovered
-          ? "bg-accent/15 text-accent shadow-sm shadow-accent/10"
-          : "text-muted hover:bg-surface-hover hover:text-text"
+        isActive
+          ? "bg-surface-hover text-text ring-1 ring-accent/40"
+          : isHovered
+            ? "bg-surface-hover/60 text-text"
+            : "text-muted hover:bg-surface-hover hover:text-text"
       }`}
     >
       {showIcon ? (
@@ -159,7 +161,7 @@ function ProjectIcon({
         <span
           className={`flex h-6 w-6 items-center justify-center rounded-md text-[0.8125rem] font-bold uppercase transition-colors ${
             isActive || isHovered
-              ? "bg-accent/10 text-accent"
+              ? "bg-surface-raised text-text-bright"
               : "bg-surface-hover text-text-bright/75"
           }`}
         >
@@ -242,7 +244,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
     >
       <div className="relative flex h-full shrink-0">
         {/* Narrow icon rail */}
-        <aside className="flex h-full w-12 flex-col items-center border-r border-border/70 bg-surface py-3">
+        <aside className="flex h-full w-12 flex-col items-center bg-surface py-3 rounded-xl">
           {/* Logo placeholder — the real logo is rendered persistently in app-layout */}
           <div className="mb-3 h-7 w-7" aria-hidden />
 
@@ -281,7 +283,8 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
           </div>
 
           {/* Footer icons */}
-          <div className="mt-2 flex flex-col items-center gap-1">
+          <div className="mx-auto mt-2 mb-2 h-px w-6 bg-border/60" />
+          <div className="flex flex-col items-center gap-1">
             <Tooltip content={theme === "dark" ? "Light mode" : "Dark mode"} side="right">
               <Button variant="icon" onClick={toggleTheme}>
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
@@ -300,7 +303,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
         {/* Per-project flyout */}
         {flyoutEntry && (
           <div
-            className="glass fixed left-12 z-50 flex w-64 animate-slide-in-left flex-col overflow-hidden rounded-r-xl border-l-0"
+            className="glass fixed left-[64px] z-50 flex w-64 animate-slide-in-left flex-col overflow-hidden rounded-xl border-0"
             style={{
               top: Math.max(8, Math.min(flyoutTop - 8, window.innerHeight - 400)),
               maxHeight: "min(80vh, 500px)",

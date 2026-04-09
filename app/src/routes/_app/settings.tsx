@@ -1,11 +1,10 @@
 import { createFileRoute, Outlet, Link, redirect, useLocation } from "@tanstack/react-router";
-import { Settings2, Cpu, GitBranch, FileText } from "lucide-react";
+import { Settings2, Cpu, GitBranch } from "lucide-react";
 
 const NAV_ITEMS = [
   { to: "/settings/general", label: "General", icon: Settings2 },
   { to: "/settings/providers", label: "Providers", icon: Cpu },
   { to: "/settings/git", label: "Git", icon: GitBranch },
-  { to: "/settings/instructions", label: "Instructions", icon: FileText },
 ] as const;
 
 function SettingsLayout() {

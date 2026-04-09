@@ -105,7 +105,7 @@ export function Sidebar({
       createNewChat={createNewChat}
     >
       <aside
-        className="flex h-full w-full flex-col border-r border-border/70 bg-surface"
+        className="flex h-full w-full flex-col bg-surface rounded-xl"
         style={{ containerName: "sidebar", containerType: "inline-size" }}
       >
         <div className="sidebar-header group/header flex shrink-0 items-center justify-between px-4 py-3">
@@ -131,7 +131,7 @@ export function Sidebar({
             {(import.meta.env.DEV || health?.git?.isWorktree) && (
               <span className="sidebar-logo-text flex items-center gap-1">
                 {import.meta.env.DEV && (
-                  <Badge variant="warning" size="xs">
+                  <Badge variant="default" size="xs">
                     Dev
                   </Badge>
                 )}
@@ -167,14 +167,7 @@ export function Sidebar({
               }}
             >
               <Tooltip content="Add project" side="bottom">
-                <Popover.Trigger
-                  render={
-                    <Button
-                      variant="icon"
-                      className="rounded-lg border border-border/60 hover:border-border-hover"
-                    />
-                  }
-                >
+                <Popover.Trigger render={<Button variant="icon" />}>
                   <Plus size={14} strokeWidth={2.5} />
                 </Popover.Trigger>
               </Tooltip>

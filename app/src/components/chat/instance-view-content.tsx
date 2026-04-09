@@ -18,8 +18,27 @@ import { RelayLogo } from "@/components/ui/relay-logo";
 import { useInstanceViewContext } from "@/components/chat/instance-view-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
+import { getProjectName } from "@/lib/project-route";
 
 const MotionLogo = motion.create(RelayLogo);
+
+function EmptyChatState({ projectName }: { projectName: string }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center px-6 py-10">
+      <div className="flex w-full max-w-md flex-col items-center text-center">
+        <RelayLogo size={64} className="mb-5 opacity-80" />
+        <p className="text-[0.875rem] font-medium text-text-bright">Ready when you are</p>
+        <p className="mt-1 text-[0.75rem] text-muted">
+          Start a conversation in <span className="text-text">{projectName}</span>. Use{" "}
+          <kbd className="rounded bg-surface-hover px-1 py-px text-[0.6875rem] text-text">@</kbd> to
+          attach files or{" "}
+          <kbd className="rounded bg-surface-hover px-1 py-px text-[0.6875rem] text-text">/</kbd>{" "}
+          for commands.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export function InstanceViewContent() {
   const { shared, actions } = useInstanceViewContext();
@@ -84,6 +103,8 @@ export function InstanceViewContent() {
     <>
       {shared.isLoadingSession ? (
         loadingContent
+      ) : shared.items.length === 0 && !shared.isActive && !shared.showThinkingIndicator ? (
+        <EmptyChatState projectName={getProjectName(shared.instance.workingDirectory)} />
       ) : (
         <ErrorBoundary name="Message list">
           <MaybeRelayProvider value={relayValue}>

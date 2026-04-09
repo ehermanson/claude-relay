@@ -167,7 +167,7 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
     <Menu.Root>
       <Tooltip content={triggerTooltip}>
         <div
-          className={`flex h-7 items-center overflow-hidden rounded-md border border-border/50 bg-transparent text-xs text-muted ${className}`}
+          className={`flex h-7 items-center overflow-hidden rounded-md bg-transparent text-xs text-muted ${className}`}
         >
           <button
             type="button"
@@ -185,7 +185,7 @@ export function OpenInMenu({ path, className = "" }: OpenInMenuProps) {
           </button>
           <Menu.Trigger
             disabled={loading || openingTargetId !== null}
-            className="flex h-full w-7 items-center justify-center transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-full w-4 items-center justify-center transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
           >
             <ChevronDown size={12} strokeWidth={2} />
           </Menu.Trigger>

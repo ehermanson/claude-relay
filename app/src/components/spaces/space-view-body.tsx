@@ -1,7 +1,6 @@
 import type { ComponentProps } from "react";
 import { Check, Copy, FolderOpen, GitBranch, Plus } from "lucide-react";
-import { motion } from "motion/react";
-import { Group, Panel } from "react-resizable-panels";
+import { AnimatePresence, motion } from "motion/react";
 import { InstanceView } from "@/components/chat/instance-view";
 import { SpaceChatTabs } from "@/components/spaces/space-chat-tabs";
 import { SpaceSidebar } from "@/components/spaces/space-sidebar";
@@ -10,12 +9,13 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Button } from "@/components/ui/button";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { Spinner } from "@/components/ui/spinner";
-import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { CollapsedTerminalBar } from "@/components/terminal/terminal-collapsed-bar";
 import { LazyTerminalPanel } from "@/components/terminal/lazy-terminal-panel";
+import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import type { InstanceInfo } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
+const TERMINAL_ANIM_TRANSITION = { duration: 0.22, ease: [0.22, 1, 0.36, 1] } as const;
 
 export function SpaceViewBody() {
   const { shared, actions } = useSpaceViewContext();
@@ -30,6 +30,20 @@ export function SpaceViewBody() {
     onNewChat: actions.handleNewChat,
     disableNewChat: shared.isBroken,
   };
+
+  const {
+    panelRef: sidebarPanelRef,
+    containerRef: sidebarContainerRef,
+    width: sidebarWidth,
+    isResizing: sidebarResizing,
+    onResizeStart: handleSidebarResizeStart,
+  } = useResizablePanel({
+    side: "right",
+    minWidth: 260,
+    maxWidth: (cw) => cw * 0.45,
+  });
+
+  const showSidebar = shared.showSidebar && !shared.isMobile;
 
   const openDiffAndCloseMobile = (scrollTo?: string) => {
     actions.openDiff(scrollTo);
@@ -86,32 +100,10 @@ export function SpaceViewBody() {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div ref={sidebarContainerRef} className="flex min-h-0 flex-1 overflow-hidden">
           {shared.activeTab || shared.pendingNewChatActive ? (
-            shared.showSidebar && !shared.isMobile ? (
-              <Group orientation="horizontal" className="flex-1">
-                <Panel defaultSize="70" minSize="40">
-                  <SpaceChatArea
-                    activeTab={shared.activeTab}
-                    activeLiveInstance={shared.activeLiveInstance}
-                    chatTabsProps={chatTabsProps}
-                    pendingNewChat={shared.pendingNewChatActive}
-                  />
-                </Panel>
-                <ResizableHandle />
-                <Panel defaultSize="30" minSize="15" maxSize="45">
-                  <SpaceSidebar
-                    space={shared.space}
-                    instances={shared.spaceInstances}
-                    activePanels={shared.activePanels}
-                    stats={shared.aggregatedStats}
-                    fileChanges={shared.fileChanges}
-                    onOpenDiff={actions.openDiff}
-                  />
-                </Panel>
-              </Group>
-            ) : (
-              <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+            <>
+              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 <SpaceChatArea
                   activeTab={shared.activeTab}
                   activeLiveInstance={shared.activeLiveInstance}
@@ -119,7 +111,31 @@ export function SpaceViewBody() {
                   pendingNewChat={shared.pendingNewChatActive}
                 />
               </div>
-            )
+              {!shared.isMobile && (
+                <div
+                  ref={sidebarPanelRef}
+                  className={`relative flex h-full shrink-0 overflow-hidden ${
+                    sidebarResizing ? "" : "transition-[width,opacity] duration-200 ease-out"
+                  } ${showSidebar ? "opacity-100 py-2 pl-2 pr-2" : "w-0 opacity-0"}`}
+                  style={showSidebar ? { width: sidebarWidth ?? "max(280px, 30%)" } : undefined}
+                >
+                  <div
+                    onMouseDown={handleSidebarResizeStart}
+                    className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize bg-transparent"
+                  />
+                  <div className="app-sidecar-panel h-full flex-1 overflow-hidden">
+                    <SpaceSidebar
+                      space={shared.space}
+                      instances={shared.spaceInstances}
+                      activePanels={shared.activePanels}
+                      stats={shared.aggregatedStats}
+                      fileChanges={shared.fileChanges}
+                      onOpenDiff={actions.openDiff}
+                    />
+                  </div>
+                </div>
+              )}
+            </>
           ) : shared.isResolvingChatSelection ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
               <Spinner size={18} />
@@ -170,16 +186,27 @@ export function SpaceViewBody() {
             </div>
           )}
         </div>
-        {shared.showTerminalPanel && !shared.isMobile && (
-          <ErrorBoundary name="Terminal panel">
-            <LazyTerminalPanel
-              scope={shared.terminalScope}
-              height={shared.terminalHeight}
-              onResizeStart={actions.handleTerminalResizeStart}
-              activeInstanceId={shared.activeTab}
-            />
-          </ErrorBoundary>
-        )}
+        <AnimatePresence initial={false}>
+          {shared.showTerminalPanel && !shared.isMobile && (
+            <motion.div
+              key="terminal"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: shared.terminalHeight, opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={TERMINAL_ANIM_TRANSITION}
+              className="shrink-0 overflow-hidden"
+            >
+              <ErrorBoundary name="Terminal panel">
+                <LazyTerminalPanel
+                  scope={shared.terminalScope}
+                  height={shared.terminalHeight}
+                  onResizeStart={actions.handleTerminalResizeStart}
+                  activeInstanceId={shared.activeTab}
+                />
+              </ErrorBoundary>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {shared.isTerminalCollapsed && !shared.isMobile && shared.collapsedTerminalCount > 0 && (
           <CollapsedTerminalBar
             terminalCount={shared.collapsedTerminalCount}

@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from "motion/react";
 import { CollapsedTerminalBar } from "@/components/terminal/terminal-collapsed-bar";
 import { LazyTerminalPanel } from "@/components/terminal/lazy-terminal-panel";
 import { Sidecar } from "@/components/chat/sidecar";
@@ -6,6 +7,8 @@ import { InstanceViewContent } from "@/components/chat/instance-view-content";
 import { InstanceViewHeader } from "@/components/chat/instance-view-header";
 import { useInstanceViewContext } from "@/components/chat/instance-view-context";
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
+
+const TERMINAL_ANIM_TRANSITION = { duration: 0.22, ease: [0.22, 1, 0.36, 1] } as const;
 
 export function InstanceViewShell() {
   const { shared, actions } = useInstanceViewContext();
@@ -31,16 +34,27 @@ export function InstanceViewShell() {
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <InstanceViewContent />
           </div>
-          {shared.showTerminalPanel && !shared.isMobile && (
-            <ErrorBoundary name="Terminal panel">
-              <LazyTerminalPanel
-                scope={shared.terminalScope}
-                height={shared.terminalHeight}
-                onResizeStart={actions.handleTerminalResizeStart}
-                activeInstanceId={shared.id}
-              />
-            </ErrorBoundary>
-          )}
+          <AnimatePresence initial={false}>
+            {shared.showTerminalPanel && !shared.isMobile && (
+              <motion.div
+                key="terminal"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: shared.terminalHeight, opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={TERMINAL_ANIM_TRANSITION}
+                className="shrink-0 overflow-hidden"
+              >
+                <ErrorBoundary name="Terminal panel">
+                  <LazyTerminalPanel
+                    scope={shared.terminalScope}
+                    height={shared.terminalHeight}
+                    onResizeStart={actions.handleTerminalResizeStart}
+                    activeInstanceId={shared.id}
+                  />
+                </ErrorBoundary>
+              </motion.div>
+            )}
+          </AnimatePresence>
           {shared.isTerminalCollapsed && !shared.isMobile && shared.collapsedTerminalCount > 0 && (
             <CollapsedTerminalBar
               terminalCount={shared.collapsedTerminalCount}
@@ -52,7 +66,7 @@ export function InstanceViewShell() {
           <div
             className={`relative flex h-full shrink-0 overflow-hidden ${
               shared.isResizing ? "" : "transition-[width,opacity] duration-200 ease-out"
-            } ${shared.showDesktopSidecar ? "opacity-100" : "w-0 opacity-0"}`}
+            } ${shared.showDesktopSidecar ? "opacity-100 py-2 pl-2 pr-2" : "w-0 opacity-0"}`}
             ref={shared.sidecarRef}
             style={
               shared.showDesktopSidecar
@@ -62,9 +76,9 @@ export function InstanceViewShell() {
           >
             <div
               onMouseDown={actions.handleResizeStart}
-              className="absolute inset-y-0 left-0 z-10 w-px cursor-col-resize bg-border/50 after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:content-['']"
+              className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize bg-transparent"
             />
-            <div className="h-full flex-1 pl-px">
+            <div className="app-sidecar-panel h-full flex-1">
               <ErrorBoundary name="Sidecar">
                 <Sidecar
                   tasks={shared.currentTasks}

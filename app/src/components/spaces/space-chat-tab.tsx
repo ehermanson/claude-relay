@@ -60,9 +60,9 @@ export function SpaceChatTab({
       onKeyDown={(e) => {
         if (e.key === "Enter" && !editing) onClick();
       }}
-      className={`group/tab relative flex shrink-0 cursor-pointer items-center gap-1 border-r border-border px-2.5 py-1.5 text-[0.75rem] transition-colors ${
+      className={`group/tab relative flex shrink-0 cursor-pointer items-center gap-1 px-2.5 py-1.5 text-[0.75rem] transition-colors ${
         isActive
-          ? "bg-background text-text-bright shadow-[inset_0_-2px_0_0_var(--color-accent)]"
+          ? "text-text-bright shadow-[inset_0_-2px_0_0_var(--color-accent)]"
           : "text-muted hover:bg-surface-hover hover:text-text"
       }`}
     >

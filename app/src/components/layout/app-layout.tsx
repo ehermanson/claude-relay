@@ -98,21 +98,25 @@ export function AppLayout() {
 
   if (isMobile) {
     return (
-      <div className="flex h-full overflow-hidden">
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
-          <Outlet />
-        </main>
+      <div className="app-shell">
+        <div className="app-shell-inner">
+          <main className="app-shell-content flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
+            <Outlet />
+          </main>
+        </div>
         {/* Mobile sidebar overlay */}
         {mobileSidebarOpen && (
-          <div className="fixed inset-0 z-50 flex">
+          <div className="fixed inset-0 z-50 flex p-2">
             {/* Backdrop */}
             <div
               className="absolute inset-0 bg-black/50 animate-fade-in"
               onClick={() => setMobileSidebarOpen(false)}
             />
             {/* Sidebar panel */}
-            <div className="relative z-10 h-full w-[85vw] max-w-sm animate-slide-in-left">
-              <Sidebar showLogo />
+            <div className="relative z-10 my-auto h-[calc(100%-16px)] w-[85vw] max-w-sm animate-slide-in-left">
+              <div className="app-shell-sidebar h-full">
+                <Sidebar showLogo />
+              </div>
             </div>
           </div>
         )}
@@ -123,36 +127,38 @@ export function AppLayout() {
 
   return (
     <>
-      <div className="flex h-full overflow-hidden">
-        {/* Animated sidebar container */}
-        <div
-          ref={sidebarRef}
-          className={`relative shrink-0 overflow-hidden ${isResizing ? "" : "transition-[width] duration-200 ease-in-out"}`}
-          style={{ width: collapsed ? 48 : sidebarWidth }}
-        >
-          {showMini ? (
-            <MiniSidebar onExpand={toggleCollapsed} />
-          ) : (
-            <Sidebar onCollapse={toggleCollapsed} />
-          )}
-          {/* Persistent logo – never unmounts, sits above both sidebars */}
-          <Link
-            to="/"
-            className="absolute left-0 top-0 z-20 flex w-12 items-center justify-center pt-3 transition-opacity hover:opacity-80"
+      <div className="app-shell">
+        <div className="app-shell-inner">
+          {/* Animated sidebar container */}
+          <div
+            ref={sidebarRef}
+            className={`app-shell-sidebar relative overflow-hidden ${isResizing ? "" : "transition-[width] duration-200 ease-in-out"}`}
+            style={{ width: collapsed ? 48 : sidebarWidth }}
           >
-            <RelayLogo size={28} connected={isConnected} />
-          </Link>
-          {/* Resize handle – only when expanded */}
-          {!collapsed && (
-            <div
-              onMouseDown={onResizeStart}
-              className="absolute inset-y-0 right-0 z-10 w-px cursor-col-resize bg-transparent after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:content-['']"
-            />
-          )}
+            {showMini ? (
+              <MiniSidebar onExpand={toggleCollapsed} />
+            ) : (
+              <Sidebar onCollapse={toggleCollapsed} />
+            )}
+            {/* Persistent logo – never unmounts, sits above both sidebars */}
+            <Link
+              to="/"
+              className="absolute left-1 top-1 z-20 flex w-12 items-center justify-center pt-2.5 transition-opacity hover:opacity-80"
+            >
+              <RelayLogo size={28} connected={isConnected} />
+            </Link>
+            {/* Resize handle – only when expanded */}
+            {!collapsed && (
+              <div
+                onMouseDown={onResizeStart}
+                className="absolute inset-y-0 right-0 z-10 w-px cursor-col-resize bg-transparent after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:content-['']"
+              />
+            )}
+          </div>
+          <main className="app-shell-content flex h-full flex-col overflow-hidden bg-bg">
+            <Outlet />
+          </main>
         </div>
-        <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-bg">
-          <Outlet />
-        </main>
       </div>
       {toaster}
     </>

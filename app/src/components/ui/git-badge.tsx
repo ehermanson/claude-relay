@@ -168,7 +168,7 @@ export function GitBadge({
   return (
     <Menu.Root>
       {/* ── Trigger badge ────────────────────────────────────── */}
-      <Menu.Trigger className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/50 px-2 text-xs text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
+      <Menu.Trigger className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
         <GitBranch size={13} />
         <span className="max-w-[140px] truncate">{branch}</span>
 

@@ -53,7 +53,7 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
                 ? "bg-error text-white hover:bg-error/90"
                 : isQueue
                   ? "border border-dashed border-accent/60 bg-accent/15 text-accent shadow-none hover:bg-accent/25"
-                  : "bg-accent text-white shadow-sm hover:bg-accent-hover hover:shadow-md"
+                  : "bg-accent/85 text-white hover:bg-accent"
             }
             ${hasLabel ? "h-9 rounded-full px-4 text-[0.875rem] tracking-[-0.02em]" : "h-8 w-8 rounded-full p-0"}
           `}

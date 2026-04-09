@@ -76,7 +76,7 @@ export function SpaceChatTabs({
   }, [activeTab, shouldShowPendingTab, instances.length]);
 
   return (
-    <div className="relative flex shrink-0 items-center border-b border-border bg-surface">
+    <div className="relative flex shrink-0 items-center border-b border-border/70 bg-surface">
       <div
         className={`pointer-events-none absolute left-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-r from-surface via-surface/60 to-transparent transition-opacity duration-150 ${tabsOverflow.left ? "opacity-100" : "opacity-0"}`}
       />
@@ -97,7 +97,7 @@ export function SpaceChatTabs({
         {shouldShowPendingTab && (
           <div
             data-chat-tab-id={pendingNewChatId}
-            className="flex shrink-0 items-center gap-1 border-r border-border bg-background px-2.5 py-1.5 text-[0.75rem] shadow-[inset_0_-2px_0_0_var(--color-accent)]"
+            className="flex shrink-0 items-center gap-1 px-2.5 py-1.5 text-[0.75rem] shadow-[inset_0_-2px_0_0_var(--color-accent)]"
           >
             <Spinner size={9} />
             <span className="font-medium text-muted">Creating chat...</span>
@@ -110,7 +110,7 @@ export function SpaceChatTabs({
         title={
           disableNewChat ? "This space is read-only until its worktree is repaired" : undefined
         }
-        className="flex h-full shrink-0 items-center border-l border-border-hover px-2.5 py-1.5 text-muted transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+        className="flex h-full shrink-0 items-center px-2.5 py-1.5 text-muted transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
       >
         <Plus size={13} strokeWidth={2.5} />
       </button>
