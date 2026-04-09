@@ -1180,6 +1180,8 @@ export class InstanceManager extends EventEmitter {
   private instances = new Map<string, Instance>();
   private instanceMutationChains = new Map<string, Promise<void>>();
   private missingRunnableCwdWarnings = new Map<string, string>();
+  /** Space IDs we've already warned about for unusable worktrees — avoids N warnings for N sessions in the same space. */
+  private warnedUnusableSpaces = new Set<string>();
   private baseConfig: CoreConfig;
   private db: SessionDB;
   private instanceCounter = 0;
@@ -6422,10 +6424,13 @@ export class InstanceManager extends EventEmitter {
     extWorktreePath = restoredPaths.worktreePath;
 
     if (entry.worktree_path && !restoredPaths.worktreePath) {
-      if (hasExplicitSpaceOwnership) {
-        this.baseConfig.logger.warn(
-          `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable for space ${entry.space_id}; keeping session read-only`,
-        );
+      if (hasExplicitSpaceOwnership && entry.space_id) {
+        if (!this.warnedUnusableSpaces.has(entry.space_id)) {
+          this.warnedUnusableSpaces.add(entry.space_id);
+          this.baseConfig.logger.warn(
+            `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable for space ${entry.space_id}; keeping sessions read-only`,
+          );
+        }
       } else if (restoredPaths.repairedStaleWorktree) {
         this.baseConfig.logger.warn(
           `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable, using original directory`,
@@ -6534,10 +6539,13 @@ export class InstanceManager extends EventEmitter {
     restoreOriginalDirectory = restoredPaths.originalDirectory;
 
     if (entry.worktree_path && !restoredPaths.worktreePath) {
-      if (hasExplicitSpaceOwnership) {
-        this.baseConfig.logger.warn(
-          `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable for space ${entry.space_id}; keeping session read-only`,
-        );
+      if (hasExplicitSpaceOwnership && entry.space_id) {
+        if (!this.warnedUnusableSpaces.has(entry.space_id)) {
+          this.warnedUnusableSpaces.add(entry.space_id);
+          this.baseConfig.logger.warn(
+            `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable for space ${entry.space_id}; keeping sessions read-only`,
+          );
+        }
       } else if (restoredPaths.repairedStaleWorktree) {
         this.baseConfig.logger.warn(
           `[InstanceManager] Worktree ${entry.worktree_path} is no longer usable, using original directory`,

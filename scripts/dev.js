@@ -98,8 +98,13 @@ function restartServer() {
 
 // --- Vite dev server ---
 
-const viteProc = spawn("pnpm", ["--filter", "relay-app", "dev"], {
+// Run vite directly via `pnpm exec` from the app workspace instead of
+// `pnpm --filter relay-app dev`. The filter/recursive runner treats SIGTERM
+// exits (code 143) as failures and prints ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL
+// on every clean Ctrl+C; `pnpm exec` just forwards the signal cleanly.
+const viteProc = spawn("pnpm", ["exec", "vite"], {
   stdio: "inherit",
+  cwd: path.resolve(import.meta.dirname, "..", "app"),
   env: { ...process.env, PORT: String(backendPort), VITE_PORT: String(vitePort) },
 });
 
