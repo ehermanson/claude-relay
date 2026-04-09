@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import type { ProviderModelsResponse } from "#core/types.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
 
 export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
@@ -12,11 +13,12 @@ export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
     }
     try {
       const models = await deps.getProviderModels(provider);
-      return c.json({
+      const response: ProviderModelsResponse = {
         provider,
         models,
         capabilities: deps.getProviderCapabilities(provider),
-      });
+      };
+      return c.json(response);
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Failed to load provider models" },

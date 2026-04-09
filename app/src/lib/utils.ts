@@ -208,22 +208,3 @@ export function formatModel(model: string): string {
   const version = m[3] ? `${m[2]}.${m[3]}` : m[2];
   return `${family} ${version}`;
 }
-
-export function getCollapsedDetail(detail: string, tool?: string): string {
-  if (!detail) return "";
-  if (tool === "Read" || tool === "Edit" || tool === "Write") {
-    const parts = detail.split("/");
-    if (parts.length > 1) {
-      return parts[parts.length - 1];
-    }
-  }
-  if (tool === "Bash") {
-    if (detail.length > 80) {
-      return detail.slice(0, 80) + "\u2026";
-    }
-  }
-  if (detail.length > 100) {
-    return detail.slice(0, 100) + "\u2026";
-  }
-  return detail;
-}

@@ -4,10 +4,9 @@ import type {
   InstanceInfo,
   NativeOpenTargetsResponse,
   Project,
-  ProviderCapabilities,
   ProviderDescriptor,
   ProviderKind,
-  ProviderModelOption,
+  ProviderModelsResponse,
   ProjectArtifacts,
   SpaceInfo,
 } from "@shared/types";
@@ -97,16 +96,12 @@ export async function fetchWorkspaceEntries(
   return res.json();
 }
 
-export async function fetchProviderModels(
-  provider: ProviderKind,
-): Promise<{ models: ProviderModelOption[]; capabilities: ProviderCapabilities }> {
+export async function fetchProviderModels(provider: ProviderKind): Promise<ProviderModelsResponse> {
   const res = await fetch(`/api/provider-models?provider=${encodeURIComponent(provider)}`);
   if (!res.ok) throw new Error("Failed to fetch provider models");
-  const data = (await res.json()) as {
-    models?: ProviderModelOption[];
-    capabilities?: ProviderCapabilities;
-  };
+  const data = (await res.json()) as Partial<ProviderModelsResponse>;
   return {
+    provider,
     models: data.models ?? [],
     capabilities: data.capabilities ?? getDefaultProviderCapabilities(provider),
   };

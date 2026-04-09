@@ -5,6 +5,7 @@ const config: KnipConfig = {
   exclude: ["duplicates"],
   workspaces: {
     ".": {
+      entry: ["cli/bin.ts", "server/index.ts"],
       project: ["server/**/*.ts", "cli/**/*.ts"],
     },
     app: {
