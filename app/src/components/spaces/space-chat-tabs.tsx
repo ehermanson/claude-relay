@@ -76,14 +76,11 @@ export function SpaceChatTabs({
   }, [activeTab, shouldShowPendingTab, instances.length]);
 
   return (
-    <div className="relative flex shrink-0 items-center border-b border-border/70 bg-surface">
+    <div className="relative flex shrink-0 items-center border-b border-border/70">
       <div
         className={`pointer-events-none absolute left-0 top-0 bottom-0 z-10 flex w-8 items-center justify-center bg-gradient-to-r from-surface via-surface/60 to-transparent transition-opacity duration-150 ${tabsOverflow.left ? "opacity-100" : "opacity-0"}`}
       />
-      <div
-        ref={tabsScrollRef}
-        className="scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto"
-      >
+      <div ref={tabsScrollRef} className="scrollbar-none flex min-w-0 items-center overflow-x-auto">
         {instances.map((inst) => (
           <SpaceChatTab
             key={inst.id}

@@ -62,6 +62,7 @@ interface SidebarProjectGroupProps {
   spaces?: SpaceInfo[];
   latestChatIdBySpace?: Record<string, string>;
   activeSpaceId?: string;
+  loading?: boolean;
 }
 
 export function SidebarProjectGroup({
@@ -82,6 +83,7 @@ export function SidebarProjectGroup({
   spaces,
   latestChatIdBySpace,
   activeSpaceId,
+  loading,
 }: SidebarProjectGroupProps) {
   const navigate = useNavigate();
   const actions = useSidebarActions();
@@ -427,7 +429,13 @@ export function SidebarProjectGroup({
 
             {visible.length === 0 &&
               (!spaces ||
-                spaces.filter((s) => !s.isDefault && s.status === "active").length === 0) && (
+                spaces.filter((s) => !s.isDefault && s.status === "active").length === 0) &&
+              (loading ? (
+                <div className="space-y-1.5 px-2 py-1">
+                  <div className="h-7 w-full animate-pulse rounded-md bg-surface-hover/60" />
+                  <div className="h-7 w-3/4 animate-pulse rounded-md bg-surface-hover/40" />
+                </div>
+              ) : (
                 <div className="px-2 py-1">
                   <EmptyProjectActions
                     size="compact"
@@ -435,7 +443,7 @@ export function SidebarProjectGroup({
                     onNewSpace={() => actions.createSpace(dir)}
                   />
                 </div>
-              )}
+              ))}
           </div>
         </Collapsible.Content>
       </div>

@@ -31,8 +31,13 @@ export function useProjectSpaces(projects: Project[]) {
   });
 
   const entries: Array<[string, SpaceInfo[]]> = [];
+  const spacesLoadingByDir: Record<string, boolean> = {};
   projects.forEach((project, index) => {
     entries.push([project.directory, spaceResults[index]?.data ?? []]);
+    spacesLoadingByDir[project.directory] = spaceResults[index]?.isLoading ?? false;
   });
-  return Object.fromEntries(entries) as Record<string, SpaceInfo[]>;
+  return {
+    spacesByDir: Object.fromEntries(entries) as Record<string, SpaceInfo[]>,
+    spacesLoadingByDir,
+  };
 }

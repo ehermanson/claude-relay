@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { InstanceViewProvider } from "@/components/chat/instance-view-context";
 import { InstanceViewShell } from "@/components/chat/instance-view-shell";
@@ -60,8 +60,12 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
 
   const markRead = useUnreadStore((s) => s.markRead);
 
-  // Track which instance we're viewing (independent of connection)
-  useEffect(() => {
+  // Track which instance we're viewing (independent of connection).
+  // useLayoutEffect so the data swap happens before the browser paints
+  // — without this, the new shell renders one frame with the previous
+  // chat's data still in scope, and the resulting flash to the new
+  // chat's layout reads as an animation.
+  useLayoutEffect(() => {
     if (!id) return;
     setInstanceId(id);
     return () => setInstanceId(null);

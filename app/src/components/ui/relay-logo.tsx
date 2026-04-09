@@ -5,6 +5,16 @@ interface RelayLogoProps extends React.SVGProps<SVGSVGElement> {
   connected?: boolean;
   hovered?: boolean;
   showPulseRings?: boolean;
+  /**
+   * Render the expensive per-node SMIL animations (breath lines + particle
+   * motion). These run on the main thread and cost real CPU — a few percent
+   * per mounted instance. Default is off. Opt in for hero placements where
+   * the logo is the focal point (login, empty state, pending chat), not for
+   * small chrome instances like the sidebar.
+   *
+   * The cheap CSS-based ring rotations and pulse are always on regardless.
+   */
+  animated?: boolean;
 }
 
 // Octagonal layout: 8 nodes at 45° intervals, R=13 from center (16,16)
@@ -62,6 +72,7 @@ export const RelayLogo = forwardRef<SVGSVGElement, RelayLogoProps>(
       connected = true,
       hovered = false,
       showPulseRings = false,
+      animated = false,
       className = "",
       ...props
     },
@@ -159,7 +170,7 @@ export const RelayLogo = forwardRef<SVGSVGElement, RelayLogoProps>(
                   transition: "stroke 0.5s, opacity 0.4s",
                 }}
               >
-                {node.breath.cx && (
+                {animated && node.breath.cx && (
                   <animate
                     attributeName="x2"
                     values={node.breath.cx.join(";")}
@@ -167,7 +178,7 @@ export const RelayLogo = forwardRef<SVGSVGElement, RelayLogoProps>(
                     repeatCount="indefinite"
                   />
                 )}
-                {node.breath.cy && (
+                {animated && node.breath.cy && (
                   <animate
                     attributeName="y2"
                     values={node.breath.cy.join(";")}
@@ -188,7 +199,7 @@ export const RelayLogo = forwardRef<SVGSVGElement, RelayLogoProps>(
                   transition: "fill 0.5s",
                 }}
               >
-                {node.breath.cx && (
+                {animated && node.breath.cx && (
                   <animate
                     attributeName="cx"
                     values={node.breath.cx.join(";")}
@@ -196,7 +207,7 @@ export const RelayLogo = forwardRef<SVGSVGElement, RelayLogoProps>(
                     repeatCount="indefinite"
                   />
                 )}
-                {node.breath.cy && (
+                {animated && node.breath.cy && (
                   <animate
                     attributeName="cy"
                     values={node.breath.cy.join(";")}
@@ -205,19 +216,21 @@ export const RelayLogo = forwardRef<SVGSVGElement, RelayLogoProps>(
                   />
                 )}
               </circle>
-              <circle r="0.4" style={{ fill: nodeColor, transition: "fill 0.5s" }}>
-                <animateMotion
-                  path={`M${node.cx},${node.cy} L${end.x},${end.y}`}
-                  dur={`${node.particleDur}s`}
-                  repeatCount="indefinite"
-                />
-                <animate
-                  attributeName="opacity"
-                  values="0.7;0"
-                  dur={`${node.particleDur}s`}
-                  repeatCount="indefinite"
-                />
-              </circle>
+              {animated && (
+                <circle r="0.4" style={{ fill: nodeColor, transition: "fill 0.5s" }}>
+                  <animateMotion
+                    path={`M${node.cx},${node.cy} L${end.x},${end.y}`}
+                    dur={`${node.particleDur}s`}
+                    repeatCount="indefinite"
+                  />
+                  <animate
+                    attributeName="opacity"
+                    values="0.7;0"
+                    dur={`${node.particleDur}s`}
+                    repeatCount="indefinite"
+                  />
+                </circle>
+              )}
             </g>
           );
         })}

@@ -58,6 +58,7 @@ export function LoginPage() {
             size={160}
             hovered={hovered}
             showPulseRings
+            animated
             className="mb-6 cursor-pointer"
             initial={{ opacity: 0, scale: 0.6 }}
             animate={{ opacity: 1, scale: 1 }}

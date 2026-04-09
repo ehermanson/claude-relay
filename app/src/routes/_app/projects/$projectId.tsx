@@ -244,6 +244,7 @@ function ProjectPending() {
         size={112}
         connected
         showPulseRings
+        animated
         initial={{ opacity: 0, scale: 0.82 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: "spring", duration: 0.9, bounce: 0.25 }}

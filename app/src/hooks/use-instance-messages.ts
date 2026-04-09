@@ -287,8 +287,13 @@ interface State {
   lastActivity: LiveActivity | null;
   /** When the current processing turn started (user sent a message) */
   processingStartedAt: number | null;
-  /** Raw history entries for debug/context panel display */
-  rawHistory: HistoryEntry[] | null;
+  /**
+   * True once rawHistory has been initialized for this instance. The entries
+   * themselves live in an out-of-band mutable buffer (see rawHistoryStore) to
+   * avoid O(n) array clones on every live event — the reducer only tracks
+   * whether it exists.
+   */
+  hasRawHistory: boolean;
   /** Last replay cursor seen for this instance */
   lastSeenSequence: number;
   /** Server replay epoch tied to the current buffered event stream */
@@ -325,14 +330,32 @@ type Action =
 // Module-level cache — persists across mounts/unmounts within a page session.
 // Switching between sessions restores cached state instantly instead of showing
 // a loading spinner while the WS history replay arrives.
-const MAX_CACHE_SIZE = 50;
+const MAX_CACHE_SIZE = 30;
+
+/**
+ * Per-instance buffer of raw HistoryEntry objects. Kept outside the reducer
+ * `State` so we can append in place (O(1)) instead of cloning the whole array
+ * on every live event. React re-renders are still driven by the reducer's
+ * state updates that accompany each append, so consumers read a fresh
+ * `rawHistory?.length` on every render triggered by a live message.
+ *
+ * Mutation happens only in `handleMessage`, which runs once per WS message
+ * (not inside the reducer), so React strict-mode double-dispatch can't cause
+ * duplicate appends.
+ */
+const rawHistoryStore = new Map<string, HistoryEntry[]>();
+
 const stateCache = new Map<string, State>();
 
 function setCacheEntry(id: string, state: State) {
-  // Evict oldest entries when cache exceeds limit
+  // Evict oldest entries when cache exceeds limit. Also drop the matching
+  // rawHistory buffer so it doesn't outlive the state snapshot.
   if (stateCache.size >= MAX_CACHE_SIZE && !stateCache.has(id)) {
     const oldest = stateCache.keys().next().value;
-    if (oldest) stateCache.delete(oldest);
+    if (oldest) {
+      stateCache.delete(oldest);
+      rawHistoryStore.delete(oldest);
+    }
   }
   stateCache.set(id, state);
 }
@@ -346,16 +369,17 @@ const EMPTY_STATE: State = {
   currentFiles: null,
   lastActivity: null,
   processingStartedAt: null,
-  rawHistory: null,
+  hasRawHistory: false,
   lastSeenSequence: 0,
   replayEpoch: undefined,
 };
 
 export function primeInstanceMessagesCache(instanceId: string): void {
+  rawHistoryStore.set(instanceId, []);
   setCacheEntry(instanceId, {
     ...EMPTY_STATE,
     hasLoadedHistory: true,
-    rawHistory: [],
+    hasRawHistory: true,
   });
 }
 
@@ -405,7 +429,7 @@ function coreReducer(state: State, action: Action): State {
         currentFiles,
         lastActivity: null,
         processingStartedAt: null,
-        rawHistory: action.history,
+        hasRawHistory: true,
         replayEpoch: action.replayEpoch,
         lastSeenSequence: action.latestSequence ?? 0,
       };
@@ -838,14 +862,9 @@ function reducer(state: State, action: Action): State {
   if (seq !== undefined && seq <= state.lastSeenSequence) {
     return state;
   }
-  let next = coreReducer(state, action);
-
-  // Append live messages to rawHistory so the debug modal stays current
-  const entry = actionToHistoryEntry(action);
-  if (entry && next.rawHistory) {
-    next = { ...next, rawHistory: [...next.rawHistory, entry] };
-  }
-
+  const next = coreReducer(state, action);
+  // Note: rawHistory entries are appended out-of-band in handleMessage so the
+  // reducer stays pure and we avoid O(n) array clones on every live event.
   if (seq === undefined) return next;
   return {
     ...next,
@@ -860,96 +879,135 @@ export function useInstanceMessages() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const handleMessage = useCallback((instanceId: string, message: ServerMessage) => {
-    if (instanceIdRef.current !== instanceId) return;
-
-    switch (message.type) {
-      case "instance_history":
-        if (message.instanceId === instanceId) {
-          dispatch({
-            type: "replay",
-            history: message.history,
-            replayMode: message.replayMode,
-            latestSequence: message.latestSequence,
-            replayEpoch: message.replayEpoch,
-          });
-        }
-        break;
-      case "output":
-        if (message.instanceId === instanceId) {
-          dispatch({
-            type: "output",
-            text: message.text,
-            isWaiting: message.isWaiting,
-            thinking: message.thinking,
-            eventSequence: message.eventSequence,
-          });
-        }
-        break;
-      case "activity":
-        if (message.instanceId === instanceId) {
-          dispatch({ type: "activity", message });
-        }
-        break;
-      case "user":
-        if (message.instanceId === instanceId) {
-          dispatch({
-            type: "user",
-            text: message.text,
-            internal: message.internal,
-            queued: message.queued,
-            eventSequence: message.eventSequence,
-          });
-        }
-        break;
-      case "transcript":
-        if (message.instanceId === instanceId) {
-          dispatch({
-            type: "transcript",
-            title: message.title,
-            result: message.result,
-            eventSequence: message.eventSequence,
-          });
-        }
-        break;
-      case "exit":
-        if (message.instanceId === instanceId) {
-          dispatch({
-            type: "exit",
-            code: message.code,
-            signal: message.signal,
-            stderr: message.stderr,
-            eventSequence: message.eventSequence,
-          });
-        }
-        break;
-      case "error":
-        if (!message.instanceId || message.instanceId === instanceId) {
-          dispatch({ type: "error", message: message.message });
-        }
-        break;
-      case "notification":
-        if (!message.instanceId || message.instanceId === instanceId) {
-          dispatch({ type: "notification", message: message.message });
-        }
-        break;
-      case "system_event":
-        if (message.instanceId === instanceId) {
-          dispatch({ type: "system_event", message });
-        }
-        break;
-      case "instance_status":
-        // When the server clears the message queue (turn ended or stop pressed),
-        // remove any queued placeholder bubbles that are still visible.
-        if (message.instanceId === instanceId && !message.instance.queuedMessageCount) {
-          dispatch({ type: "clear_queued" });
-        }
-        break;
+  /**
+   * Dispatch an action while mirroring its history entry (if any) into the
+   * out-of-band rawHistoryStore in place. The reducer's sequence-dedup gate is
+   * replicated here so stale messages don't produce duplicate entries in the
+   * buffer.
+   */
+  const dispatchAndRecord = useCallback((instanceId: string, action: Action) => {
+    const seq = getActionSequence(action);
+    if (seq !== undefined && seq <= stateRef.current.lastSeenSequence) {
+      return;
     }
+    const entry = actionToHistoryEntry(action);
+    if (entry) {
+      const buffer = rawHistoryStore.get(instanceId);
+      if (buffer) buffer.push(entry);
+    }
+    dispatch(action);
   }, []);
 
+  const handleMessage = useCallback(
+    (instanceId: string, message: ServerMessage) => {
+      if (instanceIdRef.current !== instanceId) return;
+
+      switch (message.type) {
+        case "instance_history":
+          if (message.instanceId === instanceId) {
+            // Only replace the rawHistory buffer on a full replay. Safe deltas
+            // leave existing entries in place (the reducer ignores action.history
+            // in that branch), so we must too.
+            const isSafeDelta =
+              message.replayMode === "delta" &&
+              (stateRef.current.replayEpoch === undefined ||
+                message.replayEpoch === stateRef.current.replayEpoch) &&
+              (message.latestSequence ?? stateRef.current.lastSeenSequence) >=
+                stateRef.current.lastSeenSequence;
+            if (!isSafeDelta) {
+              rawHistoryStore.set(instanceId, [...message.history]);
+            } else if (!rawHistoryStore.has(instanceId)) {
+              rawHistoryStore.set(instanceId, [...message.history]);
+            }
+            dispatch({
+              type: "replay",
+              history: message.history,
+              replayMode: message.replayMode,
+              latestSequence: message.latestSequence,
+              replayEpoch: message.replayEpoch,
+            });
+          }
+          break;
+        case "output":
+          if (message.instanceId === instanceId) {
+            dispatchAndRecord(instanceId, {
+              type: "output",
+              text: message.text,
+              isWaiting: message.isWaiting,
+              thinking: message.thinking,
+              eventSequence: message.eventSequence,
+            });
+          }
+          break;
+        case "activity":
+          if (message.instanceId === instanceId) {
+            dispatchAndRecord(instanceId, { type: "activity", message });
+          }
+          break;
+        case "user":
+          if (message.instanceId === instanceId) {
+            dispatchAndRecord(instanceId, {
+              type: "user",
+              text: message.text,
+              internal: message.internal,
+              queued: message.queued,
+              eventSequence: message.eventSequence,
+            });
+          }
+          break;
+        case "transcript":
+          if (message.instanceId === instanceId) {
+            dispatchAndRecord(instanceId, {
+              type: "transcript",
+              title: message.title,
+              result: message.result,
+              eventSequence: message.eventSequence,
+            });
+          }
+          break;
+        case "exit":
+          if (message.instanceId === instanceId) {
+            dispatchAndRecord(instanceId, {
+              type: "exit",
+              code: message.code,
+              signal: message.signal,
+              stderr: message.stderr,
+              eventSequence: message.eventSequence,
+            });
+          }
+          break;
+        case "error":
+          if (!message.instanceId || message.instanceId === instanceId) {
+            dispatch({ type: "error", message: message.message });
+          }
+          break;
+        case "notification":
+          if (!message.instanceId || message.instanceId === instanceId) {
+            dispatch({ type: "notification", message: message.message });
+          }
+          break;
+        case "system_event":
+          if (message.instanceId === instanceId) {
+            dispatchAndRecord(instanceId, { type: "system_event", message });
+          }
+          break;
+        case "instance_status":
+          // When the server clears the message queue (turn ended or stop pressed),
+          // remove any queued placeholder bubbles that are still visible.
+          if (message.instanceId === instanceId && !message.instance.queuedMessageCount) {
+            dispatch({ type: "clear_queued" });
+          }
+          break;
+      }
+    },
+    [dispatchAndRecord],
+  );
+
   const setInstanceId = useCallback((id: string | null) => {
-    // Save outgoing instance's state to cache
+    // Save outgoing instance's state to cache. The rawHistory buffer is
+    // already keyed by instance id in rawHistoryStore, so it persists across
+    // the switch without any explicit save — it only gets evicted when the
+    // matching stateCache entry is evicted (see setCacheEntry).
     const prevId = instanceIdRef.current;
     if (prevId && stateRef.current.hasLoadedHistory) {
       setCacheEntry(prevId, stateRef.current);
@@ -985,6 +1043,15 @@ export function useInstanceMessages() {
     };
   }, []);
 
+  // Read rawHistory from the out-of-band store. The array reference is stable
+  // across renders for a given instance (mutated in place); consumers should
+  // depend on `rawHistory?.length` rather than the reference when reacting to
+  // appends. Reducer dispatches that accompany each append drive the re-render
+  // that surfaces the new length.
+  const currentId = instanceIdRef.current;
+  const rawHistory =
+    state.hasRawHistory && currentId ? (rawHistoryStore.get(currentId) ?? null) : null;
+
   return {
     items: state.items,
     hasLoadedHistory: state.hasLoadedHistory,
@@ -994,7 +1061,7 @@ export function useInstanceMessages() {
     currentFiles: state.currentFiles,
     lastActivity: state.lastActivity,
     processingStartedAt: state.processingStartedAt,
-    rawHistory: state.rawHistory,
+    rawHistory,
     getReplayCursor,
     handleMessage,
     setInstanceId,

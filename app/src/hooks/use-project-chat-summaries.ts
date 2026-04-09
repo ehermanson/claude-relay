@@ -31,8 +31,10 @@ export function useProjectChatSummaries(projects: Project[]) {
   });
 
   const chatsByProjectId: Record<string, InstanceInfo[]> = {};
+  const chatsLoadingByProjectId: Record<string, boolean> = {};
   projects.forEach((project, index) => {
     chatsByProjectId[project.id] = chatResults[index]?.data ?? [];
+    chatsLoadingByProjectId[project.id] = chatResults[index]?.isLoading ?? false;
   });
-  return chatsByProjectId;
+  return { chatsByProjectId, chatsLoadingByProjectId };
 }

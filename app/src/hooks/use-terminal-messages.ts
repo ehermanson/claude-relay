@@ -41,8 +41,21 @@ export function useTerminalMessages(scope: TerminalScope | null) {
 
   // Fetch the initial terminal list for this scope so the store is populated
   // before the user interacts with the terminal toggle.
+  //
+  // Key on a primitive scope identifier rather than the object itself so that
+  // unmemoized callers (e.g. `{ type: "space", spaceId }` recreated each render)
+  // don't trip an infinite re-fetch loop. The list response updates the
+  // terminal store, which triggers re-renders, which would otherwise produce a
+  // fresh scope reference and re-fire the effect indefinitely.
+  const scopeKey = scope
+    ? scope.type === "space"
+      ? `space:${scope.spaceId}`
+      : `instance:${scope.instanceId}`
+    : null;
   useEffect(() => {
     if (!scope) return;
     send({ type: "terminal_list", scope });
-  }, [scope, send]);
+    // scope is intentionally excluded — we key on the primitive scopeKey above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey, send]);
 }

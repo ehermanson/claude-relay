@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate, useParams } from "@tanstack/react-router";
@@ -77,7 +77,10 @@ export function SpaceView() {
   const [pendingNewChatId, setPendingNewChatId] = useState<string | null>(null);
   const pendingCreatedChatIdRef = useRef<string | null>(null);
 
-  const terminalScope: TerminalScope = { type: "space", spaceId };
+  // Memoized so useTerminalMessages doesn't see a new object identity every
+  // render — without this, the store-update → re-render → fresh-scope-literal
+  // chain becomes an infinite loop and pegs the tab at 100% CPU.
+  const terminalScope = useMemo<TerminalScope>(() => ({ type: "space", spaceId }), [spaceId]);
   const {
     isPanelOpen: isTerminalPanelOpen,
     isPanelCollapsed: isTerminalPanelCollapsed,

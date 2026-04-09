@@ -18,6 +18,7 @@ export interface SidebarNavigationEntry {
   iconPath?: string;
   hasActivity: boolean;
   isActiveProject: boolean;
+  loading: boolean;
 }
 
 export function useSidebarNavigationController() {
@@ -74,6 +75,9 @@ export function useSidebarNavigationController() {
         iconPath: projectIcons[dir],
         hasActivity: groupInstances.some((instance) => instance.status === "processing"),
         isActiveProject: currentProjectId === projectId,
+        loading:
+          (project?.id ? (navigation.chatsLoadingByProjectId[project.id] ?? false) : false) ||
+          (navigation.spacesLoadingByDir[dir] ?? false),
       };
     },
   );

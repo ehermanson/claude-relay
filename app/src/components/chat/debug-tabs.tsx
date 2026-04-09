@@ -108,7 +108,11 @@ export function DebugTabs({
       processed: { items, isProcessing },
       instance: instance,
     };
-  }, [rawHistory, items, isProcessing, instance, providerGlobalState]);
+    // `rawHistory` is mutated in place for live appends (see use-instance-messages),
+    // so the array reference stays stable — depend on its length to re-run on
+    // every new entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawHistory?.length, items, isProcessing, instance, providerGlobalState]);
 
   const chatTabsDisabled = !instance;
   const isExtraTab = extraTabs.some((t) => t.value === activeTab);

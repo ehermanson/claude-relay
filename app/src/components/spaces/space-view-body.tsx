@@ -107,6 +107,7 @@ export function SpaceViewBody() {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {(shared.activeTab || shared.pendingNewChatActive) && <SpaceChatTabs {...chatTabsProps} />}
         <div ref={sidebarContainerRef} className="flex min-h-0 flex-1 overflow-hidden">
           {shared.activeTab || shared.pendingNewChatActive ? (
             <>
@@ -114,7 +115,6 @@ export function SpaceViewBody() {
                 <SpaceChatArea
                   activeTab={shared.activeTab}
                   activeLiveInstance={shared.activeLiveInstance}
-                  chatTabsProps={chatTabsProps}
                   pendingNewChat={shared.pendingNewChatActive}
                 />
               </div>
@@ -255,6 +255,7 @@ const pendingChatLoadingContent = (
         size={112}
         connected
         showPulseRings
+        animated
         className="mb-5"
         initial={{ opacity: 0, scale: 0.82 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -269,17 +270,14 @@ const pendingChatLoadingContent = (
 function SpaceChatArea({
   activeTab,
   activeLiveInstance,
-  chatTabsProps,
   pendingNewChat,
 }: {
   activeTab: string | null;
   activeLiveInstance: InstanceInfo | null;
-  chatTabsProps: ComponentProps<typeof SpaceChatTabs>;
   pendingNewChat?: boolean;
 }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <SpaceChatTabs {...chatTabsProps} />
       {pendingNewChat ? (
         pendingChatLoadingContent
       ) : activeTab && activeLiveInstance ? (

@@ -241,6 +241,7 @@ export function Sidebar({
                   spaces={entry.spaces}
                   latestChatIdBySpace={latestChatIdBySpace}
                   activeSpaceId={currentSpaceId}
+                  loading={entry.loading}
                 />
               ))}
 

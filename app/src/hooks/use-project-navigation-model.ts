@@ -10,8 +10,8 @@ import type { InstanceInfo, Project } from "@shared/types";
 export function useProjectNavigationModel() {
   const { instances } = useWSState();
   const { data: projects = [] } = useProjectsQuery();
-  const projectSpaces = useProjectSpaces(projects);
-  const chatsByProjectId = useProjectChatSummaries(projects);
+  const { spacesByDir: projectSpaces, spacesLoadingByDir } = useProjectSpaces(projects);
+  const { chatsByProjectId, chatsLoadingByProjectId } = useProjectChatSummaries(projects);
   const projectOrder = useProjectOrder();
 
   const mergedInstances = new Map<string, InstanceInfo>();
@@ -54,6 +54,8 @@ export function useProjectNavigationModel() {
   const registeredDirs = new Set(projects.map((project) => project.directory));
 
   return {
+    chatsLoadingByProjectId,
+    spacesLoadingByDir,
     groups,
     latestChatIdBySpace,
     projectByDir,

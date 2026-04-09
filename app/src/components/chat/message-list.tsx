@@ -264,7 +264,7 @@ export function MessageList({
         </div>
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-bg to-transparent" />
+      <div className="pointer-events-none absolute inset-x-[1px] bottom-0 h-10 bg-gradient-to-t from-bg to-transparent" />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-6">
         <AnimatePresence>

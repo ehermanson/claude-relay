@@ -90,13 +90,21 @@ function startServer(cliArgs: string[]): void {
     );
   }
 
+  const maxProcesses = parseInt(process.env.MAX_PROCESSES || "15");
+
+  // @anthropic-ai/claude-agent-sdk attaches one `process.on("exit", …)` handler
+  // per live Claude Code subprocess (removed on close). With many concurrent
+  // managed sessions we exceed Node's default 10-listener warning threshold.
+  // Raise the per-event limit to cover maxProcesses + shutdown/rejection handlers.
+  process.setMaxListeners(maxProcesses + 20);
+
   const relay = createRelay({
     password,
     port,
     sessionMaxAge: parseInt(process.env.SESSION_MAX_AGE || String(7 * 24 * 60 * 60 * 1000)),
     processTimeout: parseInt(process.env.PROCESS_TIMEOUT || String(5 * 60 * 1000)),
     workingDirectory: process.env.WORKING_DIR || process.cwd(),
-    maxProcesses: parseInt(process.env.MAX_PROCESSES || "15"),
+    maxProcesses,
     defaultModel: process.env.DEFAULT_MODEL || "claude-opus-4-6",
     serveUI: true,
     ...(process.env.SESSION_FILE ? { sessionFile: process.env.SESSION_FILE } : {}),

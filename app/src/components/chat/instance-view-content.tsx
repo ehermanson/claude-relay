@@ -26,7 +26,7 @@ function EmptyChatState({ projectName }: { projectName: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-10">
       <div className="flex w-full max-w-md flex-col items-center text-center">
-        <RelayLogo size={64} className="mb-5 opacity-80" />
+        <RelayLogo size={64} animated className="mb-5 opacity-80" />
         <p className="text-[0.875rem] font-medium text-text-bright">Ready when you are</p>
         <p className="mt-1 text-[0.75rem] text-muted">
           Start a conversation in <span className="text-text">{projectName}</span>. Use{" "}
