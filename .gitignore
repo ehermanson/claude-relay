@@ -22,6 +22,7 @@ Thumbs.db
 
 # Relay space metadata (should never be committed)
 .relay/
+!.relay/tasks.jsonl
 
 # Logs
 *.log
