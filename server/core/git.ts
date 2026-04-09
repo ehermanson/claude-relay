@@ -441,19 +441,24 @@ export function hasWorktreeChanges(worktreePath: string, originalDirectory: stri
   }
 }
 
+function getStatusLinesExcludingRelay(dir: string): string[] {
+  const output = execFileSync("git", ["status", "--porcelain", "--", ".", ":(exclude).relay/"], {
+    cwd: dir,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    timeout: 10000,
+  }).trim();
+
+  return output ? output.split(/\r?\n/) : [];
+}
+
 /**
- * Check if a worktree has uncommitted changes.
+ * Check if a worktree has uncommitted changes that are commitable by Relay.
+ * Relay metadata under `.relay/` is intentionally excluded.
  */
 export function isWorktreeDirty(worktreePath: string): boolean {
   try {
-    const output = execSync("git status --porcelain", {
-      cwd: worktreePath,
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 10000,
-    })
-      .toString()
-      .trim();
-    return output.length > 0;
+    return getStatusLinesExcludingRelay(worktreePath).length > 0;
   } catch {
     return true; // Assume dirty if we can't check
   }
@@ -468,13 +473,7 @@ export interface GitWorktreeStatus {
 export function getWorktreeStatus(worktreePath: string): GitWorktreeStatus {
   let changeCount = 0;
   try {
-    const output = execFileSync("git", ["status", "--porcelain"], {
-      cwd: worktreePath,
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 10000,
-    }).trim();
-    changeCount = output ? output.split(/\r?\n/).length : 0;
+    changeCount = getStatusLinesExcludingRelay(worktreePath).length;
   } catch {
     changeCount = 1;
   }
@@ -497,9 +496,9 @@ export function mergeWorktreeBranch(
   branchName: string,
 ): { success: true } | { success: false; error: string } {
   try {
-    execSync(`git merge "${branchName}" --no-edit`, {
+    execFileSync("git", ["merge", branchName, "--no-edit", "--no-verify"], {
       cwd: repoRoot,
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: "pipe",
       timeout: 30000,
     });
     return { success: true };
@@ -562,7 +561,7 @@ export function squashMergeBranch(
   // Step 2: commit the staged squash
   try {
     try {
-      execFileSync("git", ["commit", "-m", commitMessage], opts);
+      execFileSync("git", ["commit", "--no-verify", "-m", commitMessage], opts);
     } catch (error) {
       if (!isMissingGitIdentityError(error)) {
         throw error;
@@ -575,6 +574,7 @@ export function squashMergeBranch(
           "-c",
           `user.email=${RELAY_GIT_FALLBACK_EMAIL}`,
           "commit",
+          "--no-verify",
           "-m",
           commitMessage,
         ],
@@ -639,7 +639,7 @@ export function commitAll(
     // Exclude .relay/ so space-context.md and other relay metadata don't get committed
     execFileSync("git", ["add", "-A", "--", ".", ":!.relay/"], opts);
     try {
-      execFileSync("git", ["commit", "-m", message], opts);
+      execFileSync("git", ["commit", "--no-verify", "-m", message], opts);
     } catch (error) {
       if (!isMissingGitIdentityError(error)) {
         throw error;
@@ -653,6 +653,7 @@ export function commitAll(
           "-c",
           `user.email=${RELAY_GIT_FALLBACK_EMAIL}`,
           "commit",
+          "--no-verify",
           "-m",
           message,
         ],

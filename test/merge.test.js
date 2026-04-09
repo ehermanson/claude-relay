@@ -19,6 +19,7 @@ import { WebSocket } from "ws";
 import {
   isWorktreeDirty,
   mergeWorktreeBranch,
+  squashMergeBranch,
   createWorktree,
   removeWorktree,
   getCurrentBranch,
@@ -130,6 +131,42 @@ describe("git merge utilities", () => {
     it("returns error for nonexistent branch", () => {
       const result = mergeWorktreeBranch(repoDir, "nonexistent-branch");
       assert.equal(result.success, false);
+    });
+
+    it("bypasses pre-commit hooks on merge commits", () => {
+      execSync("git checkout -b feature-branch", { cwd: repoDir, stdio: "pipe" });
+      writeFileSync(join(repoDir, "feature.txt"), "new feature\n");
+      execSync("git add . && git commit -m 'add feature'", { cwd: repoDir, stdio: "pipe" });
+      execSync("git checkout main", { cwd: repoDir, stdio: "pipe" });
+      execSync(
+        "printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
+        {
+          cwd: repoDir,
+          stdio: "pipe",
+        },
+      );
+
+      const result = mergeWorktreeBranch(repoDir, "feature-branch");
+      assert.deepEqual(result, { success: true });
+    });
+  });
+
+  describe("squashMergeBranch", () => {
+    it("bypasses pre-commit hooks on squash commits", () => {
+      execSync("git checkout -b feature-branch", { cwd: repoDir, stdio: "pipe" });
+      writeFileSync(join(repoDir, "feature.txt"), "new feature\n");
+      execSync("git add . && git commit -m 'add feature'", { cwd: repoDir, stdio: "pipe" });
+      execSync("git checkout main", { cwd: repoDir, stdio: "pipe" });
+      execSync(
+        "printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit",
+        {
+          cwd: repoDir,
+          stdio: "pipe",
+        },
+      );
+
+      const result = squashMergeBranch(repoDir, "feature-branch", "feature squash");
+      assert.deepEqual(result, { success: true });
     });
   });
 

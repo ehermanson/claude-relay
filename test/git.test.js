@@ -14,6 +14,7 @@ import {
   createWorktree,
   removeWorktree,
   isWorktreeDirty,
+  getWorktreeStatus,
   hasWorktreeChanges,
   commitAll,
 } from "../dist/server/core/git.js";
@@ -251,6 +252,19 @@ describe("worktree lifecycle", () => {
     assert.equal(isWorktreeDirty(worktreeResult.worktreePath), true);
   });
 
+  it("ignores relay metadata when checking dirty state", () => {
+    worktreeResult = createWorktree(repoDir, "relaymd1");
+    assert.ok(worktreeResult);
+
+    mkdirSync(join(worktreeResult.worktreePath, ".relay"), { recursive: true });
+    writeFileSync(join(worktreeResult.worktreePath, ".relay", "tasks.jsonl"), '{"id":"1"}\n');
+
+    const status = getWorktreeStatus(worktreeResult.worktreePath);
+    assert.equal(isWorktreeDirty(worktreeResult.worktreePath), false);
+    assert.equal(status.dirty, false);
+    assert.equal(status.changeCount, 0);
+  });
+
   it("hasWorktreeChanges detects committed changes", () => {
     worktreeResult = createWorktree(repoDir, "changes1");
     assert.ok(worktreeResult);
@@ -279,6 +293,27 @@ describe("worktree lifecycle", () => {
     assert.deepEqual(result, { success: true });
 
     // Should be clean after commit
+    assert.equal(isWorktreeDirty(worktreeResult.worktreePath), false);
+  });
+
+  it("commitAll bypasses pre-commit hooks", () => {
+    worktreeResult = createWorktree(repoDir, "hookpass");
+    assert.ok(worktreeResult);
+
+    const hookPath = execSync("git rev-parse --git-path hooks/pre-commit", {
+      cwd: worktreeResult.worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    writeFileSync(hookPath, "#!/bin/sh\nexit 1\n");
+    execSync(`chmod +x "${hookPath}"`, {
+      cwd: worktreeResult.worktreePath,
+      stdio: "pipe",
+    });
+    writeFileSync(join(worktreeResult.worktreePath, "hooked.txt"), "content");
+
+    const result = commitAll(worktreeResult.worktreePath, "hook commit");
+    assert.deepEqual(result, { success: true });
     assert.equal(isWorktreeDirty(worktreeResult.worktreePath), false);
   });
 
