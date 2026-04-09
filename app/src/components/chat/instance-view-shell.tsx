@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import { CollapsedTerminalBar } from "@/components/terminal/terminal-collapsed-bar";
 import { LazyTerminalPanel } from "@/components/terminal/lazy-terminal-panel";
 import { Sidecar } from "@/components/chat/sidecar";
@@ -16,10 +16,12 @@ export function InstanceViewShell() {
   const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
   const currentProviderGlobalState = providerGlobalState[shared.instance.provider];
   const firstPaint = useFirstPaint();
+  const mountTerminalPanel =
+    (shared.showTerminalPanel || shared.isTerminalCollapsed) && !shared.isMobile;
 
   if (shared.compact) {
     return (
-      <div className="flex h-full flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 flex-1 flex-col">
           <InstanceViewContent />
         </div>
@@ -36,27 +38,30 @@ export function InstanceViewShell() {
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <InstanceViewContent />
           </div>
-          <AnimatePresence initial={false}>
-            {shared.showTerminalPanel && !shared.isMobile && (
-              <motion.div
-                key="terminal"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: shared.terminalHeight, opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={TERMINAL_ANIM_TRANSITION}
-                className="shrink-0 overflow-hidden"
-              >
-                <ErrorBoundary name="Terminal panel">
-                  <LazyTerminalPanel
-                    scope={shared.terminalScope}
-                    height={shared.terminalHeight}
-                    onResizeStart={actions.handleTerminalResizeStart}
-                    activeInstanceId={shared.id}
-                  />
-                </ErrorBoundary>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {mountTerminalPanel && (
+            <motion.div
+              key="terminal"
+              initial={false}
+              animate={{
+                height: shared.showTerminalPanel ? shared.terminalHeight : 0,
+                opacity: shared.showTerminalPanel ? 1 : 0,
+              }}
+              transition={TERMINAL_ANIM_TRANSITION}
+              className={`shrink-0 overflow-hidden ${
+                shared.showTerminalPanel ? "" : "pointer-events-none"
+              }`}
+              aria-hidden={!shared.showTerminalPanel}
+            >
+              <ErrorBoundary name="Terminal panel">
+                <LazyTerminalPanel
+                  scope={shared.terminalScope}
+                  height={shared.terminalHeight}
+                  onResizeStart={actions.handleTerminalResizeStart}
+                  activeInstanceId={shared.id}
+                />
+              </ErrorBoundary>
+            </motion.div>
+          )}
           {shared.isTerminalCollapsed && !shared.isMobile && shared.collapsedTerminalCount > 0 && (
             <CollapsedTerminalBar
               terminalCount={shared.collapsedTerminalCount}

@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react";
 import { Check, Copy, FolderOpen, GitBranch, Plus } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import { InstanceView } from "@/components/chat/instance-view";
 import { SpaceChatTabs } from "@/components/spaces/space-chat-tabs";
 import { SpaceSidebar } from "@/components/spaces/space-sidebar";
@@ -22,6 +22,8 @@ const TERMINAL_ANIM_TRANSITION = { duration: 0.22, ease: [0.22, 1, 0.36, 1] } as
 export function SpaceViewBody() {
   const { shared, actions } = useSpaceViewContext();
   const firstPaint = useFirstPaint();
+  const mountTerminalPanel =
+    (shared.showTerminalPanel || shared.isTerminalCollapsed) && !shared.isMobile;
   const chatTabsProps: ComponentProps<typeof SpaceChatTabs> = {
     instances: shared.spaceInstances,
     activeTab: shared.activeTab,
@@ -195,27 +197,30 @@ export function SpaceViewBody() {
             </div>
           )}
         </div>
-        <AnimatePresence initial={false}>
-          {shared.showTerminalPanel && !shared.isMobile && (
-            <motion.div
-              key="terminal"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: shared.terminalHeight, opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={TERMINAL_ANIM_TRANSITION}
-              className="shrink-0 overflow-hidden"
-            >
-              <ErrorBoundary name="Terminal panel">
-                <LazyTerminalPanel
-                  scope={shared.terminalScope}
-                  height={shared.terminalHeight}
-                  onResizeStart={actions.handleTerminalResizeStart}
-                  activeInstanceId={shared.activeTab}
-                />
-              </ErrorBoundary>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {mountTerminalPanel && (
+          <motion.div
+            key="terminal"
+            initial={false}
+            animate={{
+              height: shared.showTerminalPanel ? shared.terminalHeight : 0,
+              opacity: shared.showTerminalPanel ? 1 : 0,
+            }}
+            transition={TERMINAL_ANIM_TRANSITION}
+            className={`shrink-0 overflow-hidden ${
+              shared.showTerminalPanel ? "" : "pointer-events-none"
+            }`}
+            aria-hidden={!shared.showTerminalPanel}
+          >
+            <ErrorBoundary name="Terminal panel">
+              <LazyTerminalPanel
+                scope={shared.terminalScope}
+                height={shared.terminalHeight}
+                onResizeStart={actions.handleTerminalResizeStart}
+                activeInstanceId={shared.activeTab}
+              />
+            </ErrorBoundary>
+          </motion.div>
+        )}
         {shared.isTerminalCollapsed && !shared.isMobile && shared.collapsedTerminalCount > 0 && (
           <CollapsedTerminalBar
             terminalCount={shared.collapsedTerminalCount}
@@ -277,7 +282,7 @@ function SpaceChatArea({
   pendingNewChat?: boolean;
 }) {
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {pendingNewChat ? (
         pendingChatLoadingContent
       ) : activeTab && activeLiveInstance ? (

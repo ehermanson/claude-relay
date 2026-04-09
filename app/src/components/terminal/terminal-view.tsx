@@ -107,6 +107,42 @@ export const TerminalView = memo(function TerminalView({
   // Buffer data that arrives before xterm is ready
   const pendingDataRef = useRef<string[]>([]);
   const xtermReadyRef = useRef(false);
+  // Tracks whether we've sent the initial resize for this mount cycle.
+  // Fresh terminals need an initial resize to spawn at the correct dimensions.
+  // Reconnected terminals already have a live PTY size, so we avoid an eager
+  // resize after scrollback replay because that can redraw the prompt twice.
+  const initialResizeSentRef = useRef(false);
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeRef = useRef<(cols: number, rows: number) => void>(() => {});
+
+  /** Send the initial resize exactly once. */
+  const sendInitialResize = useCallback(() => {
+    if (initialResizeSentRef.current) return;
+    initialResizeSentRef.current = true;
+    if (resizeTimerRef.current) {
+      clearTimeout(resizeTimerRef.current);
+      resizeTimerRef.current = null;
+    }
+    const term = xtermRef.current;
+    const fit = fitAddonRef.current;
+    if (term && fit) {
+      try {
+        fit.fit();
+      } catch {
+        // fit() can throw if not visible
+      }
+      resizeRef.current(term.cols, term.rows);
+    }
+  }, []);
+
+  /** Mark reconnect hydration complete without sending an eager SIGWINCH. */
+  const finishReconnectHydration = useCallback(() => {
+    initialResizeSentRef.current = true;
+    if (resizeTimerRef.current) {
+      clearTimeout(resizeTimerRef.current);
+      resizeTimerRef.current = null;
+    }
+  }, []);
 
   const handleData = useCallback((data: string) => {
     if (xtermReadyRef.current && xtermRef.current) {
@@ -116,13 +152,20 @@ export const TerminalView = memo(function TerminalView({
     }
   }, []);
 
-  const handleScrollback = useCallback((data: string) => {
-    if (xtermReadyRef.current && xtermRef.current) {
-      xtermRef.current.write(data);
-    } else {
-      pendingDataRef.current.unshift(data);
-    }
-  }, []);
+  const handleScrollback = useCallback(
+    (data: string) => {
+      if (xtermReadyRef.current && xtermRef.current) {
+        // Scrollback arrived after xterm is ready — hydrate the terminal state
+        // without immediately resizing the live PTY.
+        xtermRef.current.write(data);
+        finishReconnectHydration();
+      } else {
+        // Scrollback arrived before xterm is ready — buffer it (at front)
+        pendingDataRef.current.unshift(data);
+      }
+    },
+    [finishReconnectHydration],
+  );
 
   const { write, resize } = useTerminal({
     terminalId,
@@ -131,11 +174,15 @@ export const TerminalView = memo(function TerminalView({
     onScrollback: handleScrollback,
   });
 
+  // Keep resize ref current
+  resizeRef.current = resize;
+
   // Create and mount xterm
   useEffect(() => {
     if (!containerRef.current) return;
 
     xtermReadyRef.current = false;
+    initialResizeSentRef.current = false;
     pendingDataRef.current = [];
     setSelectionPopup(null);
 
@@ -162,16 +209,31 @@ export const TerminalView = memo(function TerminalView({
     requestAnimationFrame(() => {
       try {
         fitAddon.fit();
-        resize(terminal.cols, terminal.rows);
       } catch {
         // fit() can throw if not visible
       }
 
       xtermReadyRef.current = true;
+
+      const hadScrollback = pendingDataRef.current.length > 0;
       for (const chunk of pendingDataRef.current) {
         terminal.write(chunk);
       }
       pendingDataRef.current = [];
+
+      if (hadScrollback) {
+        // Reconnected terminal: keep the existing PTY dimensions until a real
+        // layout change occurs, instead of forcing a redraw on mount.
+        finishReconnectHydration();
+      } else {
+        // No scrollback yet. Either it's a brand-new terminal (deferred spawn
+        // needs resize to trigger PTY creation) or scrollback hasn't arrived
+        // over the wire yet.  Use a short timeout so we don't block new
+        // terminals, but give scrollback a chance to arrive first.
+        resizeTimerRef.current = setTimeout(() => {
+          sendInitialResize();
+        }, 150);
+      }
     });
 
     const dataDisposable = terminal.onData((data) => {
@@ -200,6 +262,10 @@ export const TerminalView = memo(function TerminalView({
 
     return () => {
       xtermReadyRef.current = false;
+      if (resizeTimerRef.current) {
+        clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = null;
+      }
       dataDisposable.dispose();
       selectionDisposable.dispose();
       terminal.dispose();
@@ -244,7 +310,7 @@ export const TerminalView = memo(function TerminalView({
     if (!container) return;
 
     const observer = new ResizeObserver(() => {
-      if (fitAddonRef.current && xtermReadyRef.current) {
+      if (fitAddonRef.current && xtermReadyRef.current && initialResizeSentRef.current) {
         try {
           fitAddonRef.current.fit();
           const term = xtermRef.current;

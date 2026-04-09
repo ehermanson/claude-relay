@@ -24,7 +24,10 @@ const MAX_SCROLLBACK_BYTES = 512 * 1024; // 512 KB
 
 interface Terminal {
   info: TerminalInfo;
-  pty: PtyProcess;
+  /** null while waiting for the first resize to arrive with real dimensions. */
+  pty: PtyProcess | null;
+  /** Stored so we can spawn the PTY lazily after creation. */
+  pendingCwd: string;
   scrollback: string[];
   scrollbackBytes: number;
 }
@@ -69,6 +72,12 @@ export class TerminalManager extends EventEmitter {
 
   /**
    * Create a new terminal session.
+   *
+   * When cols/rows are omitted the PTY spawn is deferred until the first
+   * `resizeTerminal` call arrives with the real client dimensions.  This
+   * avoids a double-prompt: the shell would otherwise render at the default
+   * 120×30, then immediately get SIGWINCH when the client sends the actual
+   * size, causing a second prompt redraw.
    */
   createTerminal(options: {
     scope: TerminalScope;
@@ -77,14 +86,9 @@ export class TerminalManager extends EventEmitter {
     rows?: number;
   }): TerminalInfo {
     const id = randomUUID().replace(/-/g, "").slice(0, 12);
+    const hasDimensions = options.cols != null && options.rows != null;
     const cols = options.cols ?? DEFAULT_COLS;
     const rows = options.rows ?? DEFAULT_ROWS;
-
-    const pty = this.ptyFactory({
-      cwd: options.cwd,
-      cols,
-      rows,
-    });
 
     const info: TerminalInfo = {
       id,
@@ -98,27 +102,22 @@ export class TerminalManager extends EventEmitter {
 
     const terminal: Terminal = {
       info,
-      pty,
+      pty: null,
+      pendingCwd: options.cwd,
       scrollback: [],
       scrollbackBytes: 0,
     };
 
     this.terminals.set(id, terminal);
 
-    // Wire PTY events
-    pty.on("data", (data: string) => {
-      this.appendScrollback(terminal, data);
-      this.emit("terminal:output", id, data);
-    });
+    // If the caller already knows the dimensions, spawn immediately.
+    if (hasDimensions) {
+      this.spawnPty(terminal);
+    }
 
-    pty.on("exit", (code: number, signal?: string) => {
-      terminal.info.exited = true;
-      terminal.info.exitCode = code;
-      this.log.info(`Terminal ${id} exited (code=${code}, signal=${signal ?? "none"})`);
-      this.emit("terminal:exit", id, code, signal);
-    });
-
-    this.log.info(`Terminal ${id} created (scope=${scopeKey(options.scope)}, cwd=${options.cwd})`);
+    this.log.info(
+      `Terminal ${id} created (scope=${scopeKey(options.scope)}, cwd=${options.cwd}, deferred=${!hasDimensions})`,
+    );
     this.emit("terminal:created", info);
     return info;
   }
@@ -129,18 +128,33 @@ export class TerminalManager extends EventEmitter {
   writeTerminal(terminalId: string, data: string): void {
     const terminal = this.terminals.get(terminalId);
     if (!terminal) return;
-    terminal.pty.write(data);
+    // Lazily spawn if the user types before resize arrives
+    if (!terminal.pty) this.spawnPty(terminal);
+    terminal.pty!.write(data);
   }
 
   /**
    * Resize a terminal's PTY.
+   *
+   * If the PTY hasn't been spawned yet (deferred creation), this spawns it
+   * at the given dimensions — no SIGWINCH, no double prompt.
    */
   resizeTerminal(terminalId: string, cols: number, rows: number): void {
     const terminal = this.terminals.get(terminalId);
     if (!terminal) return;
-    terminal.pty.resize(cols, rows);
-    terminal.info.cols = cols;
-    terminal.info.rows = rows;
+
+    if (!terminal.pty) {
+      // First resize — spawn the PTY at the correct size
+      terminal.info.cols = cols;
+      terminal.info.rows = rows;
+      this.spawnPty(terminal);
+    } else if (cols !== terminal.info.cols || rows !== terminal.info.rows) {
+      // Only send SIGWINCH when dimensions actually changed — avoids a
+      // redundant prompt redraw when the UI re-opens at the same size.
+      terminal.info.cols = cols;
+      terminal.info.rows = rows;
+      terminal.pty.resize(cols, rows);
+    }
   }
 
   /**
@@ -150,7 +164,7 @@ export class TerminalManager extends EventEmitter {
     const terminal = this.terminals.get(terminalId);
     if (!terminal) return;
 
-    if (!terminal.info.exited) {
+    if (terminal.pty && !terminal.info.exited) {
       terminal.pty.kill();
     }
     this.terminals.delete(terminalId);
@@ -206,6 +220,33 @@ export class TerminalManager extends EventEmitter {
   }
 
   // ── Private ──────────────────────────────────────────────────────
+
+  /**
+   * Actually spawn the PTY process for a terminal that was created with
+   * deferred spawn.  Uses the dimensions currently stored in `terminal.info`.
+   */
+  private spawnPty(terminal: Terminal): void {
+    const { info } = terminal;
+    const pty = this.ptyFactory({
+      cwd: terminal.pendingCwd,
+      cols: info.cols,
+      rows: info.rows,
+    });
+
+    terminal.pty = pty;
+
+    pty.on("data", (data: string) => {
+      this.appendScrollback(terminal, data);
+      this.emit("terminal:output", info.id, data);
+    });
+
+    pty.on("exit", (code: number, signal?: string) => {
+      info.exited = true;
+      info.exitCode = code;
+      this.log.info(`Terminal ${info.id} exited (code=${code}, signal=${signal ?? "none"})`);
+      this.emit("terminal:exit", info.id, code, signal);
+    });
+  }
 
   private appendScrollback(terminal: Terminal, data: string): void {
     terminal.scrollback.push(data);
