@@ -459,7 +459,10 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
 
   return (
     <InstanceViewProvider value={contextValue}>
-      <InstanceViewShell />
+      {/* Key on instance id so the shell remounts on chat switch — resets
+          AnimatePresence, the first-paint suppression, and any other local
+          layout state that would otherwise animate between chats. */}
+      <InstanceViewShell key={id} />
     </InstanceViewProvider>
   );
 }

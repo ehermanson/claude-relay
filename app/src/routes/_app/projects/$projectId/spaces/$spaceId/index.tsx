@@ -606,7 +606,9 @@ export function SpaceView() {
     <SpaceViewProvider value={contextValue}>
       <div className="flex h-full flex-col overflow-hidden">
         <SpaceViewHeader />
-        <SpaceViewBody />
+        {/* Key on spaceId so the body remounts on space switch — resets
+            AnimatePresence and the first-paint suppression. */}
+        <SpaceViewBody key={spaceId} />
         <SpaceViewDialogs />
       </div>
     </SpaceViewProvider>

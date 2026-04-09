@@ -11,6 +11,7 @@ import { RelayLogo } from "@/components/ui/relay-logo";
 import { Spinner } from "@/components/ui/spinner";
 import { CollapsedTerminalBar } from "@/components/terminal/terminal-collapsed-bar";
 import { LazyTerminalPanel } from "@/components/terminal/lazy-terminal-panel";
+import { useFirstPaint } from "@/hooks/use-first-paint";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { useSidecarStore } from "@/stores/sidecar-store";
 import type { InstanceInfo } from "@shared/types";
@@ -20,6 +21,7 @@ const TERMINAL_ANIM_TRANSITION = { duration: 0.22, ease: [0.22, 1, 0.36, 1] } as
 
 export function SpaceViewBody() {
   const { shared, actions } = useSpaceViewContext();
+  const firstPaint = useFirstPaint();
   const chatTabsProps: ComponentProps<typeof SpaceChatTabs> = {
     instances: shared.spaceInstances,
     activeTab: shared.activeTab,
@@ -120,7 +122,9 @@ export function SpaceViewBody() {
                 <div
                   ref={sidebarPanelRef}
                   className={`relative flex h-full shrink-0 overflow-hidden ${
-                    sidebarResizing ? "" : "transition-[width,opacity] duration-200 ease-out"
+                    sidebarResizing || firstPaint
+                      ? ""
+                      : "transition-[width,opacity] duration-200 ease-out"
                   } ${showSidebar ? "opacity-100 py-2 pl-2 pr-2" : "w-0 opacity-0"}`}
                   style={showSidebar ? { width: sidebarWidth ?? "max(280px, 30%)" } : undefined}
                 >

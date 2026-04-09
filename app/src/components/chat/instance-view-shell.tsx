@@ -6,6 +6,7 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { InstanceViewContent } from "@/components/chat/instance-view-content";
 import { InstanceViewHeader } from "@/components/chat/instance-view-header";
 import { useInstanceViewContext } from "@/components/chat/instance-view-context";
+import { useFirstPaint } from "@/hooks/use-first-paint";
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
 
 const TERMINAL_ANIM_TRANSITION = { duration: 0.22, ease: [0.22, 1, 0.36, 1] } as const;
@@ -14,6 +15,7 @@ export function InstanceViewShell() {
   const { shared, actions } = useInstanceViewContext();
   const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
   const currentProviderGlobalState = providerGlobalState[shared.instance.provider];
+  const firstPaint = useFirstPaint();
 
   if (shared.compact) {
     return (
@@ -65,7 +67,9 @@ export function InstanceViewShell() {
         {!shared.isMobile && (
           <div
             className={`relative flex h-full shrink-0 overflow-hidden ${
-              shared.isResizing ? "" : "transition-[width,opacity] duration-200 ease-out"
+              shared.isResizing || firstPaint
+                ? ""
+                : "transition-[width,opacity] duration-200 ease-out"
             } ${shared.showDesktopSidecar ? "opacity-100 py-2 pl-2 pr-2" : "w-0 opacity-0"}`}
             ref={shared.sidecarRef}
             style={
