@@ -42,8 +42,8 @@ interface SidecarTogglesProps {
   loading?: boolean;
   isMobile: boolean;
   activePanels: Set<SidecarTab>;
-  hasTasksContent: boolean;
-  hasFilesContent: boolean;
+  tasksCount: number;
+  filesCount: number;
   hasPlanContent: boolean;
   hasStats: boolean;
   stats?: SessionStats;
@@ -52,12 +52,20 @@ interface SidecarTogglesProps {
   onOpenMobileSidecar: () => void;
 }
 
+function CountBadge({ count }: { count: number }) {
+  return (
+    <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
+      {count}
+    </span>
+  );
+}
+
 function SidecarToggles({
   loading = false,
   isMobile,
   activePanels,
-  hasTasksContent,
-  hasFilesContent,
+  tasksCount,
+  filesCount,
   hasPlanContent,
   hasStats,
   stats,
@@ -65,6 +73,8 @@ function SidecarToggles({
   onTogglePanel,
   onOpenMobileSidecar,
 }: SidecarTogglesProps) {
+  const hasTasksContent = tasksCount > 0;
+  const hasFilesContent = filesCount > 0;
   const hasAny = hasTasksContent || hasFilesContent || hasPlanContent || hasStats;
   if (!loading && !hasAny) return null;
 
@@ -85,9 +95,10 @@ function SidecarToggles({
                   variant="icon"
                   toggled={activePanels.has("tasks")}
                   onClick={() => onTogglePanel("tasks")}
-                  className="shrink-0"
+                  className="relative shrink-0"
                 >
                   <ListChecks size={15} strokeWidth={2} />
+                  <CountBadge count={tasksCount} />
                 </Button>
               </Tooltip>
             )}
@@ -97,9 +108,10 @@ function SidecarToggles({
                   variant="icon"
                   toggled={activePanels.has("files")}
                   onClick={() => onTogglePanel("files")}
-                  className="shrink-0"
+                  className="relative shrink-0"
                 >
                   <FileText size={15} strokeWidth={2} />
+                  <CountBadge count={filesCount} />
                 </Button>
               </Tooltip>
             )}
@@ -151,8 +163,8 @@ interface InstanceHeaderProps {
   instance: InstanceInfo;
   isMobile: boolean;
   activePanels: Set<SidecarTab>;
-  hasTasksContent: boolean;
-  hasFilesContent: boolean;
+  tasksCount: number;
+  filesCount: number;
   hasPlanContent: boolean;
   hasStats: boolean;
   sidecarContentCount: number;
@@ -275,8 +287,8 @@ export function InstanceHeader({
   instance,
   isMobile,
   activePanels,
-  hasTasksContent,
-  hasFilesContent,
+  tasksCount,
+  filesCount,
   hasPlanContent,
   hasStats,
   sidecarContentCount,
@@ -485,8 +497,8 @@ export function InstanceHeader({
           loading={loadingSidecarActions}
           isMobile={isMobile}
           activePanels={activePanels}
-          hasTasksContent={hasTasksContent}
-          hasFilesContent={hasFilesContent}
+          tasksCount={tasksCount}
+          filesCount={filesCount}
           hasPlanContent={hasPlanContent}
           hasStats={hasStats}
           stats={instance.stats}

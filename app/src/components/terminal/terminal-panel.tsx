@@ -141,8 +141,8 @@ export function TerminalPanel({
   }, [pendingCloseId, send]);
 
   const handleCollapsePanel = useCallback(() => {
-    collapsePanel(key);
-  }, [key, collapsePanel]);
+    collapsePanel();
+  }, [collapsePanel]);
 
   const isSplit = terminals.length >= 2;
 

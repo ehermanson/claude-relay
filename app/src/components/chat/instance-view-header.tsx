@@ -13,8 +13,8 @@ export function InstanceViewHeader() {
       instance={shared.instance}
       isMobile={shared.isMobile}
       activePanels={new Set(shared.activePanels)}
-      hasTasksContent={shared.hasTasksContent}
-      hasFilesContent={shared.hasFilesContent}
+      tasksCount={shared.tasksCount}
+      filesCount={shared.filesCount}
       hasPlanContent={shared.hasPlanContent}
       hasStats={shared.hasStats}
       sidecarContentCount={shared.sidecarContentCount}

@@ -206,21 +206,21 @@ export function SpaceViewHeader() {
               )
             ) : (
               <>
-                <Tooltip content={shared.activePanels.has("files") ? "Hide files" : "Show files"}>
-                  <Button
-                    variant="icon"
-                    toggled={shared.activePanels.has("files")}
-                    onClick={() => actions.togglePanel("files")}
-                    className="relative shrink-0"
-                  >
-                    <FileText size={15} strokeWidth={2} />
-                    {shared.fileChanges.length > 0 && (
+                {shared.fileChanges.length > 0 && (
+                  <Tooltip content={shared.activePanels.has("files") ? "Hide files" : "Show files"}>
+                    <Button
+                      variant="icon"
+                      toggled={shared.activePanels.has("files")}
+                      onClick={() => actions.togglePanel("files")}
+                      className="relative shrink-0"
+                    >
+                      <FileText size={15} strokeWidth={2} />
                       <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-accent px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
                         {shared.fileChanges.length}
                       </span>
-                    )}
-                  </Button>
-                </Tooltip>
+                    </Button>
+                  </Tooltip>
+                )}
                 <HeaderContextToggle
                   stats={shared.activeLiveInstance?.stats}
                   active={shared.activePanels.has("context")}

@@ -7,9 +7,10 @@ import { useInstanceMessages } from "@/hooks/use-instance-messages";
 import { useConnectionBanner } from "@/hooks/use-connection-banner";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
-import { useSidecarPanels } from "@/stores/sidecar-store";
+import { useSidecarPanels, useSidecarStore } from "@/stores/sidecar-store";
 import { useUnreadStore } from "@/stores/unread-store";
-import { useTerminalStore, scopeKey } from "@/stores/terminal-store";
+import { useTerminalStore } from "@/stores/terminal-store";
+import { useTerminalMessages } from "@/hooks/use-terminal-messages";
 import { useTerminalShortcut } from "@/hooks/use-terminal-shortcut";
 import { useVerticalResize } from "@/hooks/use-vertical-resize";
 import { createInstance, fetchInstanceHistory } from "@/lib/api";
@@ -181,11 +182,11 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         : { type: "instance", instanceId: id! },
     [instance?.spaceId, id],
   );
-  const terminalScopeKey = terminalScope ? scopeKey(terminalScope) : "";
   const {
     isPanelOpen: isTerminalPanelOpen,
     isPanelCollapsed: isTerminalPanelCollapsed,
-    togglePanel: toggleTerminalPanel,
+    openPanel: openTerminalPanel,
+    closePanel: closeTerminalPanel,
     expandPanel: expandTerminalPanel,
     getTerminalsForScope,
     removeTerminalContext,
@@ -200,16 +201,27 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     : 0;
   const { height: terminalHeight, onResizeStart: handleTerminalResizeStart } = useVerticalResize();
 
+  // Global subscriber so terminal_created responses land in the store even
+  // when the panel isn't mounted (required for the "open empty scope" flow).
+  useTerminalMessages(terminalScope ?? null);
+
   const handleToggleTerminal = () => {
-    if (terminalScopeKey) {
-      toggleTerminalPanel(terminalScopeKey);
+    if (showTerminalPanel) {
+      closeTerminalPanel();
+      return;
     }
+    // Opening: ensure a terminal exists in this scope before flipping pref,
+    // since visibility is gated on (pref === visible && scope has terminals).
+    if (terminalScope && getTerminalsForScope(terminalScope).length === 0) {
+      send({ type: "terminal_create", scope: terminalScope, ifEmpty: true });
+    }
+    openTerminalPanel();
   };
 
   // Ctrl+` keyboard shortcut to toggle terminal (skip in compact mode —
   // compact InstanceViews never render the terminal panel; the parent
   // space page owns the shortcut instead).
-  useTerminalShortcut(compact ? null : terminalScopeKey);
+  useTerminalShortcut(compact ? null : handleToggleTerminal);
 
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
@@ -229,8 +241,10 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
 
   const hasStats =
     !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
-  const hasTasksContent = (currentTasks?.length ?? 0) > 0;
-  const hasFilesContent = (currentFiles?.length ?? 0) > 0;
+  const tasksCount = currentTasks?.length ?? 0;
+  const filesCount = currentFiles?.length ?? 0;
+  const hasTasksContent = tasksCount > 0;
+  const hasFilesContent = filesCount > 0;
   const hasPlanContent = !!instance?.planContent;
   const branchChangeKey = instance?.branchChanged
     ? `${instance.branchChanged.originalBranch}->${instance.branchChanged.currentBranch}`
@@ -252,7 +266,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     allContentPanels,
     showDesktopSidecar,
   } = useSidecarPanels({
-    instanceId: id,
+    scope: "chat",
     isMobile,
     hasTasksContent,
     hasFilesContent,
@@ -260,6 +274,8 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     hasStats,
   });
 
+  const storedSidebarWidth = useSidecarStore((s) => s.sidebarWidth);
+  const setStoredSidebarWidth = useSidecarStore((s) => s.setSidebarWidth);
   const {
     panelRef: sidecarRef,
     containerRef,
@@ -270,6 +286,8 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     side: "right",
     minWidth: 280,
     maxWidth: (cw) => cw * 0.45,
+    defaultWidth: storedSidebarWidth,
+    onResizeEnd: setStoredSidebarWidth,
   });
 
   const handleRespondToRequest = (
@@ -375,6 +393,8 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       hasStats,
       hasTasksContent,
       hasFilesContent,
+      tasksCount,
+      filesCount,
       hasPlanContent,
       showDesktopSidecar,
       activePanels,
@@ -429,7 +449,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       togglePanel,
       setSidecarMobileOpen,
       handleToggleTerminal,
-      expandTerminalPanel: () => expandTerminalPanel(terminalScopeKey),
+      expandTerminalPanel: () => expandTerminalPanel(),
       handleTerminalResizeStart,
       handleResizeStart,
       removeTerminalContext: (attachmentId: string) =>

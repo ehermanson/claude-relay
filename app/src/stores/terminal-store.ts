@@ -2,40 +2,46 @@ import { create } from "zustand";
 import type { TerminalInfo, TerminalScope } from "@shared/types";
 
 const PANEL_HEIGHT_KEY = "relay-terminal-panel-height";
-const PANEL_STATE_KEY = "relay-terminal-panel-state";
+const PANEL_VISIBLE_KEY = "relay-terminal-panel-visible";
 const NAMES_KEY = "relay-terminal-names";
 const DEFAULT_HEIGHT = 280;
 const MIN_HEIGHT = 140;
 const MAX_HEIGHT = 600;
 
-/** Panel visibility state per scope. */
-export type PanelState = "open" | "collapsed";
+/**
+ * Panel visibility state — global, applies to whichever scope is in view.
+ * "visible" renders the full panel; "collapsed" keeps terminals alive
+ * but hides the panel (a collapsed bar is rendered instead when the scope
+ * has at least one terminal).
+ */
+export type PanelVisibility = "visible" | "collapsed";
 
 function loadHeight(): number {
   try {
     const v = Number(localStorage.getItem(PANEL_HEIGHT_KEY));
     if (v >= MIN_HEIGHT && v <= MAX_HEIGHT) return v;
-  } catch {}
+  } catch {
+    // ignore
+  }
   return DEFAULT_HEIGHT;
 }
 
-/**
- * Load panel states from localStorage.
- * Migrates from the old binary Set format ("relay-terminal-panel-open")
- * to the new { key: PanelState } map format ("relay-terminal-panel-state").
- */
-function loadPanelStates(): Record<string, PanelState> {
+function loadPanelVisibility(): PanelVisibility {
   try {
-    const raw = localStorage.getItem(PANEL_STATE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return {};
+    const raw = localStorage.getItem(PANEL_VISIBLE_KEY);
+    if (raw === "visible" || raw === "collapsed") return raw;
+  } catch {
+    // ignore
+  }
+  return "visible";
 }
 
-function persistPanelStates(states: Record<string, PanelState>): void {
+function persistPanelVisibility(v: PanelVisibility): void {
   try {
-    localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(states));
-  } catch {}
+    localStorage.setItem(PANEL_VISIBLE_KEY, v);
+  } catch {
+    // ignore
+  }
 }
 
 function loadNames(): Record<string, string> {
@@ -69,8 +75,8 @@ interface TerminalState {
   terminals: Map<string, TerminalInfo>;
   /** Active terminal per scope key. */
   activeTerminalId: Record<string, string | null>;
-  /** Panel state per scope key ("open" | "collapsed"). Absent = closed. */
-  panelStates: Record<string, PanelState>;
+  /** Global panel visibility preference — applies whenever a scope has terminals. */
+  panelVisibility: PanelVisibility;
   /** Panel height in pixels (shared across all scopes). */
   panelHeight: number;
   /** Terminal output snippets attached to the next chat message, keyed by instance ID. */
@@ -85,12 +91,13 @@ interface TerminalState {
   removeTerminal: (terminalId: string) => void;
   updateTerminal: (terminalId: string, update: Partial<TerminalInfo>) => void;
   setActiveTerminal: (scopeKey: string, terminalId: string) => void;
-  /** Toggle: closed → open, open → collapsed, collapsed → closed. */
-  togglePanel: (scopeKey: string) => void;
-  openPanel: (scopeKey: string) => void;
-  closePanel: (scopeKey: string) => void;
-  collapsePanel: (scopeKey: string) => void;
-  expandPanel: (scopeKey: string) => void;
+  /** Cycle between "visible" and "collapsed". Terminals are never killed. */
+  togglePanel: () => void;
+  openPanel: () => void;
+  /** Alias for collapsePanel — terminals keep running in the background. */
+  closePanel: () => void;
+  collapsePanel: () => void;
+  expandPanel: () => void;
   setPanelHeight: (height: number) => void;
   persistHeight: () => void;
   addTerminalContext: (instanceId: string, terminalName: string, text: string) => void;
@@ -103,18 +110,16 @@ interface TerminalState {
   getTerminalsForScope: (scope: TerminalScope) => TerminalInfo[];
   getActiveTerminal: (scope: TerminalScope) => TerminalInfo | undefined;
   getTerminalName: (terminalId: string, index: number) => string;
-  /** True when the panel is open (visible, not collapsed). */
+  /** True when the panel should be rendered (visible pref + scope has terminals). */
   isPanelOpen: (scope: TerminalScope) => boolean;
-  /** True when the panel is collapsed (terminals alive but panel hidden). */
+  /** True when the panel is collapsed (terminals alive but minimized). */
   isPanelCollapsed: (scope: TerminalScope) => boolean;
-  /** Returns the raw panel state for a scope. */
-  getPanelState: (scope: TerminalScope) => PanelState | undefined;
 }
 
 export const useTerminalStore = create<TerminalState>()((set, get) => ({
   terminals: new Map(),
   activeTerminalId: {},
-  panelStates: loadPanelStates(),
+  panelVisibility: loadPanelVisibility(),
   panelHeight: loadHeight(),
   terminalContexts: {},
   terminalNames: loadNames(),
@@ -170,18 +175,9 @@ export const useTerminalStore = create<TerminalState>()((set, get) => ({
       const remaining = Array.from(map.values()).find((t) => scopeKey(t.scope) === key);
       const newActive = active === terminalId ? (remaining?.id ?? null) : active;
 
-      // Auto-close the panel when the last terminal in this scope is removed
-      let panelStates = s.panelStates;
-      if (!remaining && s.panelStates[key]) {
-        panelStates = { ...s.panelStates };
-        delete panelStates[key];
-        persistPanelStates(panelStates);
-      }
-
       return {
         terminals: map,
         activeTerminalId: { ...s.activeTerminalId, [key]: newActive ?? null },
-        panelStates,
       };
     }),
 
@@ -197,55 +193,39 @@ export const useTerminalStore = create<TerminalState>()((set, get) => ({
   setActiveTerminal: (key, terminalId) =>
     set((s) => ({ activeTerminalId: { ...s.activeTerminalId, [key]: terminalId } })),
 
-  togglePanel: (key) =>
+  togglePanel: () =>
     set((s) => {
-      const current = s.panelStates[key];
-      const next = { ...s.panelStates };
-      if (!current) {
-        // closed → open
-        next[key] = "open";
-      } else if (current === "open") {
-        // open → collapsed (keeps terminals alive)
-        next[key] = "collapsed";
-      } else {
-        // collapsed → open
-        next[key] = "open";
-      }
-      persistPanelStates(next);
-      return { panelStates: next };
+      const next: PanelVisibility = s.panelVisibility === "visible" ? "collapsed" : "visible";
+      persistPanelVisibility(next);
+      return { panelVisibility: next };
     }),
 
-  openPanel: (key) =>
+  openPanel: () =>
     set((s) => {
-      if (s.panelStates[key] === "open") return s;
-      const next = { ...s.panelStates, [key]: "open" as PanelState };
-      persistPanelStates(next);
-      return { panelStates: next };
+      if (s.panelVisibility === "visible") return s;
+      persistPanelVisibility("visible");
+      return { panelVisibility: "visible" };
     }),
 
-  closePanel: (key) =>
+  closePanel: () =>
     set((s) => {
-      if (!s.panelStates[key]) return s;
-      const next = { ...s.panelStates };
-      delete next[key];
-      persistPanelStates(next);
-      return { panelStates: next };
+      if (s.panelVisibility === "collapsed") return s;
+      persistPanelVisibility("collapsed");
+      return { panelVisibility: "collapsed" };
     }),
 
-  collapsePanel: (key) =>
+  collapsePanel: () =>
     set((s) => {
-      if (s.panelStates[key] === "collapsed") return s;
-      const next = { ...s.panelStates, [key]: "collapsed" as PanelState };
-      persistPanelStates(next);
-      return { panelStates: next };
+      if (s.panelVisibility === "collapsed") return s;
+      persistPanelVisibility("collapsed");
+      return { panelVisibility: "collapsed" };
     }),
 
-  expandPanel: (key) =>
+  expandPanel: () =>
     set((s) => {
-      if (s.panelStates[key] === "open") return s;
-      const next = { ...s.panelStates, [key]: "open" as PanelState };
-      persistPanelStates(next);
-      return { panelStates: next };
+      if (s.panelVisibility === "visible") return s;
+      persistPanelVisibility("visible");
+      return { panelVisibility: "visible" };
     }),
 
   setPanelHeight: (height) =>
@@ -317,7 +297,22 @@ export const useTerminalStore = create<TerminalState>()((set, get) => ({
     return get().terminals.get(activeId);
   },
 
-  isPanelOpen: (scope) => get().panelStates[scopeKey(scope)] === "open",
-  isPanelCollapsed: (scope) => get().panelStates[scopeKey(scope)] === "collapsed",
-  getPanelState: (scope) => get().panelStates[scopeKey(scope)],
+  isPanelOpen: (scope) => {
+    const s = get();
+    if (s.panelVisibility !== "visible") return false;
+    const key = scopeKey(scope);
+    for (const t of s.terminals.values()) {
+      if (scopeKey(t.scope) === key) return true;
+    }
+    return false;
+  },
+  isPanelCollapsed: (scope) => {
+    const s = get();
+    if (s.panelVisibility !== "collapsed") return false;
+    const key = scopeKey(scope);
+    for (const t of s.terminals.values()) {
+      if (scopeKey(t.scope) === key) return true;
+    }
+    return false;
+  },
 }));

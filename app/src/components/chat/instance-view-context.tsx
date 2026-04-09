@@ -41,6 +41,8 @@ export type InstanceViewContextValue = {
     hasStats: boolean;
     hasTasksContent: boolean;
     hasFilesContent: boolean;
+    tasksCount: number;
+    filesCount: number;
     hasPlanContent: boolean;
     showDesktopSidecar: boolean;
     activePanels: ReadonlySet<SidecarTab>;

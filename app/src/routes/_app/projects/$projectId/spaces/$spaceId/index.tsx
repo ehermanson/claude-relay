@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useProjectContext } from "@/context/project-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { useTerminalMessages } from "@/hooks/use-terminal-messages";
 import { useTerminalShortcut } from "@/hooks/use-terminal-shortcut";
 import { useVerticalResize } from "@/hooks/use-vertical-resize";
 import { useSidecarPanels } from "@/stores/sidecar-store";
@@ -77,11 +78,11 @@ export function SpaceView() {
   const pendingCreatedChatIdRef = useRef<string | null>(null);
 
   const terminalScope: TerminalScope = { type: "space", spaceId };
-  const terminalScopeKey = `space:${spaceId}`;
   const {
     isPanelOpen: isTerminalPanelOpen,
     isPanelCollapsed: isTerminalPanelCollapsed,
-    togglePanel: toggleTerminalPanel,
+    openPanel: openTerminalPanel,
+    closePanel: closeTerminalPanel,
     expandPanel: expandTerminalPanel,
     getTerminalsForScope,
   } = useTerminalStore();
@@ -91,8 +92,21 @@ export function SpaceView() {
     ? getTerminalsForScope(terminalScope).length
     : 0;
   const { height: terminalHeight, onResizeStart: handleTerminalResizeStart } = useVerticalResize();
-  const handleToggleTerminal = () => toggleTerminalPanel(terminalScopeKey);
-  useTerminalShortcut(terminalScopeKey);
+  // Global subscriber so terminal_created responses land in the store even
+  // when the panel isn't mounted.
+  useTerminalMessages(terminalScope);
+
+  const handleToggleTerminal = () => {
+    if (showTerminalPanel) {
+      closeTerminalPanel();
+      return;
+    }
+    if (getTerminalsForScope(terminalScope).length === 0) {
+      send({ type: "terminal_create", scope: terminalScope, ifEmpty: true });
+    }
+    openTerminalPanel();
+  };
+  useTerminalShortcut(handleToggleTerminal);
 
   const { data: space } = useQuery({
     queryKey: spaceQueryKey,
@@ -244,6 +258,7 @@ export function SpaceView() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const hasStats =
     !!aggregatedStats && (aggregatedStats.inputTokens > 0 || aggregatedStats.outputTokens > 0);
+  const hasFilesContent = fileChanges.length > 0;
   const {
     activePanels,
     mobileOpen: sidecarMobileOpen,
@@ -253,10 +268,10 @@ export function SpaceView() {
     allContentPanels,
     showDesktopSidecar: showSidebar,
   } = useSidecarPanels({
-    instanceId: spaceId,
+    scope: "space",
     isMobile,
     hasTasksContent: false,
-    hasFilesContent: true,
+    hasFilesContent,
     hasPlanContent: false,
     hasStats,
     hasBriefContent: !space?.isDefault,
@@ -577,7 +592,7 @@ export function SpaceView() {
       handleGoToMainWorkspace,
       handleCopyPath,
       handleTerminalResizeStart,
-      expandTerminalPanel: () => expandTerminalPanel(terminalScopeKey),
+      expandTerminalPanel: () => expandTerminalPanel(),
       handleComplete,
       handleMarkMerged,
       handleMergeSuccessDone,

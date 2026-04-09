@@ -1,137 +1,126 @@
 /**
  * Zustand store for sidecar panel visibility.
  *
- * Each instance/space gets its own slice of state keyed by ID.
- * Auto-activates panels when content first appears, respects manual dismissals.
+ * Preferences are GLOBAL: one set for chat views, one set for space views.
+ * Toggling a panel in any chat updates the chat-wide preference; toggling in
+ * any space updates the space-wide preference. Panels only render when the
+ * current chat/space actually has content for them.
+ *
+ * Sidebar width is also global and shared between chat and space views.
  */
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { create } from "zustand";
 
 export type SidecarTab = "tasks" | "files" | "plan" | "context" | "brief";
+export type SidecarScope = "chat" | "space";
 
-// ── Internal per-instance state ──────────────────────────────────────────────
+// ── Persistence ─────────────────────────────────────────────────────────────
 
-interface InstanceSidecar {
-  activePanels: Set<SidecarTab>;
-  mobileOpen: boolean;
-  manuallyToggledOff: Set<SidecarTab>;
-  prevHasTasks: boolean;
-  prevHasFiles: boolean;
-  prevHasPlan: boolean;
-  prevHasBrief: boolean;
+const STORAGE_KEY = "relay-sidecar-prefs";
+
+interface PersistedState {
+  chatPanels: SidecarTab[];
+  spacePanels: SidecarTab[];
+  sidebarWidth: number | null;
 }
 
-function emptyInstance(): InstanceSidecar {
+// Seeds first-run experience: tasks+files visible in chat, brief+files in space
+const DEFAULT_CHAT_PANELS: SidecarTab[] = ["tasks", "files"];
+const DEFAULT_SPACE_PANELS: SidecarTab[] = ["brief", "files"];
+
+function loadPersisted(): PersistedState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PersistedState>;
+      return {
+        chatPanels: Array.isArray(parsed.chatPanels) ? parsed.chatPanels : DEFAULT_CHAT_PANELS,
+        spacePanels: Array.isArray(parsed.spacePanels) ? parsed.spacePanels : DEFAULT_SPACE_PANELS,
+        sidebarWidth: typeof parsed.sidebarWidth === "number" ? parsed.sidebarWidth : null,
+      };
+    }
+  } catch {
+    // fall through
+  }
   return {
-    activePanels: new Set(),
-    mobileOpen: false,
-    manuallyToggledOff: new Set(),
-    prevHasTasks: false,
-    prevHasFiles: false,
-    prevHasPlan: false,
-    prevHasBrief: false,
+    chatPanels: DEFAULT_CHAT_PANELS,
+    spacePanels: DEFAULT_SPACE_PANELS,
+    sidebarWidth: null,
   };
+}
+
+function persist(state: PersistedState): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
 }
 
 // ── Store ────────────────────────────────────────────────────────────────────
 
 interface SidecarState {
-  instances: Record<string, InstanceSidecar>;
-  togglePanel: (instanceId: string, panel: SidecarTab) => void;
-  setMobileOpen: (instanceId: string, open: boolean) => void;
-  resetInstance: (instanceId: string) => void;
-  /** Called when content flags change — auto-activates panels on first appearance. */
-  syncContent: (
-    instanceId: string,
-    hasTasks: boolean,
-    hasFiles: boolean,
-    hasPlan: boolean,
-    hasBrief: boolean,
-  ) => void;
+  chatPanels: Set<SidecarTab>;
+  spacePanels: Set<SidecarTab>;
+  sidebarWidth: number | null;
+  mobileOpen: boolean;
+
+  togglePanel: (scope: SidecarScope, panel: SidecarTab) => void;
+  setMobileOpen: (open: boolean) => void;
+  setSidebarWidth: (width: number) => void;
 }
 
-function getOrCreate(state: SidecarState, id: string): InstanceSidecar {
-  return state.instances[id] ?? emptyInstance();
+function panelsKey(scope: SidecarScope): "chatPanels" | "spacePanels" {
+  return scope === "chat" ? "chatPanels" : "spacePanels";
 }
 
-export const useSidecarStore = create<SidecarState>()((set) => ({
-  instances: {},
+export const useSidecarStore = create<SidecarState>()((set, get) => {
+  const loaded = loadPersisted();
 
-  togglePanel: (instanceId, panel) =>
-    set((state) => {
-      const inst = { ...getOrCreate(state, instanceId) };
-      const next = new Set(inst.activePanels);
-      const toggled = new Set(inst.manuallyToggledOff);
-      if (next.has(panel)) {
-        next.delete(panel);
-        toggled.add(panel);
-      } else {
-        next.add(panel);
-        toggled.delete(panel);
-      }
-      inst.activePanels = next;
-      inst.manuallyToggledOff = toggled;
-      return { instances: { ...state.instances, [instanceId]: inst } };
-    }),
+  const snapshot = (): PersistedState => {
+    const s = get();
+    return {
+      chatPanels: Array.from(s.chatPanels),
+      spacePanels: Array.from(s.spacePanels),
+      sidebarWidth: s.sidebarWidth,
+    };
+  };
 
-  setMobileOpen: (instanceId, open) =>
-    set((state) => {
-      const inst = { ...getOrCreate(state, instanceId), mobileOpen: open };
-      return { instances: { ...state.instances, [instanceId]: inst } };
-    }),
+  return {
+    chatPanels: new Set(loaded.chatPanels),
+    spacePanels: new Set(loaded.spacePanels),
+    sidebarWidth: loaded.sidebarWidth,
+    mobileOpen: false,
 
-  resetInstance: (instanceId) =>
-    set((state) => ({
-      instances: { ...state.instances, [instanceId]: emptyInstance() },
-    })),
+    togglePanel: (scope, panel) =>
+      set((state) => {
+        const key = panelsKey(scope);
+        const next = new Set(state[key]);
+        if (next.has(panel)) next.delete(panel);
+        else next.add(panel);
+        const updated = { ...state, [key]: next };
+        persist({
+          chatPanels: Array.from(updated.chatPanels),
+          spacePanels: Array.from(updated.spacePanels),
+          sidebarWidth: updated.sidebarWidth,
+        });
+        return updated;
+      }),
 
-  syncContent: (instanceId, hasTasks, hasFiles, hasPlan, hasBrief) =>
-    set((state) => {
-      const prev = getOrCreate(state, instanceId);
-      const toActivate: SidecarTab[] = [];
-      if (hasTasks && !prev.prevHasTasks && !prev.manuallyToggledOff.has("tasks"))
-        toActivate.push("tasks");
-      if (hasFiles && !prev.prevHasFiles && !prev.manuallyToggledOff.has("files"))
-        toActivate.push("files");
-      if (hasPlan && !prev.prevHasPlan && !prev.manuallyToggledOff.has("plan"))
-        toActivate.push("plan");
-      if (hasBrief && !prev.prevHasBrief && !prev.manuallyToggledOff.has("brief"))
-        toActivate.push("brief");
+    setMobileOpen: (open) => set({ mobileOpen: open }),
 
-      // Nothing changed — skip update
-      if (
-        toActivate.length === 0 &&
-        prev.prevHasTasks === hasTasks &&
-        prev.prevHasFiles === hasFiles &&
-        prev.prevHasPlan === hasPlan &&
-        prev.prevHasBrief === hasBrief
-      )
-        return state;
+    setSidebarWidth: (width) => {
+      set({ sidebarWidth: width });
+      persist(snapshot());
+    },
+  };
+});
 
-      const activePanels = new Set(prev.activePanels);
-      for (const tab of toActivate) activePanels.add(tab);
-
-      return {
-        instances: {
-          ...state.instances,
-          [instanceId]: {
-            ...prev,
-            activePanels,
-            prevHasTasks: hasTasks,
-            prevHasFiles: hasFiles,
-            prevHasPlan: hasPlan,
-            prevHasBrief: hasBrief,
-          },
-        },
-      };
-    }),
-}));
-
-// ── Hook (drop-in replacement for the old useSidecarPanels) ──────────────────
+// ── Hook ────────────────────────────────────────────────────────────────────
 
 interface UseSidecarPanelsOptions {
-  instanceId?: string;
+  scope: SidecarScope;
   isMobile: boolean;
   hasTasksContent: boolean;
   hasFilesContent: boolean;
@@ -141,7 +130,7 @@ interface UseSidecarPanelsOptions {
 }
 
 export function useSidecarPanels({
-  instanceId,
+  scope,
   isMobile,
   hasTasksContent,
   hasFilesContent,
@@ -149,26 +138,18 @@ export function useSidecarPanels({
   hasStats,
   hasBriefContent = false,
 }: UseSidecarPanelsOptions) {
-  const instances = useSidecarStore((s) => s.instances);
-  const syncContent = useSidecarStore((s) => s.syncContent);
+  const activePanels = useSidecarStore((s) => (scope === "chat" ? s.chatPanels : s.spacePanels));
+  const mobileOpen = useSidecarStore((s) => s.mobileOpen);
   const storeTogglePanel = useSidecarStore((s) => s.togglePanel);
   const storeSetMobileOpen = useSidecarStore((s) => s.setMobileOpen);
-  const id = instanceId ?? "__none__";
-
-  // Sync content flags into store — auto-activates panels when content first appears.
-  useEffect(() => {
-    syncContent(id, hasTasksContent, hasFilesContent, hasPlanContent, hasBriefContent);
-  }, [syncContent, id, hasTasksContent, hasFilesContent, hasPlanContent, hasBriefContent]);
-
-  const inst = instances[id] ?? emptyInstance();
 
   const togglePanel = useCallback(
-    (panel: SidecarTab) => storeTogglePanel(id, panel),
-    [storeTogglePanel, id],
+    (panel: SidecarTab) => storeTogglePanel(scope, panel),
+    [storeTogglePanel, scope],
   );
   const setMobileOpen = useCallback(
-    (open: boolean) => storeSetMobileOpen(id, open),
-    [storeSetMobileOpen, id],
+    (open: boolean) => storeSetMobileOpen(open),
+    [storeSetMobileOpen],
   );
 
   const sidecarContentCount =
@@ -190,15 +171,15 @@ export function useSidecarPanels({
 
   const showDesktopSidecar =
     !isMobile &&
-    ((inst.activePanels.has("tasks") && hasTasksContent) ||
-      (inst.activePanels.has("files") && hasFilesContent) ||
-      (inst.activePanels.has("plan") && hasPlanContent) ||
-      (inst.activePanels.has("context") && hasStats) ||
-      (inst.activePanels.has("brief") && hasBriefContent));
+    ((activePanels.has("tasks") && hasTasksContent) ||
+      (activePanels.has("files") && hasFilesContent) ||
+      (activePanels.has("plan") && hasPlanContent) ||
+      (activePanels.has("context") && hasStats) ||
+      (activePanels.has("brief") && hasBriefContent));
 
   return {
-    activePanels: inst.activePanels,
-    mobileOpen: inst.mobileOpen,
+    activePanels,
+    mobileOpen,
     setMobileOpen,
     togglePanel,
     sidecarContentCount,

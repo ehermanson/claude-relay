@@ -12,6 +12,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { CollapsedTerminalBar } from "@/components/terminal/terminal-collapsed-bar";
 import { LazyTerminalPanel } from "@/components/terminal/lazy-terminal-panel";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
+import { useSidecarStore } from "@/stores/sidecar-store";
 import type { InstanceInfo } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
@@ -31,6 +32,8 @@ export function SpaceViewBody() {
     disableNewChat: shared.isBroken,
   };
 
+  const storedSidebarWidth = useSidecarStore((s) => s.sidebarWidth);
+  const setStoredSidebarWidth = useSidecarStore((s) => s.setSidebarWidth);
   const {
     panelRef: sidebarPanelRef,
     containerRef: sidebarContainerRef,
@@ -41,6 +44,8 @@ export function SpaceViewBody() {
     side: "right",
     minWidth: 260,
     maxWidth: (cw) => cw * 0.45,
+    defaultWidth: storedSidebarWidth,
+    onResizeEnd: setStoredSidebarWidth,
   });
 
   const showSidebar = shared.showSidebar && !shared.isMobile;

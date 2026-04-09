@@ -1278,8 +1278,8 @@ export function ChatSandbox() {
             instance={instance}
             isMobile={false}
             activePanels={new Set()}
-            hasTasksContent={false}
-            hasFilesContent={false}
+            tasksCount={0}
+            filesCount={0}
             hasPlanContent={!!instance.planContent}
             hasStats={!!instance.stats}
             sidecarContentCount={0}
