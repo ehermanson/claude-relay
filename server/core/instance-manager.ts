@@ -1476,6 +1476,11 @@ export class InstanceManager extends EventEmitter {
     }
 
     if (isRelayWorktreePath(directory)) {
+      // Only resolve relay worktrees that are managed as spaces.
+      // Orphaned worktrees (no corresponding space) should not be discovered.
+      if (!this.db.getSpaceByWorktreePath(directory)) {
+        return false;
+      }
       const origin = resolveWorktreeOrigin(directory);
       if (origin && this._projectManager.getProjectByDirectory(origin)) {
         return true;
@@ -4377,6 +4382,11 @@ export class InstanceManager extends EventEmitter {
     let originalDirectory: string | undefined;
 
     if (isRelayWorktreePath(cwd)) {
+      // Only resolve relay worktrees that are managed as spaces.
+      // Orphaned worktrees (no corresponding space) should not be discovered.
+      if (!this.db.getSpaceByWorktreePath(cwd)) {
+        return;
+      }
       const origin = resolveWorktreeOrigin(cwd);
       if (origin) {
         workingDirectory = origin;
@@ -6045,11 +6055,16 @@ export class InstanceManager extends EventEmitter {
           // Detect relay worktree paths and resolve the original project directory.
           // When a managed worktree instance's DB entry is lost (rebuild, corruption),
           // the JSONL cwd is the worktree path — resolve it back to the original repo.
+          // Only resolve worktrees that are managed as spaces; orphaned worktrees
+          // (no corresponding space) should not be discovered.
           let scanWorktreePath: string | null = null;
           let scanOriginalDir: string | null = null;
           let scanGitBranch: string | null = null;
 
           if (isRelayWorktreePath(cwd)) {
+            if (!this.db.getSpaceByWorktreePath(cwd)) {
+              continue; // Skip orphaned relay worktrees with no space
+            }
             const origin = resolveWorktreeOrigin(cwd);
             if (origin) {
               scanWorktreePath = cwd;

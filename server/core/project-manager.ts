@@ -69,12 +69,47 @@ export class ProjectManager extends EventEmitter {
     super();
     this.db = db;
     this.logger = logger;
+    this.archiveOrphanedWorktreeSessions();
     this.normalizeRegisteredProjects();
+  }
+
+  /**
+   * Archive sessions that reference relay worktree paths with no corresponding space.
+   * These are orphaned worktree sessions that should not trigger project recovery.
+   */
+  private archiveOrphanedWorktreeSessions(): void {
+    let archived = 0;
+    for (const worktreePath of this.db.getDistinctWorktreePaths()) {
+      if (!isRelayWorktreePath(worktreePath)) continue;
+      if (this.db.getSpaceByWorktreePath(worktreePath)) continue;
+
+      this.db.archiveSessionsByWorktreePath(worktreePath);
+      archived++;
+      this.logger.info(
+        `[ProjectManager] Archived orphaned worktree sessions for ${worktreePath} (no corresponding space)`,
+      );
+    }
+    if (archived > 0) {
+      this.logger.info(
+        `[ProjectManager] Archived sessions from ${archived} orphaned worktree path(s)`,
+      );
+    }
   }
 
   private normalizeRegisteredProjects(): void {
     for (const project of this.db.getAllProjects()) {
       if (!isRelayWorktreePath(project.directory)) {
+        continue;
+      }
+
+      // If this relay worktree has no corresponding space, it's orphaned.
+      // Remove the project registration — it should never have been created.
+      if (!this.db.getSpaceByWorktreePath(project.directory)) {
+        this.db.assignSessionsToProject(null, project.directory);
+        this.db.deleteProject(project.id);
+        this.logger.info(
+          `[ProjectManager] Removed orphaned relay worktree project ${project.directory} (no corresponding space)`,
+        );
         continue;
       }
 
