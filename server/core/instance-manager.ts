@@ -119,6 +119,8 @@ import {
   mergeWorktreeBranch,
   isRelayWorktreePath,
   resolveWorktreeOrigin,
+  isGitWorktree,
+  resolveAnyWorktreeOrigin,
   enrichDiffStats,
   enrichDiffStatsAsync,
   getCurrentBranchAsync,
@@ -1128,6 +1130,9 @@ function normalizeProjectDirectory(directory: string): string {
   if (isRelayWorktreePath(directory)) {
     return resolveWorktreeOrigin(directory) ?? directory;
   }
+  if (isGitWorktree(directory)) {
+    return resolveAnyWorktreeOrigin(directory) ?? directory;
+  }
   return directory;
 }
 
@@ -1477,13 +1482,12 @@ export class InstanceManager extends EventEmitter {
       return true;
     }
 
-    if (isRelayWorktreePath(directory)) {
-      // Only resolve relay worktrees that are managed as spaces.
-      // Orphaned worktrees (no corresponding space) should not be discovered.
-      if (!this.db.getSpaceByWorktreePath(directory)) {
-        return false;
-      }
-      const origin = resolveWorktreeOrigin(directory);
+    // For any git worktree (relay or external like .t3), resolve to the
+    // parent repo and check if that is registered.
+    if (isGitWorktree(directory)) {
+      const origin = isRelayWorktreePath(directory)
+        ? resolveWorktreeOrigin(directory)
+        : resolveAnyWorktreeOrigin(directory);
       if (origin && this._projectManager.getProjectByDirectory(origin)) {
         return true;
       }
@@ -2183,7 +2187,7 @@ export class InstanceManager extends EventEmitter {
       ...patch,
       account: patch.account
         ? {
-            ...(prev?.account ?? {}),
+            ...prev?.account,
             ...patch.account,
             rateLimits: patch.account.rateLimits
               ? patch.account.rateLimits.map((limit) => ({ ...limit }))
@@ -4377,19 +4381,17 @@ export class InstanceManager extends EventEmitter {
     const { cwd, history, tasks, files, stats } = this.parseProviderTranscript(provider, jsonlPath);
     if (!cwd) return; // Can't determine working directory
 
-    // Detect relay worktree paths and resolve the original project directory
+    // Detect worktree paths (relay or external like .t3) and resolve to the
+    // original project directory so sessions group under the parent project.
     let workingDirectory = cwd;
     let worktreePath: string | undefined;
     let gitBranch: string | undefined;
     let originalDirectory: string | undefined;
 
-    if (isRelayWorktreePath(cwd)) {
-      // Only resolve relay worktrees that are managed as spaces.
-      // Orphaned worktrees (no corresponding space) should not be discovered.
-      if (!this.db.getSpaceByWorktreePath(cwd)) {
-        return;
-      }
-      const origin = resolveWorktreeOrigin(cwd);
+    if (isGitWorktree(cwd)) {
+      const origin = isRelayWorktreePath(cwd)
+        ? resolveWorktreeOrigin(cwd)
+        : resolveAnyWorktreeOrigin(cwd);
       if (origin) {
         workingDirectory = origin;
         worktreePath = cwd;
@@ -6054,20 +6056,17 @@ export class InstanceManager extends EventEmitter {
             cwd = decodeProjectDir(projDir);
           }
 
-          // Detect relay worktree paths and resolve the original project directory.
-          // When a managed worktree instance's DB entry is lost (rebuild, corruption),
-          // the JSONL cwd is the worktree path — resolve it back to the original repo.
-          // Only resolve worktrees that are managed as spaces; orphaned worktrees
-          // (no corresponding space) should not be discovered.
+          // Detect worktree paths (relay or external like .t3) and resolve the
+          // Detect worktree paths (relay or external like .t3) and resolve to
+          // the original project directory so sessions group under the parent.
           let scanWorktreePath: string | null = null;
           let scanOriginalDir: string | null = null;
           let scanGitBranch: string | null = null;
 
-          if (isRelayWorktreePath(cwd)) {
-            if (!this.db.getSpaceByWorktreePath(cwd)) {
-              continue; // Skip orphaned relay worktrees with no space
-            }
-            const origin = resolveWorktreeOrigin(cwd);
+          if (isGitWorktree(cwd)) {
+            const origin = isRelayWorktreePath(cwd)
+              ? resolveWorktreeOrigin(cwd)
+              : resolveAnyWorktreeOrigin(cwd);
             if (origin) {
               scanWorktreePath = cwd;
               scanOriginalDir = origin;

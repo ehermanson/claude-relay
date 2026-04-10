@@ -162,6 +162,47 @@ export function resolveWorktreeOrigin(worktreePath: string): string | null {
 }
 
 /**
+ * Check if a directory is a git worktree (as opposed to a primary repo checkout).
+ * A worktree has a .git file (not directory) containing a `gitdir:` reference,
+ * or its --git-dir and --git-common-dir differ.
+ */
+export function isGitWorktree(dir: string): boolean {
+  const gitPath = join(dir, ".git");
+  try {
+    if (!existsSync(gitPath)) return false;
+    const stat = statSync(gitPath);
+    if (stat.isDirectory()) return false; // Primary repo, not a worktree
+    // .git is a file — read it to confirm it's a worktree reference
+    const raw = readFileSync(gitPath, "utf8").trim();
+    return /^gitdir:\s+/i.test(raw);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve any git worktree (relay or external) to the original repository directory.
+ * Uses git's common-dir to find the primary repo's .git, then returns its parent.
+ * Returns null if the directory is not a worktree or resolution fails.
+ */
+export function resolveAnyWorktreeOrigin(dir: string): string | null {
+  if (!isGitWorktree(dir)) return null;
+  try {
+    const opts = {
+      cwd: dir,
+      timeout: FAST_GIT_TIMEOUT_MS,
+      encoding: "utf8" as const,
+      stdio: "pipe" as const,
+    };
+    const gitCommonDir = execFileSync("git", ["rev-parse", "--git-common-dir"], opts).trim();
+    const resolved = resolve(dir, gitCommonDir);
+    return dirname(resolved);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Initialize a new git repository with an initial empty commit.
  * The commit ensures HEAD is valid for worktree creation and other git operations.
  */

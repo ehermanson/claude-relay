@@ -273,9 +273,6 @@ export class SessionDB {
   private stmtUpdateManagedSessionProjectId!: StatementSync;
   private stmtUpdateSpaceProjectDirectoryById!: StatementSync;
   private stmtGetDistinctSessionDirs!: StatementSync;
-  private stmtGetDistinctWorktreePaths!: StatementSync;
-  private stmtArchiveSessionsByWorktreePath!: StatementSync;
-  private stmtArchiveManagedByWorktreePath!: StatementSync;
   private stmtGetProjectModelStats!: StatementSync;
   private stmtUpsertSpace!: StatementSync;
   private stmtGetSpace!: StatementSync;
@@ -874,19 +871,6 @@ export class SessionDB {
         SELECT working_directory FROM managed_sessions WHERE archived = 0
       )
     `);
-    this.stmtGetDistinctWorktreePaths = this.db.prepare(`
-      SELECT DISTINCT worktree_path FROM (
-        SELECT worktree_path FROM sessions WHERE archived = 0 AND worktree_path IS NOT NULL
-        UNION
-        SELECT worktree_path FROM managed_sessions WHERE archived = 0 AND worktree_path IS NOT NULL
-      )
-    `);
-    this.stmtArchiveSessionsByWorktreePath = this.db.prepare(
-      "UPDATE sessions SET archived = 1 WHERE worktree_path = ? AND archived = 0",
-    );
-    this.stmtArchiveManagedByWorktreePath = this.db.prepare(
-      "UPDATE managed_sessions SET archived = 1 WHERE worktree_path = ? AND archived = 0",
-    );
     this.stmtGetProjectModelStats = this.db.prepare(`
       SELECT
         model,
@@ -1313,20 +1297,6 @@ export class SessionDB {
       this.stmtGetDistinctSessionDirs.all() as Record<string, unknown>[],
     );
     return rows.map((r) => r.working_directory);
-  }
-
-  /** Get distinct worktree paths from active sessions */
-  getDistinctWorktreePaths(): string[] {
-    const rows = asRows<{ worktree_path: string }>(
-      this.stmtGetDistinctWorktreePaths.all() as Record<string, unknown>[],
-    );
-    return rows.map((r) => r.worktree_path);
-  }
-
-  /** Archive all sessions (external + managed) that reference a given worktree path */
-  archiveSessionsByWorktreePath(worktreePath: string): void {
-    this.stmtArchiveSessionsByWorktreePath.run(worktreePath);
-    this.stmtArchiveManagedByWorktreePath.run(worktreePath);
   }
 
   // =========================================================================

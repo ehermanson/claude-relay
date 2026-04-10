@@ -23,6 +23,8 @@ import {
   getCurrentBranch,
   isRelayWorktreePath,
   resolveWorktreeOrigin,
+  isGitWorktree,
+  resolveAnyWorktreeOrigin,
 } from "#core/git.js";
 
 export interface ProjectManagerEvents {
@@ -69,52 +71,31 @@ export class ProjectManager extends EventEmitter {
     super();
     this.db = db;
     this.logger = logger;
-    this.archiveOrphanedWorktreeSessions();
     this.normalizeRegisteredProjects();
   }
 
   /**
-   * Archive sessions that reference relay worktree paths with no corresponding space.
-   * These are orphaned worktree sessions that should not trigger project recovery.
+   * On startup, fold any projects registered at worktree paths (relay or
+   * external like .t3) into their parent repo project. Worktrees should
+   * never be their own project — they belong to the parent.
    */
-  private archiveOrphanedWorktreeSessions(): void {
-    let archived = 0;
-    for (const worktreePath of this.db.getDistinctWorktreePaths()) {
-      if (!isRelayWorktreePath(worktreePath)) continue;
-      if (this.db.getSpaceByWorktreePath(worktreePath)) continue;
-
-      this.db.archiveSessionsByWorktreePath(worktreePath);
-      archived++;
-      this.logger.info(
-        `[ProjectManager] Archived orphaned worktree sessions for ${worktreePath} (no corresponding space)`,
-      );
-    }
-    if (archived > 0) {
-      this.logger.info(
-        `[ProjectManager] Archived sessions from ${archived} orphaned worktree path(s)`,
-      );
-    }
-  }
-
   private normalizeRegisteredProjects(): void {
     for (const project of this.db.getAllProjects()) {
-      if (!isRelayWorktreePath(project.directory)) {
+      if (!isGitWorktree(project.directory)) {
         continue;
       }
 
-      // If this relay worktree has no corresponding space, it's orphaned.
-      // Remove the project registration — it should never have been created.
-      if (!this.db.getSpaceByWorktreePath(project.directory)) {
+      // Resolve the worktree to its parent repo
+      const origin = isRelayWorktreePath(project.directory)
+        ? resolveWorktreeOrigin(project.directory)
+        : resolveAnyWorktreeOrigin(project.directory);
+      if (!origin || origin === project.directory) {
+        // Can't resolve — remove the orphaned worktree project
         this.db.assignSessionsToProject(null, project.directory);
         this.db.deleteProject(project.id);
         this.logger.info(
-          `[ProjectManager] Removed orphaned relay worktree project ${project.directory} (no corresponding space)`,
+          `[ProjectManager] Removed unresolvable worktree project ${project.directory}`,
         );
-        continue;
-      }
-
-      const origin = resolveWorktreeOrigin(project.directory);
-      if (!origin || origin === project.directory) {
         continue;
       }
 
@@ -122,15 +103,17 @@ export class ProjectManager extends EventEmitter {
       const existing = this.db.getProjectByDirectory(canonicalDirectory);
 
       if (existing && existing.id !== project.id) {
+        // Parent project exists — fold sessions into it
         this.db.assignSessionsToProject(existing.id, project.directory);
         this.db.reassignSpacesToProjectDirectory(canonicalDirectory, project.directory);
         this.db.deleteProject(project.id);
         this.logger.info(
-          `[ProjectManager] Folded relay worktree project ${project.directory} into ${canonicalDirectory}`,
+          `[ProjectManager] Folded worktree project ${project.directory} into ${canonicalDirectory}`,
         );
         continue;
       }
 
+      // No parent project registered — normalize this project to point at the parent repo
       const normalized: ProjectRow = {
         ...project,
         name:
@@ -147,7 +130,7 @@ export class ProjectManager extends EventEmitter {
       this.db.assignSessionsToProject(normalized.id, project.directory);
       this.db.reassignSpacesToProjectDirectory(canonicalDirectory, project.directory);
       this.logger.info(
-        `[ProjectManager] Normalized relay worktree project ${project.directory} to ${canonicalDirectory}`,
+        `[ProjectManager] Normalized worktree project ${project.directory} to ${canonicalDirectory}`,
       );
     }
   }
@@ -169,12 +152,21 @@ export class ProjectManager extends EventEmitter {
         continue;
       }
 
+      // Resolve worktree paths to the parent repo
       const canonicalDirectory = isRelayWorktreePath(repoRoot)
         ? (resolveWorktreeOrigin(repoRoot) ?? repoRoot)
-        : repoRoot;
+        : isGitWorktree(repoRoot)
+          ? (resolveAnyWorktreeOrigin(repoRoot) ?? repoRoot)
+          : repoRoot;
 
       let project = existingByDirectory.get(canonicalDirectory);
       if (!project) {
+        // For worktree-rooted sessions, don't auto-create a project for
+        // the parent repo — only attach to an already-registered project.
+        if (isGitWorktree(sessionDirectory) || isGitWorktree(repoRoot)) {
+          continue;
+        }
+
         const now = Date.now();
         project = {
           id: randomUUID(),
@@ -231,7 +223,9 @@ export class ProjectManager extends EventEmitter {
     }
     const canonicalDirectory = isRelayWorktreePath(repoRoot)
       ? (resolveWorktreeOrigin(repoRoot) ?? repoRoot)
-      : repoRoot;
+      : isGitWorktree(repoRoot)
+        ? (resolveAnyWorktreeOrigin(repoRoot) ?? repoRoot)
+        : repoRoot;
 
     // Check for existing registration
     const existing = this.db.getProjectByDirectory(canonicalDirectory);
