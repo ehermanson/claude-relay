@@ -1019,7 +1019,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         this._stats.outputTokens += usage.outputTokens || 0;
         this._stats.cacheReadTokens += usage.cacheReadInputTokens || 0;
         this._stats.cacheCreationTokens += usage.cacheCreationInputTokens || 0;
-        this._stats.model = model;
+        if (!this._stats.model) {
+          this._stats.model = model;
+        }
         this.emit("stats", { ...this._stats });
       }
     }
@@ -1463,7 +1465,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this._stats.outputTokens += u.output_tokens;
     this._stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
     this._stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
-    this._stats.model = model;
+    if (!this._stats.model) {
+      this._stats.model = model;
+    }
     // Snapshot total input for this turn = current context window utilization (not cumulative)
     this._stats.contextTokens =
       u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);

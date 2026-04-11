@@ -369,12 +369,16 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this._stats.outputTokens += u.output_tokens;
     this._stats.cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
     this._stats.cacheReadTokens += u.cache_read_input_tokens ?? 0;
-    this._stats.model = model;
+    // Only record the primary (first) model — Claude Code may use cheaper
+    // models (e.g. Haiku) internally for subagent/tool operations.
+    if (!this._stats.model) {
+      this._stats.model = model;
+    }
     // Snapshot this turn's total input = current context window utilization
     this._stats.contextTokens =
       u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
     if (!this._stats.contextWindow) {
-      this._stats.contextWindow = getContextWindow(model);
+      this._stats.contextWindow = getContextWindow(this._stats.model);
     }
     this.emit("stats", { ...this._stats });
   }
@@ -395,13 +399,15 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     if (warningMatch) {
       const used = parseInt(warningMatch[1].replace(/,/g, ""), 10);
       const total = parseInt(warningMatch[2].replace(/,/g, ""), 10);
-      if (total > 0) {
+      // Only use the warning's context window if we don't already have one
+      // from our known model mapping — Claude Code can report incorrect limits.
+      if (total > 0 && !this._stats.contextWindow) {
         this._stats.contextWindow = total;
-        if (used > 0) {
-          this._stats.contextTokens = used;
-        }
-        this.emit("stats", { ...this._stats });
       }
+      if (used > 0) {
+        this._stats.contextTokens = used;
+      }
+      this.emit("stats", { ...this._stats });
     }
   }
 
