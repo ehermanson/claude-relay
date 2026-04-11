@@ -5,19 +5,19 @@ export const SLASH_COMMANDS = [
     id: "model",
     title: "/model",
     description: "Switch the model used for the next turn",
-    category: "Relay Command",
+    category: "Relay Commands",
   },
   {
     id: "reasoning",
     title: "/reasoning",
     description: "Set the reasoning effort for the next turn",
-    category: "Relay Command",
+    category: "Relay Commands",
   },
   {
     id: "effort",
     title: "/effort",
     description: "Set the reasoning effort level",
-    category: "Relay Command",
+    category: "Relay Commands",
   },
 ] as const;
 

@@ -215,7 +215,7 @@ export function SlashMenu({
             {slashGroups.map((group, groupIndex) => (
               <div key={group.heading}>
                 {groupIndex > 0 ? <CommandSeparator /> : null}
-                <CommandGroup>
+                <CommandGroup heading={slashGroups.length > 1 ? group.heading : undefined}>
                   {group.items.map((item) => (
                     <CommandItem
                       key={item.key}
@@ -224,25 +224,23 @@ export function SlashMenu({
                       onMouseEnter={() => onSelectSlashKey(item.key)}
                       onMouseDown={(e) => e.preventDefault()}
                       onSelect={item.onSelect}
-                      className="gap-1 py-1.5 flex flex-col items-start"
+                      className="gap-2.5 py-1"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <span className="shrink-0 text-[0.8125rem] font-medium text-text">
-                          {item.title}
-                        </span>
-                        {item.hint ? (
-                          <Badge
-                            variant={item.accent ? "accent" : "default"}
-                            className="shrink-0 px-2 py-0.5 text-[0.6875rem]"
-                          >
-                            {item.hint}
-                          </Badge>
-                        ) : null}
-                      </div>
+                      <span className="shrink-0 text-[0.8125rem] font-medium text-text">
+                        {item.title}
+                      </span>
+                      {item.hint ? (
+                        <Badge
+                          variant={item.accent ? "accent" : "default"}
+                          className="shrink-0 px-1.5 py-0 text-[0.6875rem]"
+                        >
+                          {item.hint}
+                        </Badge>
+                      ) : null}
                       {item.description ? (
-                        <div className="text-[0.6875rem] leading-snug text-muted">
+                        <span className="truncate text-[0.6875rem] text-muted">
                           {item.description}
-                        </div>
+                        </span>
                       ) : null}
                     </CommandItem>
                   ))}

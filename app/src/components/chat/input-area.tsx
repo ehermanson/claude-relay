@@ -74,6 +74,22 @@ interface OptimisticProviderSelection {
   modelLabel?: string;
 }
 
+function buildLegacyProviderSkill(skill: {
+  name: string;
+  description: string;
+  source: "project" | "user" | "system";
+  path: string;
+}): ProviderSkill {
+  return {
+    name: skill.name,
+    description: skill.description,
+    path: skill.path,
+    source: skill.source,
+    // No invocationPrefix — let the skill appear in both / and $ menus
+    enabled: true,
+  };
+}
+
 function buildPromptPlaceholder(
   question: UserInputQuestion | null,
   allowFreeform: boolean,
@@ -129,10 +145,20 @@ export function InputArea({
     })) ?? [];
   const runtimeProviderSkills: ProviderSkill[] =
     providerStatus?.skills?.map((skill) => ({ ...skill })) ?? [];
-  const providerSkills =
-    displayedProvider === "codex"
-      ? runtimeProviderSkills.filter((skill) => (skill.invocationPrefix ?? "$") === "$")
-      : [];
+  const artifactProviderSkills =
+    projectCtx?.artifacts.skills
+      .filter((skill) => skill.providers.includes(displayedProvider))
+      .map((skill) => buildLegacyProviderSkill(skill)) ?? [];
+  // Merge runtime and artifact skills — runtime wins on name collisions
+  const providerSkills = (() => {
+    if (runtimeProviderSkills.length === 0) return artifactProviderSkills;
+    if (artifactProviderSkills.length === 0) return runtimeProviderSkills;
+    const runtimeNames = new Set(runtimeProviderSkills.map((s) => s.name));
+    return [
+      ...runtimeProviderSkills,
+      ...artifactProviderSkills.filter((s) => !runtimeNames.has(s.name)),
+    ];
+  })();
   const { showModelMenu, setShowModelMenu, availableProviderModels, capabilities } =
     useProviderModels(displayedProvider);
   const { providers: availableProviders } = useAvailableProviders();

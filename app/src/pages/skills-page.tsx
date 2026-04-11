@@ -1,21 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { CircleSlash, Toolbox } from "lucide-react";
+import { Toolbox } from "lucide-react";
 import { getProviderDisplayName } from "@shared/provider-catalog";
 import { EmptyState } from "../components/empty-state";
 import { PageShell } from "@/components/ui/page-shell";
 import { useProjectContext } from "../context/project-context";
 import { Badge } from "../components/ui/badge";
-import { useWSState } from "@/context/websocket-context";
-import type { ProviderKind, ProviderSkill } from "@shared/types";
-
-interface DisplaySkill {
-  name: string;
-  description: string;
-  source: "project" | "user" | "system";
-  path?: string;
-  providers: ProviderKind[];
-  runtimeByProvider: Partial<Record<ProviderKind, ProviderSkill>>;
-}
 
 function SkillDescription({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -65,55 +54,13 @@ function SkillDescription({ text }: { text: string }) {
 
 export function SkillsPage() {
   const { artifacts } = useProjectContext();
-  const { instances } = useWSState();
   const skills = useMemo(() => {
-    const map = new Map<string, DisplaySkill>();
-    for (const skill of artifacts.skills) {
-      map.set(skill.name.toLowerCase(), {
-        name: skill.name,
-        description: skill.description,
-        source: skill.source,
-        path: skill.path,
-        providers: [...skill.providers],
-        runtimeByProvider: {},
-      });
-    }
-
-    const projectInstances = instances.filter(
-      (instance) => instance.projectId === artifacts.projectId,
-    );
-    for (const instance of projectInstances) {
-      for (const skill of instance.providerStatus?.skills ?? []) {
-        const key = skill.name.toLowerCase();
-        const existing = map.get(key);
-        if (existing) {
-          if (!existing.providers.includes(instance.provider)) {
-            existing.providers.push(instance.provider);
-            existing.providers.sort();
-          }
-          existing.runtimeByProvider[instance.provider] = skill;
-          if (!existing.description) {
-            existing.description = skill.shortDescription ?? skill.description ?? "";
-          }
-        } else {
-          map.set(key, {
-            name: skill.name,
-            description: skill.shortDescription ?? skill.description ?? "",
-            source: skill.source ?? "system",
-            path: skill.path,
-            providers: [instance.provider],
-            runtimeByProvider: { [instance.provider]: skill },
-          });
-        }
-      }
-    }
-
-    const all = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-    const project = all.filter((s) => s.source === "project");
-    const user = all.filter((s) => s.source === "user");
-    const system = all.filter((s) => s.source === "system");
+    const all = [...artifacts.skills].sort((a, b) => a.name.localeCompare(b.name));
+    const project = all.filter((skill) => skill.source === "project");
+    const user = all.filter((skill) => skill.source === "user");
+    const system = all.filter((skill) => skill.source === "system");
     return { project, user, system };
-  }, [artifacts.projectId, artifacts.skills, instances]);
+  }, [artifacts.skills]);
 
   const groups = [
     { key: "project", label: "Project", skills: skills.project },
@@ -164,24 +111,11 @@ export function SkillsPage() {
 
                     {/* Footer: provider badges */}
                     <div className="mt-auto flex flex-wrap items-center gap-1 pt-2">
-                      {skill.providers.map((provider) => {
-                        const runtime = skill.runtimeByProvider[provider];
-                        const isDisabled = runtime?.enabled === false;
-                        return (
-                          <Badge
-                            key={`${skill.name}-${provider}`}
-                            variant="default"
-                            size="xs"
-                            dot
-                            dotClass={isDisabled ? "bg-muted/50" : "bg-accent"}
-                          >
-                            {getProviderDisplayName(provider)}
-                            {isDisabled && (
-                              <CircleSlash size={9} className="ml-0.5 text-muted/60" />
-                            )}
-                          </Badge>
-                        );
-                      })}
+                      {skill.providers.map((provider) => (
+                        <Badge key={`${skill.name}-${provider}`} variant="default" size="xs">
+                          {getProviderDisplayName(provider)}
+                        </Badge>
+                      ))}
                     </div>
                   </div>
                 );

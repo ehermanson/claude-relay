@@ -86,10 +86,6 @@ function groupSlashMenuItems(items: SlashMenuItem[]) {
   }, []);
 }
 
-function formatSkillTitle(skill: ProviderSkill): string {
-  return `${skill.invocationPrefix ?? "/"}${skill.name}`;
-}
-
 function describeSkill(skill: ProviderSkill): string {
   return skill.shortDescription ?? skill.description ?? "";
 }
@@ -303,7 +299,7 @@ export function useComposerMenus({
           ? searchProviderSlashCommands([...(slashCommands ?? [])], slashContext.commandQuery).map(
               (command) => ({
                 key: `provider-command-${command.name}`,
-                category: "Provider Command",
+                category: "Provider Commands",
                 title: `/${command.name}`,
                 description: command.description ?? command.input?.hint ?? "Run provider command",
                 actionHint: "Enter",
@@ -313,16 +309,31 @@ export function useComposerMenus({
           : [];
 
       const skillItems: SlashMenuItem[] = searchProviderSkills(
-        (skills ?? []).filter((skill) => (skill.invocationPrefix ?? "/") === slashContext.prefix),
+        (skills ?? []).filter((skill) =>
+          slashContext.prefix === "/"
+            ? skill.invocationPrefix === "/" ||
+              (skill.invocationPrefix == null && true) ||
+              (skill.invocationPrefix === "$" && true)
+            : (skill.invocationPrefix ?? "$") === "$",
+        ),
         slashContext.commandQuery,
-      ).map((skill) => ({
-        key: `skill-${skill.name}`,
-        category: "Skill",
-        title: formatSkillTitle(skill),
-        description: describeSkill(skill),
-        actionHint: "Enter",
-        onSelect: () => setComposerValue(`${formatSkillTitle(skill)} `),
-      }));
+      ).map((skill) => {
+        // Use the menu's prefix when the skill doesn't declare one,
+        // or when the skill's native prefix doesn't match the active menu.
+        const displayPrefix =
+          skill.invocationPrefix != null && skill.invocationPrefix === slashContext.prefix
+            ? skill.invocationPrefix
+            : slashContext.prefix;
+        const displayTitle = `${displayPrefix}${skill.name}`;
+        return {
+          key: `skill-${skill.name}`,
+          category: "Skills",
+          title: displayTitle,
+          description: describeSkill(skill),
+          actionHint: "Enter",
+          onSelect: () => setComposerValue(`${displayTitle} `),
+        };
+      });
 
       return [...builtInCommandItems, ...providerCommandItems, ...skillItems];
     }
