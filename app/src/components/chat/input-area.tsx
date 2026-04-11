@@ -1,8 +1,11 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import type {
+  ProviderSkill,
+  ProviderSlashCommand,
   ProviderKind,
   ProviderModelOption,
   ProviderModelOptions,
+  ProviderStatusSummary,
   ProviderRequest,
   ReasoningEffort,
   UserInputAnswer,
@@ -60,6 +63,7 @@ interface InputAreaProps {
   hasMessages?: boolean;
   pendingUserInput?: ProviderRequest | null;
   pendingPlan?: string;
+  providerStatus?: ProviderStatusSummary;
   /** Extra content rendered inside the composer container, above the text input. */
   topSlot?: React.ReactNode;
 }
@@ -101,6 +105,7 @@ export function InputArea({
   hasMessages,
   pendingUserInput,
   pendingPlan,
+  providerStatus,
   topSlot,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
@@ -117,9 +122,17 @@ export function InputArea({
     useState<OptimisticProviderSelection | null>(null);
   const displayedProvider = optimisticProviderSelection?.provider ?? provider;
   const displayedPreferredModel = optimisticProviderSelection?.preferredModel ?? preferredModel;
-  const providerSkills = projectCtx?.artifacts.skills.filter((skill) =>
-    skill.providers.includes(displayedProvider),
-  );
+  const runtimeSlashCommands: ProviderSlashCommand[] =
+    providerStatus?.slashCommands?.map((command) => ({
+      ...command,
+      input: command.input ? { ...command.input } : undefined,
+    })) ?? [];
+  const runtimeProviderSkills: ProviderSkill[] =
+    providerStatus?.skills?.map((skill) => ({ ...skill })) ?? [];
+  const providerSkills =
+    displayedProvider === "codex"
+      ? runtimeProviderSkills.filter((skill) => (skill.invocationPrefix ?? "$") === "$")
+      : [];
   const { showModelMenu, setShowModelMenu, availableProviderModels, capabilities } =
     useProviderModels(displayedProvider);
   const { providers: availableProviders } = useAvailableProviders();
@@ -413,6 +426,7 @@ export function InputArea({
   const { composerMenu, handleComposerKeyDown } = useComposerMenus({
     instanceId,
     isMobile,
+    slashCommands: runtimeSlashCommands,
     skills: providerSkills,
     tasks: projectCtx?.artifacts.tasks ?? null,
     draftText: isInSpecialMode ? "" : draftText,
@@ -471,6 +485,12 @@ export function InputArea({
 
   const disabled = !isConnected;
   const composerDisabled = disabled || (hasPendingPrompt && !allowPromptTextInput);
+  const composerHelpText =
+    displayedProvider === "codex"
+      ? "Use @ for files, / for commands, and $ for skills"
+      : displayedProvider === "claude"
+        ? "Use @ for files and / for commands and skills"
+        : "Use @ for files and / for commands";
 
   const hasPlanFeedback = planFeedbackText.trim().length > 0 || planComments.length > 0;
   const composerPlaceholder = hasPendingPrompt
@@ -480,10 +500,10 @@ export function InputArea({
       : isStopped
         ? isMobile
           ? "Send a message to resume..."
-          : "Send a message to resume... Use @ for files and / for commands"
+          : `Send a message to resume... ${composerHelpText}`
         : isMobile
           ? "Send a message..."
-          : "Send a message... Use @ for files and / for commands";
+          : `Send a message... ${composerHelpText}`;
   const composerValue = hasPendingPrompt
     ? promptText
     : hasPendingPlan

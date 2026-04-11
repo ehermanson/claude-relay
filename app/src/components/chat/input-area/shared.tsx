@@ -5,23 +5,26 @@ export const SLASH_COMMANDS = [
     id: "model",
     title: "/model",
     description: "Switch the model used for the next turn",
-    category: "Command",
+    category: "Relay Command",
   },
   {
     id: "reasoning",
     title: "/reasoning",
     description: "Set the reasoning effort for the next turn",
-    category: "Command",
+    category: "Relay Command",
   },
   {
     id: "effort",
     title: "/effort",
     description: "Set the reasoning effort level",
-    category: "Command",
+    category: "Relay Command",
   },
 ] as const;
 
-interface SlashContext {
+export type ComposerCommandPrefix = "/" | "$";
+
+interface CommandContext {
+  prefix: ComposerCommandPrefix;
   commandQuery: string;
   argQuery: string;
   hasArgument: boolean;
@@ -59,14 +62,16 @@ export interface ImageAttachment {
   preview: string;
 }
 
-export function getSlashContext(text: string): SlashContext | null {
+export function getCommandContext(text: string): CommandContext | null {
   const normalized = text.trimStart();
-  if (!normalized.startsWith("/") || normalized.includes("\n")) return null;
+  const prefix = normalized[0] as ComposerCommandPrefix | undefined;
+  if ((prefix !== "/" && prefix !== "$") || normalized.includes("\n")) return null;
 
   const body = normalized.slice(1);
   const firstWhitespace = body.search(/\s/);
   if (firstWhitespace === -1) {
     return {
+      prefix,
       commandQuery: body.toLowerCase(),
       argQuery: "",
       hasArgument: false,
@@ -74,6 +79,7 @@ export function getSlashContext(text: string): SlashContext | null {
   }
 
   return {
+    prefix,
     commandQuery: body.slice(0, firstWhitespace).toLowerCase(),
     argQuery: body
       .slice(firstWhitespace + 1)

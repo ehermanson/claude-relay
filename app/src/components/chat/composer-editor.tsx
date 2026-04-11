@@ -152,6 +152,100 @@ function $createComposerMentionNode(path: string): ComposerMentionNode {
   return $applyNodeReplacement(new ComposerMentionNode(path));
 }
 
+// ── Slash-command node ───────────────────────────────────────────────
+
+type SerializedComposerSlashNode = Spread<
+  {
+    command: string;
+    type: "composer-slash";
+    version: 1;
+  },
+  SerializedTextNode
+>;
+
+class ComposerSlashNode extends TextNode {
+  __command: string;
+
+  static override getType(): string {
+    return "composer-slash";
+  }
+
+  static override clone(node: ComposerSlashNode): ComposerSlashNode {
+    return new ComposerSlashNode(node.__command, node.__key);
+  }
+
+  static override importJSON(serializedNode: SerializedComposerSlashNode): ComposerSlashNode {
+    return $createComposerSlashNode(serializedNode.command);
+  }
+
+  constructor(command: string, key?: NodeKey) {
+    super(command, key);
+    this.__command = command;
+  }
+
+  override exportJSON(): SerializedComposerSlashNode {
+    return {
+      ...super.exportJSON(),
+      command: this.__command,
+      type: "composer-slash",
+      version: 1,
+    };
+  }
+
+  override createDOM(_config: EditorConfig): HTMLElement {
+    const dom = document.createElement("span");
+    dom.className =
+      "inline-flex select-none items-center gap-1 rounded-md border border-border/60 bg-surface-hover/80 px-1.5 py-px align-middle text-[12px] font-medium leading-[1.1] text-text";
+    dom.contentEditable = "false";
+    renderSlashChip(dom, this.__command);
+    return dom;
+  }
+
+  override updateDOM(prevNode: ComposerSlashNode, dom: HTMLElement): boolean {
+    dom.contentEditable = "false";
+    if (prevNode.__command !== this.__command) {
+      renderSlashChip(dom, this.__command);
+    }
+    return false;
+  }
+
+  override canInsertTextBefore(): false {
+    return false;
+  }
+
+  override canInsertTextAfter(): false {
+    return false;
+  }
+
+  override isTextEntity(): true {
+    return true;
+  }
+
+  override isToken(): true {
+    return true;
+  }
+}
+
+function $createComposerSlashNode(command: string): ComposerSlashNode {
+  return $applyNodeReplacement(new ComposerSlashNode(command));
+}
+
+/** Slash icon SVG (lucide Slash). */
+const SLASH_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 2 22"/></svg>`;
+
+function renderSlashChip(container: HTMLElement, command: string): void {
+  container.textContent = "";
+
+  const icon = document.createElement("span");
+  icon.className = "inline-flex h-3 w-3 shrink-0 items-center justify-center text-muted";
+  icon.innerHTML = SLASH_ICON_SVG;
+
+  const label = document.createElement("span");
+  label.textContent = command.replace(/^[/$]/, "");
+
+  container.append(icon, label);
+}
+
 function resolveTheme(): "light" | "dark" {
   return document.documentElement.classList.contains("light") ? "light" : "dark";
 }
@@ -237,6 +331,10 @@ function $setComposerText(value: string): void {
   root.clear();
   const paragraph = $createParagraphNode();
   for (const segment of splitPromptIntoComposerSegments(value)) {
+    if (segment.kind === "slash") {
+      paragraph.append($createComposerSlashNode(segment.command));
+      continue;
+    }
     if (segment.kind === "mention") {
       paragraph.append($createComposerMentionNode(segment.path));
       continue;
@@ -436,7 +534,7 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
         onError: (error) => {
           throw error;
         },
-        nodes: [ComposerMentionNode],
+        nodes: [ComposerMentionNode, ComposerSlashNode],
       }),
       [],
     );

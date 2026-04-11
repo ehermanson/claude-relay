@@ -10,7 +10,12 @@ interface ComposerMentionSegment {
   path: string;
 }
 
-export type ComposerSegment = ComposerTextSegment | ComposerMentionSegment;
+interface ComposerSlashSegment {
+  kind: "slash";
+  command: string;
+}
+
+export type ComposerSegment = ComposerTextSegment | ComposerMentionSegment | ComposerSlashSegment;
 
 interface MentionTriggerMatch {
   query: string;
@@ -20,11 +25,23 @@ interface MentionTriggerMatch {
 
 const MENTION_RE = /(^|\s)@([^\s@]+)(?=\s|$)/g;
 
+/** Matches a leading `/command` or `$command` at the start of the prompt. */
+const LEADING_SLASH_RE = /^([/$]\S+)(\s[\s\S]*)?$/;
+
 export function splitPromptIntoComposerSegments(prompt: string): ComposerSegment[] {
   const segments: ComposerSegment[] = [];
+
+  // Detect leading slash/dollar command and split it into its own segment.
+  const slashMatch = prompt.match(LEADING_SLASH_RE);
+  let remaining = prompt;
+  if (slashMatch) {
+    segments.push({ kind: "slash", command: slashMatch[1] });
+    remaining = slashMatch[2] ?? "";
+  }
+
   let cursor = 0;
 
-  for (const match of prompt.matchAll(MENTION_RE)) {
+  for (const match of remaining.matchAll(MENTION_RE)) {
     const leading = match[1] ?? "";
     const path = match[2] ?? "";
     const raw = match[0] ?? "";
@@ -32,7 +49,7 @@ export function splitPromptIntoComposerSegments(prompt: string): ComposerSegment
     const mentionStart = matchIndex + leading.length;
 
     if (mentionStart > cursor) {
-      segments.push({ kind: "text", text: prompt.slice(cursor, mentionStart) });
+      segments.push({ kind: "text", text: remaining.slice(cursor, mentionStart) });
     }
 
     if (path) {
@@ -44,8 +61,8 @@ export function splitPromptIntoComposerSegments(prompt: string): ComposerSegment
     cursor = mentionStart + 1 + path.length;
   }
 
-  if (cursor < prompt.length) {
-    segments.push({ kind: "text", text: prompt.slice(cursor) });
+  if (cursor < remaining.length) {
+    segments.push({ kind: "text", text: remaining.slice(cursor) });
   }
 
   if (segments.length === 0) {

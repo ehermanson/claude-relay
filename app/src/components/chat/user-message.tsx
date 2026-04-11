@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { TerminalSquare, ChevronDown, ChevronRight, Clock, Forward, Zap } from "lucide-react";
+import {
+  TerminalSquare,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  Forward,
+  Zap,
+  Slash,
+} from "lucide-react";
 import { formatTimestamp } from "../../lib/utils";
 import { MarkdownContent, ImageThumbnail, IMAGE_PATTERN } from "./markdown-content";
 
@@ -56,6 +64,26 @@ function splitContent(text: string): {
     .trim();
 
   return { textPart: cleaned, images, terminalBlocks };
+}
+
+// ── Slash command detection ──────────────────────────────────────────
+
+/** Match a leading `/command` or `$command` token and optional trailing text. */
+const SLASH_RE = /^([/$]\S+)(\s[\s\S]*)?$/;
+
+function parseSlashCommand(text: string): { command: string; rest: string } | null {
+  const m = text.match(SLASH_RE);
+  if (!m) return null;
+  return { command: m[1], rest: (m[2] ?? "").trim() };
+}
+
+function SlashCommandChip({ command }: { command: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-lg border border-accent/25 bg-accent/10 px-2.5 py-1 text-[0.8125rem] font-medium text-accent">
+      <Slash size={14} className="opacity-60" />
+      {command.slice(1)}
+    </span>
+  );
 }
 
 // ── Components ───────────────────────────────────────────────────────
@@ -124,6 +152,10 @@ export function UserMessage({
   const relaySource = relayMatch?.[1] ?? null;
   const relayContent = relaySource ? textPart.slice(relayMatch![0].length) : textPart;
 
+  // Detect slash-command messages (e.g. "/simplify", "$skill-creator some args")
+  const displayText = relaySource ? relayContent : textPart;
+  const slashParsed = !relaySource ? parseSlashCommand(displayText) : null;
+
   return (
     <div
       className={`flex max-w-[80%] flex-col items-end gap-1.5 self-end ${queued ? "opacity-60" : ""}`}
@@ -141,7 +173,23 @@ export function UserMessage({
           <span>From: {relaySource}</span>
         </div>
       )}
-      {hasText && (
+      {hasText && slashParsed && !slashParsed.rest ? (
+        <SlashCommandChip command={slashParsed.command} />
+      ) : hasText && slashParsed?.rest ? (
+        <div
+          className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed ${
+            queued
+              ? "border-border/30 border-dashed bg-user-bg/60 text-user-text/70"
+              : "border-border/50 bg-user-bg text-user-text"
+          }`}
+          style={shrinkwrapWidth ? { maxWidth: shrinkwrapWidth } : undefined}
+        >
+          <div className="mb-1.5">
+            <SlashCommandChip command={slashParsed.command} />
+          </div>
+          <MarkdownContent text={slashParsed.rest} />
+        </div>
+      ) : hasText ? (
         <div
           className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed ${
             relaySource
@@ -152,9 +200,9 @@ export function UserMessage({
           }`}
           style={shrinkwrapWidth ? { maxWidth: shrinkwrapWidth } : undefined}
         >
-          <MarkdownContent text={relaySource ? relayContent : textPart} />
+          <MarkdownContent text={displayText} />
         </div>
-      )}
+      ) : null}
       {hasImages && <ImageRow images={images} />}
       <div className="flex items-center gap-1.5 px-1">
         {queued && (

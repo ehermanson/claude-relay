@@ -211,7 +211,7 @@ export function SlashMenu({
           className="bg-transparent p-0"
         >
           <CommandList ref={slashListRef} className="max-h-72 p-1">
-            <CommandEmpty>No matching slash commands.</CommandEmpty>
+            <CommandEmpty>No matching commands.</CommandEmpty>
             {slashGroups.map((group, groupIndex) => (
               <div key={group.heading}>
                 {groupIndex > 0 ? <CommandSeparator /> : null}
@@ -224,22 +224,26 @@ export function SlashMenu({
                       onMouseEnter={() => onSelectSlashKey(item.key)}
                       onMouseDown={(e) => e.preventDefault()}
                       onSelect={item.onSelect}
-                      className="gap-2.5 py-1.5 flex items-center"
+                      className="gap-1 py-1.5 flex flex-col items-start"
                     >
-                      <span className="truncate text-[0.8125rem] font-medium text-text">
-                        {item.title}
-                      </span>
-                      {item.hint ? (
-                        <Badge
-                          variant={item.accent ? "accent" : "default"}
-                          className="px-2 py-0.5 text-[0.6875rem]"
-                        >
-                          {item.hint}
-                        </Badge>
-                      ) : null}
-                      <div className="truncate pt-0.5 text-[0.6875rem] text-muted">
-                        {item.description}
+                      <div className="flex items-center gap-2.5">
+                        <span className="shrink-0 text-[0.8125rem] font-medium text-text">
+                          {item.title}
+                        </span>
+                        {item.hint ? (
+                          <Badge
+                            variant={item.accent ? "accent" : "default"}
+                            className="shrink-0 px-2 py-0.5 text-[0.6875rem]"
+                          >
+                            {item.hint}
+                          </Badge>
+                        ) : null}
                       </div>
+                      {item.description ? (
+                        <div className="text-[0.6875rem] leading-snug text-muted">
+                          {item.description}
+                        </div>
+                      ) : null}
                     </CommandItem>
                   ))}
                 </CommandGroup>

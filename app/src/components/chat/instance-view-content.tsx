@@ -249,6 +249,7 @@ export function InstanceViewContent() {
               hasMessages={shared.items.length > 0}
               pendingUserInput={shared.pendingUserInput}
               pendingPlan={shared.instance.pendingPlan}
+              providerStatus={shared.instance.providerStatus}
               topSlot={
                 <TerminalContextStrip
                   attachments={shared.terminalContexts}

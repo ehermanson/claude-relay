@@ -5,19 +5,19 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from "react";
-import type { SkillInfo, Task } from "@shared/types";
+import type { ProviderSkill, ProviderSlashCommand, ReasoningEffort, Task } from "@shared/types";
 import { fetchWorkspaceEntries } from "../../../lib/api";
 import { detectMentionTrigger, replacePromptRange } from "../../../lib/composer-mentions";
 import { MentionMenu, SlashMenu } from "./overlay-menus";
-import type { ReasoningEffort } from "@shared/types";
 import {
   SLASH_COMMANDS,
-  getSlashContext,
+  getCommandContext,
   matchesQuery,
   mentionEntryKey,
   type MentionEntry,
   type SlashMenuItem,
 } from "./shared";
+import { searchProviderSkills, searchProviderSlashCommands } from "./command-search";
 
 interface ModelOption {
   value: string | null;
@@ -28,7 +28,8 @@ interface ModelOption {
 interface UseComposerMenusParams {
   instanceId: string;
   isMobile: boolean;
-  skills?: SkillInfo[];
+  slashCommands?: ProviderSlashCommand[];
+  skills?: ProviderSkill[];
   tasks?: Task[] | null;
   draftText: string;
   composerSelectionOffset: number;
@@ -85,9 +86,18 @@ function groupSlashMenuItems(items: SlashMenuItem[]) {
   }, []);
 }
 
+function formatSkillTitle(skill: ProviderSkill): string {
+  return `${skill.invocationPrefix ?? "/"}${skill.name}`;
+}
+
+function describeSkill(skill: ProviderSkill): string {
+  return skill.shortDescription ?? skill.description ?? "";
+}
+
 export function useComposerMenus({
   instanceId,
   isMobile,
+  slashCommands,
   skills,
   tasks,
   draftText,
@@ -245,59 +255,83 @@ export function useComposerMenus({
     resetMentionMenu();
   };
 
-  const rawSlashContext = !slashMenuDismissed ? getSlashContext(draftText) : null;
-  // Suppress the menu when the user is typing arguments after a skill name
+  const rawCommandContext = !slashMenuDismissed ? getCommandContext(draftText) : null;
+  // Suppress the menu when the user is typing arguments after a skill token
   const slashContext =
-    rawSlashContext?.hasArgument && skills?.some((s) => s.name === rawSlashContext.commandQuery)
+    rawCommandContext?.hasArgument &&
+    skills?.some(
+      (s) =>
+        (s.invocationPrefix ?? "/") === rawCommandContext.prefix &&
+        s.name === rawCommandContext.commandQuery,
+    )
       ? null
-      : rawSlashContext;
+      : rawCommandContext;
 
   const slashMenuItems: SlashMenuItem[] = (() => {
     if (!slashContext) return [];
 
     if (!slashContext.hasArgument) {
-      const commandItems: SlashMenuItem[] = SLASH_COMMANDS.filter((command) => {
-        if (command.id === "model" && !supportsModelSelection) return false;
-        if (command.id === "reasoning" && !supportsReasoningSelection) return false;
-        if (command.id === "effort" && !supportsReasoningEffort) return false;
-        return matchesQuery(slashContext.commandQuery, [command.id, command.title.slice(1)]);
-      }).map((command) => ({
-        key: command.id,
-        category: command.category,
-        title: command.title,
-        description: command.description,
-        hint:
-          command.id === "model"
-            ? modelLabel
-            : command.id === "reasoning"
-              ? (reasoningBudgetLevels?.find((l) => l.budget === reasoningBudget)?.label ??
-                "Default")
-              : command.id === "effort"
-                ? (reasoningEffortLevels?.find((l) => l.effort === currentReasoningEffort)?.label ??
-                  "Default")
-                : undefined,
-        actionHint: "Tab",
-        onSelect: () => setComposerValue(`${command.title} `),
+      const builtInCommandItems: SlashMenuItem[] =
+        slashContext.prefix === "/"
+          ? SLASH_COMMANDS.filter((command) => {
+              if (command.id === "model" && !supportsModelSelection) return false;
+              if (command.id === "reasoning" && !supportsReasoningSelection) return false;
+              if (command.id === "effort" && !supportsReasoningEffort) return false;
+              return matchesQuery(slashContext.commandQuery, [command.id, command.title.slice(1)]);
+            }).map((command) => ({
+              key: command.id,
+              category: command.category,
+              title: command.title,
+              description: command.description,
+              hint:
+                command.id === "model"
+                  ? modelLabel
+                  : command.id === "reasoning"
+                    ? (reasoningBudgetLevels?.find((l) => l.budget === reasoningBudget)?.label ??
+                      "Default")
+                    : command.id === "effort"
+                      ? (reasoningEffortLevels?.find((l) => l.effort === currentReasoningEffort)
+                          ?.label ?? "Default")
+                      : undefined,
+              actionHint: "Tab",
+              onSelect: () => setComposerValue(`${command.title} `),
+            }))
+          : [];
+
+      const providerCommandItems: SlashMenuItem[] =
+        slashContext.prefix === "/"
+          ? searchProviderSlashCommands([...(slashCommands ?? [])], slashContext.commandQuery).map(
+              (command) => ({
+                key: `provider-command-${command.name}`,
+                category: "Provider Command",
+                title: `/${command.name}`,
+                description: command.description ?? command.input?.hint ?? "Run provider command",
+                actionHint: "Enter",
+                onSelect: () => setComposerValue(`/${command.name} `),
+              }),
+            )
+          : [];
+
+      const skillItems: SlashMenuItem[] = searchProviderSkills(
+        (skills ?? []).filter((skill) => (skill.invocationPrefix ?? "/") === slashContext.prefix),
+        slashContext.commandQuery,
+      ).map((skill) => ({
+        key: `skill-${skill.name}`,
+        category: "Skill",
+        title: formatSkillTitle(skill),
+        description: describeSkill(skill),
+        actionHint: "Enter",
+        onSelect: () => setComposerValue(`${formatSkillTitle(skill)} `),
       }));
 
-      const skillItems: SlashMenuItem[] = (skills ?? [])
-        .filter((skill) => matchesQuery(slashContext.commandQuery, [skill.name]))
-        .map((skill) => ({
-          key: `skill-${skill.name}`,
-          category: "Skill",
-          title: `/${skill.name}`,
-          description:
-            skill.description.length > 80
-              ? skill.description.slice(0, 77) + "..."
-              : skill.description,
-          actionHint: "Enter",
-          onSelect: () => setComposerValue(`/${skill.name} `),
-        }));
-
-      return [...commandItems, ...skillItems];
+      return [...builtInCommandItems, ...providerCommandItems, ...skillItems];
     }
 
-    if (slashContext.commandQuery === "model" && supportsModelSelection) {
+    if (
+      slashContext.prefix === "/" &&
+      slashContext.commandQuery === "model" &&
+      supportsModelSelection
+    ) {
       return modelOptions
         .filter((option) =>
           matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
@@ -315,6 +349,7 @@ export function useComposerMenus({
     }
 
     if (
+      slashContext.prefix === "/" &&
       slashContext.commandQuery === "reasoning" &&
       supportsReasoningSelection &&
       reasoningBudgetLevels
@@ -352,6 +387,7 @@ export function useComposerMenus({
     }
 
     if (
+      slashContext.prefix === "/" &&
       slashContext.commandQuery === "effort" &&
       supportsReasoningEffort &&
       reasoningEffortLevels
@@ -400,7 +436,7 @@ export function useComposerMenus({
     slashMenuItems[0] ??
     null;
   const isMentionMenuOpen = !!mentionTrigger;
-  const isSlashMenuOpen = !!slashContext;
+  const isSlashMenuOpen = !!slashContext && slashMenuItems.length > 0;
 
   useEffect(() => {
     if (slashMenuItems.length === 0) {
@@ -445,7 +481,7 @@ export function useComposerMenus({
   }, [selectedSlashKey, slashListRef, slashMenuItems]);
 
   useEffect(() => {
-    if (!mentionTrigger && !slashContext) return;
+    if (!mentionTrigger && !isSlashMenuOpen) return;
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       const composerContainer = composerContainerRef.current;
@@ -482,7 +518,7 @@ export function useComposerMenus({
         return;
       }
 
-      if (slashContext && (event.key === "Tab" || event.key === "Enter")) {
+      if (isSlashMenuOpen && (event.key === "Tab" || event.key === "Enter")) {
         event.preventDefault();
         event.stopPropagation();
         selectedSlashItem?.onSelect();
@@ -507,7 +543,7 @@ export function useComposerMenus({
         setMentionEntries([]);
         setSelectedMentionKey(null);
         dismissMentionMenu();
-      } else if (slashContext) {
+      } else if (isSlashMenuOpen) {
         setSelectedSlashKey(null);
         dismissSlashMenu();
       }
@@ -524,13 +560,13 @@ export function useComposerMenus({
     mentionListRef,
     dismissMentionMenu,
     dismissSlashMenu,
+    isSlashMenuOpen,
     mentionTrigger,
     selectedMentionItem,
     selectedSlashItem,
     setMentionEntries,
     setSelectedMentionKey,
     setSelectedSlashKey,
-    slashContext,
   ]);
 
   const handleComposerKeyDown = (event: ReactKeyboardEvent) => {
@@ -646,7 +682,7 @@ export function useComposerMenus({
       onApplyMentionEntry={applyMentionEntry}
       mentionListRef={mentionListRef}
     />
-  ) : slashContext ? (
+  ) : isSlashMenuOpen ? (
     <SlashMenu
       isMobile={isMobile}
       slashGroups={slashGroups}
