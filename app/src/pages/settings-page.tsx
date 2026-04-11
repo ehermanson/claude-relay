@@ -9,6 +9,7 @@ import {
   fetchProviders,
   fetchProviderModels,
   fetchGlobalSettings,
+  fetchHealth,
 } from "../lib/api";
 import { useProjectContext } from "../context/project-context";
 import { Input, Textarea, Select } from "../components/ui/input";
@@ -92,6 +93,7 @@ function SettingsForm({
           project={project}
           save={save}
         />
+        <RemoteAccessSection />
         <GitSection
           key={`git-${project.defaultSpaceBranch ?? ""}`}
           project={project}
@@ -101,6 +103,54 @@ function SettingsForm({
         <ProvidersSection project={project} globalSettings={globalSettings} save={save} />
       </div>
     </PageShell>
+  );
+}
+
+function RemoteAccessSection() {
+  const { data: health } = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
+    staleTime: 60_000,
+  });
+
+  return (
+    <SettingsSection
+      title="Remote Access"
+      description="Connection settings for phones, tablets, and secondary laptops."
+    >
+      <SettingRow
+        label="Open On Phone"
+        description={
+          health?.authRequired
+            ? "Remote access is configured globally because it applies to the whole Relay server."
+            : "Relay is running in open mode, and global settings can show a direct QR code for this server."
+        }
+        vertical
+      >
+        <div className="space-y-3 text-[0.75rem] text-muted">
+          {health?.authRequired ? (
+            <div>
+              Open{" "}
+              <Link to="/settings/general" className="text-accent hover:underline">
+                global settings
+              </Link>{" "}
+              to choose a phone-friendly URL, show a QR code, or generate a one-time pairing code.
+            </div>
+          ) : (
+            <div>
+              Open{" "}
+              <Link to="/settings/general" className="text-accent hover:underline">
+                global settings
+              </Link>{" "}
+              to choose a LAN or Tailscale address and show a QR code. Add{" "}
+              <code className="rounded bg-surface px-1 py-0.5">--password</code> or{" "}
+              <code className="rounded bg-surface px-1 py-0.5">RELAY_PASSWORD</code> if you also
+              want one-time pairing codes.
+            </div>
+          )}
+        </div>
+      </SettingRow>
+    </SettingsSection>
   );
 }
 

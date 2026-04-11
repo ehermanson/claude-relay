@@ -19,8 +19,15 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
+interface PairingCode {
+  code: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
 export class AuthManager {
   private sessions = new Map<string, Session>();
+  private pairingCodes = new Map<string, PairingCode>();
   private rateLimits = new Map<string, RateLimitEntry>();
   private config: RelayConfig;
 
@@ -118,6 +125,36 @@ export class AuthManager {
     return session;
   }
 
+  createPairingCode(ttlMs = 5 * 60_000): PairingCode {
+    this.cleanupExpiredPairingCodes();
+
+    let code = "";
+    do {
+      code = randomBytes(4).toString("hex").toUpperCase();
+    } while (this.pairingCodes.has(code));
+
+    const now = Date.now();
+    const pairingCode: PairingCode = {
+      code,
+      createdAt: now,
+      expiresAt: now + ttlMs,
+    };
+    this.pairingCodes.set(code, pairingCode);
+    return pairingCode;
+  }
+
+  consumePairingCode(code: string | undefined): Session | null {
+    this.cleanupExpiredPairingCodes();
+    const normalized = code?.trim().toUpperCase();
+    if (!normalized) return null;
+
+    const pairingCode = this.pairingCodes.get(normalized);
+    if (!pairingCode) return null;
+
+    this.pairingCodes.delete(normalized);
+    return this.createSession();
+  }
+
   /**
    * Validate a session ID and return the session if valid.
    */
@@ -184,5 +221,14 @@ export class AuthManager {
       path: "/",
       maxAge: 0,
     });
+  }
+
+  private cleanupExpiredPairingCodes(): void {
+    const now = Date.now();
+    for (const [code, pairingCode] of this.pairingCodes) {
+      if (pairingCode.expiresAt <= now) {
+        this.pairingCodes.delete(code);
+      }
+    }
   }
 }

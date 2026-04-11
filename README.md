@@ -65,7 +65,7 @@ echo 'RELAY_PASSWORD=your-secret' > .env
 source .env && relay start
 ```
 
-When a password is configured, the web UI shows a login page and then keeps you authenticated with a session cookie for 7 days.
+When a password is configured, the web UI shows a login page and then keeps you authenticated with a session cookie for 7 days. Settings → General → Open On Phone can also show a scannable QR code and a phone-friendly link for another device. In open mode that link opens Relay directly; with a password configured you can also generate a short-lived one-time pairing code so the login page is prefilled without sharing the main password.
 
 If you are running from the repo without a global install, use the same flags through `pnpm start`:
 

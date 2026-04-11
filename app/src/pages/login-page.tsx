@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,35 @@ import { useAuthContext } from "@/context/auth-context";
 const MotionLogo = motion.create(RelayLogo);
 
 export function LoginPage() {
-  const { login } = useAuthContext();
+  const { login, pairWithCode } = useAuthContext();
   const navigate = useNavigate();
   const [password, setPassword] = useState("");
+  const [pairCode, setPairCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pairInputRef = useRef<HTMLInputElement>(null);
+  const autoPairAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("pairCode");
+    if (!code || autoPairAttemptedRef.current) return;
+
+    autoPairAttemptedRef.current = true;
+    setPairCode(code.toUpperCase());
+    setLoading(true);
+    void pairWithCode(code).then((result) => {
+      if (result.success) {
+        navigate({ to: "/", replace: true });
+        return;
+      }
+      setError(result.error || "Authentication failed");
+      pairInputRef.current?.focus();
+      pairInputRef.current?.select();
+      setLoading(false);
+    });
+  }, [navigate, pairWithCode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +59,33 @@ export function LoginPage() {
         setError(result.error || "Authentication failed");
         inputRef.current?.focus();
         inputRef.current?.select();
+      }
+    } catch {
+      setError("Connection failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePairSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (!pairCode.trim()) {
+      setError("Please enter a pairing code");
+      pairInputRef.current?.focus();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await pairWithCode(pairCode);
+      if (result.success) {
+        navigate({ to: "/", replace: true });
+      } else {
+        setError(result.error || "Pairing failed");
+        pairInputRef.current?.focus();
+        pairInputRef.current?.select();
       }
     } catch {
       setError("Connection failed. Please try again.");
@@ -86,7 +135,7 @@ export function LoginPage() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5, duration: 0.6 }}
           >
-            Enter your password to continue
+            Enter your password or a one-time pairing code
           </motion.p>
         </div>
 
@@ -131,6 +180,47 @@ export function LoginPage() {
               className="w-full font-semibold"
             >
               {loading ? "Signing in..." : "Sign In"}
+            </Button>
+          </form>
+
+          <div className="my-5 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border/70" />
+            <span className="text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">
+              Pair
+            </span>
+            <div className="h-px flex-1 bg-border/70" />
+          </div>
+
+          <form onSubmit={handlePairSubmit}>
+            <div className="mb-5">
+              <label htmlFor="pair-code" className="mb-2 block text-xs font-medium text-muted">
+                Pairing Code
+              </label>
+              <Input
+                ref={pairInputRef}
+                type="text"
+                id="pair-code"
+                value={pairCode}
+                onChange={(e) => {
+                  setPairCode(e.target.value.toUpperCase());
+                  if (error) setError("");
+                }}
+                placeholder="AB12CD34"
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                className="px-4 py-2.5 font-mono text-sm tracking-[0.18em]"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              variant="ghost"
+              size="lg"
+              disabled={loading}
+              className="w-full border border-border font-semibold text-text"
+            >
+              {loading ? "Pairing..." : "Use Pairing Code"}
             </Button>
           </form>
         </motion.div>

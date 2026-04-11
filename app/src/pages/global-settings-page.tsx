@@ -1,19 +1,25 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import { Sun, Moon, Monitor } from "lucide-react";
 import {
+  createPairingCode,
+  fetchConnectEndpoints,
+  fetchHealth,
   fetchGlobalSettings,
   updateGlobalSettings,
   fetchProviders,
   fetchProviderModels,
 } from "../lib/api";
 
+import { Button } from "@/components/ui/button";
 import { Input, Textarea, Select } from "../components/ui/input";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { RateLimitBar, flattenRateLimitWindows } from "@/components/ui/rate-limit-bar";
 import { SettingsSection, SettingRow } from "@/components/settings/settings-shared";
+import { endpointHint, isLocalhostUrl, resolveEndpointSelection } from "@/lib/remote-access";
 import { useThemeStore, type ThemePreference } from "@/stores/theme-store";
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
 import type {
@@ -37,6 +43,8 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   providerDefaults: {},
   customInstructions: null,
 };
+
+const REMOTE_ACCESS_ENDPOINT_KEY = "relay.remoteAccess.endpoint";
 
 export function useGlobalSettings() {
   return useQuery({
@@ -99,7 +107,263 @@ export function GeneralSettingsSection() {
       <SettingRow label="Theme" description="Choose between light, dark, or system appearance.">
         <ThemeToggle value={themeStore.preference} onChange={handleThemeChange} />
       </SettingRow>
+      <RemoteAccessSettingsRow />
     </SettingsSection>
+  );
+}
+
+function RemoteAccessSettingsRow() {
+  const [pairing, setPairing] = useState<{
+    code: string;
+    createdAt: number;
+    expiresAt: number;
+  } | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedEndpointId, setSelectedEndpointId] = useState("");
+
+  const { data: health } = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
+    staleTime: 60_000,
+  });
+
+  const { data: connectData } = useQuery({
+    queryKey: ["connect-endpoints"],
+    queryFn: fetchConnectEndpoints,
+    staleTime: 60_000,
+  });
+
+  const browserEndpoint =
+    typeof window !== "undefined"
+      ? {
+          id: "browser",
+          label: `Current Browser URL (${window.location.host})`,
+          url: window.location.origin,
+          kind: "browser" as const,
+        }
+      : null;
+
+  const endpointOptions = [
+    ...(browserEndpoint ? [browserEndpoint] : []),
+    ...(connectData?.endpoints ?? []),
+  ].filter(
+    (endpoint, index, all) => all.findIndex((entry) => entry.url === endpoint.url) === index,
+  );
+
+  useEffect(() => {
+    if (endpointOptions.length === 0) return;
+    if (
+      selectedEndpointId &&
+      endpointOptions.some((endpoint) => endpoint.id === selectedEndpointId)
+    ) {
+      return;
+    }
+    const storedId =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(REMOTE_ACCESS_ENDPOINT_KEY)
+        : null;
+    setSelectedEndpointId(resolveEndpointSelection(endpointOptions, storedId));
+  }, [endpointOptions, selectedEndpointId]);
+
+  useEffect(() => {
+    if (!selectedEndpointId || typeof window === "undefined") return;
+    window.localStorage.setItem(REMOTE_ACCESS_ENDPOINT_KEY, selectedEndpointId);
+  }, [selectedEndpointId]);
+
+  const selectedEndpoint =
+    endpointOptions.find((endpoint) => endpoint.id === selectedEndpointId) ??
+    endpointOptions[0] ??
+    null;
+
+  const baseUrl =
+    selectedEndpoint?.url ?? (typeof window !== "undefined" ? window.location.origin : "");
+  const phoneUrl = !health?.authRequired
+    ? `${baseUrl}/`
+    : pairing
+      ? `${baseUrl}/login?pairCode=${encodeURIComponent(pairing.code)}`
+      : `${baseUrl}/login`;
+
+  const expiresLabel = pairing ? new Date(pairing.expiresAt).toLocaleTimeString() : null;
+
+  const handleGenerate = async () => {
+    setIsGenerating(true);
+    try {
+      const next = await createPairingCode();
+      setPairing(next);
+      toast.success("Pairing code created");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create pairing code");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const copyText = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error(`Failed to copy ${label.toLowerCase()}`);
+    }
+  };
+
+  return (
+    <SettingRow
+      label="Open On Phone"
+      description="Pick a reachable address for this machine, then scan a QR code to open Relay on another device."
+      vertical
+    >
+      <div className="space-y-3">
+        <div className="rounded-xl border border-border/70 bg-surface/30 p-4 text-[0.75rem] text-muted">
+          {health?.authRequired
+            ? "Relay is password-protected. Scanning the QR code will open the login page, and you can optionally generate a one-time pairing code so your phone opens already prefilled."
+            : "Relay is running in open mode. Scanning the QR code opens the Relay UI directly on your phone."}
+        </div>
+
+        <div className="rounded-xl border border-border/70 bg-surface/40 p-4">
+          <div className="grid gap-4 md:grid-cols-[172px_minmax(0,1fr)] md:items-start">
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-border/60 bg-white p-3">
+              <QRCodeSVG
+                value={phoneUrl}
+                size={148}
+                marginSize={2}
+                bgColor="#ffffff"
+                fgColor="#111111"
+                level="M"
+                includeMargin={false}
+              />
+              <div className="text-center text-[0.6875rem] uppercase tracking-[0.18em] text-black/60">
+                Scan to open
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {endpointOptions.length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="text-[0.6875rem] uppercase tracking-[0.18em] text-muted">
+                    Device Address
+                  </div>
+                  <Select
+                    value={selectedEndpointId}
+                    onChange={(e) => setSelectedEndpointId(e.target.value)}
+                    className="w-full"
+                  >
+                    {endpointOptions.map((endpoint) => (
+                      <option key={endpoint.id} value={endpoint.id}>
+                        {endpoint.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              ) : null}
+
+              <div className="text-[0.75rem] text-muted">{endpointHint(selectedEndpoint)}</div>
+
+              {selectedEndpoint ? (
+                <div className="flex flex-wrap gap-2 text-[0.6875rem]">
+                  <span className="rounded bg-surface px-1.5 py-0.5 font-medium text-text">
+                    {selectedEndpoint.kind === "browser"
+                      ? "Current URL"
+                      : selectedEndpoint.kind === "tailscale"
+                        ? "Tailscale"
+                        : selectedEndpoint.kind === "lan"
+                          ? "LAN"
+                          : "Local Only"}
+                  </span>
+                  {!isLocalhostUrl(selectedEndpoint.url) ? (
+                    <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-400">
+                      Phone-ready
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {endpointOptions.length > 1 ? (
+                <div className="text-[0.75rem] text-muted">
+                  Relay will remember this address the next time you open Settings.
+                </div>
+              ) : null}
+
+              <div className="space-y-1.5">
+                <div className="text-[0.6875rem] uppercase tracking-[0.18em] text-muted">
+                  Phone Link
+                </div>
+                <Input readOnly value={phoneUrl} className="w-full font-mono text-[0.75rem]" />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void copyText(phoneUrl, "Link")}
+                  className="border border-border text-text"
+                >
+                  Copy Link
+                </Button>
+              </div>
+
+              {health?.authRequired ? (
+                <div className="rounded-lg border border-border/60 bg-bg/35 p-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={() => void handleGenerate()}
+                      disabled={isGenerating}
+                    >
+                      {isGenerating
+                        ? "Generating..."
+                        : pairing
+                          ? "Regenerate Pairing Code"
+                          : "Generate Pairing Code"}
+                    </Button>
+                    {expiresLabel ? (
+                      <span className="text-[0.75rem] text-muted">Expires at {expiresLabel}</span>
+                    ) : null}
+                  </div>
+
+                  {pairing ? (
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <div className="text-[0.6875rem] uppercase tracking-[0.18em] text-muted">
+                          Pairing Code
+                        </div>
+                        <div className="mt-2 font-mono text-2xl font-semibold tracking-[0.24em] text-text-bright">
+                          {pairing.code}
+                        </div>
+                      </div>
+
+                      <div className="text-[0.75rem] text-muted">
+                        The QR code and phone link above now open a login page with this code
+                        prefilled.
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void copyText(pairing.code, "Code")}
+                          className="border border-border text-text"
+                        >
+                          Copy Code
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-[0.75rem] text-muted">
+                      Without a pairing code, your phone will open the normal login page.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    </SettingRow>
   );
 }
 

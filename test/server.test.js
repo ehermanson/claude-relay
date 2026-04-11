@@ -143,6 +143,53 @@ describe("HTTP Server", () => {
     });
   });
 
+  describe("pairing auth", () => {
+    it("issues a pairing code for authenticated users", async () => {
+      const session = auth.createSession();
+      const res = await request(server, "POST", "/api/pairing", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(typeof res.body.code, "string");
+      assert.equal(res.body.code.length, 8);
+      assert.equal(typeof res.body.expiresAt, "number");
+    });
+
+    it("redeems a pairing code into a session cookie", async () => {
+      const session = auth.createSession();
+      const pairingRes = await request(server, "POST", "/api/pairing", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      const res = await request(server, "POST", "/auth/pair", {
+        body: { code: pairingRes.body.code.toLowerCase() },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.success, true);
+      const setCookie = res.headers["set-cookie"];
+      assert.ok(setCookie);
+      const cookieStr = Array.isArray(setCookie) ? setCookie.join("; ") : setCookie;
+      assert.ok(cookieStr.includes("session="));
+    });
+
+    it("rejects invalid pairing codes", async () => {
+      const res = await request(server, "POST", "/auth/pair", {
+        body: { code: "BADCODE1" },
+      });
+      assert.equal(res.status, 401);
+      assert.equal(res.body.error, "Invalid or expired pairing code");
+    });
+
+    it("lists connect endpoints for authenticated users", async () => {
+      const session = auth.createSession();
+      const res = await request(server, "GET", "/api/connect-endpoints", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 200);
+      assert.ok(Array.isArray(res.body.endpoints));
+      assert.ok(res.body.endpoints.some((endpoint) => endpoint.url.includes("localhost")));
+    });
+  });
+
   describe("GET /api/instances", () => {
     it("returns 401 without auth", async () => {
       const res = await request(server, "GET", "/api/instances");

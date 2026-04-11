@@ -50,6 +50,29 @@ describe("AuthManager", () => {
     });
   });
 
+  describe("pairing codes", () => {
+    it("creates and consumes a pairing code once", () => {
+      const pairing = auth.createPairingCode();
+      assert.equal(pairing.code.length, 8);
+
+      const session = auth.consumePairingCode(pairing.code);
+      assert.ok(session);
+      assert.ok(auth.validateSession(session.id));
+      assert.equal(auth.consumePairingCode(pairing.code), null);
+    });
+
+    it("rejects expired pairing codes", () => {
+      const pairing = auth.createPairingCode(1);
+
+      const start = Date.now();
+      while (Date.now() - start < 5) {
+        // busy-wait a few ms
+      }
+
+      assert.equal(auth.consumePairingCode(pairing.code), null);
+    });
+  });
+
   describe("deleteSession", () => {
     it("removes a session", () => {
       const session = auth.createSession();

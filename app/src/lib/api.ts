@@ -58,6 +58,54 @@ export async function login(password: string): Promise<{ success: boolean; error
   return { success: false, error };
 }
 
+export interface PairingCodeResponse {
+  code: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface ConnectEndpoint {
+  id: string;
+  label: string;
+  url: string;
+  kind: "tailscale" | "lan" | "localhost" | "browser";
+}
+
+export async function createPairingCode(): Promise<PairingCodeResponse> {
+  const res = await fetch("/api/pairing", {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to create pairing code" }));
+    throw new Error(data.error || "Failed to create pairing code");
+  }
+  return res.json();
+}
+
+export async function fetchConnectEndpoints(): Promise<{ endpoints: ConnectEndpoint[] }> {
+  const res = await fetch("/api/connect-endpoints");
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to fetch connect endpoints" }));
+    throw new Error(data.error || "Failed to fetch connect endpoints");
+  }
+  return res.json();
+}
+
+export async function pairWithCode(code: string): Promise<{ success: boolean; error?: string }> {
+  const res = await fetch("/auth/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+
+  if (res.ok) {
+    return { success: true };
+  }
+
+  const data = await res.json().catch(() => ({ error: "Pairing failed" }));
+  return { success: false, error: data.error || "Pairing failed" };
+}
+
 export async function fetchDirectories(): Promise<{
   defaultDirectory: string;
   directories: { path: string; lastUsed: number }[];

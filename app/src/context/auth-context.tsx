@@ -5,6 +5,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   setIsAuthenticated: (v: boolean) => void;
   login: (password: string) => Promise<{ success: boolean; error?: string }>;
+  pairWithCode: (code: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 
