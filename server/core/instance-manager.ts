@@ -62,6 +62,8 @@ import type {
   ProviderKind,
   ProviderDescriptor,
   ProviderModelOptions,
+  ProviderSkill,
+  ProviderSlashCommand,
   ProviderRequest,
   ProviderRuntimeBinding,
   ProviderRuntimeMode,
@@ -2073,6 +2075,11 @@ export class InstanceManager extends EventEmitter {
       providerStatus: info.providerStatus
         ? {
             ...info.providerStatus,
+            slashCommands: info.providerStatus.slashCommands?.map((command) => ({
+              ...command,
+              input: command.input ? { ...command.input } : undefined,
+            })),
+            skills: info.providerStatus.skills?.map((skill) => ({ ...skill })),
             mcpServers: info.providerStatus.mcpServers?.map((server) => ({ ...server })),
             account: info.providerStatus.account
               ? {
@@ -7040,7 +7047,80 @@ export class InstanceManager extends EventEmitter {
       ((message: SystemEventMessage) => {
         void this.enqueueInstanceMutation(id, (live) => {
           if (this.shuttingDown || live.process !== proc) return;
-          if (message.event === "provider_status") {
+          if (message.event === "session_init") {
+            const payload = message.payload ?? {};
+            const slashCommands: ProviderSlashCommand[] = Array.isArray(payload.slashCommands)
+              ? payload.slashCommands.flatMap((value) => {
+                  if (typeof value === "string" && value.trim()) return [{ name: value.trim() }];
+                  if (!value || typeof value !== "object") return [];
+                  const record = value as Record<string, unknown>;
+                  if (typeof record.name !== "string" || !record.name.trim()) return [];
+                  const input =
+                    record.input && typeof record.input === "object"
+                      ? (record.input as Record<string, unknown>)
+                      : null;
+                  return [
+                    {
+                      name: record.name.trim(),
+                      description:
+                        typeof record.description === "string" && record.description.trim()
+                          ? record.description.trim()
+                          : undefined,
+                      input:
+                        input && typeof input.hint === "string" && input.hint.trim()
+                          ? { hint: input.hint.trim() }
+                          : undefined,
+                    },
+                  ];
+                })
+              : [];
+            const skills: ProviderSkill[] = Array.isArray(payload.skills)
+              ? payload.skills.reduce<ProviderSkill[]>((acc, value) => {
+                  if (typeof value === "string" && value.trim()) {
+                    acc.push({ name: value.trim(), enabled: true, invocationPrefix: "$" });
+                    return acc;
+                  }
+                  if (!value || typeof value !== "object") return acc;
+                  const record = value as Record<string, unknown>;
+                  if (typeof record.name !== "string" || !record.name.trim()) return acc;
+                  acc.push({
+                    name: record.name.trim(),
+                    displayName:
+                      typeof record.displayName === "string" && record.displayName.trim()
+                        ? record.displayName.trim()
+                        : undefined,
+                    description:
+                      typeof record.description === "string" && record.description.trim()
+                        ? record.description.trim()
+                        : undefined,
+                    shortDescription:
+                      typeof record.shortDescription === "string" && record.shortDescription.trim()
+                        ? record.shortDescription.trim()
+                        : undefined,
+                    path:
+                      typeof record.path === "string" && record.path.trim()
+                        ? record.path.trim()
+                        : undefined,
+                    enabled: typeof record.enabled === "boolean" ? record.enabled : true,
+                    invocationPrefix:
+                      record.invocationPrefix === "/" || record.invocationPrefix === "$"
+                        ? record.invocationPrefix
+                        : "$",
+                  });
+                  return acc;
+                }, [])
+              : [];
+            if (slashCommands.length || skills.length) {
+              live.info.providerStatus = {
+                ...live.info.providerStatus,
+                slashCommands: slashCommands.length
+                  ? slashCommands
+                  : live.info.providerStatus?.slashCommands,
+                skills: skills.length ? skills : live.info.providerStatus?.skills,
+              };
+              this.emitInstanceStatus(live);
+            }
+          } else if (message.event === "provider_status") {
             const payload = message.payload ?? {};
             const globalPatch: Partial<import("./types.js").ProviderGlobalState> = {};
             if (Array.isArray(payload.mcpServers)) {
@@ -7076,6 +7156,75 @@ export class InstanceManager extends EventEmitter {
                 typeof payload.turnStatus === "string"
                   ? payload.turnStatus
                   : live.info.providerStatus?.turnStatus,
+              slashCommands: Array.isArray(payload.slashCommands)
+                ? payload.slashCommands.flatMap((command) => {
+                    if (!command || typeof command !== "object") return [];
+                    const record = command as Record<string, unknown>;
+                    if (typeof record.name !== "string" || !record.name.trim()) return [];
+                    const input =
+                      record.input && typeof record.input === "object"
+                        ? (record.input as Record<string, unknown>)
+                        : null;
+                    return [
+                      {
+                        name: record.name.trim(),
+                        description:
+                          typeof record.description === "string" && record.description.trim()
+                            ? record.description.trim()
+                            : undefined,
+                        input:
+                          input && typeof input.hint === "string" && input.hint.trim()
+                            ? { hint: input.hint.trim() }
+                            : undefined,
+                      },
+                    ];
+                  })
+                : live.info.providerStatus?.slashCommands,
+              skills: Array.isArray(payload.skills)
+                ? payload.skills.flatMap((skill) => {
+                    if (!skill || typeof skill !== "object") return [];
+                    const record = skill as Record<string, unknown>;
+                    if (typeof record.name !== "string" || !record.name.trim()) return [];
+                    const invocationPrefix =
+                      record.invocationPrefix === "/" || record.invocationPrefix === "$"
+                        ? record.invocationPrefix
+                        : undefined;
+                    return [
+                      {
+                        name: record.name.trim(),
+                        displayName:
+                          typeof record.displayName === "string" && record.displayName.trim()
+                            ? record.displayName.trim()
+                            : undefined,
+                        description:
+                          typeof record.description === "string" && record.description.trim()
+                            ? record.description.trim()
+                            : undefined,
+                        shortDescription:
+                          typeof record.shortDescription === "string" &&
+                          record.shortDescription.trim()
+                            ? record.shortDescription.trim()
+                            : undefined,
+                        enabled: typeof record.enabled === "boolean" ? record.enabled : undefined,
+                        scope:
+                          typeof record.scope === "string" && record.scope.trim()
+                            ? record.scope.trim()
+                            : undefined,
+                        path:
+                          typeof record.path === "string" && record.path.trim()
+                            ? record.path.trim()
+                            : undefined,
+                        source:
+                          record.source === "project" ||
+                          record.source === "user" ||
+                          record.source === "system"
+                            ? record.source
+                            : undefined,
+                        invocationPrefix,
+                      },
+                    ];
+                  })
+                : live.info.providerStatus?.skills,
               diff:
                 payload.diff && typeof payload.diff === "object"
                   ? { ...(payload.diff as Record<string, unknown>) }

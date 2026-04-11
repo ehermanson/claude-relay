@@ -140,6 +140,28 @@ export interface ProviderAccountStatus {
   rateLimits?: ProviderRateLimitStatus[];
 }
 
+export type ProviderSkillInvocationPrefix = "/" | "$";
+
+export interface ProviderSlashCommand {
+  name: string;
+  description?: string;
+  input?: {
+    hint?: string;
+  };
+}
+
+export interface ProviderSkill {
+  name: string;
+  displayName?: string;
+  description?: string;
+  shortDescription?: string;
+  enabled?: boolean;
+  scope?: string;
+  path?: string;
+  source?: SkillInfo["source"];
+  invocationPrefix?: ProviderSkillInvocationPrefix;
+}
+
 export interface ProviderGlobalState {
   provider: ProviderKind;
   account?: ProviderAccountStatus;
@@ -168,6 +190,8 @@ export interface ProviderStatusSummary {
   requestedModel?: string;
   effectiveModel?: string;
   reroutedFromModel?: string;
+  slashCommands?: ProviderSlashCommand[];
+  skills?: ProviderSkill[];
   mcpServers?: ProviderMcpServerStatus[];
   account?: ProviderAccountStatus;
   diff?: ProviderDiffStatus;

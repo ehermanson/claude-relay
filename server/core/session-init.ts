@@ -14,6 +14,76 @@ function normalizeStringList(value: unknown): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
+function normalizeSlashCommandList(value: unknown):
+  | Array<{
+      name: string;
+      description?: string;
+      input?: { hint?: string };
+    }>
+  | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.flatMap((item) => {
+    if (typeof item === "string" && item.trim().length > 0) {
+      return [{ name: item.trim() }];
+    }
+    const record = asRecord(item);
+    if (!record || typeof record.name !== "string" || !record.name.trim()) return [];
+    const argumentHint =
+      typeof record.argumentHint === "string"
+        ? record.argumentHint
+        : typeof record.hint === "string"
+          ? record.hint
+          : undefined;
+    return [
+      {
+        name: record.name.trim(),
+        description:
+          typeof record.description === "string" && record.description.trim()
+            ? record.description.trim()
+            : undefined,
+        input:
+          typeof argumentHint === "string" && argumentHint.trim()
+            ? { hint: argumentHint.trim() }
+            : undefined,
+      },
+    ];
+  });
+  return items.length > 0 ? items : undefined;
+}
+
+function normalizeSkillList(value: unknown): Array<Record<string, unknown>> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.flatMap((item) => {
+    if (typeof item === "string" && item.trim()) {
+      return [{ name: item.trim() }];
+    }
+    const record = asRecord(item);
+    if (!record || typeof record.name !== "string" || !record.name.trim()) return [];
+    return [
+      {
+        name: record.name.trim(),
+        ...(typeof record.description === "string" && record.description.trim()
+          ? { description: record.description.trim() }
+          : {}),
+        ...(typeof record.shortDescription === "string" && record.shortDescription.trim()
+          ? { shortDescription: record.shortDescription.trim() }
+          : {}),
+        ...(typeof record.displayName === "string" && record.displayName.trim()
+          ? { displayName: record.displayName.trim() }
+          : {}),
+        ...(typeof record.path === "string" && record.path.trim()
+          ? { path: record.path.trim() }
+          : {}),
+        ...(record.invocationPrefix === "/" || record.invocationPrefix === "$"
+          ? { invocationPrefix: record.invocationPrefix }
+          : {}),
+        ...(typeof record.enabled === "boolean" ? { enabled: record.enabled } : {}),
+      },
+    ];
+  });
+  return items.length > 0 ? items : undefined;
+}
+
 function normalizeAgents(value: unknown): Array<string | JsonRecord> | undefined {
   if (!Array.isArray(value)) return undefined;
   const items = value.filter((item): item is string | JsonRecord => {
@@ -82,11 +152,19 @@ export function normalizeSessionInitPayload(raw: unknown): Record<string, unknow
   const tools = normalizeStringList(record.tools);
   if (tools) payload.tools = tools;
 
+  const slashCommands =
+    normalizeSlashCommandList(record.slash_commands) ??
+    normalizeSlashCommandList(record.slashCommands) ??
+    normalizeSlashCommandList(record.commands);
+  if (slashCommands) payload.slashCommands = slashCommands;
+
+  const skills = normalizeSkillList(record.skills);
+  if (skills) payload.skills = skills;
+
   const commands =
     normalizeStringList(record.commands) ??
-    normalizeStringList(record.slash_commands) ??
-    normalizeStringList(record.slashCommands) ??
-    normalizeStringList(record.skills);
+    slashCommands?.map((command) => command.name) ??
+    skills?.flatMap((skill) => (typeof skill.name === "string" ? [skill.name] : []));
   if (commands) payload.commands = commands;
 
   const agents =

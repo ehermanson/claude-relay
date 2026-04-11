@@ -27,6 +27,7 @@ import type {
   ProviderMcpServerStatus,
   ProviderNotice,
   ProviderRateLimitStatus,
+  ProviderSkill,
   SessionStats,
   SystemEventMessage,
   ProviderModelOptions,
@@ -516,6 +517,48 @@ function normalizeCodexRateLimitsSnapshot(
   return limits.length ? limits : undefined;
 }
 
+export function normalizeCodexSkillsSnapshot(
+  result: unknown,
+  cwd: string,
+): ProviderSkill[] | undefined {
+  const payload = asRecord(result);
+  const buckets = Array.isArray(payload?.data) ? payload.data : [];
+  const matchingBucket = buckets.find((value) => asRecord(value)?.cwd === cwd);
+  const bucket = asRecord(matchingBucket);
+  const rawSkills =
+    (Array.isArray(bucket?.skills) ? bucket.skills : null) ??
+    (Array.isArray(payload?.skills) ? payload.skills : null) ??
+    [];
+
+  const skills = rawSkills.flatMap((value) => {
+    const skill = asRecord(value);
+    if (!skill) return [];
+    const iface = asRecord(skill.interface);
+    const name = getString(skill.name);
+    if (!name) return [];
+
+    return [
+      {
+        name,
+        ...(getString(iface?.displayName) ? { displayName: getString(iface?.displayName) } : {}),
+        ...(getString(skill.description) ? { description: getString(skill.description) } : {}),
+        ...((getString(skill.shortDescription) ?? getString(iface?.shortDescription))
+          ? {
+              shortDescription:
+                getString(skill.shortDescription) ?? getString(iface?.shortDescription),
+            }
+          : {}),
+        enabled: typeof skill.enabled === "boolean" ? skill.enabled : true,
+        ...(getString(skill.scope) ? { scope: getString(skill.scope) } : {}),
+        ...(getString(skill.path) ? { path: getString(skill.path) } : {}),
+        invocationPrefix: "$",
+      } satisfies ProviderSkill,
+    ];
+  });
+
+  return skills.length ? skills : undefined;
+}
+
 // =============================================================================
 // CodexAppServerSession
 // =============================================================================
@@ -978,6 +1021,20 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       })
       .catch((err) => {
         this.logger.debug(`[CodexAppServer] app/list snapshot unavailable: ${err}`);
+      });
+
+    void this.sendRpc("skills/list", { cwds: [this.cwd] })
+      .then((result) => {
+        const skills = normalizeCodexSkillsSnapshot(result, this.cwd);
+        if (!skills?.length) return;
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: { skills },
+        } as SystemEventMessage);
+      })
+      .catch((err) => {
+        this.logger.debug(`[CodexAppServer] skills/list snapshot unavailable: ${err}`);
       });
 
     void this.sendRpc("account/read", { refreshToken: false })

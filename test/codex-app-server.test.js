@@ -2,7 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { CodexAppServerSession } from "../dist/server/core/providers/codex-app-server.js";
+import {
+  CodexAppServerSession,
+  normalizeCodexSkillsSnapshot,
+} from "../dist/server/core/providers/codex-app-server.js";
 
 const noopLogger = {
   info() {},
@@ -75,7 +78,8 @@ function tick(ms = 25) {
 }
 
 /** Simulate the app-server responding to JSON-RPC requests on stdin by writing to stdout */
-function autoRespond(child) {
+function autoRespond(child, options = {}) {
+  const skipMethods = new Set(options.skipMethods ?? []);
   child.stdin.on("data", (chunk) => {
     const lines = chunk.toString().trim().split("\n");
     for (const line of lines) {
@@ -88,6 +92,7 @@ function autoRespond(child) {
 
       // Only respond to requests (have id and method)
       if (msg.id === undefined || !msg.method) continue;
+      if (skipMethods.has(msg.method)) continue;
 
       if (msg.method === "initialize") {
         child.stdout.write(
@@ -179,7 +184,7 @@ describe("CodexAppServerSession", () => {
     session.send("hello");
     // spawnProcess was called by send()
     const child = harness.children[0];
-    autoRespond(child);
+    autoRespond(child, { skipMethods: ["skills/list"] });
 
     await tick(50);
 
@@ -226,6 +231,46 @@ describe("CodexAppServerSession", () => {
     assert.equal(turnStart.params.collaborationMode.settings.model, "gpt-5.4");
 
     session.close();
+  });
+
+  it("normalizes startup skills from skills/list", () => {
+    assert.deepEqual(
+      JSON.parse(
+        JSON.stringify(
+          normalizeCodexSkillsSnapshot(
+            {
+              data: [
+                {
+                  cwd: "/tmp/project",
+                  skills: [
+                    {
+                      name: "review-follow-up",
+                      description: "Review follow-up changes",
+                      shortDescription: "Review changes",
+                      enabled: true,
+                      interface: {
+                        displayName: "Review Follow-up",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+            "/tmp/project",
+          ),
+        ),
+      ),
+      [
+        {
+          name: "review-follow-up",
+          displayName: "Review Follow-up",
+          description: "Review follow-up changes",
+          shortDescription: "Review changes",
+          enabled: true,
+          invocationPrefix: "$",
+        },
+      ],
+    );
   });
 
   it("requests startup snapshots for MCP servers and apps", async () => {
@@ -773,7 +818,7 @@ describe("CodexAppServerSession", () => {
     assert.equal(second.input.additions, 1);
     assert.equal(second.input.deletions, 0);
     assert.equal(second.input.extension, "ts");
-    assert.equal(second.input.content, "new file");
+    assert.equal(second.input.content, "new file\n");
     assert.equal(second.description, "Writing file");
 
     const fileList = activities.find(([a]) => a.activity === "file_list");
@@ -2015,12 +2060,14 @@ describe("CodexAppServerSession", () => {
       .filter((m) => m.method)
       .map((m) => m.method);
 
-    assert.deepEqual(methods.slice(0, 4), [
-      "initialize",
-      "initialized",
-      "thread/resume",
-      "thread/compact/start",
-    ]);
+    const initializeIndex = methods.indexOf("initialize");
+    const initializedIndex = methods.indexOf("initialized");
+    const resumeIndex = methods.indexOf("thread/resume");
+    const compactIndex = methods.indexOf("thread/compact/start");
+    assert.ok(initializeIndex !== -1);
+    assert.ok(initializedIndex > initializeIndex);
+    assert.ok(resumeIndex > initializedIndex);
+    assert.ok(compactIndex > resumeIndex);
 
     const compactStart = secondChild
       .getStdinMessages()
