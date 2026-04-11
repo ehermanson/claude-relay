@@ -9,12 +9,12 @@
  * Start options:
  *   --port <number>             Server port (default: 7777, env: PORT)
  *   --password <string>         Require password for auth (env: RELAY_PASSWORD)
- *   --tunnel                    Start a cloudflared tunnel (env: TUNNEL=true)
+ *   --tunnel                    Start a cloudflared tunnel to this Relay server (env: TUNNEL=true)
  *
  * Environment variables (all optional):
  *   RELAY_PASSWORD              Password for authentication (or use --password)
  *   PORT                        Server port (or use --port)
- *   TUNNEL                      Set to "true" to start a cloudflared tunnel
+ *   TUNNEL                      Set to "true" to start a cloudflared tunnel to the Relay server
  *   SESSION_MAX_AGE             Session lifetime in ms, default 7 days
  *   PROCESS_TIMEOUT             Claude process timeout in ms, default 5 min
  *   WORKING_DIR                 Working directory for Claude, default cwd
@@ -69,11 +69,12 @@ function printUsage(): void {
 Options:
   --port <number>     Server port (default: 7777)
   --password <string> Require password for authentication
-  --tunnel            Expose via cloudflared tunnel
+  --tunnel            Start a cloudflared tunnel to this Relay server
 
 Notes:
   - When no password is set, the server runs in open mode (no login required).
-    Set a password if you plan to expose the server over a tunnel or network.`);
+    Set a password if you plan to expose the server over a tunnel or network.
+  - The tunnel exposes the same Relay server; it is not a separate runtime mode.`);
 }
 
 function startServer(cliArgs: string[]): void {

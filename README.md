@@ -1,13 +1,13 @@
 # Relay
 
-A remote control center for your local AI coding agents. Run Relay on your dev machine, open it locally or from an external device, and manage Claude Code or Codex sessions from anywhere.
+A remote control center for your local AI coding agents. Run Relay on your dev machine, reach that same Relay server locally or from another device, and manage Claude Code or Codex sessions from anywhere.
 
 Relay discovers sessions already running on your machine, lets you resume them from the browser, and gives you a cleaner way to manage multiple chats, projects, and git worktrees in one place.
 
 - Monitor local Claude Code and Codex sessions from anywhere
 - Resume terminal-started chats from the web UI
 - Switch branches, manage worktrees, and keep project context organized
-- Use it privately over Tailscale or expose it through a tunnel when needed
+- Reach it locally, over Tailscale, or through a tunnel when needed
 
 ### Chats
 
@@ -77,6 +77,8 @@ pnpm start -- --tunnel --password "your-secret"
 
 ### Remote Access
 
+These are different ways to reach the same Relay server. They do not change how Relay manages sessions, projects, or providers.
+
 **Option A: Tailscale (recommended for personal use)**
 
 If you run [Tailscale](https://tailscale.com) on your devices, the relay is already accessible:
@@ -89,14 +91,14 @@ relay start --password "your-secret"
 **Option B: Cloudflare Tunnel (for public URLs)**
 
 ```bash
-# Built-in tunnel (requires cloudflared)
+# Built-in helper for starting a tunnel (requires cloudflared)
 relay start --tunnel --password "your-secret"
 
 # Or manually
 cloudflared tunnel --url http://localhost:7777
 ```
 
-If you use `--tunnel`, set a password. Open mode plus a public tunnel exposes the full Relay UI to anyone with the URL.
+`--tunnel` is just a launch helper for `cloudflared`; it exposes the same Relay server over a public URL. If you use it, set a password. Open mode plus a public tunnel exposes the full Relay UI to anyone with the URL.
 
 ## Core Features
 
@@ -113,7 +115,7 @@ If you use `--tunnel`, set a password. Open mode plus a public tunnel exposes th
 - **Git integration** — branch switching, push/pull/fetch from the UI, ahead/behind indicators, and space push with optional PR creation via `gh` CLI
 - **Project settings** — per-project custom instructions, default space branch, and default provider/model
 - **Git worktree support** — sessions in relay-managed worktrees can be merged back to main from the sidebar
-- **Remote access** — built-in Cloudflare Tunnel support, or use Tailscale for private access
+- **Remote access** — reach the same Relay server over localhost, Tailscale, or an optional Cloudflare Tunnel
 
 ## How It Works
 
@@ -152,8 +154,8 @@ If you use `--tunnel`, set a password. Open mode plus a public tunnel exposes th
 2. **InstanceManager** spawns and manages provider-backed sessions through the provider-driver registry
 3. **Session discovery** finds agent sessions running in terminals and streams their transcripts
 4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
-5. **Tailscale** (optional) makes the relay reachable from any device on your private tailnet
-6. **Cloudflare Tunnel** (optional) gives you a public HTTPS URL for access from any device
+5. **Tailscale** (optional) is one way to reach that Relay server from any device on your private tailnet
+6. **Cloudflare Tunnel** (optional) is another way to reach that same server over a public HTTPS URL
 
 ### Provider Registry
 
