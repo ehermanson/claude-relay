@@ -27,6 +27,56 @@ import "./space-view-header.css";
 
 export function SpaceViewHeader() {
   const { shared, actions } = useSpaceViewContext();
+
+  // ── Mobile layout ──────────────────────────────────────────────────
+  if (shared.isMobile) {
+    return (
+      <ViewHeader style={{ containerName: "space-header", containerType: "inline-size" }}>
+        <MobileSidebarToggle />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-[0.875rem] font-semibold leading-snug tracking-tight text-text-bright">
+            {shared.space.name}
+          </h1>
+          <div className="flex items-center gap-1 text-[0.6875rem] leading-tight text-muted">
+            <ProjectBreadcrumb projectId={shared.projectId} label={shared.projectName} mobile />
+            {shared.space.gitBranch ? (
+              <>
+                <span className="text-border">·</span>
+                <span className="flex items-center gap-0.5 truncate">
+                  <GitBranch size={10} strokeWidth={2} className="shrink-0" />
+                  <span className="truncate">{shared.space.gitBranch}</span>
+                </span>
+              </>
+            ) : null}
+          </div>
+        </div>
+        {shared.sidecarContentCount > 0 && (
+          <Button
+            variant="icon"
+            onClick={() => actions.setSidecarMobileOpen(true)}
+            className="relative h-9 w-9 shrink-0 rounded-lg"
+          >
+            <LayoutGrid size={17} strokeWidth={2} />
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
+              {shared.sidecarContentCount}
+            </span>
+          </Button>
+        )}
+        <CommitMessageDialog
+          open={shared.commitDialogOpen}
+          onOpenChange={actions.setCommitDialogOpen}
+          onCommit={(message) => void actions.handleCommit(message)}
+        />
+        <GhCliRequiredDialog
+          open={shared.ghCliDialogOpen}
+          onOpenChange={actions.setGhCliDialogOpen}
+          reason={shared.ghCliReason}
+        />
+      </ViewHeader>
+    );
+  }
+
+  // ── Desktop layout ─────────────────────────────────────────────────
   return (
     <ViewHeader style={{ containerName: "space-header", containerType: "inline-size" }}>
       <MobileSidebarToggle />
@@ -138,24 +188,22 @@ export function SpaceViewHeader() {
                 worktreePath={shared.space.worktreePath || undefined}
               />
             )}
-            {!shared.isMobile && (
-              <Tooltip
-                content={
-                  shared.showTerminalPanel || shared.isTerminalCollapsed
-                    ? "Hide terminal"
-                    : "Show terminal"
-                }
+            <Tooltip
+              content={
+                shared.showTerminalPanel || shared.isTerminalCollapsed
+                  ? "Hide terminal"
+                  : "Show terminal"
+              }
+            >
+              <Button
+                variant="icon"
+                toggled={shared.showTerminalPanel || shared.isTerminalCollapsed}
+                onClick={actions.handleToggleTerminal}
+                className="shrink-0"
               >
-                <Button
-                  variant="icon"
-                  toggled={shared.showTerminalPanel || shared.isTerminalCollapsed}
-                  onClick={actions.handleToggleTerminal}
-                  className="shrink-0"
-                >
-                  <TerminalSquare size={15} strokeWidth={2} />
-                </Button>
-              </Tooltip>
-            )}
+                <TerminalSquare size={15} strokeWidth={2} />
+              </Button>
+            </Tooltip>
           </>
         )}
         <CommitMessageDialog
@@ -169,7 +217,7 @@ export function SpaceViewHeader() {
           reason={shared.ghCliReason}
         />
 
-        {!shared.space.isDefault && !shared.isMobile && (
+        {!shared.space.isDefault && (
           <Tooltip content={shared.activePanels.has("brief") ? "Hide brief" : "Show brief"}>
             <Button
               variant="icon"
@@ -189,21 +237,6 @@ export function SpaceViewHeader() {
                 <HeaderIconSkeleton />
                 <HeaderIconSkeleton />
               </>
-            ) : shared.isMobile ? (
-              shared.sidecarContentCount > 0 && (
-                <Tooltip content="Sidecar">
-                  <Button
-                    variant="icon"
-                    onClick={() => actions.setSidecarMobileOpen(true)}
-                    className="relative shrink-0"
-                  >
-                    <LayoutGrid size={15} strokeWidth={2} />
-                    <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
-                      {shared.sidecarContentCount}
-                    </span>
-                  </Button>
-                </Tooltip>
-              )
             ) : (
               <>
                 {shared.fileChanges.length > 0 && (

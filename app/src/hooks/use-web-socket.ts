@@ -36,8 +36,9 @@ const DISCONNECT_GRACE = 1_500;
 
 // Stale connection detection: if no message received within this window,
 // the connection is presumed dead and we force a reconnect. The server
-// sends a heartbeat message every 30s, so 45s gives comfortable margin.
-const STALE_TIMEOUT = 45_000;
+// sends a heartbeat message every 30s, so allow multiple missed beats
+// before forcing a reconnect on slower mobile links.
+const STALE_TIMEOUT = 90_000;
 
 export function useWebSocket() {
   const [isConnected, setIsConnected] = useState(false);
@@ -97,6 +98,9 @@ export function useWebSocket() {
       // Start stale-connection checker
       if (staleTimerRef.current) clearInterval(staleTimerRef.current);
       staleTimerRef.current = setInterval(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          return;
+        }
         if (
           Date.now() - lastMessageRef.current > STALE_TIMEOUT &&
           ws.readyState === WebSocket.OPEN

@@ -36,7 +36,7 @@ export function SidecarShell({
     <div
       className={
         isMobileOverlay
-          ? "@container/sidecar animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col overflow-hidden rounded-l-2xl border-l border-border bg-surface shadow-2xl"
+          ? "@container/sidecar animate-slide-in-right flex h-full w-[85vw] max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl"
           : "@container/sidecar flex h-full w-full flex-col overflow-hidden bg-transparent"
       }
     >

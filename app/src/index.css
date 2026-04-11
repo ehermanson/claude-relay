@@ -340,6 +340,17 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Bump root font-size on mobile so all rem-based UI chrome (buttons,
+   labels, nav items, toolbars) scales up for touch. Chat message text
+   (text-sm = 0.875rem) goes from 14px → ~14.9px which is imperceptible,
+   while smaller chrome text (0.6875rem) goes from 11px → ~11.7px —
+   much more readable on a phone. */
+@media (max-width: 768px) {
+  html {
+    font-size: 17px;
+  }
+}
+
 /* ── Tabular numbers for data ─────────────────────────────────────── */
 .tabular-nums {
   font-variant-numeric: tabular-nums;

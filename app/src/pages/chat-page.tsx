@@ -19,12 +19,32 @@ import type { InstanceInfo, ProjectArtifacts, ProviderKind } from "@shared/types
 
 // ─── Project Card ────────────────────────────────────────────────────────────
 
+function StatsSkeleton() {
+  return (
+    <div className="flex items-center gap-3 border-t border-border/50 px-4 py-2.5">
+      <span className="h-3.5 w-10 animate-pulse rounded bg-surface-hover" />
+      <span className="h-3.5 w-14 animate-pulse rounded bg-surface-hover" />
+      <span className="h-3.5 w-12 animate-pulse rounded bg-surface-hover" />
+    </div>
+  );
+}
+
+function ModelChipsSkeleton() {
+  return (
+    <div className="flex items-center gap-1.5 border-t border-border/50 px-4 py-2">
+      <span className="h-5 w-20 animate-pulse rounded-md bg-surface-hover" />
+      <span className="h-5 w-16 animate-pulse rounded-md bg-surface-hover" />
+    </div>
+  );
+}
+
 function ProjectCard({
   directory,
   instances,
   projectId,
   iconPath,
   artifacts,
+  artifactsLoading,
   onNewSession,
   onCreateSpace,
 }: {
@@ -33,6 +53,7 @@ function ProjectCard({
   projectId: string;
   iconPath?: string;
   artifacts?: ProjectArtifacts;
+  artifactsLoading?: boolean;
   onNewSession: (dir: string) => void;
   onCreateSpace: (dir: string) => void;
 }) {
@@ -88,7 +109,11 @@ function ProjectCard({
         <div className="min-w-0 flex-1">
           <div className="truncate text-[0.875rem] font-semibold text-text-bright">{dirName}</div>
           <div className="text-[0.6875rem] text-muted">
-            {lastActivity ? `last active: ${formatTimeAgo(lastActivity)}` : "No chats yet"}
+            {lastActivity
+              ? `last active: ${formatTimeAgo(lastActivity)}`
+              : artifactsLoading
+                ? "\u00A0"
+                : "No chats yet"}
           </div>
         </div>
 
@@ -108,8 +133,8 @@ function ProjectCard({
         </Tooltip>
       </div>
 
-      {/* Getting started actions (no chats or history) */}
-      {instances.length === 0 && sessionCount === 0 && (
+      {/* Getting started actions (no chats or history) — only after artifacts have loaded */}
+      {instances.length === 0 && sessionCount === 0 && !artifactsLoading && (
         <div
           className="border-t border-border/50 px-4 py-3"
           onClick={(e) => {
@@ -125,7 +150,9 @@ function ProjectCard({
       )}
 
       {/* Stats row */}
-      {(instances.length > 0 || sessionCount > 0) && (
+      {artifactsLoading && instances.length > 0 ? (
+        <StatsSkeleton />
+      ) : instances.length > 0 || sessionCount > 0 ? (
         <div className="flex items-center gap-3 overflow-hidden border-t border-border/50 px-4 py-2.5 text-[0.6875rem]">
           {/* Chats */}
           <Tooltip content={`${sessionCount} session${sessionCount !== 1 ? "s" : ""}`}>
@@ -165,10 +192,12 @@ function ProjectCard({
             </Tooltip>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Model chips */}
-      {topModels.length > 0 && (
+      {artifactsLoading && instances.length > 0 ? (
+        <ModelChipsSkeleton />
+      ) : topModels.length > 0 ? (
         <div className="flex items-center gap-1.5 overflow-hidden border-t border-border/50 px-4 py-2">
           {topModels.map(({ model: m }) => (
             <span
@@ -187,7 +216,7 @@ function ProjectCard({
             <span className="text-[0.625rem] text-muted/50">+{modelUsage.length - 3}</span>
           )}
         </div>
-      )}
+      ) : null}
     </Link>
   );
 }
@@ -275,82 +304,98 @@ export function Dashboard() {
     return map;
   }, [projectEntries, artifactResults]);
 
+  const artifactsLoadingByDir = useMemo(() => {
+    const map = new Map<string, boolean>();
+    projectEntries.forEach(({ dir }, i) => {
+      map.set(dir, artifactResults[i]?.isLoading ?? false);
+    });
+    return map;
+  }, [projectEntries, artifactResults]);
+
   // Aggregate stats
   const totalActive = instances.filter(
     (i) => i.status === "processing" || i.status === "idle",
   ).length;
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between gap-3">
-          <MobileSidebarToggle />
-          <div className="min-w-0 flex-1">
-            <h1 className="text-[1.25rem] font-semibold tracking-tight text-text-bright">
-              Projects
-            </h1>
-            {projectGroups.length > 0 && (
-              <p className="mt-0.5 text-[0.75rem] text-muted">
-                {projectGroups.length} project{projectGroups.length !== 1 ? "s" : ""}
-                {totalActive > 0 && (
-                  <span className="text-accent">
-                    {" "}
-                    · {totalActive} active session{totalActive !== 1 ? "s" : ""}
-                  </span>
-                )}
-              </p>
-            )}
-          </div>
-        </div>
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Mobile header bar */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-2 py-2 sm:hidden">
+        <MobileSidebarToggle />
+        <h1 className="text-[0.875rem] font-semibold tracking-tight text-text-bright">Projects</h1>
+      </div>
 
-        {/* Project grid */}
-        {projectGroups.length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {projectGroups.map(([dir, groupInstances]) => {
-              const pid =
-                projectByDir.get(dir)?.id ??
-                (groupInstances[0] ? getInstanceProjectRouteId(groupInstances[0]) : dir);
-              return (
-                <ProjectCard
-                  key={dir}
-                  directory={dir}
-                  instances={groupInstances}
-                  projectId={pid}
-                  iconPath={projectIcons[dir]}
-                  artifacts={artifactsByDir.get(dir)}
-                  onNewSession={handleNewSession}
-                  onCreateSpace={handleCreateSpace}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {/* Empty state */}
-        {projectGroups.length === 0 && (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-center">
-            {projects.length === 0 ? (
-              <>
-                <FolderPlus size={32} strokeWidth={1.5} className="mb-3 text-muted/40" />
-                <p className="mb-1 text-[0.8125rem] font-medium text-text">
-                  Add a project to get started
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl px-4 py-4 sm:px-6 sm:py-8">
+          {/* Desktop header */}
+          <div className="mb-6 hidden items-center justify-between gap-3 sm:flex">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[1.25rem] font-semibold tracking-tight text-text-bright">
+                Projects
+              </h1>
+              {projectGroups.length > 0 && (
+                <p className="mt-0.5 text-[0.75rem] text-muted">
+                  {projectGroups.length} project{projectGroups.length !== 1 ? "s" : ""}
+                  {totalActive > 0 && (
+                    <span className="text-accent">
+                      {" "}
+                      · {totalActive} active session{totalActive !== 1 ? "s" : ""}
+                    </span>
+                  )}
                 </p>
-                <span className="text-[0.75rem] text-muted">
-                  Use the Add Project button above to register a git repo
-                </span>
-              </>
-            ) : (
-              <>
-                <MessageSquare size={32} strokeWidth={1.5} className="mb-3 text-muted/40" />
-                <p className="mb-1 text-[0.8125rem] font-medium text-text">No active chats</p>
-                <span className="text-[0.75rem] text-muted">
-                  Select a project to start a new chat
-                </span>
-              </>
-            )}
+              )}
+            </div>
           </div>
-        )}
+
+          {/* Project grid */}
+          {projectGroups.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {projectGroups.map(([dir, groupInstances]) => {
+                const pid =
+                  projectByDir.get(dir)?.id ??
+                  (groupInstances[0] ? getInstanceProjectRouteId(groupInstances[0]) : dir);
+                return (
+                  <ProjectCard
+                    key={dir}
+                    directory={dir}
+                    instances={groupInstances}
+                    projectId={pid}
+                    iconPath={projectIcons[dir]}
+                    artifacts={artifactsByDir.get(dir)}
+                    artifactsLoading={artifactsLoadingByDir.get(dir)}
+                    onNewSession={handleNewSession}
+                    onCreateSpace={handleCreateSpace}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* Empty state */}
+          {projectGroups.length === 0 && (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-center">
+              {projects.length === 0 ? (
+                <>
+                  <FolderPlus size={32} strokeWidth={1.5} className="mb-3 text-muted/40" />
+                  <p className="mb-1 text-[0.8125rem] font-medium text-text">
+                    Add a project to get started
+                  </p>
+                  <span className="text-[0.75rem] text-muted">
+                    Use the Add Project button above to register a git repo
+                  </span>
+                </>
+              ) : (
+                <>
+                  <MessageSquare size={32} strokeWidth={1.5} className="mb-3 text-muted/40" />
+                  <p className="mb-1 text-[0.8125rem] font-medium text-text">No active chats</p>
+                  <span className="text-[0.75rem] text-muted">
+                    Select a project to start a new chat
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <CreateSpaceDialog

@@ -70,7 +70,7 @@ export function InputToolbar({
   }, [overflowOpen]);
 
   return (
-    <div className="relative flex items-center gap-0.5 px-2 pb-2">
+    <div className={`relative flex items-center gap-0.5 px-2 ${isMobile ? "pb-1" : "pb-2"}`}>
       {/* Left section: attach + controls */}
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {showAttachButton ? (

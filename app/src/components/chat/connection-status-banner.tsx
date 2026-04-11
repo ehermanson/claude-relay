@@ -71,9 +71,9 @@ export function ConnectionStatusBanner({
 
   return (
     <div className="shrink-0 pb-2">
-      <div className="mx-auto max-w-3xl px-6">
+      <div className="mx-auto max-w-3xl px-6 max-[768px]:px-2">
         <div
-          className={`animate-fade-in flex items-start gap-3 rounded-xl border px-4 py-3 ${classes.border} ${classes.bg}`}
+          className={`animate-fade-in flex items-start gap-3 rounded-xl border px-4 py-3 max-[768px]:gap-2 max-[768px]:px-3 max-[768px]:py-2 ${classes.border} ${classes.bg}`}
         >
           <div
             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${classes.chip}`}

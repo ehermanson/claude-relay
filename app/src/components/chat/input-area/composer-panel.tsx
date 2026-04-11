@@ -61,7 +61,7 @@ export function ComposerPanel({
           placeholder={placeholder}
           placeholderClassName={
             compact
-              ? "px-3.5 pt-3 pb-1 text-[15px] leading-normal"
+              ? "px-3 pt-2.5 pb-1.5 text-[15px] leading-snug"
               : "px-4 pt-3 pb-1 text-[13px] leading-normal"
           }
           disabled={disabled}
@@ -72,7 +72,7 @@ export function ComposerPanel({
           onPaste={onPaste}
           className={
             compact
-              ? `min-h-[36px] max-h-[100px] overflow-y-auto bg-transparent px-3.5 pt-3 pb-1 text-[16px] leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`
+              ? `min-h-[44px] max-h-[88px] overflow-y-auto bg-transparent px-3 pt-2.5 pb-1.5 text-[16px] leading-snug text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`
               : `min-h-[52px] max-h-[140px] overflow-y-auto bg-transparent px-4 pt-3 pb-1 text-sm leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`
           }
         />

@@ -8,7 +8,7 @@ export function HeaderIconSkeleton({ className = "" }: { className?: string }) {
   return (
     <span
       aria-hidden="true"
-      className={`h-7 w-7 shrink-0 animate-pulse rounded-md border border-border/50 bg-surface-hover/80 ${className}`}
+      className={`h-7 w-7 shrink-0 animate-pulse rounded-md border border-border/50 bg-surface-hover/80 max-[768px]:h-10 max-[768px]:w-10 max-[768px]:rounded-xl ${className}`}
     />
   );
 }

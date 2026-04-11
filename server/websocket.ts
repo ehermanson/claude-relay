@@ -223,17 +223,20 @@ export function createWebSocketServer(
   // Also sends an application-level heartbeat message so browser clients
   // (which can't see pong frames) know the connection is alive.
   const PING_INTERVAL = 30_000;
-  const alive = new Map<WebSocket, boolean>();
+  const missedPongs = new Map<WebSocket, number>();
   const pingTimer = setInterval(() => {
     for (const [ws] of subscriptions) {
-      if (alive.get(ws) === false) {
-        // No pong received since last ping — connection is dead
-        log.info("WebSocket connection dead (no pong), terminating");
-        alive.delete(ws);
+      const misses = missedPongs.get(ws) ?? 0;
+      if (misses >= 2) {
+        // Allow a couple of missed ping cycles before declaring the
+        // connection dead. Mobile/Tailscale links can briefly stall without
+        // the socket being permanently gone.
+        log.info("WebSocket connection dead (missed heartbeat), terminating");
+        missedPongs.delete(ws);
         ws.terminate();
         continue;
       }
-      alive.set(ws, false);
+      missedPongs.set(ws, misses + 1);
       ws.ping();
       sendMessage(ws, { type: "heartbeat" });
     }
@@ -427,9 +430,9 @@ export function createWebSocketServer(
     // Initialize subscription tracking and heartbeat
     subscriptions.set(ws, new Set());
     terminalSubscriptions.set(ws, new Set());
-    alive.set(ws, true);
+    missedPongs.set(ws, 0);
     ws.on("pong", () => {
-      alive.set(ws, true);
+      missedPongs.set(ws, 0);
     });
 
     // Send connected + current state
@@ -998,7 +1001,7 @@ export function createWebSocketServer(
       log.debug(`WebSocket disconnected: ${connectionLabel}`);
       subscriptions.delete(ws);
       terminalSubscriptions.delete(ws);
-      alive.delete(ws);
+      missedPongs.delete(ws);
     });
   });
 

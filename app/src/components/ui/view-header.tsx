@@ -21,7 +21,7 @@ interface ViewHeaderProps {
 export function ViewHeader({ children, className, style }: ViewHeaderProps) {
   return (
     <div
-      className={`flex shrink-0 items-center gap-3 border-b border-border/70 px-4 py-2.5${className ? ` ${className}` : ""}`}
+      className={`flex shrink-0 items-center gap-3 border-b border-border/70 px-4 py-2.5 max-[768px]:gap-2 max-[768px]:px-2 max-[768px]:py-2${className ? ` ${className}` : ""}`}
       style={style}
     >
       {children}
@@ -40,9 +40,9 @@ export function MobileSidebarToggle() {
       <button
         type="button"
         onClick={() => setMobileSidebarOpen(true)}
-        className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
+        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-hover hover:text-text"
       >
-        <MenuIcon size={16} strokeWidth={2} />
+        <MenuIcon size={18} strokeWidth={2.25} />
       </button>
     </Tooltip>
   );

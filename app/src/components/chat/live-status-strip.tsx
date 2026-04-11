@@ -92,9 +92,9 @@ export function LiveStatusStrip({
         {description}
       </span>
 
-      {/* Elapsed timer */}
+      {/* Elapsed timer — hidden on mobile to save space */}
       {elapsedMs >= 1000 && (
-        <span className="shrink-0 tabular-nums text-[0.75rem] text-muted/50">
+        <span className="hidden shrink-0 tabular-nums text-[0.75rem] text-muted/50 sm:inline">
           {formatElapsed(elapsedMs)}
         </span>
       )}

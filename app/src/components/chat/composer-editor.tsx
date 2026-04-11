@@ -468,6 +468,11 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
                 aria-placeholder={placeholder}
                 placeholder={() => null}
                 className={className}
+                spellCheck
+                autoCorrect="on"
+                autoCapitalize="sentences"
+                inputMode="text"
+                enterKeyHint="send"
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}
               />

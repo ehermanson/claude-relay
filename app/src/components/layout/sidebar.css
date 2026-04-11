@@ -13,3 +13,24 @@
     padding-right: 0.5rem;
   }
 }
+
+/* ── Touch-device overrides ─────────────────────────────────────── */
+
+/* On devices without hover (touch), always show menu trigger buttons
+   so they're tappable without relying on hover state */
+@media (pointer: coarse) {
+  .sidebar-menu-trigger {
+    opacity: 1 !important;
+  }
+
+  /* When a menu exists in the same slot, hide the timestamp on touch
+     to avoid overlap — the menu trigger needs that space. */
+  .sidebar-slot-has-menu .sidebar-timestamp-fade {
+    display: none;
+  }
+
+  /* Keep timestamp visible on touch when there's no menu */
+  .sidebar-timestamp-fade {
+    opacity: 1 !important;
+  }
+}

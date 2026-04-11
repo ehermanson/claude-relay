@@ -478,8 +478,12 @@ export function InputArea({
     : hasPendingPlan
       ? "Add feedback to refine the plan, or leave blank to approve"
       : isStopped
-        ? "Send a message to resume... Use @ for files and / for commands"
-        : "Send a message... Use @ for files and / for commands";
+        ? isMobile
+          ? "Send a message to resume..."
+          : "Send a message to resume... Use @ for files and / for commands"
+        : isMobile
+          ? "Send a message..."
+          : "Send a message... Use @ for files and / for commands";
   const composerValue = hasPendingPrompt
     ? promptText
     : hasPendingPlan

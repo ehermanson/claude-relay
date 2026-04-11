@@ -4,6 +4,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import http from "http";
+import type { IncomingMessage } from "http";
 import type { Plugin } from "vite";
 
 const BACKEND_PORT = parseInt(process.env.PORT || "7777");
@@ -11,17 +12,27 @@ const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
 const VITE_PORT = parseInt(process.env.VITE_PORT || "5173");
 
 /** Vite plugin to proxy non-HMR WebSocket upgrades to the relay server */
+function isViteHmrUpgrade(req: IncomingMessage): boolean {
+  const protocolHeader = req.headers["sec-websocket-protocol"];
+  const protocols = Array.isArray(protocolHeader)
+    ? protocolHeader
+    : (protocolHeader ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+  return protocols.includes("vite-hmr") || protocols.includes("vite-ping");
+}
+
 function wsProxy(): Plugin {
   return {
     name: "ws-proxy",
     configureServer(server) {
       server.httpServer?.on("upgrade", (req, socket) => {
-        // Let Vite handle its own HMR WebSocket
-        if (req.url?.startsWith("/@") || req.url === "/") {
-          // Only proxy root-level WS connections (no path = our app WS)
-        }
+        if (req.headers.upgrade?.toLowerCase() !== "websocket") return;
+        if (isViteHmrUpgrade(req)) return;
 
-        // Skip Vite HMR paths
+        // The Relay app socket lives at the root path. Let Vite keep any
+        // other upgrade paths for itself.
         if (req.url && req.url !== "/") return;
 
         const proxyReq = http.request({
@@ -86,6 +97,7 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
+    allowedHosts: [".ts.net"],
     port: VITE_PORT,
     strictPort: true,
     proxy: {

@@ -73,7 +73,7 @@ export function SidebarSpaceGroup({
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
-      className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-3 py-1.5 transition-all duration-150 ${
+      className={`group relative flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5 transition-all duration-150 ${
         isActive
           ? "bg-accent-dim text-accent"
           : isClosed
@@ -82,9 +82,9 @@ export function SidebarSpaceGroup({
       }`}
     >
       {/* Branch icon */}
-      <span className="absolute left-2.5 top-2 flex h-3 w-3 items-center justify-center">
+      <span className="absolute left-2.5 top-2.5 flex h-4 w-4 items-center justify-center">
         <GitBranch
-          size={10}
+          size={12}
           strokeWidth={2.5}
           className={isActive ? "text-accent" : "text-muted"}
         />
@@ -104,12 +104,12 @@ export function SidebarSpaceGroup({
               if (e.key === "Enter") commitEdit();
               if (e.key === "Escape") setEditing(false);
             }}
-            className="w-full rounded border border-border bg-surface px-1 py-0.5 text-[0.8125rem] font-medium leading-tight text-text-bright outline-none focus:border-accent"
+            className="w-full rounded border border-border bg-surface px-1.5 py-1 text-[0.8125rem] font-medium leading-snug text-text-bright outline-none focus:border-accent"
           />
         ) : (
           <div className="flex items-center gap-1.5">
             <span
-              className={`min-w-0 truncate text-[0.8125rem] leading-tight ${
+              className={`min-w-0 truncate text-[0.8125rem] leading-snug ${
                 isActive
                   ? "font-semibold text-accent"
                   : isClosed
@@ -156,7 +156,7 @@ export function SidebarSpaceGroup({
                 }}
                 className="absolute inset-0 flex items-start justify-end rounded pt-px text-muted hover:!text-text"
               >
-                <MoreVertical size={12} />
+                <MoreVertical size={16} />
               </Menu.Trigger>
               <Menu.Content>
                 <Menu.Item
@@ -210,9 +210,9 @@ export function SidebarSpaceGroup({
                 e.stopPropagation();
                 setMenuOpen(true);
               }}
-              className="absolute inset-0 flex items-start justify-end rounded pt-px text-muted/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:!text-text"
+              className="sidebar-menu-trigger absolute inset-0 flex items-start justify-end rounded pt-px text-muted/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:!text-text"
             >
-              <MoreVertical size={12} />
+              <MoreVertical size={16} />
             </button>
           )}
         </span>

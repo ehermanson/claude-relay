@@ -14,6 +14,7 @@ import { ToolContainer } from "@/components/chat/tool-container";
 import { UserMessage } from "@/components/chat/user-message";
 import { buildRows, estimateRowHeight } from "@/components/chat/build-rows";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import type { ChatItem, LiveActivity, RenderRow } from "@/lib/chat-types";
 import type { UserInputAnswer } from "@shared/types";
 import { computeBubbleShrinkwrap, onFontReady } from "@/lib/pretext";
@@ -68,6 +69,7 @@ export function MessageList({
     onContentChange,
     showScrollToBottom,
   } = useAutoScroll<HTMLDivElement>();
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
   // ── Container width tracking (for pretext layout) ────────────────
   const containerRef = useRef<HTMLDivElement>(null);
@@ -109,11 +111,14 @@ export function MessageList({
     getItemKey: (i) => rows[i]?.id ?? i,
     estimateSize: (i) => (rows[i] ? estimateRowHeight(rows[i], containerWidthRef.current) : 96),
     gap: 16,
-    overscan: 8,
+    overscan: isMobile ? 20 : 8,
   });
 
   useEffect(() => {
     rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+      // On mobile, preserving momentum is more important than anchor-perfect
+      // compensation while older virtualized rows mount above the viewport.
+      if (isMobile) return false;
       // Only adjust scroll when the resized item is fully above the viewport.
       // This keeps the viewport stable when visible items change size
       // (e.g. user expanding/collapsing a tool call) — the content just
@@ -124,7 +129,7 @@ export function MessageList({
     return () => {
       rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
     };
-  }, [rowVirtualizer]);
+  }, [isMobile, rowVirtualizer]);
 
   // ── Scroll management ────────────────────────────────────────────
   const hadItems = useRef(false);
@@ -224,7 +229,10 @@ export function MessageList({
     <div className="relative flex min-h-0 flex-1">
       <ChatTOC rows={rows} onScrollToRow={handleScrollToRow} />
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div ref={containerRef} className="mx-auto max-w-3xl px-6 py-6">
+        <div
+          ref={containerRef}
+          className="mx-auto max-w-3xl px-6 py-6 max-[768px]:px-3 max-[768px]:py-3"
+        >
           {/* Virtualized section — absolute-positioned items in a sized container */}
           {hasVirtual && (
             <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>

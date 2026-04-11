@@ -13,8 +13,8 @@ export function BranchChangeBanner({
 }) {
   return (
     <div className="shrink-0 pb-2">
-      <div className="mx-auto max-w-3xl px-6">
-        <div className="animate-fade-in flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/8 px-4 py-3">
+      <div className="mx-auto max-w-3xl px-6 max-[768px]:px-2">
+        <div className="animate-fade-in flex items-start gap-3 rounded-xl border border-warning/25 bg-warning/8 px-4 py-3 max-[768px]:gap-2 max-[768px]:px-3 max-[768px]:py-2">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/14">
             <GitBranch size={16} className="text-warning" />
           </div>

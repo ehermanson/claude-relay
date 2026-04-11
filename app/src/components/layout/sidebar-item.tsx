@@ -100,7 +100,7 @@ export function SidebarItem({
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
-      className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-3 py-1.5 transition-all duration-150 ${
+      className={`group relative flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5 transition-all duration-150 ${
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
     >
@@ -121,11 +121,11 @@ export function SidebarItem({
             onKeyDown={handleEditKeyDown}
             onBlur={commitEdit}
             onClick={(e) => e.stopPropagation()}
-            className="w-full rounded border border-border bg-surface px-1 py-0.5 text-[0.8125rem] font-medium leading-tight text-text-bright outline-none focus:border-accent"
+            className="w-full rounded border border-border bg-surface px-1.5 py-1 text-[0.8125rem] font-medium leading-snug text-text-bright outline-none focus:border-accent"
           />
         ) : (
           <div
-            className={`min-w-0 truncate text-[0.8125rem] leading-tight ${isActive ? "font-semibold text-accent" : "font-medium text-text"}`}
+            className={`min-w-0 truncate text-[0.8125rem] leading-snug ${isActive ? "font-semibold text-accent" : "font-medium text-text"}`}
           >
             {instance.name}
           </div>
@@ -159,17 +159,19 @@ export function SidebarItem({
 
       {/* Right slot: timestamp (default) ↔ menu trigger (hover) */}
       {!editing && (
-        <span className="relative ml-auto flex w-12 shrink-0 items-center justify-end self-start">
-          {/* Timestamp — fades out on hover */}
+        <span
+          className={`relative ml-auto flex w-12 shrink-0 items-center justify-end self-start${hasMenu ? " sidebar-slot-has-menu" : ""}`}
+        >
+          {/* Timestamp — fades out on hover (kept visible on touch via CSS) */}
           {instance.lastActivityAt > 0 && (
             <span
-              className={`pt-px text-[0.625rem] text-muted/50 transition-opacity duration-150${hasMenu ? " group-hover:opacity-0" : ""}`}
+              className={`sidebar-timestamp-fade pt-px text-[0.625rem] text-muted/50 transition-opacity duration-150${hasMenu ? " group-hover:opacity-0" : ""}`}
             >
               {formatTimeAgo(instance.lastActivityAt)}
             </span>
           )}
 
-          {/* Menu trigger — fades in on hover */}
+          {/* Menu trigger — fades in on hover (always visible on touch via CSS) */}
           {hasMenu &&
             (menuOpen ? (
               <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
@@ -178,9 +180,9 @@ export function SidebarItem({
                     e.preventDefault();
                     e.stopPropagation();
                   }}
-                  className="absolute inset-0 flex items-center justify-end rounded text-muted hover:!text-text"
+                  className="absolute inset-0 flex items-start justify-end rounded pt-0.5 text-muted hover:!text-text"
                 >
-                  <MoreVertical size={12} />
+                  <MoreVertical size={16} />
                 </Menu.Trigger>
                 <Menu.Content>
                   <Menu.Item
@@ -236,9 +238,9 @@ export function SidebarItem({
                   e.stopPropagation();
                   setMenuOpen(true);
                 }}
-                className="absolute inset-0 flex items-center justify-end rounded text-muted/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:!text-text"
+                className="sidebar-menu-trigger absolute inset-0 flex items-start justify-end rounded pt-0.5 text-muted/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:!text-text"
               >
-                <MoreVertical size={12} />
+                <MoreVertical size={16} />
               </button>
             ))}
         </span>

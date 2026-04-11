@@ -37,7 +37,7 @@ const MAX_SIDEBAR_SESSIONS = 10;
 
 function ProjectInitialBadge({ initial }: { initial: string }) {
   return (
-    <span className="flex h-4 w-4 items-center justify-center rounded-sm bg-surface-hover text-[0.6875rem] font-extrabold uppercase leading-none text-text-bright/80">
+    <span className="flex h-5 w-5 items-center justify-center rounded-sm bg-surface-hover text-[0.6875rem] font-extrabold uppercase leading-none text-text-bright/80">
       {initial}
     </span>
   );
@@ -179,24 +179,24 @@ export function SidebarProjectGroup({
       <div className="group/project mb-0.5">
         <div className="mx-2 flex items-center rounded-lg transition-colors hover:bg-surface-hover">
           <Collapsible.Trigger
-            className="flex min-w-0 flex-1 items-center gap-1.5 py-2 pl-2 text-left"
+            className="flex min-w-0 flex-1 items-center gap-1.5 py-2.5 pl-2 text-left"
             onMouseEnter={() => setIconHovered(true)}
             onMouseLeave={() => setIconHovered(false)}
           >
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center">
               {showFavicon && !iconHovered ? (
                 <img
                   src={`/api/file?path=${encodeURIComponent(iconPath)}`}
                   alt=""
-                  className="h-4 w-4 rounded-sm object-contain"
+                  className="h-5 w-5 rounded-sm object-contain"
                   onError={() => setImgError(true)}
                 />
               ) : !showFavicon && !iconHovered ? (
                 <ProjectInitialBadge initial={initial} />
               ) : isOpen ? (
-                <ChevronDown size={12} strokeWidth={3} className="text-text-bright/60" />
+                <ChevronDown size={14} strokeWidth={3} className="text-text-bright/60" />
               ) : (
-                <ChevronRight size={12} strokeWidth={3} className="text-text-bright/60" />
+                <ChevronRight size={14} strokeWidth={3} className="text-text-bright/60" />
               )}
             </span>
             <span
@@ -215,16 +215,16 @@ export function SidebarProjectGroup({
             </span>
           </Collapsible.Trigger>
 
-          <div className="flex shrink-0 items-center gap-0.5">
+          <div className="flex shrink-0 items-center gap-1">
             <Menu.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
               <Tooltip content="New" side="top">
                 <Menu.Trigger
                   onClick={(event: React.MouseEvent) => {
                     event.stopPropagation();
                   }}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-surface-hover hover:text-text"
+                  className="sidebar-menu-trigger flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-surface-hover hover:text-text"
                 >
-                  <Plus size={13} strokeWidth={2.5} />
+                  <Plus size={15} strokeWidth={2.5} />
                 </Menu.Trigger>
               </Tooltip>
               <Menu.Content align="start">
@@ -267,9 +267,9 @@ export function SidebarProjectGroup({
                   onClick={(event: React.MouseEvent) => {
                     event.stopPropagation();
                   }}
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted hover:text-text"
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted hover:text-text"
                 >
-                  <MoreVertical size={12} />
+                  <MoreVertical size={16} />
                 </Menu.Trigger>
                 <Menu.Content>
                   <Menu.Item
@@ -388,9 +388,9 @@ export function SidebarProjectGroup({
                   event.stopPropagation();
                   setMenuOpen(true);
                 }}
-                className="!h-5 !w-5 text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100"
+                className="sidebar-menu-trigger !h-7 !w-7 text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100"
               >
-                <MoreVertical size={12} />
+                <MoreVertical size={16} />
               </Button>
             )}
           </div>

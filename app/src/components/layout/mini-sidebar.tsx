@@ -142,7 +142,7 @@ function ProjectIcon({
       onMouseLeave={onLeave}
       className={`relative flex h-9 w-9 items-center justify-center rounded-lg text-[0.8125rem] font-bold transition-all duration-150 ${
         isActive
-          ? "bg-surface-hover text-text ring-1 ring-accent/40"
+          ? "bg-surface-hover text-text"
           : isHovered
             ? "bg-surface-hover/60 text-text"
             : "text-muted hover:bg-surface-hover hover:text-text"

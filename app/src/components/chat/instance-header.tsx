@@ -11,6 +11,7 @@ import {
   Columns2,
   EllipsisVertical,
   FileText,
+  GitBranch,
   LayoutGrid,
   ListChecks,
   ScrollText,
@@ -144,8 +145,12 @@ function SidecarToggles({
         ) : (
           sidecarContentCount > 0 && (
             <Tooltip content="Sidecar">
-              <Button variant="icon" onClick={onOpenMobileSidecar} className="relative shrink-0">
-                <LayoutGrid size={15} strokeWidth={2} />
+              <Button
+                variant="icon"
+                onClick={onOpenMobileSidecar}
+                className="relative h-9 w-9 shrink-0 rounded-lg"
+              >
+                <LayoutGrid size={17} strokeWidth={2} />
                 <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
                   {sidecarContentCount}
                 </span>
@@ -384,6 +389,91 @@ export function InstanceHeader({
     }
   };
 
+  const moreMenu = (
+    <Menu.Root>
+      <Menu.Trigger className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text sm:h-7 sm:w-7 sm:rounded-md">
+        <EllipsisVertical size={isMobile ? 18 : 14} />
+      </Menu.Trigger>
+      <Menu.Content>
+        {onSplit && !isMobile && (
+          <Menu.Item onClick={onSplit}>
+            <Columns2 size={13} strokeWidth={2} className="text-muted" />
+            Split view
+          </Menu.Item>
+        )}
+        <Menu.Item onClick={onOpenDebug}>
+          <Bug size={13} strokeWidth={2} className="text-muted" />
+          Debug
+        </Menu.Item>
+        {onDelete && (
+          <>
+            <Menu.Separator />
+            <Menu.Item danger onClick={onDelete}>
+              <Trash2 size={13} />
+              Delete chat
+            </Menu.Item>
+          </>
+        )}
+      </Menu.Content>
+    </Menu.Root>
+  );
+
+  if (isMobile) {
+    return (
+      <ViewHeader style={{ containerName: "chat-header", containerType: "inline-size" }}>
+        <MobileSidebarToggle />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-[0.875rem] font-semibold leading-snug tracking-tight text-text-bright">
+            {instance.name}
+          </h1>
+          <div className="flex items-center gap-1 text-[0.6875rem] leading-tight text-muted">
+            <ProjectBreadcrumb
+              projectId={projectId}
+              label={getProjectName(instance.workingDirectory)}
+              mobile
+            />
+            {displayBranchName ? (
+              <>
+                <span className="text-border">·</span>
+                <span className="flex items-center gap-0.5 truncate">
+                  <GitBranch size={10} strokeWidth={2} className="shrink-0" />
+                  <span className="truncate">{displayBranchName}</span>
+                </span>
+              </>
+            ) : null}
+          </div>
+        </div>
+        <SidecarToggles
+          loading={loadingSidecarActions}
+          isMobile={isMobile}
+          activePanels={activePanels}
+          tasksCount={tasksCount}
+          filesCount={filesCount}
+          hasPlanContent={hasPlanContent}
+          hasStats={hasStats}
+          stats={instance.stats}
+          sidecarContentCount={sidecarContentCount}
+          onTogglePanel={onTogglePanel}
+          onOpenMobileSidecar={onOpenMobileSidecar}
+        />
+        <CommitMessageDialog
+          open={commitDialogOpen}
+          onOpenChange={setCommitDialogOpen}
+          onCommit={(msg) => void handleCommit(msg)}
+        />
+        <PushBranchDialog
+          open={pushDialogOpen}
+          onOpenChange={setPushDialogOpen}
+          branch={displayBranchName}
+          status={pushStatus}
+          statusError={pushStatusError}
+          pushing={pushing}
+          onConfirm={(commitMessage) => void handlePush(commitMessage)}
+        />
+      </ViewHeader>
+    );
+  }
+
   return (
     <ViewHeader style={{ containerName: "chat-header", containerType: "inline-size" }}>
       <MobileSidebarToggle />
@@ -426,36 +516,11 @@ export function InstanceHeader({
             </Tooltip>
           ) : null}
         </span>
-        <Menu.Root>
-          <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
-            <EllipsisVertical size={14} />
-          </Menu.Trigger>
-          <Menu.Content>
-            {onSplit && !isMobile && (
-              <Menu.Item onClick={onSplit}>
-                <Columns2 size={13} strokeWidth={2} className="text-muted" />
-                Split view
-              </Menu.Item>
-            )}
-            <Menu.Item onClick={onOpenDebug}>
-              <Bug size={13} strokeWidth={2} className="text-muted" />
-              Debug
-            </Menu.Item>
-            {onDelete && (
-              <>
-                <Menu.Separator />
-                <Menu.Item danger onClick={onDelete}>
-                  <Trash2 size={13} />
-                  Delete chat
-                </Menu.Item>
-              </>
-            )}
-          </Menu.Content>
-        </Menu.Root>
+        {moreMenu}
       </ViewHeaderTitle>
       <div className="flex items-center gap-1">
         <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
-        {displayBranch && (
+        {displayBranch && !isMobile && (
           <GitBadge
             branch={displayBranch}
             projectId={instance.gitInfo?.isWorktree ? undefined : projectId}

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { InstanceViewProvider } from "@/components/chat/instance-view-context";
 import { InstanceViewShell } from "@/components/chat/instance-view-shell";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
@@ -13,7 +14,7 @@ import { useTerminalStore } from "@/stores/terminal-store";
 import { useTerminalMessages } from "@/hooks/use-terminal-messages";
 import { useTerminalShortcut } from "@/hooks/use-terminal-shortcut";
 import { useVerticalResize } from "@/hooks/use-vertical-resize";
-import { createInstance, fetchInstanceHistory } from "@/lib/api";
+import { createInstance, fetchInstanceHistory, fetchInstanceSummary } from "@/lib/api";
 import { getInstanceChatRoute, getInstanceProjectRouteId } from "@/lib/project-route";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
 import type { ServerMessage, ProviderKind, TerminalScope, UserInputAnswer } from "@shared/types";
@@ -49,7 +50,19 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     showThinking,
   } = useInstanceMessages();
 
-  const instance = instances.find((i) => i.id === id);
+  const liveInstance = instances.find((i) => i.id === id);
+  const {
+    data: summaryInstance,
+    isFetching: isFetchingSummary,
+    refetch: refetchSummary,
+  } = useQuery({
+    queryKey: ["instance-summary", id],
+    queryFn: () => fetchInstanceSummary(id!),
+    enabled: !!id && !liveInstance,
+    staleTime: 30_000,
+    retry: 1,
+  });
+  const instance = liveInstance ?? summaryInstance ?? undefined;
   const planChild = instance?.sessionId
     ? instances.find((i) => i.parentSessionId === instance.sessionId)
     : undefined;
@@ -98,10 +111,10 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   // Navigate away if instance doesn't exist (skip in compact/split mode — parent handles it)
   useEffect(() => {
     if (compact) return;
-    if (isConnected && instances.length > 0 && id && !instance) {
+    if (isConnected && !isSyncing && instances.length > 0 && id && !instance) {
       navigate({ to: "/", replace: true });
     }
-  }, [compact, isConnected, instances, id, instance, navigate]);
+  }, [compact, isConnected, isSyncing, instances, id, instance, navigate]);
 
   const handleSend = (text: string, images?: string[], internal?: boolean) => {
     if (!id) return;
@@ -340,7 +353,43 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   };
 
   if (!instance) {
-    return null;
+    const showLoadingState =
+      !id || connectionId === 0 || isSyncing || isFetchingSummary || !isConnected;
+    if (showLoadingState) {
+      return (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+          <div className="flex w-full max-w-md flex-col items-center px-6 py-8 text-center">
+            <p className="text-[0.875rem] font-medium text-text-bright">Loading chat</p>
+            <p className="mt-1 text-[0.75rem] text-muted">
+              Restoring this chat after reconnecting to Relay.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+        <div className="flex w-full max-w-md flex-col items-center gap-3 px-6 py-8 text-center">
+          <div>
+            <p className="text-[0.875rem] font-medium text-text-bright">Chat unavailable</p>
+            <p className="mt-1 text-[0.75rem] text-muted">
+              Relay could not restore this chat from the live session list. Try refreshing the
+              summary view and reconnecting.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void refetchSummary();
+            }}
+            className="inline-flex items-center rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
   const instanceId = id!;
 

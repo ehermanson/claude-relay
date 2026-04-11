@@ -27,11 +27,12 @@ import { ProjectContext } from "@/context/project-context";
 interface ProjectBreadcrumbProps {
   projectId: string;
   label: string;
+  mobile?: boolean;
 }
 
 // ── Component ────────────────────────────────────────────────────────
 
-export function ProjectBreadcrumb({ projectId, label }: ProjectBreadcrumbProps) {
+export function ProjectBreadcrumb({ projectId, label, mobile = false }: ProjectBreadcrumbProps) {
   const navigate = useNavigate();
   const ctx = useContext(ProjectContext);
 
@@ -83,9 +84,15 @@ export function ProjectBreadcrumb({ projectId, label }: ProjectBreadcrumbProps) 
 
   return (
     <Menu.Root>
-      <Menu.Trigger className="hidden items-center gap-1 text-[0.8125rem] font-medium text-muted transition-colors hover:text-text sm:inline-flex">
+      <Menu.Trigger
+        className={
+          mobile
+            ? "inline-flex min-w-0 max-w-full items-center gap-0.5 text-[0.6875rem] font-medium text-muted transition-colors hover:text-text"
+            : "hidden items-center gap-1 text-[0.8125rem] font-medium text-muted transition-colors hover:text-text sm:inline-flex"
+        }
+      >
         {label}
-        <ChevronDown size={10} strokeWidth={2.5} className="opacity-50" />
+        <ChevronDown size={mobile ? 10 : 10} strokeWidth={2.5} className="shrink-0 opacity-50" />
       </Menu.Trigger>
       <Menu.Content side="bottom" align="start" sideOffset={4}>
         {visibleItems.map((item) => (

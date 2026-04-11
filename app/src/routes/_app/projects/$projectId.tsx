@@ -133,7 +133,7 @@ function ProjectLayout() {
     <ProjectContext.Provider value={ctxValue}>
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-4 py-2.5 sm:px-5">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-4 py-2.5 max-[768px]:px-2 max-[768px]:py-2 sm:px-5">
           <MobileSidebarToggle />
           <Tooltip content={artifacts.directory} side="bottom">
             <h1 className="min-w-0 truncate text-sm font-semibold tracking-tight text-text-bright">
@@ -141,10 +141,10 @@ function ProjectLayout() {
             </h1>
           </Tooltip>
           <div className="flex-1" />
-          <GitStatusBar projectId={projectId} />
-          <span className="hidden h-4 w-px bg-border/50 sm:block" />
-          <div className="flex items-center gap-1">
-            <OpenInMenu path={artifacts.directory} className="hidden sm:flex" />
+          <div className="hidden items-center gap-1 sm:flex">
+            <GitStatusBar projectId={projectId} />
+            <span className="h-4 w-px bg-border/50" />
+            <OpenInMenu path={artifacts.directory} />
             {artifacts.githubUrl && (
               <Tooltip content="Open on GitHub">
                 <a

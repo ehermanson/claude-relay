@@ -340,6 +340,8 @@ pnpm typecheck  # Run server + UI TypeScript checks
 pnpm build  # Build everything
 ```
 
+`pnpm dev` binds Vite to `0.0.0.0` and allows Tailscale `*.ts.net` hostnames, so you can open the dev UI from other devices on your tailnet without hardcoding your machine name.
+
 Useful repo-local CLI commands:
 
 ```bash

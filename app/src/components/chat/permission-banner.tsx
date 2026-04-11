@@ -63,9 +63,9 @@ export function PermissionBanner({
         }
       }}
     >
-      <div className="mx-auto max-w-3xl px-6">
-        <div className="animate-fade-in flex items-center gap-3 rounded-xl border border-accent/25 bg-accent/5 px-4 py-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15">
+      <div className="mx-auto max-w-3xl px-6 max-[768px]:px-2">
+        <div className="animate-fade-in flex items-center gap-3 rounded-xl border border-accent/25 bg-accent/5 px-4 py-3 max-[768px]:gap-2 max-[768px]:px-3 max-[768px]:py-2">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15 max-[768px]:h-7 max-[768px]:w-7">
             <Lock size={16} className="text-accent" />
           </div>
           <div className="min-w-0 flex-1">
@@ -81,7 +81,7 @@ export function PermissionBanner({
             Allow
           </Button>
           <Tooltip content="Dismiss">
-            <Button variant="icon" className="shrink-0" onClick={handleExit}>
+            <Button variant="icon" className="shrink-0 max-[768px]:hidden" onClick={handleExit}>
               <X size={14} />
             </Button>
           </Tooltip>
