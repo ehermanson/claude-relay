@@ -1143,6 +1143,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private wireStdout(stream: Readable | null): void {
     if (!stream) return;
     stream.on("data", (chunk: Buffer | string) => {
+      this.noteProcessActivity();
       this.lineBuffer += chunk.toString();
       let idx = this.lineBuffer.indexOf("\n");
       while (idx !== -1) {
@@ -1157,6 +1158,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private wireStderr(stream: Readable | null): void {
     if (!stream) return;
     stream.on("data", (chunk: Buffer | string) => {
+      this.noteProcessActivity();
       const text = chunk.toString();
       this.stderrBuffer += text;
       if (this.stderrBuffer.length > 4000) {
@@ -2192,6 +2194,11 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       this.logger.warn(`[CodexAppServer] Timeout after ${this.processTimeout}ms`);
       this.close();
     }, this.processTimeout);
+  }
+
+  private noteProcessActivity(): void {
+    if (!this._isProcessing || this.processTimeout <= 0) return;
+    this.resetTimeout();
   }
 
   private clearTimeout(): void {

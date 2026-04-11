@@ -1528,6 +1528,72 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
+  it("keeps a long-running turn alive while the app-server is still streaming activity", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+      processTimeout: 40,
+    });
+
+    session.send("slow task");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(15);
+
+    for (let i = 0; i < 3; i += 1) {
+      child.stdout.write(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          method: "item/agentMessage/delta",
+          params: { delta: `chunk-${i}` },
+        }) + "\n",
+      );
+      await tick(25);
+      assert.equal(child.killed, false, "Expected streamed activity to refresh the timeout");
+    }
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: {
+          turn: { id: "turn-1", items: [], status: "completed", error: null },
+        },
+      }) + "\n",
+    );
+
+    await tick(10);
+
+    assert.equal(session.isProcessing, false);
+    assert.equal(child.killed, false);
+
+    session.close();
+  });
+
+  it("times out an idle turn when the app-server stops responding", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+      processTimeout: 30,
+    });
+
+    session.send("stall");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(80);
+
+    assert.equal(child.killed, true, "Expected idle turn to be closed after the timeout");
+    assert.equal(session.isProcessing, false);
+  });
+
   it("accumulates item/plan/delta into ExitPlanMode activity on turn complete", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
