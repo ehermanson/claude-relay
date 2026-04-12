@@ -29,12 +29,20 @@ Turn chat history into durable, reviewable project knowledge.
 - Accept/edit/archive flows
 - Provenance back to source chats
 
-### Handoff and cross-chat synthesis
+### Handoff
 
-Make executor/reviewer/planner style workflows easier to transfer and combine.
+Make executor/reviewer/planner style workflows easier to transfer cleanly between chats.
 
 - Explicit handoff action between chats
+- Visible, editable handoff packet
+- Basic handoff flows that work without larger grouping structures
+
+### Cross-chat synthesis
+
+Combine several related chats into one coherent view once the relevant chats are known.
+
 - Synthesis across multiple chats in a workstream or project
+- Narrow initial output: summary, decisions, and open questions
 - Related-chat suggestions and duplicate-investigation detection
 
 ## Later

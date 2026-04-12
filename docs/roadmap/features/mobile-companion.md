@@ -49,7 +49,8 @@ There is value in ambient access to sessions and project state, but a phone shou
 
 - [Themes](../themes.md)
 - [Now / Next / Later](../now-next-later.md)
-- [Handoff And Synthesis](./handoff-and-synthesis.md)
+- [Handoff](./handoff.md)
+- [Cross-Chat Synthesis](./cross-chat-synthesis.md)
 - [Operational Awareness](./operational-awareness.md)
 
 ## Decision Log

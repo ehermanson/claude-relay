@@ -47,7 +47,8 @@ Relay should help organize real behavior, not only ideal pre-planned workflows.
 
 - [Themes](../themes.md)
 - [Now / Next / Later](../now-next-later.md)
-- [Handoff And Synthesis](./handoff-and-synthesis.md)
+- [Handoff](./handoff.md)
+- [Cross-Chat Synthesis](./cross-chat-synthesis.md)
 - [Unified Workspace Model RFC](../../unified-workspace-model-rfc.md)
 
 ## Decision Log

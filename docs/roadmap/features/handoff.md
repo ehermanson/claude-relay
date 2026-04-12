@@ -1,17 +1,17 @@
-# Handoff And Synthesis
+# Handoff
 
 ## Problem
 
-Parallel chats often duplicate work or lose context because there is no strong transfer mechanism between them.
+Parallel chats often lose context because there is no strong transfer mechanism between them.
 
 ## Why This Matters
 
-Relay should make multi-chat workflows feel coherent, especially when users split execution, review, planning, and debugging across different chats.
+Relay should make multi-chat workflows feel coherent when users split execution, review, planning, and debugging across different chats.
 
 ## User Outcomes
 
 - Start a reviewer or follow-up chat without repeating context manually
-- Combine several related chats into one coherent summary
+- Transfer current state, blockers, and prior decisions cleanly
 - Avoid redoing investigations that already happened elsewhere
 
 ## Non-Goals
@@ -24,34 +24,33 @@ Relay should make multi-chat workflows feel coherent, especially when users spli
 - Explicit handoff action from one chat to another
 - Generated handoff packet: goal, context, decisions, blockers, touched files, and what not to redo
 - The handoff packet is a visible artifact that users can inspect and edit before reuse
-- Multi-chat synthesis view for workstreams, spaces, or projects
-- Suggested related chats when overlap is high
+- Basic handoff flows should work even without workstreams or richer memory systems
 
 ## Key Risks
 
-- Poor synthesis quality could hide important nuance
 - Too much generated text will make handoffs feel heavy
+- Hidden or uneditable transfer state will weaken trust
 
 ## Dependencies
 
-- Shared summary model
-- Workstream or related-chat grouping primitives
-- Good provenance links back to source chats
+- Good source-chat summarization or extraction
+- Clear provenance back to the source chat
+- A target flow for creating or opening the follow-up chat
 
 ## Open Questions
 
 - Should handoff be chat-to-chat only at first, or also chat-to-workstream?
 - How much user editing should happen before a handoff is sent?
-- What signals should drive related-chat suggestions?
+- Should handoff support open-in-split as a first-class target?
 
 ## Related Docs
 
 - [Themes](../themes.md)
 - [Now / Next / Later](../now-next-later.md)
 - [Workstreams](./workstreams.md)
-- [Project Memory](./project-memory.md)
+- [Cross-Chat Synthesis](./cross-chat-synthesis.md)
 
 ## Decision Log
 
-- Initial direction: handoff should be explicit and lightweight, with synthesis as a follow-on view.
-- Initial direction: v1 synthesis should stay narrow: summary, decisions, and open questions across selected chats.
+- Initial direction: handoff should be explicit, lightweight, and reviewable.
+- Initial direction: handoff should stand on its own rather than being coupled to broader synthesis features.
