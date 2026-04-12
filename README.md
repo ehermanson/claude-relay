@@ -315,6 +315,7 @@ Sessions still carry a working directory, and that directory remains the agent's
 | Variable          | Default                  | Description                                |
 | ----------------- | ------------------------ | ------------------------------------------ |
 | `RELAY_PASSWORD`  | unset                    | Authentication password; unset = open mode |
+| `RELAY_HOME`      | `~/.relay`               | Base directory for Relay state             |
 | `PORT`            | `7777`                   | Server port                                |
 | `WORKING_DIR`     | `process.cwd()`          | Default working directory                  |
 | `MAX_PROCESSES`   | `15`                     | Maximum concurrent managed processes       |
@@ -326,6 +327,8 @@ Sessions still carry a working directory, and that directory remains the agent's
 | `CLAUDE_DIR`      | `~/.claude`              | Claude data directory                      |
 | `CODEX_DIR`       | `~/.codex`               | Codex data directory                       |
 | `GEMINI_DIR`      | `~/.gemini`              | Gemini data directory                      |
+
+When `RELAY_HOME` is unset, Relay now uses `~/.relay` for both normal and dev runs. If an older `~/.relay-dev` directory exists, Relay will automatically migrate its contents into `~/.relay` on startup.
 
 ## Development
 

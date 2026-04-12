@@ -114,8 +114,8 @@ function normalizeBranchName(branch: string): string | null {
   return trimmed;
 }
 
-/** Pattern matching ~/.relay/worktrees/<name> or ~/.relay-dev/worktrees/<name> paths */
-const RELAY_WORKTREE_RE = /[/\\]\.relay(?:-dev)?[/\\]worktrees[/\\][^/\\]+\/?$/;
+/** Pattern matching the default ~/.relay/worktrees/<name> paths. */
+const RELAY_WORKTREE_RE = /[/\\]\.relay[/\\]worktrees[/\\][^/\\]+\/?$/;
 
 /**
  * Check if a directory path is a relay-managed worktree.

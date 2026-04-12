@@ -19,6 +19,7 @@
  *   PROCESS_TIMEOUT             Claude process timeout in ms, default 5 min
  *   WORKING_DIR                 Working directory for Claude, default cwd
  *   MAX_PROCESSES               Maximum concurrent managed processes, default 15
+ *   RELAY_HOME                  Base directory for Relay state, default ~/.relay
  *   SESSION_FILE                Path to session persistence file
  *   DB_PATH                     Path to SQLite database
  *   DEFAULT_MODEL               Default model for new sessions

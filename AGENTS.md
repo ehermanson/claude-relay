@@ -98,7 +98,7 @@ Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a ch
 
 ### Spaces
 
-Spaces group multiple concurrent agent chats within a shared git worktree/branch (`Project → Space[] → Chat[]`). Every project has an implicit "main" space (no worktree, default branch). Additional spaces create dedicated worktrees in `~/.relay/worktrees/space-<id>/`.
+Spaces group multiple concurrent agent chats within a shared git worktree/branch (`Project → Space[] → Chat[]`). Every project has an implicit "main" space (no worktree, default branch). Additional spaces create dedicated worktrees in `<RELAY_HOME>/worktrees/space-<id>/` (defaults to `~/.relay/worktrees/space-<id>/`; legacy `~/.relay-dev` state is migrated into `~/.relay` automatically).
 
 - `SpaceManager` (`server/core/space-manager.ts`) owns space lifecycle: create, list, complete (merge + cleanup), delete (archive + cleanup)
 - `spaces` table in SQLite with `space_id` FK on `sessions` and `managed_sessions`
