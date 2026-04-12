@@ -117,6 +117,10 @@ cloudflared tunnel --url http://localhost:7777
 - **Git worktree support** — sessions in relay-managed worktrees can be merged back to main from the sidebar
 - **Remote access** — reach the same Relay server over localhost, Tailscale, or an optional Cloudflare Tunnel
 
+## Product Planning
+
+Roadmap notes live in [docs/roadmap/README.md](./docs/roadmap/README.md).
+
 ## How It Works
 
 ```
