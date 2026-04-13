@@ -89,6 +89,7 @@ interface ThreadInfo {
   id: string;
   cwd: string;
   name?: string | null;
+  path?: string | null;
 }
 
 interface TurnInfo {
@@ -576,6 +577,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private _planDeltaBuffer = "";
   private _lastEmittedPlan = "";
   private _sessionId: string | undefined;
+  private _transcriptPath: string | undefined;
   private _preferredModel: string | null;
   private _planMode: boolean;
   private _bypassPermissions: boolean;
@@ -666,6 +668,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       provider: "codex",
       providerSessionId: this._sessionId,
       resumeCursor: this._sessionId ? { sessionId: this._sessionId } : undefined,
+      transcriptPath: this._transcriptPath,
       runtimePayload: {
         cwd: this.cwd,
         model: this._preferredModel ?? undefined,
@@ -939,6 +942,9 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       if (result?.thread?.id) {
         this._sessionId = result.thread.id;
       }
+      if (result?.thread?.path) {
+        this._transcriptPath = result.thread.path;
+      }
       this.emitSessionInitEvent(result);
     } else {
       const result = (await this.sendRpc("thread/start", {
@@ -952,6 +958,9 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       })) as { thread?: ThreadInfo };
       if (result?.thread?.id) {
         this._sessionId = result.thread.id;
+      }
+      if (result?.thread?.path) {
+        this._transcriptPath = result.thread.path;
       }
       this.emitSessionInitEvent(result);
     }
@@ -984,6 +993,9 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       })) as { thread?: ThreadInfo };
       if (result?.thread?.id) {
         this._sessionId = result.thread.id;
+      }
+      if (result?.thread?.path) {
+        this._transcriptPath = result.thread.path;
       }
     }
 
@@ -1566,6 +1578,9 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         const thread = params.thread as ThreadInfo | undefined;
         if (thread?.id) {
           this._sessionId = thread.id;
+        }
+        if (thread?.path) {
+          this._transcriptPath = thread.path;
         }
         break;
       }

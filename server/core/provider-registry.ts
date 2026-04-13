@@ -520,7 +520,10 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       if (!options.sessionId) {
         return options.transcriptPath;
       }
-      return findCodexTranscriptPath(options.providerDirs.codex, options.sessionId);
+      return (
+        findCodexTranscriptPath(options.providerDirs.codex, options.sessionId) ??
+        options.transcriptPath
+      );
     },
     captureManagedSession(context) {
       const binding = context.binding ?? context.proc.getRuntimeBinding();
@@ -530,7 +533,8 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       }
       return {
         sessionId,
-        transcriptPath: findCodexTranscriptPath(context.providerDirs.codex, sessionId),
+        transcriptPath:
+          findCodexTranscriptPath(context.providerDirs.codex, sessionId) ?? binding.transcriptPath,
       };
     },
     discoverExternalSessions(context) {
