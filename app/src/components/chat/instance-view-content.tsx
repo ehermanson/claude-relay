@@ -114,6 +114,7 @@ export function InstanceViewContent() {
             <MessageList
               key={shared.id}
               items={shared.items}
+              searchFocus={shared.searchFocus}
               isProcessing={shared.isActive}
               showThinkingIndicator={shared.showThinkingIndicator}
               instanceStatus={shared.instance.status}

@@ -10,7 +10,7 @@ import { dirname } from "path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Logger } from "#core/logger.js";
 
-const CURRENT_SCHEMA_VERSION = 20;
+const CURRENT_SCHEMA_VERSION = 21;
 type SQLiteBindValue = string | number | bigint | null | NodeJS.ArrayBufferView;
 type SQLiteBindParams = Record<string, SQLiteBindValue>;
 
@@ -222,6 +222,58 @@ function normalizeProjectRow(row: ProjectRow): ProjectRow {
   return normalized;
 }
 
+interface SearchResultRow {
+  instance_id: string;
+  source: string;
+  project_id: string;
+  space_id: string;
+  last_activity_at: string;
+  created_at: string;
+  archived: string;
+  title: string;
+  summary: string;
+  first_prompt: string;
+  last_message_text: string;
+  git_branch: string;
+  transcript_content: string;
+  title_snippet: string | null;
+  summary_snippet: string | null;
+  prompt_snippet: string | null;
+  message_snippet: string | null;
+  transcript_snippet: string | null;
+  rank: number;
+  combined_rank: number;
+}
+
+export interface SearchResult {
+  instanceId: string;
+  source: "session" | "managed";
+  projectId: string | null;
+  spaceId: string | null;
+  lastActivityAt: number;
+  createdAt: number;
+  title: string;
+  summary: string | null;
+  gitBranch: string | null;
+  snippet: string | null;
+  matchField: string | null;
+  rank: number;
+}
+
+/** Strip all HTML tags except <mark> and </mark> from FTS5 snippet output */
+export function sanitizeSnippet(html: string | null): string | null {
+  if (!html) return null;
+  // First, temporarily replace allowed <mark> tags with placeholders
+  let s = html.replace(/<mark>/g, "\x00MARK_OPEN\x00").replace(/<\/mark>/g, "\x00MARK_CLOSE\x00");
+  // Strip all remaining HTML tags
+  s = s.replace(/<[^>]*>/g, "");
+  // Escape remaining HTML entities in the text content
+  s = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // Restore allowed <mark> tags
+  s = s.replace(/\x00MARK_OPEN\x00/g, "<mark>").replace(/\x00MARK_CLOSE\x00/g, "</mark>");
+  return s;
+}
+
 export class SessionDB {
   private db: DatabaseSync;
   private transactionDepth = 0;
@@ -290,6 +342,13 @@ export class SessionDB {
   private stmtUpdateSpaceMergeMetadata!: StatementSync;
   private stmtUpdateSpaceRemoteStatus!: StatementSync;
   private stmtGetSpacesByProjectAll!: StatementSync;
+  private stmtSearchProject!: StatementSync;
+  private stmtSearchGlobal!: StatementSync;
+  private stmtDeleteSearchDoc!: StatementSync;
+  private stmtInsertSearchDoc!: StatementSync;
+  private stmtUpsertSearchContent!: StatementSync;
+  private stmtGetSearchContent!: StatementSync;
+  private stmtDeleteSearchContent!: StatementSync;
 
   constructor(dbPath: string, logger: Logger) {
     // Ensure the directory exists
@@ -369,6 +428,47 @@ export class SessionDB {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_sessions_space_id ON sessions(space_id);
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_space_id ON managed_sessions(space_id);
+    `);
+    this.ensureSearchIndex();
+  }
+
+  private ensureSearchIndex(): void {
+    // Drop the search_index if it's a legacy contentless table or is missing
+    // the transcript_content column. The index is rebuilt on every startup,
+    // so dropping it is safe.
+    const info = this.db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='search_index'")
+      .get() as { sql: string } | undefined;
+    if (
+      info?.sql?.includes("content=''") ||
+      info?.sql?.includes('content=""') ||
+      (info && !info.sql.includes("transcript_content"))
+    ) {
+      this.db.exec("DROP TABLE IF EXISTS search_index");
+    }
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS search_content (
+        instance_id TEXT PRIMARY KEY,
+        transcript_text TEXT NOT NULL DEFAULT ''
+      );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+        instance_id UNINDEXED,
+        source UNINDEXED,
+        project_id UNINDEXED,
+        space_id UNINDEXED,
+        last_activity_at UNINDEXED,
+        created_at UNINDEXED,
+        archived UNINDEXED,
+        title,
+        summary,
+        first_prompt,
+        last_message_text,
+        git_branch,
+        transcript_content,
+        tokenize='unicode61'
+      )
     `);
   }
 
@@ -979,6 +1079,76 @@ export class SessionDB {
       WHERE id = 1
     `);
 
+    // Search statements
+    //
+    // Ranking: blend FTS5 bm25 relevance with recency.
+    // FTS5 rank is negative (more negative = more relevant).
+    // Recency boost: 1 / (1 + age_in_days / 30)  — half-life ~30 days.
+    // Combined: rank * recency_boost (both negative and <1, so product is more negative for recent+relevant).
+    // The combined score is computed inline and used directly for ORDER BY + LIMIT.
+
+    this.stmtSearchProject = this.db.prepare(`
+      SELECT *,
+        snippet(search_index, 7, '<mark>', '</mark>', '…', 40) AS title_snippet,
+        snippet(search_index, 8, '<mark>', '</mark>', '…', 60) AS summary_snippet,
+        snippet(search_index, 9, '<mark>', '</mark>', '…', 60) AS prompt_snippet,
+        snippet(search_index, 10, '<mark>', '</mark>', '…', 60) AS message_snippet,
+        snippet(search_index, 12, '<mark>', '</mark>', '…', 60) AS transcript_snippet,
+        rank * (1.0 / (1.0 + (CAST(? AS REAL) - CAST(s.last_activity_at AS REAL)) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
+      FROM search_index s
+      WHERE search_index MATCH ?
+        AND s.project_id = ?
+        AND s.archived = '0'
+      ORDER BY combined_rank
+      LIMIT ?
+    `);
+
+    this.stmtSearchGlobal = this.db.prepare(`
+      SELECT *,
+        snippet(search_index, 7, '<mark>', '</mark>', '…', 40) AS title_snippet,
+        snippet(search_index, 8, '<mark>', '</mark>', '…', 60) AS summary_snippet,
+        snippet(search_index, 9, '<mark>', '</mark>', '…', 60) AS prompt_snippet,
+        snippet(search_index, 10, '<mark>', '</mark>', '…', 60) AS message_snippet,
+        snippet(search_index, 12, '<mark>', '</mark>', '…', 60) AS transcript_snippet,
+        rank * (1.0 / (1.0 + (CAST(? AS REAL) - CAST(s.last_activity_at AS REAL)) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
+      FROM search_index s
+      WHERE search_index MATCH ?
+        AND s.archived = '0'
+      ORDER BY combined_rank
+      LIMIT ?
+    `);
+
+    this.stmtDeleteSearchDoc = this.db.prepare(
+      "DELETE FROM search_index WHERE instance_id = ? AND source = ?",
+    );
+
+    this.stmtInsertSearchDoc = this.db.prepare(`
+      INSERT INTO search_index (
+        instance_id, source, project_id, space_id,
+        last_activity_at, created_at, archived,
+        title, summary, first_prompt, last_message_text, git_branch,
+        transcript_content
+      ) VALUES (
+        @instance_id, @source, @project_id, @space_id,
+        @last_activity_at, @created_at, @archived,
+        @title, @summary, @first_prompt, @last_message_text, @git_branch,
+        @transcript_content
+      )
+    `);
+
+    this.stmtUpsertSearchContent = this.db.prepare(`
+      INSERT OR REPLACE INTO search_content (instance_id, transcript_text)
+      VALUES (?, ?)
+    `);
+
+    this.stmtGetSearchContent = this.db.prepare(
+      "SELECT transcript_text FROM search_content WHERE instance_id = ?",
+    );
+
+    this.stmtDeleteSearchContent = this.db.prepare(
+      "DELETE FROM search_content WHERE instance_id = ?",
+    );
+
     for (const value of Object.values(this)) {
       if (
         value &&
@@ -1034,7 +1204,9 @@ export class SessionDB {
   }
 
   archive(sessionId: string): void {
+    const row = this.getBySessionId(sessionId);
     this.stmtArchive.run(sessionId);
+    if (row) this.syncSearchIndexForInstance(row.instance_id);
   }
 
   upsertManaged(row: ManagedInstanceRow): void {
@@ -1063,10 +1235,13 @@ export class SessionDB {
 
   archiveManaged(instanceId: string): void {
     this.stmtArchiveManaged.run(instanceId);
+    this.syncSearchIndexForInstance(instanceId);
   }
 
   unarchive(sessionId: string): void {
     this.stmtUnarchive.run(sessionId);
+    const row = this.getBySessionId(sessionId);
+    if (row) this.syncSearchIndexForInstance(row.instance_id);
   }
 
   updateStats(
@@ -1089,10 +1264,14 @@ export class SessionDB {
 
   updateLastActivity(sessionId: string, timestamp: number): void {
     this.stmtUpdateLastActivity.run(timestamp, sessionId);
+    const row = this.getBySessionId(sessionId);
+    if (row) this.syncSearchIndexForInstance(row.instance_id);
   }
 
   updateName(sessionId: string, name: string, customTitle: boolean): void {
     this.stmtUpdateName.run(name, customTitle ? 1 : 0, sessionId);
+    const row = this.getBySessionId(sessionId);
+    if (row) this.syncSearchIndexForInstance(row.instance_id);
   }
 
   updateProvider(sessionId: string, provider: string): void {
@@ -1114,6 +1293,8 @@ export class SessionDB {
 
   updateWorkingDirectory(sessionId: string, workingDirectory: string): void {
     this.stmtUpdateWorkingDirectory.run(workingDirectory, sessionId);
+    const row = this.getBySessionId(sessionId);
+    if (row) this.syncSearchIndexForInstance(row.instance_id);
   }
 
   updateSessionModel(sessionId: string, model: string | null): void {
@@ -1197,15 +1378,31 @@ export class SessionDB {
   }
 
   deleteBySessionId(sessionId: string): void {
+    const row = this.getBySessionId(sessionId);
     this.stmtDeleteBySessionId.run(sessionId);
+    if (row) {
+      this.syncSearchIndexForInstance(row.instance_id);
+      // Clean up search content if the instance is fully gone
+      if (!this.getManagedByInstanceId(row.instance_id)) {
+        this.stmtDeleteSearchContent.run(row.instance_id);
+      }
+    }
   }
 
   deleteByInstanceId(instanceId: string): void {
     this.stmtDeleteByInstanceId.run(instanceId);
+    this.syncSearchIndexForInstance(instanceId);
+    if (!this.getManagedByInstanceId(instanceId)) {
+      this.stmtDeleteSearchContent.run(instanceId);
+    }
   }
 
   deleteManagedByInstanceId(instanceId: string): void {
     this.stmtDeleteManagedByInstanceId.run(instanceId);
+    this.syncSearchIndexForInstance(instanceId);
+    if (!this.getByInstanceId(instanceId)) {
+      this.stmtDeleteSearchContent.run(instanceId);
+    }
   }
 
   // =========================================================================
@@ -1431,6 +1628,176 @@ export class SessionDB {
       }),
     );
     return this.getGlobalSettings();
+  }
+
+  // =========================================================================
+  // Search
+  // =========================================================================
+
+  /** Persist extracted transcript text for use during search indexing */
+  updateSearchContent(instanceId: string, transcriptText: string): void {
+    this.stmtUpsertSearchContent.run(instanceId, transcriptText);
+  }
+
+  /** Remove all search docs for an instance before rebuilding its preferred doc */
+  removeFromSearchIndex(instanceId: string): void {
+    this.stmtDeleteSearchDoc.run(instanceId, "session");
+    this.stmtDeleteSearchDoc.run(instanceId, "managed");
+  }
+
+  private insertSearchDoc(
+    source: "session" | "managed",
+    row: SessionRow | ManagedInstanceRow,
+  ): void {
+    // Read transcript text from the search_content side table (populated by instance-manager)
+    const contentRow = this.stmtGetSearchContent.get(row.instance_id) as
+      | { transcript_text: string }
+      | undefined;
+
+    this.stmtInsertSearchDoc.run(
+      asBindParams({
+        instance_id: row.instance_id,
+        source,
+        project_id: row.project_id ?? "",
+        space_id: row.space_id ?? "",
+        last_activity_at: String(row.last_activity_at),
+        created_at: String(row.created_at),
+        archived: String(row.archived),
+        title: row.name ?? "",
+        summary: "summary" in row ? (row.summary ?? "") : "",
+        first_prompt: "first_prompt" in row ? (row.first_prompt ?? "") : "",
+        last_message_text: row.last_message_text ?? "",
+        git_branch: row.git_branch ?? "",
+        transcript_content: contentRow?.transcript_text ?? "",
+      }),
+    );
+  }
+
+  /** Rebuild the preferred search doc for an instance, favoring managed rows over session shadows */
+  syncSearchIndexForInstance(instanceId: string): void {
+    this.removeFromSearchIndex(instanceId);
+
+    const managed = this.getManagedByInstanceId(instanceId);
+    if (managed && !managed.archived) {
+      this.insertSearchDoc("managed", managed);
+      return;
+    }
+
+    const session = this.getByInstanceId(instanceId);
+    if (session && !session.archived) {
+      this.insertSearchDoc("session", session);
+    }
+  }
+
+  /** Rebuild search docs for an instance after persistence changes */
+  indexSession(instanceId: string, source: "session" | "managed"): void {
+    void source;
+    this.syncSearchIndexForInstance(instanceId);
+  }
+
+  /** Rebuild the entire search index from sessions + managed_sessions */
+  rebuildSearchIndex(): void {
+    this.withTransaction(() => {
+      this.db.exec("DELETE FROM search_index");
+
+      // Index managed sessions first so we can skip their shadow session rows
+      const managed = asRows<ManagedInstanceRow>(
+        this.db.prepare("SELECT * FROM managed_sessions").all() as Record<string, unknown>[],
+      );
+      const managedInstanceIds = new Set<string>();
+      for (const row of managed) {
+        managedInstanceIds.add(row.instance_id);
+        if (!row.archived) {
+          this.insertSearchDoc("managed", row);
+        }
+      }
+
+      // Index session rows, skipping any that are shadows of managed sessions
+      const sessions = this.getAll(true);
+      for (const row of sessions) {
+        if (managedInstanceIds.has(row.instance_id)) continue;
+        if (!row.archived) {
+          this.insertSearchDoc("session", row);
+        }
+      }
+    });
+  }
+
+  /** Search chats using FTS5 */
+  search(query: string, options: { projectId?: string; limit?: number } = {}): SearchResult[] {
+    const limit = options.limit ?? 20;
+
+    // Sanitize for FTS5: wrap each token in quotes to avoid syntax errors
+    const ftsQuery = query
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((token) => `"${token.replace(/"/g, '""')}"`)
+      .join(" ");
+
+    if (!ftsQuery) return [];
+
+    try {
+      const now = Date.now();
+      const rows = options.projectId
+        ? asRows<SearchResultRow>(
+            this.stmtSearchProject.all(now, ftsQuery, options.projectId, limit) as Record<
+              string,
+              unknown
+            >[],
+          )
+        : asRows<SearchResultRow>(
+            this.stmtSearchGlobal.all(now, ftsQuery, limit) as Record<string, unknown>[],
+          );
+
+      return rows.map((r) => {
+        // FTS5 snippet() returns text even for non-matching columns (just no
+        // highlights). Only treat a snippet as a real match if it contains a
+        // <mark> tag — that means the search term actually hit that field.
+        const hasHit = (s: string | null | undefined): s is string =>
+          s != null && s.includes("<mark>");
+
+        const hitTitle = hasHit(r.title_snippet) ? r.title_snippet : null;
+        const hitSummary = hasHit(r.summary_snippet) ? r.summary_snippet : null;
+        const hitPrompt = hasHit(r.prompt_snippet) ? r.prompt_snippet : null;
+        const hitMessage = hasHit(r.message_snippet) ? r.message_snippet : null;
+        const hitTranscript = hasHit(r.transcript_snippet) ? r.transcript_snippet : null;
+
+        // Prefer summary/prompt/message/transcript over title for the displayed snippet,
+        // since the title is already shown as the result heading.
+        const bestSnippet =
+          hitSummary || hitPrompt || hitMessage || hitTranscript || hitTitle || null;
+        const matchField = hitSummary
+          ? "summary"
+          : hitPrompt
+            ? "first prompt"
+            : hitMessage
+              ? "message"
+              : hitTranscript
+                ? "transcript"
+                : hitTitle
+                  ? "title"
+                  : null;
+
+        return {
+          instanceId: r.instance_id,
+          source: r.source as "session" | "managed",
+          projectId: r.project_id || null,
+          spaceId: r.space_id || null,
+          lastActivityAt: Number(r.last_activity_at),
+          createdAt: Number(r.created_at),
+          title: r.title,
+          summary: r.summary || null,
+          gitBranch: r.git_branch || null,
+          snippet: sanitizeSnippet(bestSnippet),
+          matchField,
+          rank: r.combined_rank,
+        };
+      });
+    } catch {
+      // FTS5 query syntax errors should not crash the server
+      return [];
+    }
   }
 
   clear(): void {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
-import { FolderPlus, Loader2, LogOut, PanelLeftClose, Plus, Settings } from "lucide-react";
+import { FolderPlus, Loader2, LogOut, PanelLeftClose, Plus, Search, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthContext } from "../../context/auth-context";
 import { useWSState } from "../../context/websocket-context";
@@ -25,8 +25,9 @@ import "./sidebar.css";
 
 export function Sidebar({
   onCollapse,
+  onSearchOpen,
   showLogo = false,
-}: { onCollapse?: () => void; showLogo?: boolean } = {}) {
+}: { onCollapse?: () => void; onSearchOpen?: () => void; showLogo?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { isConnected, isSyncing } = useWSState();
   const { isAuthenticated, logout } = useAuthContext();
@@ -206,6 +207,21 @@ export function Sidebar({
           </div>
         </div>
 
+        {/* Search trigger */}
+        <div className="shrink-0 px-3 pb-2">
+          <button
+            type="button"
+            onClick={() => onSearchOpen?.()}
+            className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[0.8125rem] text-muted transition-colors hover:bg-bg-2 hover:text-text"
+          >
+            <Search size={14} className="shrink-0" />
+            <span className="flex-1 text-left">Search</span>
+            <kbd className="hidden rounded border border-border/70 px-1 py-0.5 font-mono text-[0.5625rem] text-muted/60 opacity-0 transition-opacity group-hover:opacity-100 @[10rem]:inline">
+              ⌘K
+            </kbd>
+          </button>
+        </div>
+
         <div className="flex-1 overflow-y-auto pb-2">
           {!hasProjects && isSyncing ? (
             <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
@@ -257,12 +273,14 @@ export function Sidebar({
 
         <div className="shrink-0 border-t border-border">
           <div className="sidebar-footer flex items-center justify-between px-2 py-2">
-            <Link to="/settings">
-              <Button variant="ghost" size="sm">
-                <Settings size={14} />
-                Settings
-              </Button>
-            </Link>
+            <div className="flex items-center gap-0.5">
+              <Link to="/settings">
+                <Button variant="ghost" size="sm">
+                  <Settings size={14} />
+                  Settings
+                </Button>
+              </Link>
+            </div>
             {isAuthenticated && (
               <Button variant="ghost" size="sm" onClick={logout}>
                 <LogOut size={13} />

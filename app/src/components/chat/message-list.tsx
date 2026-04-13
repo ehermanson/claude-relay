@@ -28,6 +28,10 @@ const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 
 interface MessageListProps {
   items: ChatItem[];
+  searchFocus?: {
+    query: string;
+    snippet?: string;
+  } | null;
   isProcessing?: boolean;
   showThinkingIndicator?: boolean;
   instanceStatus?: string;
@@ -47,6 +51,7 @@ interface MessageListProps {
 
 export function MessageList({
   items,
+  searchFocus,
   isProcessing,
   showThinkingIndicator,
   instanceStatus,
@@ -70,6 +75,8 @@ export function MessageList({
     showScrollToBottom,
   } = useAutoScroll<HTMLDivElement>();
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const [activeSearchRowId, setActiveSearchRowId] = useState<string | null>(null);
+  const consumedSearchFocusRef = useRef<string | null>(null);
 
   // ── Container width tracking (for pretext layout) ────────────────
   const containerRef = useRef<HTMLDivElement>(null);
@@ -91,6 +98,10 @@ export function MessageList({
 
   // ── Build render rows ────────────────────────────────────────────
   const rows = useMemo(() => buildRows(items), [items]);
+  const searchTargetIndex = useMemo(() => {
+    if (!searchFocus?.query) return -1;
+    return findSearchTargetRowIndex(rows, searchFocus);
+  }, [rows, searchFocus]);
 
   // ── Hybrid split ─────────────────────────────────────────────────
   const firstUnvirtualizedRowIndex = useMemo(() => {
@@ -176,6 +187,35 @@ export function MessageList({
     [virtualizedRowCount, rowVirtualizer, rows, scrollRef],
   );
 
+  useEffect(() => {
+    if (!searchFocus?.query) {
+      consumedSearchFocusRef.current = null;
+      setActiveSearchRowId(null);
+      return;
+    }
+    if (searchTargetIndex < 0) return;
+
+    const row = rows[searchTargetIndex];
+    if (!row) return;
+
+    const key = `${searchFocus.query}\n${searchFocus.snippet ?? ""}\n${row.id}`;
+    if (consumedSearchFocusRef.current === key) return;
+    consumedSearchFocusRef.current = key;
+
+    const timer = window.setTimeout(() => {
+      handleScrollToRow(searchTargetIndex);
+      setActiveSearchRowId(row.id);
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [handleScrollToRow, rows, searchFocus, searchTargetIndex]);
+
+  useEffect(() => {
+    if (!activeSearchRowId) return;
+    const timer = window.setTimeout(() => setActiveSearchRowId(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [activeSearchRowId]);
+
   // ── Row renderer ─────────────────────────────────────────────────
   const renderRow = (row: RenderRow) => {
     switch (row.kind) {
@@ -240,8 +280,13 @@ export function MessageList({
                 <div
                   key={virtualRow.key}
                   data-index={virtualRow.index}
+                  data-row-id={rows[virtualRow.index]?.id}
                   ref={rowVirtualizer.measureElement}
-                  className="absolute left-0 top-0 flex w-full flex-col"
+                  className={`absolute left-0 top-0 flex w-full flex-col rounded-xl transition-colors duration-700 ${
+                    rows[virtualRow.index]?.id === activeSearchRowId
+                      ? "bg-accent/10 ring-1 ring-accent/30"
+                      : ""
+                  }`}
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
                   {renderRow(rows[virtualRow.index])}
@@ -254,7 +299,13 @@ export function MessageList({
           {hasNonVirtual && (
             <div className={`flex flex-col gap-4${hasVirtual ? " mt-4" : ""}`}>
               {nonVirtualizedRows.map((row) => (
-                <div key={row.id} data-row-id={row.id} className="flex animate-fade-in flex-col">
+                <div
+                  key={row.id}
+                  data-row-id={row.id}
+                  className={`flex animate-fade-in flex-col rounded-xl transition-colors duration-700 ${
+                    row.id === activeSearchRowId ? "bg-accent/10 ring-1 ring-accent/30" : ""
+                  }`}
+                >
                   {renderRow(row)}
                 </div>
               ))}
@@ -295,4 +346,87 @@ export function MessageList({
       </div>
     </div>
   );
+}
+
+function findSearchTargetRowIndex(
+  rows: RenderRow[],
+  searchFocus: { query: string; snippet?: string },
+): number {
+  const snippetTerms = extractSnippetTerms(searchFocus.snippet);
+  if (snippetTerms.length > 0) {
+    const snippetMatch = findBestSearchRowIndex(rows, snippetTerms);
+    if (snippetMatch >= 0) return snippetMatch;
+  }
+
+  const queryTerms = extractQueryTerms(searchFocus.query);
+  if (queryTerms.length > 0) {
+    return findBestSearchRowIndex(rows, queryTerms);
+  }
+
+  return -1;
+}
+
+function findBestSearchRowIndex(rows: RenderRow[], terms: string[]): number {
+  let bestIndex = -1;
+  let bestScore = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const haystack = getSearchableRowText(rows[i]);
+    if (!haystack) continue;
+    const score = scoreSearchTerms(haystack, terms);
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = i;
+      if (score >= terms.length * 4) break;
+    }
+  }
+
+  return bestIndex;
+}
+
+function getSearchableRowText(row: RenderRow): string {
+  switch (row.kind) {
+    case "user":
+    case "assistant":
+    case "system":
+    case "thinking-block":
+      return normalizeSearchText(row.text);
+    case "agent-transcript":
+      return normalizeSearchText(`${row.title} ${row.result}`);
+    default:
+      return "";
+  }
+}
+
+function extractSnippetTerms(snippet?: string): string[] {
+  if (!snippet) return [];
+  const plain = snippet
+    .replace(/<mark>/gi, " ")
+    .replace(/<\/mark>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&hellip;|…/g, " ");
+  return tokenizeSearchText(plain, 3);
+}
+
+function extractQueryTerms(query: string): string[] {
+  return tokenizeSearchText(query.replace(/\b(?:AND|OR|NOT|NEAR)\b/gi, " "), 2);
+}
+
+function tokenizeSearchText(text: string, minLength: number): string[] {
+  const normalized = normalizeSearchText(text);
+  if (!normalized) return [];
+  return [...new Set(normalized.split(" ").filter((term) => term.length >= minLength))];
+}
+
+function normalizeSearchText(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+function scoreSearchTerms(haystack: string, terms: string[]): number {
+  let score = 0;
+  for (const term of terms) {
+    if (!haystack.includes(term)) continue;
+    score += haystack.includes(` ${term} `) ? 4 : 2;
+  }
+  return score;
 }

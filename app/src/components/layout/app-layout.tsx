@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { MiniSidebar } from "@/components/layout/mini-sidebar";
 import { Sidebar } from "@/components/layout/sidebar";
 import { NoProvidersLanding } from "@/components/no-providers-landing";
+import { SearchDialog, useSearchDialog } from "@/components/search-dialog";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { useAvailableProviders } from "@/hooks/use-available-providers";
 import { useTheme } from "@/stores/theme-store";
@@ -13,6 +14,7 @@ import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { useWSState } from "@/context/websocket-context";
 
 export function AppLayout() {
+  const search = useSearchDialog();
   const { providers, isLoading: providersLoading } = useAvailableProviders();
   const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -115,11 +117,12 @@ export function AppLayout() {
             {/* Sidebar panel */}
             <div className="relative z-10 my-auto h-[calc(100%-16px)] w-[85vw] max-w-sm animate-slide-in-left">
               <div className="app-shell-sidebar h-full">
-                <Sidebar showLogo />
+                <Sidebar showLogo onSearchOpen={() => search.setOpen(true)} />
               </div>
             </div>
           </div>
         )}
+        <SearchDialog open={search.open} onOpenChange={search.setOpen} />
         {toaster}
       </div>
     );
@@ -138,7 +141,7 @@ export function AppLayout() {
             {showMini ? (
               <MiniSidebar onExpand={toggleCollapsed} />
             ) : (
-              <Sidebar onCollapse={toggleCollapsed} />
+              <Sidebar onCollapse={toggleCollapsed} onSearchOpen={() => search.setOpen(true)} />
             )}
             {/* Persistent logo – never unmounts, sits above both sidebars */}
             <Link
@@ -160,6 +163,7 @@ export function AppLayout() {
           </main>
         </div>
       </div>
+      <SearchDialog open={search.open} onOpenChange={search.setOpen} />
       {toaster}
     </>
   );

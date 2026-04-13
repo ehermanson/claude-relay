@@ -6,6 +6,7 @@
  */
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { fetchSpaceChats } from "@/lib/api";
+import { validateChatSearch } from "@/routes/_app/projects/$projectId/chats/-search";
 import { SpaceView } from "./index";
 
 export const Route = createFileRoute("/_app/projects/$projectId/spaces/$spaceId/$chatId")({
@@ -40,4 +41,5 @@ export const Route = createFileRoute("/_app/projects/$projectId/spaces/$spaceId/
     });
   },
   component: SpaceView,
+  validateSearch: validateChatSearch,
 });

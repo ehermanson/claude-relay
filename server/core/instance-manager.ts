@@ -406,6 +406,43 @@ function isTrivialMessage(text: string): boolean {
   return cleaned.length < 8 || TRIVIAL_MESSAGE_RE.test(cleaned);
 }
 
+/**
+ * Extract meaningful text from a conversation transcript for search indexing.
+ *
+ * Includes both user and assistant messages, filtering out short throwaway
+ * messages (acknowledgments, "ok sounds good", etc.) and non-text content
+ * like tool use/results and thinking blocks. Internal/injected user messages
+ * (auto-continue, permission grants, etc.) are stripped or excluded.
+ */
+const MIN_SEARCHABLE_LENGTH = 80;
+
+export function extractSearchableText(history: HistoryEntry[]): string {
+  const parts: string[] = [];
+  for (const entry of history) {
+    const msg = entry.message;
+    if (msg.type === "user") {
+      const userMsg = msg as UserMessage;
+      // Skip hidden server-injected messages (auto-continue, permission grants)
+      if (userMsg.internal) continue;
+      // Strip injected wrappers (task context, custom instructions, space context)
+      // to get the real user text
+      let text = userMsg.text;
+      if (text && isInternalInjectedUserText(text)) {
+        text = stripInjectedWrapper(text);
+      }
+      if (text && text.length >= MIN_SEARCHABLE_LENGTH) {
+        parts.push(text);
+      }
+    } else if (msg.type === "output") {
+      const text = (msg as OutputMessage).text;
+      if (text && text.length >= MIN_SEARCHABLE_LENGTH) {
+        parts.push(text);
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
 function buildUserInputReply(
   request: ProviderRequest,
   decision: "accept" | "decline",
@@ -5773,13 +5810,26 @@ export class InstanceManager extends EventEmitter {
     if (this.shuttingDown) return;
     try {
       this.reconcileInstancePersistenceIdentity(instance);
-      if (!instance.info.external && this.shouldPersistManagedInstance(instance)) {
+      const isManaged = !instance.info.external && this.shouldPersistManagedInstance(instance);
+      if (isManaged) {
         instance.providerBinding =
           instance.process?.getRuntimeBinding() ?? instance.providerBinding;
         this.db.upsertManaged(this.toManagedInstanceRow(instance));
       }
       if (instance.sessionId && instance.jsonlPath) {
         this.db.upsert(this.toSessionRow(instance));
+      }
+
+      // Update searchable transcript text from the in-memory history
+      if (instance.history.length > 0) {
+        this.db.updateSearchContent(instance.info.id, extractSearchableText(instance.history));
+      }
+
+      // Index once per instance — prefer managed source when both exist
+      if (isManaged) {
+        this.db.indexSession(instance.info.id, "managed");
+      } else if (instance.sessionId && instance.jsonlPath) {
+        this.db.indexSession(instance.info.id, "session");
       }
     } catch (err) {
       this.baseConfig.logger.warn(`[InstanceManager] Failed to persist session: ${err}`);
@@ -6744,6 +6794,35 @@ export class InstanceManager extends EventEmitter {
 
     // Auto-continue instances that were mid-turn when the server shut down
     this.autoContinueAfterRestart();
+
+    // Rebuild the FTS search index on startup for freshness.
+    // Populate search_content with transcript text for all instances —
+    // most are unhydrated (history: []) so we parse their transcript from disk.
+    try {
+      let indexed = 0;
+      for (const inst of this.instances.values()) {
+        try {
+          let history = inst.history;
+          if (history.length === 0 && inst.jsonlPath) {
+            // Instance not yet hydrated — parse transcript from disk
+            const parsed = this.parseProviderTranscript(inst.info.provider, inst.jsonlPath);
+            history = parsed.history;
+          }
+          if (history.length > 0) {
+            this.db.updateSearchContent(inst.info.id, extractSearchableText(history));
+            indexed++;
+          }
+        } catch {
+          // Skip instances whose transcript can't be parsed (corrupt, missing, etc.)
+        }
+      }
+      this.db.rebuildSearchIndex();
+      this.baseConfig.logger.info(
+        `[InstanceManager] Search index rebuilt (${indexed} transcripts indexed)`,
+      );
+    } catch (err) {
+      this.baseConfig.logger.warn("[InstanceManager] Search index rebuild failed", err);
+    }
   }
 
   /**

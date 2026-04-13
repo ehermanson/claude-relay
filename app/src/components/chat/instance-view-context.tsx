@@ -27,6 +27,7 @@ export type InstanceViewContextValue = {
     planChild?: InstanceInfo;
     items: ChatItem[];
     rawHistory: HistoryEntry[] | null;
+    searchFocus: { query: string; snippet?: string } | null;
     currentTasks: TaskItem[] | null;
     currentFiles: FileChange[] | null;
     lastActivity: LiveActivity | null;

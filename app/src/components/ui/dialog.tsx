@@ -31,9 +31,11 @@ export function DialogContent({
   return (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop className="fixed inset-0 z-[9998] bg-black/60 backdrop-blur-sm animate-fade-in" />
-      <BaseDialog.Popup className={`fixed inset-0 z-[9999] flex items-center justify-center p-4`}>
+      <BaseDialog.Popup
+        className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none`}
+      >
         <div
-          className={`mx-auto flex w-full ${maxWidth} flex-col gap-3 rounded-xl border border-border/70 bg-surface p-5 shadow-2xl animate-fade-in ${className}`}
+          className={`pointer-events-auto mx-auto flex w-full ${maxWidth} flex-col gap-3 rounded-xl border border-border/70 bg-surface p-5 shadow-2xl animate-fade-in ${className}`}
           style={{ maxHeight: "85vh" }}
         >
           {children}

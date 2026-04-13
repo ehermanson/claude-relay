@@ -680,3 +680,35 @@ export async function pushSpace(
   });
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+export interface SearchResultItem {
+  instanceId: string;
+  source: "session" | "managed";
+  projectId: string | null;
+  spaceId: string | null;
+  lastActivityAt: number;
+  createdAt: number;
+  title: string;
+  summary: string | null;
+  gitBranch: string | null;
+  snippet: string | null;
+  matchField: string | null;
+  rank: number;
+}
+
+export async function searchChats(
+  query: string,
+  opts?: { projectId?: string; limit?: number },
+): Promise<SearchResultItem[]> {
+  const params = new URLSearchParams({ q: query });
+  if (opts?.projectId) params.set("projectId", opts.projectId);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const res = await fetch("/api/search?" + params.toString());
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.results ?? [];
+}

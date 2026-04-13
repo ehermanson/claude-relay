@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "@tanstack/react-router";
+import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { InstanceViewProvider } from "@/components/chat/instance-view-context";
 import { InstanceViewShell } from "@/components/chat/instance-view-shell";
@@ -30,7 +30,15 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   const { chatId: paramId } = useParams({ strict: false }) as {
     chatId?: string;
   };
+  const routeSearch = useSearch({ strict: false }) as Record<string, unknown>;
   const id = propId ?? paramId;
+  const searchFocus =
+    typeof routeSearch.q === "string" && routeSearch.q.trim()
+      ? {
+          query: routeSearch.q,
+          snippet: typeof routeSearch.match === "string" ? routeSearch.match : undefined,
+        }
+      : null;
   const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
   const { isConnected, isSyncing, connectionId, instances } = useWSState();
@@ -432,6 +440,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       planChild,
       items,
       rawHistory,
+      searchFocus,
       currentTasks,
       currentFiles,
       lastActivity,

@@ -10,6 +10,8 @@ Make it easy to find old work and re-enter a project after time away.
 - Resume-context view for "what changed, what matters, where to start"
 - Search result cards that can point to chats, decisions, files, and grouped work
 
+Current shipped slice: command-menu search for chats with project/global scope, snippet-based ranking, and best-effort landing near the matched message. Broader result types and preview flows remain follow-on work.
+
 ### Workstreams and chat grouping
 
 Support organic grouping for related chats without requiring a space up front.
@@ -44,6 +46,15 @@ Combine several related chats into one coherent view once the relevant chats are
 - Synthesis across multiple chats in a workstream or project
 - Narrow initial output: summary, decisions, and open questions
 - Related-chat suggestions and duplicate-investigation detection
+
+### Retrieval precision and richer search results
+
+Extend the shipped V1 search loop into a stronger retrieval surface.
+
+- Exact turn/message anchors for precise landing
+- Preview / peek before full navigation
+- Summary / decision hits, space hits, and file-adjacent results
+- Ranking diagnostics and lightweight precision controls
 
 ## Later
 
