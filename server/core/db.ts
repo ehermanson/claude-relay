@@ -5,7 +5,7 @@
  * Handles schema migrations, corruption recovery, and index management.
  */
 
-import { mkdirSync, renameSync } from "fs";
+import { mkdirSync, renameSync, unlinkSync } from "fs";
 import { dirname } from "path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Logger } from "#core/logger.js";
@@ -223,7 +223,6 @@ function normalizeProjectRow(row: ProjectRow): ProjectRow {
 }
 
 export class SessionDB {
-  private readonly dbPath: string;
   private db: DatabaseSync;
   private transactionDepth = 0;
 
@@ -293,18 +292,16 @@ export class SessionDB {
   private stmtGetSpacesByProjectAll!: StatementSync;
 
   constructor(dbPath: string, logger: Logger) {
-    this.dbPath = dbPath;
-
     // Ensure the directory exists
     mkdirSync(dirname(dbPath), { recursive: true });
 
     try {
       this.db = this.openDatabase(dbPath);
     } catch {
-      // Corrupted file — rename and retry
+      // Corrupted file — rename (with WAL/SHM cleanup) and retry
       logger.warn(`[SessionDB] Database corrupted, recreating: ${dbPath}`);
       try {
-        renameSync(dbPath, `${dbPath}.corrupt.${Date.now()}`);
+        this.relocateDatabase(dbPath, `${dbPath}.corrupt.${Date.now()}`);
       } catch {
         // ignore rename errors
       }
@@ -315,6 +312,18 @@ export class SessionDB {
     this.migrate();
     this.ensureIndexes();
     this.prepareStatements();
+  }
+
+  /** Rename the DB file and remove its orphaned WAL/SHM sidecar files. */
+  private relocateDatabase(fromPath: string, toPath: string): void {
+    renameSync(fromPath, toPath);
+    for (const suffix of ["-wal", "-shm"]) {
+      try {
+        unlinkSync(fromPath + suffix);
+      } catch {
+        // sidecar may not exist
+      }
+    }
   }
 
   private openDatabase(path: string): DatabaseSync {
@@ -377,22 +386,21 @@ export class SessionDB {
     const currentVersion = versionRow?.version ?? 0;
 
     if (currentVersion === 0) {
+      // Fresh database — create everything
       this.createSchema();
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
       return;
     }
 
-    if (currentVersion === CURRENT_SCHEMA_VERSION) {
+    if (currentVersion >= CURRENT_SCHEMA_VERSION) {
+      // Current or newer (e.g. worktree branch with a schema bump) — leave it alone
       return;
     }
 
-    this.db.close();
-    const backupPath = `${this.dbPath}.pre-cleanup.${Date.now()}`;
-    renameSync(this.dbPath, backupPath);
-    this.db = this.openDatabase(this.dbPath);
+    // Older version — run idempotent schema creation to add any new
+    // tables/indexes, then bump the version. Data is preserved.
     this.createSchema();
-    this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
-    this.needsRebuild = true;
+    this.db.exec(`UPDATE schema_version SET version = ${CURRENT_SCHEMA_VERSION}`);
   }
 
   private createSchema(): void {
