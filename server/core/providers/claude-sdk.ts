@@ -33,7 +33,6 @@ import {
   describeToolUse,
   describeToolDetail,
   extractInputDescription,
-  getContextWindow,
   capDetail,
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
@@ -85,6 +84,28 @@ interface AccountInfo {
   apiProvider?: "firstParty" | "bedrock" | "vertex" | "foundry";
 }
 
+/** Context usage breakdown from getContextUsage() */
+interface ContextUsage {
+  categories: { name: string; tokens: number; color: string; isDeferred?: boolean }[];
+  totalTokens: number;
+  maxTokens: number;
+  rawMaxTokens: number;
+  percentage: number;
+  model: string;
+}
+
+/** Model capability info from supportedModels() */
+interface SdkModelInfo {
+  value: string;
+  displayName: string;
+  description: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: ("low" | "medium" | "high" | "max")[];
+  supportsAdaptiveThinking?: boolean;
+  supportsFastMode?: boolean;
+  supportsAutoMode?: boolean;
+}
+
 interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   interrupt(): Promise<void>;
   setPermissionMode(
@@ -93,7 +114,15 @@ interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   setModel(model?: string): Promise<void>;
   setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
   accountInfo(): Promise<AccountInfo>;
+  getContextUsage(): Promise<ContextUsage>;
+  supportedModels(): Promise<SdkModelInfo[]>;
   close(): void | Promise<void>;
+}
+
+/** WarmQuery from startup() — pre-warmed SDK subprocess */
+interface WarmQuery {
+  query(prompt: string | AsyncIterable<SDKUserMessage>): QueryHandle;
+  close(): void;
 }
 
 type CanUseTool = (
@@ -134,6 +163,11 @@ type QueryFn = (params: {
   prompt: string | AsyncIterable<SDKUserMessage>;
   options?: SDKOptions;
 }) => QueryHandle;
+
+type StartupFn = (params?: {
+  options?: SDKOptions;
+  initializeTimeoutMs?: number;
+}) => Promise<WarmQuery>;
 
 // =============================================================================
 // Prompt Queue
@@ -250,13 +284,19 @@ export interface ClaudeSdkSession extends ProviderSession {
   readonly sessionId: string | undefined;
   /** Return accumulated rate limit data from received events, if any. */
   getRateLimitSnapshot(): import("#core/types.js").ProviderRateLimitStatus[] | undefined;
+  /** Fetch model capability info from the SDK. Available after session init. */
+  fetchModelCapabilities(): Promise<SdkModelInfo[] | null>;
 }
 
-/** Cached query function from the SDK — resolved once, reused for all sessions. */
+/** Cached SDK functions — resolved once, reused for all sessions. */
 let cachedQueryFn: QueryFn | null = null;
+let cachedStartupFn: StartupFn | null = null;
+
+/** Pre-warmed query instance from startup() — shared across sessions for faster first query. */
+let warmQuery: WarmQuery | null = null;
 
 /**
- * Resolve the SDK's `query` function via dynamic import.
+ * Resolve the SDK's `query` and `startup` functions via dynamic import.
  * Caches the result so subsequent calls are synchronous.
  * Call this once at startup (e.g. in InstanceManager.restoreInstances())
  * so that session creation can be synchronous.
@@ -266,11 +306,34 @@ export async function resolveQueryFn(): Promise<QueryFn> {
   try {
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
     cachedQueryFn = sdk.query as unknown as QueryFn;
+    // startup() is exported but not yet typed in the SDK's .d.ts
+    const startupFn = (sdk as Record<string, unknown>).startup;
+    if (typeof startupFn === "function") {
+      cachedStartupFn = startupFn as unknown as StartupFn;
+    }
     return cachedQueryFn;
   } catch (err) {
     throw new Error(
       `@anthropic-ai/claude-agent-sdk is not installed. Install it with: npm install @anthropic-ai/claude-agent-sdk\n${err}`,
     );
+  }
+}
+
+/**
+ * Pre-warm the Claude Code subprocess so the first query is ~20x faster.
+ * Safe to call multiple times — only the first call spawns the subprocess.
+ * Returns the WarmQuery instance, or null if startup() is unavailable.
+ */
+export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<WarmQuery | null> {
+  if (warmQuery) return warmQuery;
+  if (!cachedStartupFn) return null;
+  try {
+    warmQuery = await cachedStartupFn({ initializeTimeoutMs: 30_000 });
+    logger.info("[SdkSession] Pre-warmed Claude Code subprocess via startup()");
+    return warmQuery;
+  } catch (err) {
+    logger.debug(`[SdkSession] startup() pre-warm failed (non-fatal): ${err}`);
+    return null;
   }
 }
 
@@ -394,6 +457,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     // Fetch account info (plan, email, org) and emit as provider status
     this.fetchAccountInfo();
+
+    // Fetch model capabilities and emit as provider status
+    this.emitModelCapabilities();
 
     // Start consuming the message stream
     this.consumeStream();
@@ -1163,6 +1229,59 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   }
 
   // ===========================================================================
+  // Model Capability Discovery
+  // ===========================================================================
+
+  private _cachedModelCapabilities: SdkModelInfo[] | null = null;
+
+  /**
+   * Fetch model capabilities from the SDK's supportedModels() API.
+   * Returns SDK-reported models with capability flags (effort levels,
+   * adaptive thinking, fast mode, etc.). Cached after first successful fetch.
+   */
+  async fetchModelCapabilities(): Promise<SdkModelInfo[] | null> {
+    if (this._cachedModelCapabilities) return this._cachedModelCapabilities;
+    try {
+      const models = await this.query.supportedModels();
+      this._cachedModelCapabilities = models;
+      this.logger.info(`[SdkSession] Discovered ${models.length} models with capabilities`);
+      return models;
+    } catch (err) {
+      this.logger.debug(`[SdkSession] supportedModels() unavailable: ${err}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch model capabilities and emit as a provider_status system event.
+   * Called once after session init alongside account info.
+   */
+  private emitModelCapabilities(): void {
+    void this.fetchModelCapabilities()
+      .then((models) => {
+        if (!models?.length) return;
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            models: models.map((m) => ({
+              id: m.value,
+              label: m.displayName,
+              description: m.description,
+              supportsEffort: m.supportsEffort,
+              supportedEffortLevels: m.supportedEffortLevels,
+              supportsAdaptiveThinking: m.supportsAdaptiveThinking,
+              supportsFastMode: m.supportsFastMode,
+            })),
+          },
+        } as SystemEventMessage);
+      })
+      .catch(() => {
+        // Already logged in fetchModelCapabilities
+      });
+  }
+
+  // ===========================================================================
   // Rate Limit Events
   // ===========================================================================
 
@@ -1468,13 +1587,36 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     if (!this._stats.model) {
       this._stats.model = model;
     }
-    // Snapshot total input for this turn = current context window utilization (not cumulative)
-    this._stats.contextTokens =
-      u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-    if (!this._stats.contextWindow) {
-      this._stats.contextWindow = getContextWindow(model);
-    }
     this.emit("stats", { ...this._stats });
+
+    // Fetch accurate context usage from the SDK (async, non-blocking).
+    // This replaces the old manual estimate (input + cached tokens).
+    this.refreshContextUsage();
+  }
+
+  /**
+   * Fetch context window usage from the SDK's getContextUsage() API.
+   * Updates stats with accurate per-category token counts and context window size.
+   * Non-blocking — errors are silently logged.
+   */
+  private _contextUsageInflight = false;
+  private refreshContextUsage(): void {
+    if (this._contextUsageInflight || this._stopped) return;
+    this._contextUsageInflight = true;
+    this.query
+      .getContextUsage()
+      .then((ctx) => {
+        this._stats.contextTokens = ctx.totalTokens;
+        this._stats.contextWindow = ctx.maxTokens;
+        this._stats.contextCategories = ctx.categories;
+        this.emit("stats", { ...this._stats });
+      })
+      .catch((err) => {
+        this.logger.debug(`[SdkSession] getContextUsage() failed: ${err}`);
+      })
+      .finally(() => {
+        this._contextUsageInflight = false;
+      });
   }
 
   // ===========================================================================

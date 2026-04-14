@@ -27,7 +27,7 @@ import { join, resolve } from "path";
 import { homedir } from "os";
 import { execFileSync } from "child_process";
 import type { ProviderSession } from "#core/provider.js";
-import { resolveQueryFn } from "#core/providers/claude-sdk.js";
+import { resolveQueryFn, prewarmSdk } from "#core/providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "#core/providers/claude-sdk.js";
 import { convertCodexTranscriptEntry } from "#core/providers/codex-transcript.js";
 import { fetchCodexProviderGlobalStateSnapshot } from "#core/providers/codex-app-server.js";
@@ -1568,7 +1568,7 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Eagerly resolve the Agent SDK's query function.
+   * Eagerly resolve the Agent SDK's query function and pre-warm the subprocess.
    * Call this once at startup before creating instances.
    * If the SDK is not installed, falls back to CLI provider silently.
    */
@@ -1576,6 +1576,8 @@ export class InstanceManager extends EventEmitter {
     try {
       this._sdkQueryFn = (await resolveQueryFn()) as typeof this._sdkQueryFn;
       this.baseConfig.logger.info("[InstanceManager] Agent SDK provider initialized");
+      // Pre-warm the CLI subprocess so the first session is fast (~20x improvement)
+      void prewarmSdk(this.baseConfig.logger);
     } catch {
       this.baseConfig.logger.info("[InstanceManager] Agent SDK not available, using CLI provider");
     }

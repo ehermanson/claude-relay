@@ -315,6 +315,8 @@ export interface SessionStats {
   contextTokens?: number;
   /** Provider-reported context window size when available. */
   contextWindow?: number;
+  /** Per-category context token breakdown from SDK getContextUsage() when available. */
+  contextCategories?: { name: string; tokens: number; color: string; isDeferred?: boolean }[];
   /** Reasoning/thinking output tokens (Codex/OpenAI models). */
   reasoningTokens?: number;
 }
