@@ -582,6 +582,15 @@ export class SpaceManager extends EventEmitter {
   }
 
   /**
+   * Get a space by its worktree path.
+   */
+  getSpaceByWorktreePath(worktreePath: string): SpaceInfo | undefined {
+    const row = this.db.getSpaceByWorktreePath(worktreePath);
+    if (!row) return undefined;
+    return this.toInfo(row);
+  }
+
+  /**
    * Get the working directory for a space (worktree path if available, else project dir).
    * Returns undefined if the space is not found.
    */

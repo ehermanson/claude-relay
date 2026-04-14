@@ -28,7 +28,7 @@ export interface HealthResponse {
   instances: number;
   version: string;
   authRequired: boolean;
-  git: { branch: string; isWorktree: boolean } | null;
+  git: { branch: string; isWorktree: boolean; spaceName?: string } | null;
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {

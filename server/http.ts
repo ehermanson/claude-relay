@@ -52,7 +52,7 @@ const packageJsonPath = path.join(projectRoot, "package.json");
 const packageVersion: string = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")).version;
 
 /** Detect whether the relay server itself is running from a git worktree. */
-function getSelfGitInfo(): { branch: string; isWorktree: boolean } | null {
+function getSelfGitInfo(): { branch: string; isWorktree: boolean; worktreePath?: string } | null {
   try {
     const repoRoot = projectRoot;
     const opts = { cwd: repoRoot, timeout: 2000, encoding: "utf8" as const };
@@ -65,7 +65,8 @@ function getSelfGitInfo(): { branch: string; isWorktree: boolean } | null {
       repoRoot,
       execFileSync("git", ["rev-parse", "--git-common-dir"], opts).trim(),
     );
-    return { branch, isWorktree: gitDir !== gitCommonDir };
+    const isWorktree = gitDir !== gitCommonDir;
+    return { branch, isWorktree, worktreePath: isWorktree ? repoRoot : undefined };
   } catch {
     return null;
   }
