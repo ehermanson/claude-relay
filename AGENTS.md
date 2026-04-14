@@ -140,12 +140,12 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 
 ### Model Options
 
-`ProviderModelOptions` (`reasoningBudgetTokens`, `reasoningEffort`, `fastMode`) is the canonical contract for provider-agnostic model tuning. Provider drivers map these to provider-specific session args.
+`ProviderModelOptions` (`reasoningEffort`, `fastMode`) is the canonical contract for provider-agnostic model tuning. Provider drivers map these to provider-specific session args.
 
-- `InstanceInfo.modelOptions` is canonical; `InstanceInfo.reasoningBudget` is a derived compat field
-- `model_options_json` column on `managed_sessions` is the canonical storage for provider-agnostic model tuning; `reasoning_budget` remains a derived compat field on in-memory/session rows
-- `set_model_options` WS message does sparse merge (omitted = untouched, `null` = clear); `set_reasoning_budget` is a compat shim that delegates
-- `ProviderCapabilities` includes control metadata (`reasoningBudgetLevels`, `reasoningEffortLevels`, `permissionModes`, `planModes`, `fastModes`) — UI renders labels/descriptions from these, never hardcodes provider-specific text
+- `InstanceInfo.modelOptions` is canonical
+- `model_options_json` column on `managed_sessions` is the canonical storage for provider-agnostic model tuning
+- `set_model_options` WS message does sparse merge (omitted = untouched, `null` = clear)
+- `ProviderCapabilities` includes control metadata (`reasoningEffortLevels`, `permissionModes`, `planModes`, `fastModes`) — UI renders labels/descriptions from these, never hardcodes provider-specific text
 - `ReasoningEffort` uses `"max"` as the Relay-canonical highest effort; provider drivers map to native values (e.g. Codex `"xhigh"`); unknown strings pass through
 
 ### Task Tracking

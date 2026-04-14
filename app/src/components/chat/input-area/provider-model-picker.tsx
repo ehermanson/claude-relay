@@ -121,58 +121,6 @@ export function ProviderModelPicker({
   );
 }
 
-interface ReasoningPickerProps {
-  isProcessing: boolean;
-  reasoningBudget?: number;
-  levels: { budget: number; label: string; description: string }[];
-  onSelectReasoningBudget: (budget: number | null) => void;
-}
-
-export function ReasoningPicker({
-  isProcessing,
-  reasoningBudget,
-  levels,
-  onSelectReasoningBudget,
-}: ReasoningPickerProps) {
-  const activeLevel = levels.find((l) => l.budget === reasoningBudget);
-  const label = activeLevel?.label ?? (reasoningBudget ? "Custom" : "Default");
-
-  return (
-    <Menu.Root>
-      <Tooltip content="Set reasoning effort">
-        <Menu.Trigger
-          disabled={isProcessing}
-          className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
-            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
-          } ${reasoningBudget != null ? "text-accent" : "text-muted"}`}
-        >
-          <BrainIcon size={11} strokeWidth={2} />
-          <span className="toolbar-control-label">{label}</span>
-        </Menu.Trigger>
-      </Tooltip>
-      <Menu.Content side="top" align="start">
-        <Menu.Item onClick={() => onSelectReasoningBudget(null)}>
-          <span className="flex flex-1 flex-col">
-            <span>Default</span>
-            <span className="text-[0.6875rem] text-muted">Uses the model default effort</span>
-          </span>
-          {reasoningBudget == null && <Check size={13} strokeWidth={2.5} />}
-        </Menu.Item>
-        <Menu.Separator />
-        {levels.map((level) => (
-          <Menu.Item key={level.budget} onClick={() => onSelectReasoningBudget(level.budget)}>
-            <span className="flex flex-1 flex-col">
-              <span>{level.label}</span>
-              <span className="text-[0.6875rem] text-muted">{level.description}</span>
-            </span>
-            {reasoningBudget === level.budget && <Check size={13} strokeWidth={2.5} />}
-          </Menu.Item>
-        ))}
-      </Menu.Content>
-    </Menu.Root>
-  );
-}
-
 interface PermissionsToggleProps {
   isProcessing: boolean;
   skipPermissions?: boolean;

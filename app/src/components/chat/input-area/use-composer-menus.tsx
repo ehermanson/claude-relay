@@ -39,12 +39,9 @@ interface UseComposerMenusParams {
   selectedSlashKey: string | null;
   slashMenuDismissed: boolean;
   preferredModel?: string;
-  reasoningBudget?: number;
   modelLabel: string;
-  reasoningBudgetLevels?: { budget: number; label: string; description: string }[];
   reasoningEffortLevels?: { effort: ReasoningEffort; label: string; description: string }[];
   supportsModelSelection: boolean;
-  supportsReasoningSelection: boolean;
   supportsReasoningEffort: boolean;
   currentReasoningEffort?: ReasoningEffort;
   modelOptions: readonly ModelOption[];
@@ -60,7 +57,6 @@ interface UseComposerMenusParams {
   dismissSlashMenu: () => void;
   applySlashAction: (action: () => void) => void;
   setModel: (model: string | null) => void;
-  setReasoningBudget: (budget: number | null) => void;
   setReasoningEffort: (effort: ReasoningEffort | null) => void;
   onCancel: () => void;
   onSend: () => void;
@@ -104,12 +100,9 @@ export function useComposerMenus({
   selectedSlashKey,
   slashMenuDismissed,
   preferredModel,
-  reasoningBudget,
   modelLabel,
-  reasoningBudgetLevels,
   reasoningEffortLevels,
   supportsModelSelection,
-  supportsReasoningSelection,
   supportsReasoningEffort,
   currentReasoningEffort,
   modelOptions,
@@ -125,7 +118,6 @@ export function useComposerMenus({
   dismissSlashMenu,
   applySlashAction,
   setModel,
-  setReasoningBudget,
   setReasoningEffort,
   onCancel,
   onSend,
@@ -271,7 +263,6 @@ export function useComposerMenus({
         slashContext.prefix === "/"
           ? SLASH_COMMANDS.filter((command) => {
               if (command.id === "model" && !supportsModelSelection) return false;
-              if (command.id === "reasoning" && !supportsReasoningSelection) return false;
               if (command.id === "effort" && !supportsReasoningEffort) return false;
               return matchesQuery(slashContext.commandQuery, [command.id, command.title.slice(1)]);
             }).map((command) => ({
@@ -282,13 +273,10 @@ export function useComposerMenus({
               hint:
                 command.id === "model"
                   ? modelLabel
-                  : command.id === "reasoning"
-                    ? (reasoningBudgetLevels?.find((l) => l.budget === reasoningBudget)?.label ??
-                      "Default")
-                    : command.id === "effort"
-                      ? (reasoningEffortLevels?.find((l) => l.effort === currentReasoningEffort)
-                          ?.label ?? "Default")
-                      : undefined,
+                  : command.id === "effort"
+                    ? (reasoningEffortLevels?.find((l) => l.effort === currentReasoningEffort)
+                        ?.label ?? "Default")
+                    : undefined,
               actionHint: "Tab",
               onSelect: () => setComposerValue(`${command.title} `),
             }))
@@ -357,44 +345,6 @@ export function useComposerMenus({
           accent: preferredModel === option.value,
           onSelect: () => applySlashAction(() => setModel(option.value)),
         }));
-    }
-
-    if (
-      slashContext.prefix === "/" &&
-      slashContext.commandQuery === "reasoning" &&
-      supportsReasoningSelection &&
-      reasoningBudgetLevels
-    ) {
-      const items: SlashMenuItem[] = [];
-      if (matchesQuery(slashContext.argQuery, ["default", "auto"])) {
-        items.push({
-          key: "reasoning-default",
-          category: "Reasoning",
-          title: "Default",
-          description: "Uses the model default reasoning effort",
-          hint: reasoningBudget == null ? "Current" : undefined,
-          actionHint: "Enter",
-          accent: reasoningBudget == null,
-          onSelect: () => applySlashAction(() => setReasoningBudget(null)),
-        });
-      }
-      for (const level of reasoningBudgetLevels) {
-        if (
-          matchesQuery(slashContext.argQuery, [level.label.toLowerCase(), String(level.budget)])
-        ) {
-          items.push({
-            key: `reasoning-${level.budget}`,
-            category: "Reasoning",
-            title: level.label,
-            description: level.description,
-            hint: reasoningBudget === level.budget ? "Current" : undefined,
-            actionHint: "Enter",
-            accent: reasoningBudget === level.budget,
-            onSelect: () => applySlashAction(() => setReasoningBudget(level.budget)),
-          });
-        }
-      }
-      return items;
     }
 
     if (

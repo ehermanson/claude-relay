@@ -430,14 +430,7 @@ function PerProviderSummary({
   const providerDefaults = globalSettings.providerDefaults ?? {};
   const hasAnyDefaults = Object.keys(providerDefaults).some((key) => {
     const d = providerDefaults[key];
-    return (
-      d &&
-      (d.model ||
-        d.reasoningEffort ||
-        d.reasoningBudget != null ||
-        d.runtimeMode ||
-        d.fastMode != null)
-    );
+    return d && (d.model || d.reasoningEffort || d.runtimeMode || d.fastMode != null);
   });
 
   if (!hasAnyDefaults) return null;
@@ -458,7 +451,6 @@ function PerProviderSummary({
           const parts: string[] = [];
           if (d.model) parts.push(`Model: ${d.model}`);
           if (d.reasoningEffort) parts.push(`Reasoning: ${d.reasoningEffort}`);
-          if (d.reasoningBudget != null) parts.push(`Reasoning budget: ${d.reasoningBudget}`);
           if (d.runtimeMode) parts.push(`Permissions: ${d.runtimeMode}`);
           if (d.fastMode != null) parts.push(`Fast mode: ${d.fastMode ? "on" : "off"}`);
           if (parts.length === 0) return null;

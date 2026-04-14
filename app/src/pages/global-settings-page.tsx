@@ -430,9 +430,7 @@ export function ProvidersSettingsSection() {
     value: string,
   ) => {
     let parsed: string | number | boolean | undefined = value || undefined;
-    if (field === "reasoningBudget" && value) {
-      parsed = Number(value);
-    } else if (field === "fastMode" && value) {
+    if (field === "fastMode" && value) {
       parsed = value === "true";
     }
     const updated = {
@@ -507,7 +505,6 @@ function ProviderDefaultsRow({
   const hasAnyControls =
     caps.supportsModelSelection ||
     (caps.supportsReasoningEffort && caps.reasoningEffortLevels) ||
-    (caps.supportsReasoningBudget && caps.reasoningBudgetLevels) ||
     caps.permissionModes ||
     (caps.supportsFastMode && caps.fastModes);
 
@@ -563,23 +560,6 @@ function ProviderDefaultsRow({
                 <option value="">Medium (default)</option>
                 {caps.reasoningEffortLevels.map((level) => (
                   <option key={level.effort} value={level.effort}>
-                    {level.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
-          {caps.supportsReasoningBudget && caps.reasoningBudgetLevels && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[0.6875rem] font-medium text-muted">Reasoning</label>
-              <Select
-                inputSize="md"
-                value={defaults.reasoningBudget != null ? String(defaults.reasoningBudget) : ""}
-                onChange={(e) => onChange("reasoningBudget", e.target.value)}
-              >
-                <option value="">Medium (default)</option>
-                {caps.reasoningBudgetLevels.map((level) => (
-                  <option key={level.budget} value={String(level.budget)}>
                     {level.label}
                   </option>
                 ))}

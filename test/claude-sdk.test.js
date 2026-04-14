@@ -17,7 +17,6 @@ class FakeQuery {
     this.interruptCalls = 0;
     this.setPermissionModeCalls = [];
     this.setModelCalls = [];
-    this.setMaxThinkingTokensCalls = [];
     this.closeCalls = 0;
   }
 
@@ -51,9 +50,19 @@ class FakeQuery {
     this.setModelCalls.push(model);
   }
 
-  async setMaxThinkingTokens(maxThinkingTokens) {
-    this.setMaxThinkingTokensCalls.push(maxThinkingTokens);
+  async accountInfo() {
+    return { planType: "unknown" };
   }
+
+  async getContextUsage() {
+    return { used: 0, remaining: 0, total: 0 };
+  }
+
+  async supportedModels() {
+    return [];
+  }
+
+  async applyFlagSettings(_settings) {}
 
   close() {
     this.closeCalls++;
@@ -155,22 +164,6 @@ describe("ClaudeSdkSession", () => {
       assert.equal(capturedOptions.cwd, "/my/project");
       assert.equal(capturedOptions.model, "claude-opus-4-6");
       assert.equal(capturedOptions.includePartialMessages, true);
-      session.close();
-    });
-
-    it("passes maxThinkingTokens to SDK options", async () => {
-      let capturedOptions;
-      const fakeQuery = new FakeQuery();
-      const session = await createSdkSession({
-        cwd: "/my/project",
-        maxThinkingTokens: 10000,
-        logger: noopLogger,
-        queryFn: ({ _prompt, options }) => {
-          capturedOptions = options;
-          return fakeQuery;
-        },
-      });
-      assert.equal(capturedOptions.maxThinkingTokens, 10000);
       session.close();
     });
 
@@ -919,19 +912,6 @@ describe("ClaudeSdkSession", () => {
       session.setModel(null);
       await tick();
       assert.deepEqual(harness.fakeQuery.setModelCalls, ["claude-opus-4-6", undefined]);
-      session.close();
-    });
-
-    it("setReasoningBudget() calls query.setMaxThinkingTokens()", async () => {
-      const harness = makeHarness();
-      const session = await createTestSession(harness);
-
-      session.setReasoningBudget(30000);
-      await tick();
-      session.setReasoningBudget(null);
-      await tick();
-
-      assert.deepEqual(harness.fakeQuery.setMaxThinkingTokensCalls, [30000, null]);
       session.close();
     });
 

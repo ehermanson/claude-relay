@@ -75,9 +75,6 @@ export interface ProviderSession extends EventEmitter {
   /** Change the model for subsequent turns. Pass null to clear. */
   setModel(model: string | null): void;
 
-  /** Change the reasoning budget for subsequent turns. Pass null to clear. */
-  setReasoningBudget(budget: number | null): void;
-
   /** Toggle provider plan mode for subsequent turns when supported. */
   setPlanMode?(planMode: boolean): void;
 

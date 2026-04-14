@@ -223,7 +223,6 @@ describe("HTTP Routes — Additional Coverage", () => {
         supportsTranscriptReplay: true,
         supportsApprovals: true,
         supportsUserInputRequests: true,
-        supportsReasoningBudget: false,
         supportsReasoningEffort: true,
         supportsFastMode: true,
         supportsPlanMode: true,
@@ -252,7 +251,6 @@ describe("HTTP Routes — Additional Coverage", () => {
           isDefault: true,
         },
       ]);
-      assert.equal(res.body.capabilities.supportsReasoningBudget, false);
     });
   });
 
@@ -272,7 +270,6 @@ describe("HTTP Routes — Additional Coverage", () => {
             supportsTranscriptReplay: true,
             supportsApprovals: true,
             supportsUserInputRequests: true,
-            supportsReasoningBudget: true,
             supportsReasoningEffort: false,
             supportsFastMode: false,
             supportsPlanMode: true,

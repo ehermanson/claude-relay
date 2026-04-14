@@ -186,7 +186,7 @@ Relay's backend is organized around a **provider-driver registry**. Each provide
   │  ┌──────────────────────────────────────────────────────────┐       │
   │  │              ProviderCapabilities                        │       │
   │  │  supportsResume · supportsApprovals · supportsPlanMode   │       │
-  │  │  supportsReasoningBudget · supportsModelSelection · ...  │       │
+  │  │  supportsReasoningEffort · supportsModelSelection · ...   │       │
   │  └──────────────────────────────────────────────────────────┘       │
   └─────────────────────────────────────────────────────────────────────┘
 ```

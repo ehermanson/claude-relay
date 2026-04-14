@@ -242,7 +242,6 @@ export function InstanceViewContent() {
               isStopped={shared.isStopped}
               provider={shared.instance.provider}
               preferredModel={shared.instance.preferredModel}
-              reasoningBudget={shared.instance.reasoningBudget}
               modelOptions={shared.instance.modelOptions}
               planMode={shared.instance.planMode}
               activeModel={shared.instance.stats?.model}

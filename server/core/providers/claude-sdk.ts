@@ -157,7 +157,6 @@ interface SDKOptions {
   canUseTool?: CanUseTool;
   env?: Record<string, string | undefined>;
   allowedTools?: string[];
-  maxThinkingTokens?: number;
   effort?: "low" | "medium" | "high" | "max";
   settings?: Record<string, unknown>;
   pathToClaudeCodeExecutable?: string;
@@ -265,8 +264,6 @@ export interface ClaudeSdkSessionOptions {
   cwd: string;
   /** Model to use (e.g. "claude-opus-4-6") */
   model?: string;
-  /** Maximum extended-thinking token budget */
-  maxThinkingTokens?: number;
   /** Reasoning effort level (low/medium/high/max) */
   reasoningEffort?: string;
   /** Enable fast mode */
@@ -434,7 +431,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     const sdkOptions: SDKOptions = {
       cwd: options.cwd,
       model: options.model,
-      maxThinkingTokens: options.maxThinkingTokens,
       effort: options.reasoningEffort as SDKOptions["effort"],
       includePartialMessages: true,
       env: process.env as Record<string, string | undefined>,
@@ -608,16 +604,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     }
   }
 
-  setReasoningBudget(budget: number | null): void {
-    if (this._stopped) return;
-    this.query.setMaxThinkingTokens(budget).catch((err) => {
-      this.logger.warn(`[SdkSession] setMaxThinkingTokens error: ${err}`);
-    });
-  }
-
   setModelOptions(modelOptions: import("#core/types.js").ProviderModelOptions): void {
     if (this._stopped) return;
-    // Budget is handled separately via setReasoningBudget() from instance-manager.
     // Apply effort and fastMode via applyFlagSettings (runtime SDK control).
     // Use "in" checks so cleared fields (set to undefined by instance-manager) are
     // forwarded to the SDK as resets, not silently skipped.

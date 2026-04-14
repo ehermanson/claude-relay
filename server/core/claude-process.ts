@@ -91,7 +91,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
   private _cancelledByUser = false;
   private _processTimeout: ReturnType<typeof setTimeout> | null = null;
   private _preferredModel: string | null = null;
-  private _reasoningBudget: number | null = null;
   private _planMode = false;
   private _bypassPermissions: boolean;
   private _stats: SessionStats = {
@@ -114,7 +113,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     options?: {
       resumeSessionId?: string;
       model?: string;
-      reasoningBudget?: number;
       planMode?: boolean;
     },
   ) {
@@ -122,7 +120,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     this.config = config;
     this.resumeSessionId = options?.resumeSessionId ?? null;
     this._preferredModel = options?.model ?? null;
-    this._reasoningBudget = options?.reasoningBudget ?? null;
     this._planMode = options?.planMode ?? false;
     this._bypassPermissions = config.dangerouslySkipPermissions;
     this.claudePath = this.findClaudeBinary();
@@ -188,13 +185,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
    */
   setModel(model: string | null): void {
     this._preferredModel = model;
-  }
-
-  /**
-   * Set the reasoning budget for subsequent sends. Pass null to clear.
-   */
-  setReasoningBudget(budget: number | null): void {
-    this._reasoningBudget = budget;
   }
 
   setPlanMode(planMode: boolean): void {
@@ -399,6 +389,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     if (warningMatch) {
       const used = parseInt(warningMatch[1].replace(/,/g, ""), 10);
       const total = parseInt(warningMatch[2].replace(/,/g, ""), 10);
+      if (total === 0 && used === 0) return;
       // Only use the warning's context window if we don't already have one
       // from our known model mapping — Claude Code can report incorrect limits.
       if (total > 0 && !this._stats.contextWindow) {
@@ -462,10 +453,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
     if (this._preferredModel) {
       args.push("--model", this._preferredModel);
-    }
-
-    if (this._reasoningBudget != null) {
-      args.push("--max-thinking-tokens", String(this._reasoningBudget));
     }
 
     if (this.resumeSessionId) {

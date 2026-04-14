@@ -788,10 +788,6 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this.emit("stats", { ...this._stats });
   }
 
-  setReasoningBudget(_budget: number | null): void {
-    // Codex doesn't expose a reasoning budget parameter directly.
-  }
-
   setModelOptions(modelOptions: ProviderModelOptions): void {
     this._modelOptions = { ...this._modelOptions, ...modelOptions };
   }

@@ -199,13 +199,6 @@ describe("ClaudeProcess model and reasoning", () => {
     const binding = proc.getRuntimeBinding();
     assert.equal(binding.runtimePayload.model, "claude-haiku-4-5-20251001");
   });
-
-  it("setReasoningBudget stores the budget", () => {
-    const proc = new ClaudeProcess(makeConfig());
-    proc.setReasoningBudget(10000);
-    // Budget is used during send() — verify it doesn't throw
-    assert.ok(proc);
-  });
 });
 
 describe("ClaudeProcess permissions and plan mode", () => {

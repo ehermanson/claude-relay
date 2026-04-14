@@ -628,10 +628,8 @@ describe("InstanceManager", () => {
     });
 
     it("returns provider capabilities from the shared registry", () => {
-      const claude = manager.getProviderCapabilities("claude");
+      const _claude = manager.getProviderCapabilities("claude");
       const codex = manager.getProviderCapabilities("codex");
-      assert.equal(claude.supportsReasoningBudget, true);
-      assert.equal(codex.supportsReasoningBudget, false);
       assert.equal(codex.supportsTitleUpdates, true);
     });
 
@@ -921,7 +919,7 @@ describe("InstanceManager", () => {
         interrupt() {},
         close() {},
         setModel() {},
-        setReasoningBudget() {},
+
         addAllowedTool() {},
         setBypassPermissions() {},
         getRuntimeBinding() {
@@ -965,7 +963,7 @@ describe("InstanceManager", () => {
         interrupt() {},
         close() {},
         setModel() {},
-        setReasoningBudget() {},
+
         addAllowedTool() {},
         setBypassPermissions() {},
         getRuntimeBinding() {
@@ -1026,7 +1024,7 @@ describe("InstanceManager", () => {
         interrupt() {},
         close() {},
         setModel() {},
-        setReasoningBudget() {},
+
         addAllowedTool() {},
         setBypassPermissions() {},
         getRuntimeBinding() {
@@ -1093,7 +1091,7 @@ describe("InstanceManager", () => {
         interrupt() {},
         close() {},
         setModel() {},
-        setReasoningBudget() {},
+
         addAllowedTool() {},
         setBypassPermissions() {},
         getRuntimeBinding() {
@@ -1390,7 +1388,7 @@ describe("InstanceManager", () => {
     it("restores modelOptions from model_options_json on managed session restore", () => {
       const config = makeConfig();
       const db = new SessionDB(config.dbPath, noopLogger);
-      const modelOptions = { reasoningBudgetTokens: 8192, reasoningEffort: "high", fastMode: true };
+      const modelOptions = { reasoningEffort: "high", fastMode: true };
       try {
         db.upsertManaged(
           makeManagedRow({
@@ -1399,7 +1397,7 @@ describe("InstanceManager", () => {
             provider_session_id: "session-opts-1",
             resume_cursor_json: JSON.stringify({ sessionId: "session-opts-1" }),
             preferred_model: "claude-opus-4-6",
-            reasoning_budget: 8192,
+            reasoning_budget: null,
             model_options_json: JSON.stringify(modelOptions),
           }),
         );
@@ -1413,7 +1411,6 @@ describe("InstanceManager", () => {
 
       assert.ok(info);
       assert.deepEqual(info.modelOptions, modelOptions);
-      assert.equal(info.reasoningBudget, 8192);
       assert.equal(info.preferredModel, "claude-opus-4-6");
     });
 
@@ -1421,57 +1418,35 @@ describe("InstanceManager", () => {
       const mgr = trackManager(new InstanceManager(makeConfig()));
       const info = mgr.createInstance();
 
-      // Set all three fields
+      // Set both fields
       await mgr.setModelOptions(info.id, {
-        reasoningBudgetTokens: 5000,
         reasoningEffort: "high",
         fastMode: true,
       });
       let updated = mgr.getInstance(info.id);
       assert.deepEqual(updated.modelOptions, {
-        reasoningBudgetTokens: 5000,
         reasoningEffort: "high",
         fastMode: true,
       });
-      assert.equal(updated.reasoningBudget, 5000);
 
       // Sparse update: only change effort, leave others untouched
       await mgr.setModelOptions(info.id, { reasoningEffort: "max" });
       updated = mgr.getInstance(info.id);
       assert.equal(updated.modelOptions.reasoningEffort, "max");
-      assert.equal(updated.modelOptions.reasoningBudgetTokens, 5000);
       assert.equal(updated.modelOptions.fastMode, true);
 
       // Null clears a single field
       await mgr.setModelOptions(info.id, { fastMode: null });
       updated = mgr.getInstance(info.id);
       assert.equal(updated.modelOptions.fastMode, undefined);
-      assert.equal(updated.modelOptions.reasoningBudgetTokens, 5000);
       assert.equal(updated.modelOptions.reasoningEffort, "max");
 
       // Null-clearing all fields removes the bag entirely
       await mgr.setModelOptions(info.id, {
-        reasoningBudgetTokens: null,
         reasoningEffort: null,
       });
       updated = mgr.getInstance(info.id);
       assert.equal(updated.modelOptions, undefined);
-      assert.equal(updated.reasoningBudget, undefined);
-    });
-
-    it("setReasoningBudget delegates to setModelOptions", async () => {
-      const mgr = trackManager(new InstanceManager(makeConfig()));
-      const info = mgr.createInstance();
-
-      await mgr.setReasoningBudget(info.id, 10000);
-      let updated = mgr.getInstance(info.id);
-      assert.equal(updated.modelOptions.reasoningBudgetTokens, 10000);
-      assert.equal(updated.reasoningBudget, 10000);
-
-      await mgr.setReasoningBudget(info.id, null);
-      updated = mgr.getInstance(info.id);
-      assert.equal(updated.modelOptions, undefined);
-      assert.equal(updated.reasoningBudget, undefined);
     });
 
     it("setModelOptions pushes to live process via setModelOptions", async () => {
@@ -1491,7 +1466,7 @@ describe("InstanceManager", () => {
         interrupt() {},
         close() {},
         setModel() {},
-        setReasoningBudget() {},
+
         addAllowedTool() {},
         setBypassPermissions() {},
         setModelOptions(opts) {
@@ -1512,11 +1487,10 @@ describe("InstanceManager", () => {
       const config = makeConfig();
       const mgr = trackManager(new InstanceManager(config));
       const info = mgr.createInstance({
-        modelOptions: { reasoningBudgetTokens: 7777, fastMode: true },
+        modelOptions: { reasoningEffort: "high", fastMode: true },
       });
 
-      assert.deepEqual(info.modelOptions, { reasoningBudgetTokens: 7777, fastMode: true });
-      assert.equal(info.reasoningBudget, 7777);
+      assert.deepEqual(info.modelOptions, { reasoningEffort: "high", fastMode: true });
     });
   });
 
@@ -1540,7 +1514,7 @@ describe("InstanceManager", () => {
         interrupt() {},
         close() {},
         setModel() {},
-        setReasoningBudget() {},
+
         addAllowedTool() {},
         setBypassPermissions() {},
         setPlanMode(mode) {
@@ -1586,7 +1560,7 @@ describe("InstanceManager", () => {
         interrupt() {},
         close() {},
         setModel() {},
-        setReasoningBudget() {},
+
         addAllowedTool() {},
         setBypassPermissions() {},
         setPlanMode(mode) {

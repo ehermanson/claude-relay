@@ -37,7 +37,6 @@ import {
   PermissionsToggle,
   ProviderModelPicker,
   ReasoningEffortPicker,
-  ReasoningPicker,
 } from "@/components/chat/input-area/provider-model-picker";
 
 interface InputAreaProps {
@@ -55,7 +54,6 @@ interface InputAreaProps {
   isStopped?: boolean;
   provider: ProviderKind;
   preferredModel?: string;
-  reasoningBudget?: number;
   modelOptions?: ProviderModelOptions;
   planMode?: boolean;
   activeModel?: string;
@@ -113,7 +111,6 @@ export function InputArea({
   isStopped,
   provider,
   preferredModel,
-  reasoningBudget,
   modelOptions,
   planMode,
   activeModel,
@@ -277,7 +274,6 @@ export function InputArea({
       displayedPreferredModel)
     : resolvedDefaultLabel;
   const supportsModelSelection = capabilities.supportsModelSelection;
-  const supportsReasoningSelection = capabilities.supportsReasoningBudget;
   const supportsReasoningEffort = capabilities.supportsReasoningEffort;
   const supportsFastMode = capabilities.supportsFastMode;
   const supportsPlanMode = capabilities.supportsPlanMode;
@@ -315,14 +311,6 @@ export function InputArea({
       modelLabel: model ? label : undefined,
     });
     send({ type: "set_model", instanceId, model });
-  };
-
-  const setReasoningBudget = (budget: number | null) => {
-    send({
-      type: "set_model_options",
-      instanceId,
-      modelOptions: { reasoningBudgetTokens: budget },
-    });
   };
 
   const setPlanMode = (nextPlanMode: boolean) => {
@@ -463,12 +451,9 @@ export function InputArea({
     selectedSlashKey,
     slashMenuDismissed,
     preferredModel: displayedPreferredModel,
-    reasoningBudget,
     modelLabel,
-    reasoningBudgetLevels: capabilities.reasoningBudgetLevels,
     reasoningEffortLevels: capabilities.reasoningEffortLevels,
     supportsModelSelection,
-    supportsReasoningSelection,
     supportsReasoningEffort,
     currentReasoningEffort: modelOptions?.reasoningEffort,
     modelOptions: currentModelOptions,
@@ -484,7 +469,6 @@ export function InputArea({
     dismissSlashMenu,
     applySlashAction,
     setModel,
-    setReasoningBudget,
     setReasoningEffort,
     onCancel,
     onSend: hasPendingPrompt ? handleSubmitPrompt : hasPendingPlan ? handleApprovePlan : handleSend,
@@ -597,15 +581,6 @@ export function InputArea({
         }}
       />
     ) : null,
-    supportsReasoningSelection && capabilities.reasoningBudgetLevels ? (
-      <ReasoningPicker
-        key="reasoning-picker"
-        isProcessing={isProcessing}
-        reasoningBudget={reasoningBudget}
-        levels={capabilities.reasoningBudgetLevels}
-        onSelectReasoningBudget={setReasoningBudget}
-      />
-    ) : null,
     supportsReasoningEffort && capabilities.reasoningEffortLevels ? (
       <ReasoningEffortPicker
         key="effort-picker"
@@ -645,25 +620,6 @@ export function InputArea({
   ];
 
   const overflowSections: OverflowSection[] = [
-    ...(supportsReasoningSelection && capabilities.reasoningBudgetLevels
-      ? [
-          {
-            label: "Reasoning",
-            options: [
-              {
-                label: "Default",
-                selected: reasoningBudget == null,
-                onSelect: () => setReasoningBudget(null),
-              },
-              ...capabilities.reasoningBudgetLevels.map((level) => ({
-                label: level.label,
-                selected: reasoningBudget === level.budget,
-                onSelect: () => setReasoningBudget(level.budget),
-              })),
-            ],
-          },
-        ]
-      : []),
     ...(supportsReasoningEffort && capabilities.reasoningEffortLevels
       ? [
           {

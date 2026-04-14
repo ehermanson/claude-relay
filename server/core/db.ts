@@ -311,7 +311,6 @@ export class SessionDB {
   private stmtUpdateWorkingDirectory!: StatementSync;
   private stmtUpdateSessionModel!: StatementSync;
   private stmtUpdatePreferredModel!: StatementSync;
-  private stmtUpdateReasoningBudget!: StatementSync;
   private stmtUpdateSkipPermissions!: StatementSync;
   private stmtGetProjectStats!: StatementSync;
   private stmtGetGlobalStats!: StatementSync;
@@ -878,10 +877,6 @@ export class SessionDB {
       "UPDATE sessions SET preferred_model = ? WHERE session_id = ?",
     );
 
-    this.stmtUpdateReasoningBudget = this.db.prepare(
-      "UPDATE sessions SET reasoning_budget = ? WHERE session_id = ?",
-    );
-
     this.stmtUpdateSkipPermissions = this.db.prepare(
       "UPDATE sessions SET skip_permissions = ? WHERE session_id = ?",
     );
@@ -1313,10 +1308,6 @@ export class SessionDB {
 
   updatePreferredModel(sessionId: string, model: string | null): void {
     this.stmtUpdatePreferredModel.run(model, sessionId);
-  }
-
-  updateReasoningBudget(sessionId: string, budget: number | null): void {
-    this.stmtUpdateReasoningBudget.run(budget, sessionId);
   }
 
   updateSkipPermissions(sessionId: string, skip: boolean): void {

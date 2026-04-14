@@ -71,7 +71,6 @@ export type ReasoningEffort = "low" | "medium" | "high" | "max" | (string & {});
  * Provider drivers map these to provider-specific session args.
  */
 export interface ProviderModelOptions {
-  reasoningBudgetTokens?: number;
   reasoningEffort?: ReasoningEffort;
   fastMode?: boolean;
 }
@@ -240,14 +239,11 @@ export interface ProviderCapabilities {
   supportsTranscriptReplay: boolean;
   supportsApprovals: boolean;
   supportsUserInputRequests: boolean;
-  supportsReasoningBudget: boolean;
   supportsReasoningEffort: boolean;
   supportsFastMode: boolean;
   supportsPlanMode: boolean;
   supportsModelSelection: boolean;
   supportsTitleUpdates: boolean;
-  /** Labels/descriptions for reasoning budget levels, rendered by the UI as-is */
-  reasoningBudgetLevels?: { budget: number; label: string; description: string }[];
   /** Labels/descriptions for reasoning effort levels, rendered by the UI as-is */
   reasoningEffortLevels?: { effort: ReasoningEffort; label: string; description: string }[];
   /** Labels/descriptions for the permission mode toggle */
@@ -284,7 +280,6 @@ export interface ProviderModelsResponse {
 export interface ProviderDefaults {
   model?: string;
   reasoningEffort?: ReasoningEffort;
-  reasoningBudget?: number;
   runtimeMode?: ProviderRuntimeMode;
   fastMode?: boolean;
 }
@@ -364,8 +359,6 @@ export interface InstanceInfo {
   parentSessionId?: string;
   /** Preferred model override for this instance (e.g. "claude-opus-4-6") */
   preferredModel?: string;
-  /** Budget tokens for extended thinking, or null to use default */
-  reasoningBudget?: number;
   /** Canonical provider-agnostic model options */
   modelOptions?: ProviderModelOptions;
   /** Whether provider plan mode is active for this instance */
@@ -523,7 +516,6 @@ export interface SetModelOptionsPayload {
   instanceId: string;
   /** Sparse merge: omitted key = leave unchanged, null = clear/reset to default */
   modelOptions: {
-    reasoningBudgetTokens?: number | null;
     reasoningEffort?: ReasoningEffort | null;
     fastMode?: boolean | null;
   };

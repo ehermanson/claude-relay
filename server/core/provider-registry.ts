@@ -51,7 +51,6 @@ interface ProviderDriverContext {
 interface ProviderSessionOptions {
   resumeSessionId?: string;
   model?: string;
-  reasoningBudget?: number;
   planMode?: boolean;
   allowedTools?: string[];
   modelOptions?: ProviderModelOptions;
@@ -301,15 +300,11 @@ function createClaudeSession(
   options: ProviderSessionOptions | undefined,
   context: ProviderDriverContext,
 ): ProviderSession {
-  // Canonical budget: prefer modelOptions.reasoningBudgetTokens, fall back to legacy reasoningBudget
-  const budget = options?.modelOptions?.reasoningBudgetTokens ?? options?.reasoningBudget;
-
   if (context.sdkQueryFn) {
     return createSdkSessionSync(
       {
         cwd: config.workingDirectory,
         model: options?.model,
-        maxThinkingTokens: budget,
         reasoningEffort: options?.modelOptions?.reasoningEffort,
         fastMode: options?.modelOptions?.fastMode,
         planMode: options?.planMode,
@@ -327,12 +322,10 @@ function createClaudeSession(
     ? new ClaudeProcess(config, {
         resumeSessionId: options.resumeSessionId,
         model: options?.model,
-        reasoningBudget: budget,
         planMode: options?.planMode,
       })
     : new ClaudeProcess(config, {
         model: options?.model,
-        reasoningBudget: budget,
         planMode: options?.planMode,
       });
 
@@ -372,8 +365,6 @@ class UnsupportedGeminiSession extends EventEmitter implements ProviderSession {
   close(): void {}
 
   setModel(_model: string | null): void {}
-
-  setReasoningBudget(_budget: number | null): void {}
 
   setPlanMode(_planMode: boolean): void {}
 
@@ -643,6 +634,7 @@ export function getProviderCapabilities(provider: ProviderKind): ProviderCapabil
 
   return {
     ...base,
+    // When SDK reports effort support, override effort levels from discovery
     ...(addEffort && {
       supportsReasoningEffort: true,
       reasoningEffortLevels: deriveEffortLevels(sdkModels),

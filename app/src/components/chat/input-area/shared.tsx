@@ -8,12 +8,6 @@ export const SLASH_COMMANDS = [
     category: "Relay Commands",
   },
   {
-    id: "reasoning",
-    title: "/reasoning",
-    description: "Set the reasoning effort for the next turn",
-    category: "Relay Commands",
-  },
-  {
     id: "effort",
     title: "/effort",
     description: "Set the reasoning effort level",
