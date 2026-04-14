@@ -29,11 +29,15 @@ export const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 /** File-write tools grouped for permission approval (approving one approves all). */
 export const FILE_WRITE_GROUP = ["Edit", "Write", "NotebookEdit"];
 
-/** Known context window sizes by model prefix. */
+/** Known context window sizes by model prefix (includes SDK aliases). */
 const CONTEXT_WINDOWS: { prefix: string; tokens: number }[] = [
   { prefix: "claude-opus-4", tokens: 1_000_000 },
   { prefix: "claude-sonnet-4", tokens: 1_000_000 },
   { prefix: "claude-haiku-4", tokens: 1_000_000 },
+  // SDK may report aliases instead of full model IDs
+  { prefix: "opus", tokens: 1_000_000 },
+  { prefix: "sonnet", tokens: 1_000_000 },
+  { prefix: "haiku", tokens: 1_000_000 },
 ];
 
 /**

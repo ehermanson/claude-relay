@@ -23,7 +23,7 @@ import type {
   SessionStats,
   TaskItem,
 } from "#core/types.js";
-import { createSdkSessionSync } from "#core/providers/claude-sdk.js";
+import { createSdkSessionSync, getSdkDiscoveredModels } from "#core/providers/claude-sdk.js";
 import { isClaudeInstalled } from "#core/providers/claude-cli.js";
 import { isCodexInstalled } from "#core/providers/codex-cli.js";
 import { discoverCodexModels } from "#core/providers/codex-models.js";
@@ -310,6 +310,8 @@ function createClaudeSession(
         cwd: config.workingDirectory,
         model: options?.model,
         maxThinkingTokens: budget,
+        reasoningEffort: options?.modelOptions?.reasoningEffort,
+        fastMode: options?.modelOptions?.fastMode,
         planMode: options?.planMode,
         resumeSessionId: options?.resumeSessionId,
         dangerouslySkipPermissions: config.dangerouslySkipPermissions,
@@ -399,7 +401,32 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       return createClaudeSession(config, options, context);
     },
     async getModels() {
-      return getBuiltinProviderModels("claude");
+      const sdkModels = getSdkDiscoveredModels();
+      if (!sdkModels?.length) {
+        return getBuiltinProviderModels("claude");
+      }
+      // SDK returns aliases ("default", "sonnet", "haiku") alongside full IDs.
+      // Drop the "default" meta-alias — we mark the actual model as default instead.
+      const defaultAlias = sdkModels.find((m) => m.value === "default");
+      const filtered = sdkModels.filter((m) => m.value !== "default");
+      if (filtered.length === 0) return getBuiltinProviderModels("claude");
+
+      const builtins = getBuiltinProviderModels("claude");
+      const builtinMap = new Map(builtins.map((m) => [m.id, m]));
+
+      return filtered.map((m) => {
+        const builtin = builtinMap.get(m.value);
+        // Mark as default if the SDK's "default" alias has the same display name
+        const isDefault =
+          defaultAlias?.displayName === m.displayName || (builtin?.isDefault ?? false);
+        return {
+          provider: "claude" as const,
+          id: m.value,
+          label: builtin?.label ?? m.displayName,
+          description: m.description || builtin?.description,
+          isDefault,
+        };
+      });
     },
     parseTranscript(filePath, parseClaudeTranscript) {
       return parseClaudeTranscript(filePath);
@@ -589,7 +616,7 @@ export function listAvailableProviders(context: ProviderDriverContext): Provider
     .map((provider) => ({
       provider,
       label: getProviderDisplayName(provider),
-      capabilities: getProviderDriver(provider).capabilities,
+      capabilities: getProviderCapabilities(provider),
     }));
 }
 
@@ -601,7 +628,60 @@ export async function getProviderModels(
 }
 
 export function getProviderCapabilities(provider: ProviderKind): ProviderCapabilities {
-  return getProviderDriver(provider).capabilities;
+  const base = getProviderDriver(provider).capabilities;
+  if (provider !== "claude") return base;
+
+  // Augment with SDK-discovered model capabilities when available
+  const sdkModels = getSdkDiscoveredModels();
+  if (!sdkModels?.length) return base;
+
+  const anySupportsEffort = sdkModels.some((m) => m.supportsEffort);
+  const anySupportsFastMode = sdkModels.some((m) => m.supportsFastMode);
+
+  const addEffort = anySupportsEffort;
+  if (!addEffort && !anySupportsFastMode) return base;
+
+  return {
+    ...base,
+    ...(addEffort && {
+      supportsReasoningEffort: true,
+      reasoningEffortLevels: deriveEffortLevels(sdkModels),
+    }),
+    ...(anySupportsFastMode && {
+      supportsFastMode: true,
+      fastModes: base.fastModes ?? {
+        off: { label: "Standard", description: "Default speed" },
+        on: { label: "Fast", description: "Faster responses, uses more credits" },
+      },
+    }),
+  };
+}
+
+function deriveEffortLevels(
+  sdkModels: NonNullable<ReturnType<typeof getSdkDiscoveredModels>>,
+): { effort: string; label: string; description: string }[] {
+  // Collect all unique effort levels across models
+  const allLevels = new Set<string>();
+  for (const m of sdkModels) {
+    if (m.supportedEffortLevels) {
+      for (const level of m.supportedEffortLevels) allLevels.add(level);
+    }
+  }
+  if (allLevels.size === 0) return [];
+
+  const LABELS: Record<string, { label: string; description: string }> = {
+    low: { label: "Low", description: "Fastest responses, minimal reasoning" },
+    medium: { label: "Medium", description: "Balanced depth and speed" },
+    high: { label: "High", description: "More reasoning for harder tasks" },
+    max: { label: "Max", description: "Deepest reasoning, usually slower" },
+  };
+  const ORDER = ["low", "medium", "high", "max"];
+
+  return ORDER.filter((l) => allLevels.has(l)).map((l) => ({
+    effort: l,
+    label: LABELS[l]?.label ?? l,
+    description: LABELS[l]?.description ?? "",
+  }));
 }
 
 export function createManagedProviderSession(

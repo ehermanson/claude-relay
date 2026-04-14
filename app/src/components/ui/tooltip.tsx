@@ -28,7 +28,7 @@ export function Tooltip({
           <BaseTooltip.Trigger render={<span />}>{children}</BaseTooltip.Trigger>
         )}
         <BaseTooltip.Portal>
-          <BaseTooltip.Positioner side={side} align={align} sideOffset={6}>
+          <BaseTooltip.Positioner side={side} align={align} sideOffset={6} className="z-[9999]">
             <BaseTooltip.Popup className="glass z-[9999] max-w-xs rounded-lg px-2.5 py-1.5 text-[0.75rem] leading-snug text-text animate-fade-in">
               {content}
             </BaseTooltip.Popup>

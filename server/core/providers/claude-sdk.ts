@@ -34,6 +34,7 @@ import {
   describeToolDetail,
   extractInputDescription,
   capDetail,
+  getContextWindow,
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
 } from "#core/tools.js";
@@ -113,6 +114,7 @@ interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   ): Promise<void>;
   setModel(model?: string): Promise<void>;
   setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
+  applyFlagSettings(settings: Record<string, unknown>): Promise<void>;
   accountInfo(): Promise<AccountInfo>;
   getContextUsage(): Promise<ContextUsage>;
   supportedModels(): Promise<SdkModelInfo[]>;
@@ -156,6 +158,8 @@ interface SDKOptions {
   env?: Record<string, string | undefined>;
   allowedTools?: string[];
   maxThinkingTokens?: number;
+  effort?: "low" | "medium" | "high" | "max";
+  settings?: Record<string, unknown>;
   pathToClaudeCodeExecutable?: string;
 }
 
@@ -263,6 +267,10 @@ export interface ClaudeSdkSessionOptions {
   model?: string;
   /** Maximum extended-thinking token budget */
   maxThinkingTokens?: number;
+  /** Reasoning effort level (low/medium/high/max) */
+  reasoningEffort?: string;
+  /** Enable fast mode */
+  fastMode?: boolean;
   /** Whether Claude should run in plan mode */
   planMode?: boolean;
   /** Session ID to resume */
@@ -284,8 +292,6 @@ export interface ClaudeSdkSession extends ProviderSession {
   readonly sessionId: string | undefined;
   /** Return accumulated rate limit data from received events, if any. */
   getRateLimitSnapshot(): import("#core/types.js").ProviderRateLimitStatus[] | undefined;
-  /** Fetch model capability info from the SDK. Available after session init. */
-  fetchModelCapabilities(): Promise<SdkModelInfo[] | null>;
 }
 
 /** Cached SDK functions — resolved once, reused for all sessions. */
@@ -294,6 +300,9 @@ let cachedStartupFn: StartupFn | null = null;
 
 /** Pre-warmed query instance from startup() — shared across sessions for faster first query. */
 let warmQuery: WarmQuery | null = null;
+
+/** Module-level cache of SDK-discovered models. Updated by each session that calls supportedModels(). */
+let sdkDiscoveredModels: SdkModelInfo[] | null = null;
 
 /**
  * Resolve the SDK's `query` and `startup` functions via dynamic import.
@@ -335,6 +344,14 @@ export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<WarmQuer
     logger.debug(`[SdkSession] startup() pre-warm failed (non-fatal): ${err}`);
     return null;
   }
+}
+
+/**
+ * Return SDK-discovered model capabilities if available.
+ * Populated by the first SDK session that successfully calls supportedModels().
+ */
+export function getSdkDiscoveredModels(): SdkModelInfo[] | null {
+  return sdkDiscoveredModels;
 }
 
 /**
@@ -418,9 +435,13 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       cwd: options.cwd,
       model: options.model,
       maxThinkingTokens: options.maxThinkingTokens,
+      effort: options.reasoningEffort as SDKOptions["effort"],
       includePartialMessages: true,
       env: process.env as Record<string, string | undefined>,
     };
+    if (options.fastMode) {
+      sdkOptions.settings = { fastMode: true };
+    }
 
     if (options.resumeSessionId) {
       sdkOptions.resume = options.resumeSessionId;
@@ -458,8 +479,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // Fetch account info (plan, email, org) and emit as provider status
     this.fetchAccountInfo();
 
-    // Fetch model capabilities and emit as provider status
-    this.emitModelCapabilities();
+    // Discover model capabilities and populate module-level cache
+    this.discoverModels();
+
+    // Seed context usage eagerly (useful for resumed sessions that already have context state)
+    this.refreshContextUsage();
 
     // Start consuming the message stream
     this.consumeStream();
@@ -589,6 +613,26 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this.query.setMaxThinkingTokens(budget).catch((err) => {
       this.logger.warn(`[SdkSession] setMaxThinkingTokens error: ${err}`);
     });
+  }
+
+  setModelOptions(modelOptions: import("#core/types.js").ProviderModelOptions): void {
+    if (this._stopped) return;
+    // Budget is handled separately via setReasoningBudget() from instance-manager.
+    // Apply effort and fastMode via applyFlagSettings (runtime SDK control).
+    // Use "in" checks so cleared fields (set to undefined by instance-manager) are
+    // forwarded to the SDK as resets, not silently skipped.
+    const flagUpdates: Record<string, unknown> = {};
+    if ("reasoningEffort" in modelOptions) {
+      flagUpdates.effortLevel = modelOptions.reasoningEffort || undefined;
+    }
+    if ("fastMode" in modelOptions) {
+      flagUpdates.fastMode = modelOptions.fastMode ?? false;
+    }
+    if (Object.keys(flagUpdates).length > 0) {
+      this.query.applyFlagSettings(flagUpdates).catch((err) => {
+        this.logger.warn(`[SdkSession] applyFlagSettings error: ${err}`);
+      });
+    }
   }
 
   addAllowedTool(tool: string): void {
@@ -1239,11 +1283,13 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
    * Returns SDK-reported models with capability flags (effort levels,
    * adaptive thinking, fast mode, etc.). Cached after first successful fetch.
    */
-  async fetchModelCapabilities(): Promise<SdkModelInfo[] | null> {
+  private async fetchModelCapabilities(): Promise<SdkModelInfo[] | null> {
     if (this._cachedModelCapabilities) return this._cachedModelCapabilities;
     try {
       const models = await this.query.supportedModels();
       this._cachedModelCapabilities = models;
+      // Always update module-level cache so the provider driver serves fresh data
+      sdkDiscoveredModels = models;
       this.logger.info(`[SdkSession] Discovered ${models.length} models with capabilities`);
       return models;
     } catch (err) {
@@ -1253,32 +1299,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   }
 
   /**
-   * Fetch model capabilities and emit as a provider_status system event.
+   * Kick off model capability discovery to populate the module-level cache.
    * Called once after session init alongside account info.
    */
-  private emitModelCapabilities(): void {
-    void this.fetchModelCapabilities()
-      .then((models) => {
-        if (!models?.length) return;
-        this.emit("systemEvent", {
-          type: "system_event",
-          event: "provider_status",
-          payload: {
-            models: models.map((m) => ({
-              id: m.value,
-              label: m.displayName,
-              description: m.description,
-              supportsEffort: m.supportsEffort,
-              supportedEffortLevels: m.supportedEffortLevels,
-              supportsAdaptiveThinking: m.supportsAdaptiveThinking,
-              supportsFastMode: m.supportsFastMode,
-            })),
-          },
-        } as SystemEventMessage);
-      })
-      .catch(() => {
-        // Already logged in fetchModelCapabilities
-      });
+  private discoverModels(): void {
+    void this.fetchModelCapabilities();
   }
 
   // ===========================================================================
@@ -1607,7 +1632,13 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       .getContextUsage()
       .then((ctx) => {
         this._stats.contextTokens = ctx.totalTokens;
-        this._stats.contextWindow = ctx.maxTokens;
+        // SDK maxTokens/rawMaxTokens may report the effective limit (200k), not the
+        // full model context window (1M for Opus 4.6 / Sonnet 4.6). Use the known
+        // model mapping as the authoritative source when available.
+        const knownWindow =
+          getContextWindow(ctx.model) ||
+          (this._stats.model ? getContextWindow(this._stats.model) : undefined);
+        this._stats.contextWindow = knownWindow || ctx.rawMaxTokens || ctx.maxTokens;
         this._stats.contextCategories = ctx.categories;
         this.emit("stats", { ...this._stats });
       })

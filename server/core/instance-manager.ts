@@ -5938,6 +5938,7 @@ export class InstanceManager extends EventEmitter {
         model: stats.model ?? instance.info.stats?.model,
         contextTokens: stats.contextTokens ?? instance.info.stats?.contextTokens,
         contextWindow: stats.contextWindow ?? instance.info.stats?.contextWindow,
+        contextCategories: stats.contextCategories ?? instance.info.stats?.contextCategories,
         reasoningTokens: stats.reasoningTokens ?? instance.info.stats?.reasoningTokens,
       };
       instance.info.stats = nextStats;
@@ -7450,10 +7451,13 @@ export class InstanceManager extends EventEmitter {
     proc.on("stats", (stats) => {
       void this.enqueueInstanceMutation(id, (live) => {
         if (this.shuttingDown || live.process !== proc) return;
-        live.info.stats =
-          live.info.stats?.contextWindow != null && stats.contextWindow == null
-            ? { ...stats, contextWindow: live.info.stats.contextWindow }
-            : stats;
+        live.info.stats = {
+          ...stats,
+          // Preserve context fields from prior refreshContextUsage() when this
+          // stats event (e.g. a usage event) doesn't include them yet.
+          contextWindow: stats.contextWindow ?? live.info.stats?.contextWindow,
+          contextCategories: stats.contextCategories ?? live.info.stats?.contextCategories,
+        };
         live.providerBinding = proc.getRuntimeBinding();
         this.dbSave(live);
         this.emitInstanceStatus(live);

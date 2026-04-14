@@ -89,9 +89,11 @@ function TokenBreakdownBar({ segments }: { segments: TokenBreakdownSegment[] }) 
       <div className="mb-1.5 text-[0.6875rem] text-muted">Token Breakdown</div>
       <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-hover">
         {segments.map((seg) => (
-          <Tooltip key={seg.label} content={`${seg.label} ${seg.pct.toFixed(1)}%`}>
-            <div className={`h-full ${seg.color}`} style={{ width: `${seg.pct}%` }} />
-          </Tooltip>
+          <div
+            key={seg.label}
+            className={`h-full shrink-0 ${seg.color}`}
+            style={{ width: `${seg.pct}%` }}
+          />
         ))}
       </div>
       <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
@@ -102,6 +104,85 @@ function TokenBreakdownBar({ segments }: { segments: TokenBreakdownSegment[] }) 
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Context window usage bar (stacked categories or simple fallback)
+// =============================================================================
+
+/** Fixed palette — SDK colors may not contrast with dark backgrounds */
+const CATEGORY_COLORS = [
+  "bg-blue-400",
+  "bg-emerald-400",
+  "bg-amber-400",
+  "bg-purple-400",
+  "bg-rose-400",
+  "bg-cyan-400",
+  "bg-orange-400",
+  "bg-indigo-400",
+];
+
+function ContextWindowBar({
+  contextUsage,
+  categories,
+}: {
+  contextUsage: { contextTokens: number; contextWindow: number; usagePct: number };
+  categories?: SessionStats["contextCategories"];
+}) {
+  const activeCategories = categories?.filter((c) => c.tokens > 0 && !/free\s*space/i.test(c.name));
+  const hasCategories = activeCategories && activeCategories.length > 0;
+
+  return (
+    <div className="mt-4">
+      <div className="mb-1.5 flex items-center justify-between text-[0.6875rem] text-muted">
+        <span>Current Context</span>
+        <span className="tabular-nums">
+          {formatTokens(contextUsage.contextTokens)} / {formatTokens(contextUsage.contextWindow)}
+        </span>
+      </div>
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-hover">
+        {hasCategories ? (
+          activeCategories.map((cat, i) => (
+            <div
+              key={cat.name}
+              className={`h-full shrink-0 ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`}
+              style={{ width: `${(cat.tokens / contextUsage.contextWindow) * 100}%` }}
+            />
+          ))
+        ) : (
+          <div
+            className={`h-full shrink-0 ${
+              contextUsage.usagePct > 90
+                ? "bg-red-400"
+                : contextUsage.usagePct > 70
+                  ? "bg-amber-400"
+                  : "bg-accent"
+            }`}
+            style={{ width: `${Math.min(contextUsage.usagePct, 100)}%` }}
+          />
+        )}
+      </div>
+      {hasCategories && (
+        <div className="mt-2 flex flex-col gap-1">
+          {activeCategories.map((cat, i) => {
+            const catPct = (cat.tokens / contextUsage.contextWindow) * 100;
+            return (
+              <div key={cat.name} className="flex items-center gap-2 text-[0.6875rem]">
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-[3px] ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}`}
+                />
+                <span className="min-w-0 flex-1 truncate text-muted">{cat.name}</span>
+                <span className="shrink-0 tabular-nums text-muted/60">{catPct.toFixed(1)}%</span>
+                <span className="shrink-0 w-12 text-right tabular-nums text-text-bright">
+                  {formatTokens(cat.tokens)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -168,7 +249,11 @@ function InstanceContext({
 
   const displayStats = getDisplaySessionStats(provider, safeStats);
   const totalTokens = displayStats.totalTokens;
-  const contextUsage = getContextWindowUsage(safeStats);
+  // Use same 1M fallback as ContextRing when contextWindow isn't reported yet
+  const contextUsage = getContextWindowUsage({
+    contextTokens: safeStats.contextTokens,
+    contextWindow: safeStats.contextWindow || (safeStats.contextTokens ? 1_000_000 : 0),
+  });
   const reasoning = safeStats.reasoningTokens ?? 0;
   const displayModel = safeStats.model ?? preferredModel;
   const segments = computeSegments(safeStats, provider);
@@ -252,27 +337,13 @@ function InstanceContext({
         <TokenBreakdownBar segments={segments} />
 
         {/* Context window usage bar */}
-        {contextUsage.contextWindow > 0 && (
-          <div className="mt-4">
-            <div className="mb-1.5 flex items-center justify-between text-[0.6875rem] text-muted">
-              <span>Current Context</span>
-              <span className="tabular-nums">
-                {formatTokens(contextUsage.contextTokens)} /{" "}
-                {formatTokens(contextUsage.contextWindow)}
-              </span>
-            </div>
-            <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-hover">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  contextUsage.usagePct > 90
-                    ? "bg-red-400"
-                    : contextUsage.usagePct > 70
-                      ? "bg-amber-400"
-                      : "bg-accent"
-                }`}
-                style={{ width: `${Math.min(contextUsage.usagePct, 100)}%` }}
-              />
-            </div>
+        {contextUsage.contextWindow > 0 ? (
+          <ContextWindowBar contextUsage={contextUsage} categories={safeStats.contextCategories} />
+        ) : (
+          <div className="mt-4 rounded-md border border-dashed border-border/50 px-3 py-2.5">
+            <p className="text-[0.6875rem] text-muted/70">
+              Context usage will appear after the next response.
+            </p>
           </div>
         )}
       </div>
