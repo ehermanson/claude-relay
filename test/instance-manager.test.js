@@ -420,6 +420,60 @@ describe("InstanceManager", () => {
       assert.equal(info.originalGitBranch, "relay-space/deadbeef");
     });
 
+    it("archives stale managed duplicates that point at the same provider session", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const transcriptPath = join(projectDir, "duplicate-managed.jsonl");
+      writeFileSync(transcriptPath, "{}\n");
+      const project = manager.projectManager.addProject(projectDir);
+
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-older",
+            provider_session_id: "shared-provider-session",
+            transcript_path: transcriptPath,
+            working_directory: projectDir,
+            project_id: project.id,
+            created_at: 1000,
+            last_activity_at: 1500,
+          }),
+        );
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-newer",
+            provider_session_id: "shared-provider-session",
+            transcript_path: transcriptPath,
+            working_directory: projectDir,
+            project_id: project.id,
+            created_at: 2000,
+            last_activity_at: 2500,
+            resume_cursor_json: JSON.stringify({ sessionId: "shared-provider-session" }),
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
+      restored.projectManager.addProject(projectDir);
+      restored.restoreInstances();
+
+      assert.equal(restored.getInstance("managed-older"), undefined);
+      assert.ok(restored.getInstance("managed-newer"));
+
+      const chats = restored.listProjectChats(project.id);
+      assert.equal(chats.filter((chat) => chat.sessionId === "shared-provider-session").length, 1);
+
+      const verifyDb = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        assert.equal(verifyDb.getManagedByInstanceId("managed-older")?.archived, 1);
+        assert.equal(verifyDb.getManagedByInstanceId("managed-newer")?.archived, 0);
+      } finally {
+        verifyDb.close();
+      }
+    });
+
     it("restores external sessions as historical until rediscovered live", () => {
       const projectDir = manager.baseConfig.workingDirectory;
       const transcriptPath = join(projectDir, "external-session.jsonl");

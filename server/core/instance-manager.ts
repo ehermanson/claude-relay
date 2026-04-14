@@ -4302,6 +4302,70 @@ export class InstanceManager extends EventEmitter {
     return { providerSessionIds, transcriptPaths };
   }
 
+  private isSameManagedSessionIdentity(a: ManagedInstanceRow, b: ManagedInstanceRow): boolean {
+    return !!(
+      (a.provider_session_id &&
+        b.provider_session_id &&
+        a.provider_session_id === b.provider_session_id) ||
+      (a.transcript_path && b.transcript_path && a.transcript_path === b.transcript_path)
+    );
+  }
+
+  private compareManagedCanonicalRows(
+    a: ManagedInstanceRow,
+    b: ManagedInstanceRow,
+    preferredInstanceId?: string,
+  ): number {
+    if (preferredInstanceId) {
+      if (a.instance_id === preferredInstanceId && b.instance_id !== preferredInstanceId) return 1;
+      if (b.instance_id === preferredInstanceId && a.instance_id !== preferredInstanceId) return -1;
+    }
+    if (a.last_activity_at !== b.last_activity_at) return a.last_activity_at - b.last_activity_at;
+    if (!!a.resume_cursor_json !== !!b.resume_cursor_json) return a.resume_cursor_json ? 1 : -1;
+    if (!!a.provider_session_id !== !!b.provider_session_id) return a.provider_session_id ? 1 : -1;
+    if (!!a.transcript_path !== !!b.transcript_path) return a.transcript_path ? 1 : -1;
+    if (a.created_at !== b.created_at) return a.created_at - b.created_at;
+    return a.instance_id.localeCompare(b.instance_id);
+  }
+
+  private collapseManagedDuplicates(preferredInstanceId?: string): void {
+    const activeRows = this.db.getAllManagedActive();
+    const archived = new Set<string>();
+
+    for (let i = 0; i < activeRows.length; i++) {
+      const seed = activeRows[i];
+      if (archived.has(seed.instance_id)) continue;
+
+      const cluster = [seed];
+      for (let j = i + 1; j < activeRows.length; j++) {
+        const candidate = activeRows[j];
+        if (archived.has(candidate.instance_id)) continue;
+        if (cluster.some((row) => this.isSameManagedSessionIdentity(row, candidate))) {
+          cluster.push(candidate);
+        }
+      }
+
+      if (cluster.length < 2) continue;
+
+      let canonical = cluster[0];
+      for (const row of cluster.slice(1)) {
+        if (this.compareManagedCanonicalRows(row, canonical, preferredInstanceId) > 0) {
+          canonical = row;
+        }
+      }
+
+      for (const row of cluster) {
+        if (row.instance_id === canonical.instance_id) continue;
+        archived.add(row.instance_id);
+        this.db.archiveManaged(row.instance_id);
+        this.db.archiveByInstanceId(row.instance_id);
+        this.baseConfig.logger.warn(
+          `[InstanceManager] Archived duplicate managed session ${row.instance_id} in favor of ${canonical.instance_id} (${canonical.provider_session_id ?? canonical.transcript_path ?? "unknown"})`,
+        );
+      }
+    }
+  }
+
   private reservePendingManagedClaudeJsonls(knownJsonls: Set<string>): void {
     for (const instance of this.instances.values()) {
       if (instance.info.external || instance.jsonlPath) continue;
@@ -5817,6 +5881,7 @@ export class InstanceManager extends EventEmitter {
         instance.providerBinding =
           instance.process?.getRuntimeBinding() ?? instance.providerBinding;
         this.db.upsertManaged(this.toManagedInstanceRow(instance));
+        this.collapseManagedDuplicates(instance.info.id);
       }
       if (instance.sessionId && instance.jsonlPath) {
         this.db.upsert(this.toSessionRow(instance));
@@ -6756,6 +6821,7 @@ export class InstanceManager extends EventEmitter {
    */
   restoreInstances(): void {
     this.preloadGitInfoCache();
+    this.collapseManagedDuplicates();
 
     if (this.db.needsRebuild) {
       this.baseConfig.logger.info("[InstanceManager] DB was rebuilt from JSONL scan");

@@ -298,6 +298,7 @@ export class SessionDB {
   private stmtGetManagedBySpaceId!: StatementSync;
   private stmtArchiveManaged!: StatementSync;
   private stmtArchive!: StatementSync;
+  private stmtArchiveByInstanceId!: StatementSync;
   private stmtUnarchive!: StatementSync;
   private stmtUpdateStats!: StatementSync;
   private stmtUpdateLastActivity!: StatementSync;
@@ -822,6 +823,10 @@ export class SessionDB {
       this.db.prepare("UPDATE sessions SET archived = 1 WHERE session_id = ?"),
     );
 
+    this.stmtArchiveByInstanceId = this.configureStatement(
+      this.db.prepare("UPDATE sessions SET archived = 1 WHERE instance_id = ?"),
+    );
+
     this.stmtArchiveManaged = this.configureStatement(
       this.db.prepare("UPDATE managed_sessions SET archived = 1 WHERE instance_id = ?"),
     );
@@ -1207,6 +1212,11 @@ export class SessionDB {
     const row = this.getBySessionId(sessionId);
     this.stmtArchive.run(sessionId);
     if (row) this.syncSearchIndexForInstance(row.instance_id);
+  }
+
+  archiveByInstanceId(instanceId: string): void {
+    this.stmtArchiveByInstanceId.run(instanceId);
+    this.syncSearchIndexForInstance(instanceId);
   }
 
   upsertManaged(row: ManagedInstanceRow): void {
