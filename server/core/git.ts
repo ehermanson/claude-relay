@@ -802,6 +802,7 @@ export function enrichDiffStats(
           cwd,
           timeout: 3000,
           encoding: "utf8" as const,
+          stdio: "pipe",
         }).trim();
       } catch {
         // fall back
@@ -1014,6 +1015,7 @@ function resolveBaseRef(
         cwd,
         timeout: 3000,
         encoding: "utf8" as const,
+        stdio: "pipe",
       }).trim();
     } catch {
       // fall back

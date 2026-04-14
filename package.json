@@ -39,6 +39,7 @@
     "start": "node dist/cli/bin.js",
     "dev": "node scripts/dev.js",
     "test": "pnpm exec node --import ./test/test-env.js --test test/*.test.js && pnpm --filter relay-app test",
+    "test:staged": "node scripts/test-staged.js",
     "typecheck": "tsc --noEmit && pnpm --filter relay-app typecheck",
     "typecheck:app": "pnpm --filter relay-app typecheck",
     "fmt": "oxfmt server/ cli/ app/src/",

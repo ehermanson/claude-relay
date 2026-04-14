@@ -29,13 +29,23 @@ export function addWSHelpers(ws) {
     return messages;
   };
 
-  /** Wait for the initial connected + instance_list + projects_changed handshake. */
+  /** Wait for the initial handshake, tolerating optional boot-time messages. */
   ws.waitForHandshake = async () => {
-    const msgs = await ws.collectMessages(3);
-    assert.equal(msgs[0].type, "connected");
-    assert.equal(msgs[1].type, "instance_list");
-    assert.equal(msgs[2].type, "projects_changed");
-    return msgs;
+    const msgs = [];
+    while (msgs.length < 8) {
+      const msg = await ws.nextMessage();
+      msgs.push(msg);
+      if (msg.type !== "projects_changed") continue;
+
+      assert.equal(msgs[0]?.type, "connected");
+      assert.equal(msgs[1]?.type, "instance_list");
+      assert.ok(
+        msgs.some((entry) => entry.type === "projects_changed"),
+        "expected projects_changed in handshake",
+      );
+      return msgs;
+    }
+    throw new Error("Timed out waiting for handshake");
   };
 
   return ws;

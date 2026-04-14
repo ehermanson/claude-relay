@@ -943,6 +943,7 @@ const gitInfoCache = new Map<
   { info: { branch: string; isWorktree: boolean } | null; cachedAt: number }
 >();
 const GIT_CACHE_TTL = 60_000;
+const GIT_INFO_TIMEOUT_MS = Number(process.env.RELAY_GIT_TIMEOUT_MS || "1500");
 
 function getGitInfo(dir: string): { branch: string; isWorktree: boolean } | null {
   const cached = gitInfoCache.get(dir);
@@ -954,7 +955,12 @@ function getGitInfo(dir: string): { branch: string; isWorktree: boolean } | null
       gitInfoCache.set(dir, { info: null, cachedAt: Date.now() });
       return null;
     }
-    const opts = { cwd: dir, timeout: 1000, encoding: "utf8" as const, stdio: "pipe" as const };
+    const opts = {
+      cwd: dir,
+      timeout: GIT_INFO_TIMEOUT_MS,
+      encoding: "utf8" as const,
+      stdio: "pipe" as const,
+    };
     const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], opts).trim();
     if (!branch || branch === "HEAD") {
       gitInfoCache.set(dir, { info: null, cachedAt: Date.now() });

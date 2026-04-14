@@ -77,7 +77,7 @@ export function buildSpaceContextPrompt(userMessage: string, info: SpaceContextI
 export function isInternalInjectedUserText(text: string): boolean {
   return (
     text === AUTO_CONTINUE_MSG ||
-    text === TASK_CONTEXT_MSG ||
+    text.startsWith(TASK_CONTEXT_MSG) ||
     text.startsWith(CUSTOM_INSTRUCTIONS_PREFIX) ||
     text.startsWith(SPACE_CONTEXT_PREFIX) ||
     /^Permission granted for .+\. Please continue\.$/.test(text)

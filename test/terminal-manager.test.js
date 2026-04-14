@@ -101,7 +101,7 @@ describe("TerminalManager", () => {
 
   describe("resizeTerminal", () => {
     it("resizes the PTY and updates info", () => {
-      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
+      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
       tm.resizeTerminal(info.id, 200, 50);
       assert.deepEqual(ptys[0].resizes, [{ cols: 200, rows: 50 }]);
 
@@ -116,7 +116,7 @@ describe("TerminalManager", () => {
       const events = [];
       tm.on("terminal:removed", (id) => events.push(id));
 
-      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
+      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
       tm.closeTerminal(info.id);
 
       assert.ok(ptys[0].killed);
@@ -126,7 +126,7 @@ describe("TerminalManager", () => {
     });
 
     it("does not kill an already-exited PTY", () => {
-      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
+      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
       // Simulate exit
       ptys[0].emit("exit", 0);
       ptys[0].killed = false; // reset
@@ -146,7 +146,7 @@ describe("TerminalManager", () => {
       const events = [];
       tm.on("terminal:output", (id, data) => events.push({ id, data }));
 
-      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
+      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
       ptys[0].emit("data", "hello world");
 
       assert.equal(events.length, 1);
@@ -160,7 +160,7 @@ describe("TerminalManager", () => {
       const events = [];
       tm.on("terminal:exit", (id, code, signal) => events.push({ id, code, signal }));
 
-      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
+      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
       ptys[0].emit("exit", 1, "SIGTERM");
 
       assert.equal(events.length, 1);
@@ -177,7 +177,7 @@ describe("TerminalManager", () => {
 
   describe("scrollback", () => {
     it("accumulates output data", () => {
-      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
+      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
       ptys[0].emit("data", "line1\n");
       ptys[0].emit("data", "line2\n");
 
@@ -190,7 +190,7 @@ describe("TerminalManager", () => {
     });
 
     it("trims old scrollback when exceeding limit", () => {
-      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
+      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
       // Push >512KB of data in chunks
       const chunk = "x".repeat(100 * 1024); // 100KB
       for (let i = 0; i < 7; i++) {
@@ -245,8 +245,8 @@ describe("TerminalManager", () => {
 
   describe("closeAll", () => {
     it("closes every terminal", () => {
-      tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
-      tm.createTerminal({ scope: instanceScope, cwd: "/tmp" });
+      tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
+      tm.createTerminal({ scope: instanceScope, cwd: "/tmp", cols: 120, rows: 30 });
 
       tm.closeAll();
 

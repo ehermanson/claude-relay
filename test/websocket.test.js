@@ -142,11 +142,11 @@ describe("WebSocket Server", () => {
     it("accepts connection with valid auth and sends connected + instance_list", async () => {
       const session = auth.createSession();
       const ws = await connect(session.id);
-      const messages = await ws.collectMessages(3);
+      const messages = await ws.waitForHandshake();
       assert.equal(messages[0].type, "connected");
       assert.equal(messages[1].type, "instance_list");
       assert.ok(Array.isArray(messages[1].instances));
-      assert.equal(messages[2].type, "projects_changed");
+      assert.ok(messages.some((msg) => msg.type === "projects_changed"));
     });
   });
 

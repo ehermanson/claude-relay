@@ -351,6 +351,8 @@ pnpm build  # Build everything
 
 `pnpm dev` binds Vite to `0.0.0.0` and allows Tailscale `*.ts.net` hostnames, so you can open the dev UI from other devices on your tailnet without hardcoding your machine name.
 
+Commits run a fast staged check through Husky: `lint-staged`, a staged-file test gate (`pnpm test:staged`), and `pnpm knip --no-exit-code`. The staged test gate rebuilds `dist/` and runs only tests related to the files in the commit; use `pnpm test` for the full suite.
+
 Useful repo-local CLI commands:
 
 ```bash

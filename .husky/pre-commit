@@ -7,4 +7,5 @@ if git diff --cached --name-only | grep -q '\.relay/tasks\.jsonl'; then
 fi
 
 npx lint-staged
+pnpm test:staged
 pnpm knip --no-exit-code

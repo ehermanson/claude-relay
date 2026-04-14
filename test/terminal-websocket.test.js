@@ -183,7 +183,7 @@ describe("Terminal WebSocket Messages", () => {
       const { ws, instance } = await connectAndSubscribe();
       const scope = { type: "instance", instanceId: instance.id };
 
-      ws.send(JSON.stringify({ type: "terminal_create", scope }));
+      ws.send(JSON.stringify({ type: "terminal_create", scope, cols: 120, rows: 30 }));
       const msg = await ws.nextMessageOfType("terminal_created");
 
       assert.equal(msg.terminal.scope.type, "instance");
@@ -196,7 +196,7 @@ describe("Terminal WebSocket Messages", () => {
       const { ws } = await connectAndSubscribe();
       const scope = { type: "instance", instanceId: "nonexistent" };
 
-      ws.send(JSON.stringify({ type: "terminal_create", scope }));
+      ws.send(JSON.stringify({ type: "terminal_create", scope, cols: 120, rows: 30 }));
       const msg = await ws.nextMessageOfType("error");
 
       assert.ok(msg.message.includes("Unauthorized") || msg.message.includes("not found"));
@@ -207,7 +207,7 @@ describe("Terminal WebSocket Messages", () => {
       const scope = { type: "instance", instanceId: instance.id };
 
       // Create first terminal normally
-      ws.send(JSON.stringify({ type: "terminal_create", scope }));
+      ws.send(JSON.stringify({ type: "terminal_create", scope, cols: 120, rows: 30 }));
       await ws.nextMessageOfType("terminal_created");
 
       // Try with ifEmpty — should not create a second
@@ -236,7 +236,7 @@ describe("Terminal WebSocket Messages", () => {
       const { ws, instance } = await connectAndSubscribe();
       const scope = { type: "instance", instanceId: instance.id };
 
-      ws.send(JSON.stringify({ type: "terminal_create", scope }));
+      ws.send(JSON.stringify({ type: "terminal_create", scope, cols: 120, rows: 30 }));
       await ws.nextMessageOfType("terminal_created");
 
       ws.send(JSON.stringify({ type: "terminal_list", scope }));
@@ -266,7 +266,7 @@ describe("Terminal WebSocket Messages", () => {
       const { ws, instance } = await connectAndSubscribe();
       const scope = { type: "instance", instanceId: instance.id };
 
-      ws.send(JSON.stringify({ type: "terminal_create", scope }));
+      ws.send(JSON.stringify({ type: "terminal_create", scope, cols: 120, rows: 30 }));
       const created = await ws.nextMessageOfType("terminal_created");
 
       ws.send(
@@ -290,7 +290,7 @@ describe("Terminal WebSocket Messages", () => {
       const { ws, instance } = await connectAndSubscribe();
       const scope = { type: "instance", instanceId: instance.id };
 
-      ws.send(JSON.stringify({ type: "terminal_create", scope }));
+      ws.send(JSON.stringify({ type: "terminal_create", scope, cols: 120, rows: 30 }));
       const created = await ws.nextMessageOfType("terminal_created");
 
       // Push data through the mock PTY
@@ -327,7 +327,7 @@ describe("Terminal WebSocket Messages", () => {
       const { ws, instance } = await connectAndSubscribe();
       const scope = { type: "instance", instanceId: instance.id };
 
-      ws.send(JSON.stringify({ type: "terminal_create", scope }));
+      ws.send(JSON.stringify({ type: "terminal_create", scope, cols: 120, rows: 30 }));
       await ws.nextMessageOfType("terminal_created");
 
       mockPtys[0].emit("data", "hello from pty\n");
@@ -344,7 +344,7 @@ describe("Terminal WebSocket Messages", () => {
       const { ws, instance } = await connectAndSubscribe();
       const scope = { type: "instance", instanceId: instance.id };
 
-      ws.send(JSON.stringify({ type: "terminal_create", scope }));
+      ws.send(JSON.stringify({ type: "terminal_create", scope, cols: 120, rows: 30 }));
       const created = await ws.nextMessageOfType("terminal_created");
 
       ws.send(
@@ -365,7 +365,7 @@ describe("Terminal WebSocket Messages", () => {
       const { ws, instance } = await connectAndSubscribe();
       const scope = { type: "instance", instanceId: instance.id };
 
-      ws.send(JSON.stringify({ type: "terminal_create", scope }));
+      ws.send(JSON.stringify({ type: "terminal_create", scope, cols: 120, rows: 30 }));
       await ws.nextMessageOfType("terminal_created");
 
       mockPtys[0].emit("exit", 42, "SIGKILL");

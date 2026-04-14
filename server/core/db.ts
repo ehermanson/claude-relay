@@ -265,10 +265,29 @@ export function sanitizeSnippet(html: string | null): string | null {
   if (!html) return null;
   // First, temporarily replace allowed <mark> tags with placeholders
   let s = html.replace(/<mark>/g, "\x00MARK_OPEN\x00").replace(/<\/mark>/g, "\x00MARK_CLOSE\x00");
-  // Strip all remaining HTML tags
-  s = s.replace(/<[^>]*>/g, "");
+  let stripped = "";
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "<") {
+      const closeIdx = s.indexOf(">", i + 1);
+      const tagBody = closeIdx === -1 ? "" : s.slice(i + 1, closeIdx);
+      if (closeIdx !== -1 && /^\/?[A-Za-z][^>]*$/.test(tagBody)) {
+        i = closeIdx;
+        continue;
+      }
+      stripped += "\x00LT\x00";
+      continue;
+    }
+    if (ch === ">") {
+      stripped += "\x00GT\x00";
+      continue;
+    }
+    stripped += ch;
+  }
+  s = stripped;
   // Escape remaining HTML entities in the text content
   s = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  s = s.replace(/\x00LT\x00/g, "&lt;").replace(/\x00GT\x00/g, "&gt;");
   // Restore allowed <mark> tags
   s = s.replace(/\x00MARK_OPEN\x00/g, "<mark>").replace(/\x00MARK_CLOSE\x00/g, "</mark>");
   return s;
