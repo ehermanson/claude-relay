@@ -19,6 +19,15 @@ if (shouldIsolateWorktreeBase) {
 
 export const TEST_WORKTREE_BASE = process.env.RELAY_WORKTREE_BASE;
 
+// Clear hook-inherited git env vars that point at the parent repo's internals.
+// When running via pre-commit hook in a worktree, git sets GIT_DIR and
+// GIT_INDEX_FILE to absolute paths inside the parent repo — these leak into
+// test subprocesses and cause `git worktree add` in temp repos to fail with
+// "index file open failed: Not a directory".
+delete process.env.GIT_DIR;
+delete process.env.GIT_WORK_TREE;
+delete process.env.GIT_INDEX_FILE;
+
 // Keep git-dependent tests deterministic and avoid inheriting slow global config
 // like LFS filters, signing hooks, or interactive prompts from the host machine.
 process.env.GIT_CONFIG_NOSYSTEM = "1";
