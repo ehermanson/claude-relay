@@ -640,6 +640,12 @@ body *::-webkit-scrollbar-thumb:hover {
   position: relative;
 }
 
+@media (max-width: 768px) {
+  .app-shell {
+    padding: 0;
+  }
+}
+
 .app-shell-inner {
   position: relative;
   z-index: 1;
@@ -647,6 +653,12 @@ body *::-webkit-scrollbar-thumb:hover {
   display: flex;
   overflow: hidden;
   gap: 8px;
+}
+
+@media (max-width: 768px) {
+  .app-shell-inner {
+    gap: 0;
+  }
 }
 
 .app-shell-sidebar {
@@ -667,6 +679,13 @@ body *::-webkit-scrollbar-thumb:hover {
   box-shadow: var(--shadow-inset-panel);
   flex: 1;
   min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .app-shell-content {
+    border-radius: 0;
+    box-shadow: none;
+  }
 }
 
 /* Inset sub-panel inside the main content panel (e.g. chat sidecar) */

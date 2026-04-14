@@ -88,7 +88,7 @@ export function ChatTOC({ rows, onScrollToRow }: ChatTOCProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.97 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className="absolute right-0 top-full mt-1.5 w-72 max-h-80 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg"
+            className="absolute right-0 top-full mt-1.5 w-[calc(100vw-2rem)] sm:w-72 max-h-80 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg"
           >
             <div className="flex flex-col p-1">
               {anchors.map((anchor) => (
@@ -99,9 +99,9 @@ export function ChatTOC({ rows, onScrollToRow }: ChatTOCProps) {
                     onScrollToRow(anchor.rowIndex);
                     setOpen(false);
                   }}
-                  className="flex rounded-md items-baseline gap-2 px-3 py-1.5 text-left transition-colors hover:bg-hover-highlight"
+                  className="flex rounded-md items-baseline gap-2 px-3 py-2.5 sm:py-1.5 text-left transition-colors hover:bg-hover-highlight"
                 >
-                  <span className="min-w-0 truncate text-[12px] text-text/80">
+                  <span className="min-w-0 truncate text-[14px] sm:text-[12px] text-text/80">
                     {truncateText(anchor.text, 60)}
                   </span>
                 </button>
