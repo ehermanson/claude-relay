@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } fro
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { InstanceManager } from "../dist/server/core/instance-manager.js";
 import { SessionDB } from "../dist/server/core/db.js";
 import { resolveConfig } from "../dist/server/config.js";
@@ -15,6 +16,51 @@ const noopLogger = {
   error() {},
   debug() {},
 };
+
+const fixturesDir = join(import.meta.dirname, "fixtures");
+
+class FakeProviderSession extends EventEmitter {
+  constructor(provider = "codex") {
+    super();
+    this.provider = provider;
+    this.isProcessing = false;
+    this.stats = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+    };
+    this.sent = [];
+  }
+
+  send(text) {
+    this.sent.push(text);
+  }
+
+  interrupt() {}
+
+  close() {}
+
+  setModel() {}
+
+  addAllowedTool() {}
+
+  setBypassPermissions() {}
+
+  setSessionId() {}
+
+  getRuntimeBinding() {
+    return {
+      provider: this.provider,
+      providerSessionId: "fake-session",
+      resumeCursor: { sessionId: "fake-session" },
+    };
+  }
+
+  respondToRequest() {
+    return false;
+  }
+}
 
 function runGit(cwd, args) {
   return execFileSync("git", args, {
@@ -867,12 +913,68 @@ describe("InstanceManager", () => {
       assert.deepEqual(history, []);
     });
 
+    it("returns transcript history for stopped managed chats without booting them", () => {
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-passive",
+            provider_name: "codex",
+            provider_session_id: "codex-test-session",
+            working_directory: manager.baseConfig.workingDirectory,
+            transcript_path: join(fixturesDir, "codex-managed-session.jsonl"),
+            resume_cursor_json: JSON.stringify({ sessionId: "codex-test-session" }),
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      manager.restoreInstances();
+
+      const instance = manager.instances.get("managed-passive");
+      assert.ok(instance);
+      const originalLastActivity = instance.info.lastActivityAt;
+      let bootCalls = 0;
+      manager.bootManagedInstance = () => {
+        bootCalls += 1;
+      };
+
+      const history = manager.getHistory("managed-passive");
+
+      assert.ok(history.length > 0);
+      assert.equal(bootCalls, 0);
+      assert.equal(instance.process, null);
+      assert.equal(instance.hydrated, false);
+      assert.equal(instance.info.status, "stopped");
+      assert.equal(instance.info.lastActivityAt, originalLastActivity);
+    });
+
     it("throws for unknown instance", () => {
       assert.throws(() => manager.getHistory("nope"), /not found/);
     });
   });
 
   describe("broken spaces", () => {
+    it("allows passive history reads for chats in broken isolated spaces", () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Broken history guard",
+      });
+      assert.ok(space.worktreePath);
+
+      const info = manager.createInstance({ spaceId: space.id });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      rmSync(space.worktreePath, { recursive: true, force: true });
+      instance.process = null;
+      instance.info.status = "stopped";
+
+      assert.doesNotThrow(() => manager.getHistory(info.id));
+      assert.equal(instance.process, null);
+      assert.equal(instance.info.status, "stopped");
+    });
+
     it("blocks sending messages to chats in broken isolated spaces", async () => {
       const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
         name: "Broken send guard",
@@ -943,6 +1045,44 @@ describe("InstanceManager", () => {
       assert.equal(history[0].message.internal, undefined);
     });
 
+    it("boots a stopped managed chat only when the user sends a message", async () => {
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-send",
+            provider_name: "codex",
+            provider_session_id: "managed-send-session",
+            working_directory: manager.baseConfig.workingDirectory,
+            resume_cursor_json: JSON.stringify({ sessionId: "managed-send-session" }),
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      manager.restoreInstances();
+
+      const fakeProc = new FakeProviderSession("codex");
+      let bootCalls = 0;
+      manager.bootManagedInstance = (_id, instance) => {
+        bootCalls += 1;
+        instance.process = fakeProc;
+        instance.providerBinding = fakeProc.getRuntimeBinding();
+        instance.sessionId = "managed-send-session";
+        instance.info.sessionId = "managed-send-session";
+      };
+
+      await manager.sendMessage("managed-send", "resume this stopped chat");
+
+      const instance = manager.instances.get("managed-send");
+      assert.equal(bootCalls, 1);
+      assert.equal(instance.process, fakeProc);
+      assert.equal(fakeProc.sent.length, 1);
+      assert.match(fakeProc.sent[0], /resume this stopped chat/);
+      assert.equal(instance.info.status, "processing");
+    });
+
     it("still sends messages after a branch change while surfacing branch drift", async () => {
       const repoDir = makeRepoDir();
 
@@ -985,6 +1125,40 @@ describe("InstanceManager", () => {
       });
       assert.equal(instance.info.gitInfo?.branch, "feature-branch");
       assert.deepEqual(sentMessages, ["hello on the new branch"]);
+    });
+  });
+
+  describe("activity timestamps", () => {
+    it("does not bump lastActivityAt for bootstrap-only provider events", async () => {
+      const fakeProc = new FakeProviderSession("codex");
+      manager.createProviderSession = () => fakeProc;
+
+      const info = manager.createInstance({ provider: "codex" });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      instance.info.lastActivityAt = 424242;
+
+      fakeProc.emit("systemEvent", {
+        type: "system_event",
+        event: "session_init",
+        payload: { sessionId: "fake-session", cwd: manager.baseConfig.workingDirectory },
+      });
+      fakeProc.emit("stats", {
+        inputTokens: 1,
+        outputTokens: 2,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+      });
+      fakeProc.emit("titleUpdate", "Renamed Session");
+      fakeProc.emit("providerError", "temporary bootstrap noise");
+      fakeProc.emit("exit", { type: "exit", code: 0 });
+
+      await manager.flushInstanceMutations();
+
+      assert.equal(instance.info.lastActivityAt, 424242);
+      assert.equal(instance.info.name, "Renamed Session");
+      assert.equal(instance.info.status, "stopped");
     });
   });
 

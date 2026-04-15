@@ -214,7 +214,7 @@ describe("History Parsing via DB Restore", () => {
   });
 
   describe("managed Codex restore", () => {
-    it("rehydrates history and stats from a persisted Codex transcript on first open", () => {
+    it("returns persisted Codex transcript history without booting on first open", () => {
       const transcriptPath = join(fixturesDir, "codex-managed-session.jsonl");
       seedManagedDB(tempDir, [
         {
@@ -242,15 +242,9 @@ describe("History Parsing via DB Restore", () => {
       const history = manager.getHistory("codex-managed-id");
       const info = manager.getInstance("codex-managed-id");
 
-      assert.equal(info.status, "idle");
-      assert.ok(info.stats, "Managed Codex session should restore stats");
-      assert.equal(info.stats.inputTokens, 120);
-      assert.equal(info.stats.cacheReadTokens, 45);
-      assert.equal(info.stats.outputTokens, 30);
-      assert.equal(info.stats.model, "gpt-5.4");
-      assert.equal(info.stats.contextTokens, 150);
-      assert.equal(info.stats.contextWindow, 258400);
-      assert.equal(manager.instances.get("codex-managed-id").process?.provider, "codex");
+      assert.equal(info.status, "stopped");
+      assert.equal(manager.instances.get("codex-managed-id").process, null);
+      assert.equal(manager.instances.get("codex-managed-id").hydrated, false);
 
       const userMessages = history.filter((h) => h.message.type === "user");
       assert.equal(userMessages.length, 1, "Only the actual chat message should be replayed");
@@ -297,12 +291,10 @@ describe("History Parsing via DB Restore", () => {
 
       const history = manager.getHistory("codex-discovery-id");
       assert.ok(history.length > 0, "Managed Codex restore should discover transcript history");
-
-      const db = new SessionDB(join(tempDir, "sessions.db"), noopLogger);
-      const row = db.getManagedByInstanceId("codex-discovery-id");
-      assert.ok(row, "Expected managed Codex row to persist");
-      assert.equal(row.transcript_path, transcriptPath);
-      db.close();
+      const instance = manager.instances.get("codex-discovery-id");
+      assert.equal(instance.process, null);
+      assert.equal(instance.jsonlPath, transcriptPath);
+      assert.equal(instance.hydrated, false);
 
       manager.stopAll();
     });
@@ -362,11 +354,18 @@ describe("History Parsing via DB Restore", () => {
       const manager = makeManager(tempDir);
       manager.restoreAndScan();
 
-      manager.getHistory("codex-files-id");
+      const history = manager.getHistory("codex-files-id");
       const instance = manager.instances.get("codex-files-id");
-      assert.deepEqual(Array.from(instance.files.values()), [
+
+      const fileList = history.find(
+        (entry) => entry.message.type === "activity" && entry.message.activity === "file_list",
+      );
+      assert.ok(fileList, "Expected a restored file_list activity");
+      assert.deepEqual(fileList.message.files, [
         { path: "src/app.ts", editCount: 1, type: "edited" },
       ]);
+      assert.equal(instance.files, undefined);
+      assert.equal(instance.hydrated, false);
 
       manager.stopAll();
     });
@@ -445,11 +444,8 @@ describe("History Parsing via DB Restore", () => {
         { id: "plan-1", subject: "Apply the fix", status: "in_progress" },
         { id: "plan-2", subject: "Run checks", status: "pending" },
       ]);
-      assert.deepEqual(Array.from(instance.tasks.values()), [
-        { id: "plan-0", subject: "Inspect the code", status: "completed" },
-        { id: "plan-1", subject: "Apply the fix", status: "in_progress" },
-        { id: "plan-2", subject: "Run checks", status: "pending" },
-      ]);
+      assert.equal(instance.tasks, undefined);
+      assert.equal(instance.hydrated, false);
 
       manager.stopAll();
     });
@@ -508,8 +504,9 @@ describe("History Parsing via DB Restore", () => {
       );
       assert.ok(planActivity, "Expected restored ExitPlanMode activity");
       assert.equal(planActivity.message.input.plan, "# Test Plan\n- Inspect\n- Patch");
-      assert.equal(instance.info.pendingPlan, "# Test Plan\n- Inspect\n- Patch");
-      assert.equal(instance.info.planContent, "# Test Plan\n- Inspect\n- Patch");
+      assert.equal(instance.info.pendingPlan, undefined);
+      assert.equal(instance.info.planContent, undefined);
+      assert.equal(instance.hydrated, false);
 
       manager.stopAll();
     });

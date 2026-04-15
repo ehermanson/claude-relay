@@ -417,6 +417,7 @@ function isTrivialMessage(text: string): boolean {
  * (auto-continue, permission grants, etc.) are stripped or excluded.
  */
 const MIN_SEARCHABLE_LENGTH = 80;
+const TASK_REF_SEARCH_RE = /@task:[a-f0-9]{8}(?::[^\s@]*)?\b/i;
 
 export function extractSearchableText(history: HistoryEntry[]): string {
   const parts: string[] = [];
@@ -432,7 +433,7 @@ export function extractSearchableText(history: HistoryEntry[]): string {
       if (text && isInternalInjectedUserText(text)) {
         text = stripInjectedWrapper(text);
       }
-      if (text && text.length >= MIN_SEARCHABLE_LENGTH) {
+      if (text && (text.length >= MIN_SEARCHABLE_LENGTH || TASK_REF_SEARCH_RE.test(text))) {
         parts.push(text);
       }
     } else if (msg.type === "output") {
@@ -3060,35 +3061,28 @@ export class InstanceManager extends EventEmitter {
   getHistory(id: string): HistoryEntry[] {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
-
-    this.hydrateInstance(id, instance);
-    if (!instance.info.external && !instance.process) {
-      try {
-        this.bootManagedInstance(id, instance);
-      } catch (err) {
-        this.baseConfig.logger.warn(`[InstanceManager] Lazy boot failed for ${id}: ${err}`);
-      }
+    if (instance.hydrated) {
+      return this.buildHistoryView(instance.history, instance.files);
     }
 
-    // If we have enriched file data on the instance, patch the last file_list
-    // activity in history so the UI gets diff stats on initial load.
-    if (instance.files && instance.files.size > 0) {
-      const enriched = Array.from(instance.files.values()).map((f) => ({ ...f }));
-      const history = [...instance.history];
-      for (let i = history.length - 1; i >= 0; i--) {
-        const msg = history[i].message;
-        if (msg.type === "activity" && (msg as ActivityMessage).activity === "file_list") {
-          history[i] = {
-            ...history[i],
-            message: { ...msg, files: enriched } as ActivityMessage,
-          };
-          break;
-        }
-      }
-      return history;
+    const transcriptPath =
+      instance.jsonlPath ??
+      instance.providerBinding?.transcriptPath ??
+      instance.externalState?.jsonlPath;
+    if (!transcriptPath || !existsSync(transcriptPath)) {
+      return this.buildHistoryView(instance.history, instance.files);
     }
 
-    return [...instance.history];
+    const hydrateStartedAt = Date.now();
+    const { parsed, cacheHit } = this.parseProviderTranscriptCached(
+      instance.info.provider,
+      transcriptPath,
+    );
+    this.baseConfig.logger.debug(
+      `[InstanceManager] Read passive history for ${id} from ${transcriptPath} in ${Date.now() - hydrateStartedAt}ms (${cacheHit ? "cache hit" : "cache miss"}, ${parsed.history.length} history entries)`,
+    );
+
+    return this.buildHistoryView(parsed.history, parsed.files.size > 0 ? parsed.files : undefined);
   }
 
   /**
@@ -3186,6 +3180,31 @@ export class InstanceManager extends EventEmitter {
     this.enrichGitDataAsync(id, instance).catch((err) => {
       this.baseConfig.logger.debug(`[InstanceManager] Git enrichment failed for ${id}: ${err}`);
     });
+  }
+
+  private buildHistoryView(
+    history: HistoryEntry[],
+    files?: Map<string, FileChange>,
+  ): HistoryEntry[] {
+    // If we have enriched file data on the instance, patch the last file_list
+    // activity in history so the UI gets diff stats on initial load.
+    if (files && files.size > 0) {
+      const enriched = Array.from(files.values()).map((f) => ({ ...f }));
+      const view = [...history];
+      for (let i = view.length - 1; i >= 0; i--) {
+        const msg = view[i].message;
+        if (msg.type === "activity" && (msg as ActivityMessage).activity === "file_list") {
+          view[i] = {
+            ...view[i],
+            message: { ...msg, files: enriched } as ActivityMessage,
+          };
+          break;
+        }
+      }
+      return view;
+    }
+
+    return [...history];
   }
 
   private rebuildPendingInteractiveState(instance: Instance): void {
@@ -7448,7 +7467,6 @@ export class InstanceManager extends EventEmitter {
             }
           }
           this.pushHistory(live, message);
-          live.info.lastActivityAt = Date.now();
           this.dbSave(live);
           this.emit("instance:system_event", id, message);
         }).catch((err) => this.logQueuedMutationError("systemEvent handler", id, err));
@@ -7475,7 +7493,6 @@ export class InstanceManager extends EventEmitter {
       void this.enqueueInstanceMutation(id, (live) => {
         if (this.shuttingDown || live.process !== proc) return;
         live.providerBinding = proc.getRuntimeBinding();
-        live.info.lastActivityAt = Date.now();
         const wasCancelledByUser = live.cancelledByUser;
         const wasInterruptedToSend = live.interruptedToSend;
         live.cancelledByUser = false;
@@ -7530,7 +7547,6 @@ export class InstanceManager extends EventEmitter {
             message: errorMsg,
           };
           this.pushHistory(live, errorMessage);
-          live.info.lastActivityAt = Date.now();
           this.dbSave(live);
           this.emit("instance:error", id, errorMsg);
         }).catch((err) => this.logQueuedMutationError("providerError handler", id, err));
