@@ -484,7 +484,7 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
-    it("suppresses assistant text when the same message also contains tool use", async () => {
+    it("emits assistant text even when the same message also contains tool use", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);
       const outputs = collectEvents(session, "output");
@@ -509,7 +509,8 @@ describe("ClaudeSdkSession", () => {
       await tick();
       const textOutputs = outputs.filter(([o]) => o.text && !o.isWaiting);
       const toolActs = activities.filter(([a]) => a.activity === "tool_use");
-      assert.equal(textOutputs.length, 0);
+      assert.equal(textOutputs.length, 1);
+      assert.equal(textOutputs[0][0].text, "Let me inspect that for you.");
       assert.equal(toolActs.length, 1);
       session.close();
     });
@@ -999,7 +1000,7 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
-    it("drops buffered text deltas when the assistant message becomes tool use", async () => {
+    it("emits buffered text even when the assistant message also contains tool use", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);
       const outputs = collectEvents(session, "output");
@@ -1052,7 +1053,8 @@ describe("ClaudeSdkSession", () => {
 
       await tick();
       const textOutputs = outputs.filter(([o]) => o.text && !o.isWaiting);
-      assert.equal(textOutputs.length, 0);
+      assert.equal(textOutputs.length, 1);
+      assert.equal(textOutputs[0][0].text, "Let me check that.");
       session.close();
     });
   });

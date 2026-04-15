@@ -1022,9 +1022,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         // interleaved with stream_event deltas. If we emit text here while
         // streaming is active (pendingStreamMessage exists), flushPendingStreamText()
         // will also emit the accumulated text on message_stop → duplicate.
-        // Suppress text when the same message also contains tool_use — the text
-        // is typically just a preamble ("Let me check that") and would clutter the UI.
-        if (!this._hasStreamedText && !this.pendingStreamMessage && !this._lastMessageHadToolUse) {
+        if (!this._hasStreamedText && !this.pendingStreamMessage) {
           this._hasStreamedText = true;
           const output: OutputMessage = {
             type: "output",
@@ -1189,11 +1187,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     const pending = this.pendingStreamMessage;
     this.pendingStreamMessage = null;
     if (!pending) return;
-
-    // Suppress streamed text when the message also contained tool_use blocks —
-    // the text is typically just a preamble and would clutter the UI alongside
-    // the tool activity entries.
-    if (pending.hasToolUse) return;
 
     const text = pending.textOrder
       .sort((a, b) => a - b)
