@@ -19,7 +19,7 @@ Support organic grouping for related chats without requiring a space up front.
 - Lightweight workstream entity separate from spaces
 - Manual grouping and labeling of chats
 - Shared status and summary at the group level
-- Basic handoff primitive from a workstream into a new chat
+- Basic spin-off primitive from a workstream into a new chat
 
 ## Next
 
@@ -31,13 +31,13 @@ Turn chat history into durable, reviewable project knowledge.
 - Accept/edit/archive flows
 - Provenance back to source chats
 
-### Handoff
+### Spin Off To New Chat
 
-Make executor/reviewer/planner style workflows easier to transfer cleanly between chats.
+Make it easy to capture a newly discovered thread without derailing the current chat.
 
-- Explicit handoff action between chats
-- Visible, editable handoff packet
-- Basic handoff flows that work without larger grouping structures
+- Explicit spin-off action from the current chat
+- Fast draft seeding for a follow-up chat
+- Lightweight context carryover without requiring strong summarization
 
 ### Cross-chat synthesis
 
@@ -73,10 +73,10 @@ Extend access to Relay without recreating the full desktop app.
 
 - Search, read, resume, and monitor
 - Quick replies and approval flows
-- Notifications for approvals, completions, and handoff-ready work
+- Notifications for approvals, completions, and spin-off-ready work
 - Remote-friendly companion UX built on the same server
 
 ## Notes
 
-- Search, memory, grouping, and handoff should compound into a stronger continuity story.
+- Search, memory, grouping, and spin-off flows should compound into a stronger continuity story.
 - Spaces remain the operational git/worktree abstraction. Workstreams should be a lighter conceptual layer that also works outside spaces.

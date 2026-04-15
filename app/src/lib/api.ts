@@ -8,6 +8,7 @@ import type {
   ProviderKind,
   ProviderModelsResponse,
   ProjectArtifacts,
+  SpinOffInfo,
   SpaceInfo,
 } from "@shared/types";
 import { getDefaultProviderCapabilities } from "@shared/provider-catalog";
@@ -711,4 +712,39 @@ export async function searchChats(
   if (!res.ok) return [];
   const data = await res.json();
   return data.results ?? [];
+}
+
+// ── Spin-offs ──────────────────────────────────────────────────────────
+
+export interface SpinOffDraft extends SpinOffInfo {
+  renderedText: string;
+}
+
+export async function createSpinOff(
+  sourceChatId: string,
+  anchorIndex?: number,
+): Promise<SpinOffDraft> {
+  const res = await fetch("/api/spin-offs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sourceChatId, anchorIndex }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to create spin-off draft" }));
+    throw new Error(data.error || "Failed to create spin-off draft");
+  }
+  return res.json();
+}
+
+export async function markSpinOffSent(
+  spinOffId: string,
+  targetChatId: string,
+): Promise<SpinOffInfo> {
+  const res = await fetch(`/api/spin-offs/${encodeURIComponent(spinOffId)}/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targetChatId }),
+  });
+  if (!res.ok) throw new Error("Failed to mark spin-off as sent");
+  return res.json();
 }

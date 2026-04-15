@@ -29,7 +29,7 @@ Provider UIs are good at a single session. Relay can be better at everything aro
 
 ### Reviewable, not magical
 
-Summaries, memories, tags, and handoffs should be inspectable and editable where trust depends on them. Not every feature needs a heavy review queue, but important generated state should stay visible and correctable.
+Summaries, memories, tags, spin-offs, and other generated coordination artifacts should be inspectable and editable where trust depends on them. Not every feature needs a heavy review queue, but important generated state should stay visible and correctable.
 
 ### Organic first, formal second
 

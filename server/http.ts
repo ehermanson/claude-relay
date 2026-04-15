@@ -39,6 +39,7 @@ import { registerUploadRoutes } from "#server/routes/uploads.js";
 import { registerSettingsRoutes } from "#server/routes/settings.js";
 import { registerSearchRoutes } from "#server/routes/search.js";
 import { registerWorkspaceRoutes } from "#server/routes/workspace.js";
+import { registerSpinOffRoutes } from "#server/routes/spin-offs.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
 
 // From dist: dist/server/http.js → ../../ = project root
@@ -293,6 +294,7 @@ export function createRequestHandler(
   registerInstanceRoutes(app, deps);
   registerProjectRoutes(app, deps);
   registerSpaceRoutes(app, deps);
+  registerSpinOffRoutes(app, deps);
   registerWorkspaceRoutes(app, deps);
   registerProviderRoutes(app, deps);
   registerNativeOpenRoutes(app, deps);

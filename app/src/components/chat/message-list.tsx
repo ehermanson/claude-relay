@@ -217,7 +217,7 @@ export function MessageList({
   }, [activeSearchRowId]);
 
   // ── Row renderer ─────────────────────────────────────────────────
-  const renderRow = (row: RenderRow) => {
+  const renderRow = (row: RenderRow, rowIndex?: number) => {
     switch (row.kind) {
       case "user":
         return (
@@ -229,8 +229,19 @@ export function MessageList({
             onInterruptAndSend={row.queued ? onInterruptAndSend : undefined}
           />
         );
-      case "assistant":
-        return <AgentMessage text={row.text} timestamp={row.timestamp} />;
+      case "assistant": {
+        // row.id is "assistant-${chatItemIndex}" — extract the original ChatItem
+        // index so the server can anchor the spin-off excerpt correctly (the
+        // virtualizer rowIndex includes dividers/tool-containers and would be wrong).
+        const origIdx = parseInt(row.id.split("-")[1], 10);
+        return (
+          <AgentMessage
+            text={row.text}
+            timestamp={row.timestamp}
+            anchorIndex={Number.isFinite(origIdx) ? origIdx : rowIndex}
+          />
+        );
+      }
       case "system":
         return <SystemMessage text={row.text} isError={row.isError} />;
       case "compact-boundary":
@@ -289,7 +300,7 @@ export function MessageList({
                   }`}
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
-                  {renderRow(rows[virtualRow.index])}
+                  {renderRow(rows[virtualRow.index], virtualRow.index)}
                 </div>
               ))}
             </div>
@@ -298,7 +309,7 @@ export function MessageList({
           {/* Non-virtualized section — current turn during processing */}
           {hasNonVirtual && (
             <div className={`flex flex-col gap-4${hasVirtual ? " mt-4" : ""}`}>
-              {nonVirtualizedRows.map((row) => (
+              {nonVirtualizedRows.map((row, i) => (
                 <div
                   key={row.id}
                   data-row-id={row.id}
@@ -306,7 +317,7 @@ export function MessageList({
                     row.id === activeSearchRowId ? "bg-accent/10 ring-1 ring-accent/30" : ""
                   }`}
                 >
-                  {renderRow(row)}
+                  {renderRow(row, virtualizedRowCount + i)}
                 </div>
               ))}
               {showThinking && (
@@ -419,7 +430,10 @@ function tokenizeSearchText(text: string, minLength: number): string[] {
 }
 
 function normalizeSearchText(text: string): string {
-  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 function scoreSearchTerms(haystack: string, terms: string[]): number {

@@ -121,7 +121,7 @@ Shipped V1 uses direct navigation into the matching chat. Preview/peek is a like
 
 - matched snippet with highlighted terms
 - chat title, space, project, and time context
-- quick actions: Open chat, Open in split, Use in handoff
+- quick actions: Open chat, Open in split, Spin off to new chat
 
 If/when preview ships, full navigation should remain explicit. That avoids search becoming a context-switching trap and supports the common flow: inspect → decide → act.
 
@@ -192,6 +192,7 @@ Update on normal persistence events when any of these change: title, summary, la
 **Content path (debounced)**
 
 Update bounded transcript-derived body text on:
+
 - transcript watcher/replay advancing materially
 - completed output from a managed chat
 - periodic debounce while a chat is active
@@ -209,6 +210,7 @@ Not on every streamed token. Not only on close.
 ### Per-document freshness metadata
 
 Track internally (for debugging and later trust signals):
+
 - source last updated at
 - indexed at
 - indexing status if obviously behind
@@ -282,7 +284,7 @@ Desired shape:
 
 - keyboard-first preview in the command menu or side panel
 - inspect snippet, context, files, and summary before opening
-- explicit actions: Open chat, Open in split, Copy link, Use in handoff
+- explicit actions: Open chat, Open in split, Copy link, Spin off to new chat
 
 ### 3. Better result types beyond raw chats
 
@@ -332,7 +334,7 @@ Search should become a bridge, not just a locator.
 
 Promising follow-ons:
 
-- send result into a handoff packet
+- spin off a new chat from a result
 - ask Relay to summarize selected results
 - open related chats side-by-side
 - jump from search result to touched files or diff context
@@ -354,7 +356,7 @@ Promising follow-ons:
 - How should result scoring be debugged in logs when ranking feels wrong?
 - What is the right preview/peek UX for result cards — inline panel, sidebar, modal?
 - Which result types should graduate first in V2: summary/decision hits, spaces, or file-adjacent hits?
-- Which action should ship first from search results: split-open, handoff, or synthesize selected results?
+- Which action should ship first from search results: split-open, spin-off, or synthesize selected results?
 
 ## Related Docs
 

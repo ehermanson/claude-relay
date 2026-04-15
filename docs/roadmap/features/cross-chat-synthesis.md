@@ -47,10 +47,10 @@ Once users have several chats around one topic, retrieval alone is not enough. R
 - [Themes](../themes.md)
 - [Now / Next / Later](../now-next-later.md)
 - [Workstreams](./workstreams.md)
-- [Handoff](./handoff.md)
+- [Spin Off To New Chat](./spin-off-to-new-chat.md)
 - [Project Memory](./project-memory.md)
 
 ## Decision Log
 
 - Initial direction: v1 synthesis should stay narrow: summary, decisions, and open questions across selected chats.
-- Initial direction: synthesis is a follow-on feature from handoff, not the same thing.
+- Initial direction: synthesis is a follow-on feature from spin-off, not the same thing.

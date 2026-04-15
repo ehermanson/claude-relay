@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { BranchChangeBanner } from "@/components/chat/branch-change-banner";
 import { ConnectionStatusBanner } from "@/components/chat/connection-status-banner";
@@ -6,21 +6,150 @@ import { ChatDebug } from "@/components/chat/chat-debug";
 import { ExternalSessionBar } from "@/components/chat/external-session-bar";
 import { InputArea } from "@/components/chat/input-area";
 import { MessageList } from "@/components/chat/message-list";
-import { MessageRelayProvider } from "@/components/chat/message-relay-context";
+import { MessageRelayProvider, type SpinOffRequest } from "@/components/chat/message-relay-context";
 import { PermissionBanner } from "@/components/chat/permission-banner";
 import { SpaceSuggestionCards } from "@/components/spaces/space-suggestion-cards";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
 import { TerminalInputBanner } from "@/components/chat/terminal-input-banner";
 import { TerminalContextStrip } from "@/components/terminal/terminal-context-strip";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
+import { CheckboxField } from "@/components/ui/checkbox";
+import { Dialog } from "@/components/ui/dialog";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { Textarea } from "@/components/ui/input";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { useInstanceViewContext } from "@/components/chat/instance-view-context";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
+import { createSpinOff, createInstance, markSpinOffSent } from "@/lib/api";
+import { toast } from "sonner";
+import { useNavigate } from "@tanstack/react-router";
 import { getProjectName } from "@/lib/project-route";
+import { ArrowRightFromLine, X } from "lucide-react";
+import type { SpinOffPacket } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
+
+// ---------------------------------------------------------------------------
+// Spin-off draft metadata — stored alongside the composer draft so the source
+// info can be rendered as a styled bar rather than inline bracket text.
+// ---------------------------------------------------------------------------
+
+const SPIN_OFF_META_PREFIX = "relay:spin-off-meta:";
+const LEGACY_HANDOFF_META_PREFIX = "relay:handoff-meta:";
+const DRAFT_PREFIX = "relay:draft:";
+
+interface SpinOffMeta {
+  sourceName: string;
+  spinOffId: string;
+}
+
+interface SpinOffDraftEdits {
+  currentState: string;
+}
+
+interface SpinOffDialogState {
+  anchorIndex?: number;
+  selectedText?: string;
+}
+
+function storeSpinOffMeta(instanceId: string, meta: SpinOffMeta): void {
+  try {
+    sessionStorage.setItem(`${SPIN_OFF_META_PREFIX}${instanceId}`, JSON.stringify(meta));
+  } catch {
+    // ignore
+  }
+}
+
+function loadSpinOffMeta(instanceId: string): SpinOffMeta | null {
+  try {
+    const raw =
+      sessionStorage.getItem(`${SPIN_OFF_META_PREFIX}${instanceId}`) ??
+      sessionStorage.getItem(`${LEGACY_HANDOFF_META_PREFIX}${instanceId}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearSpinOffMeta(instanceId: string): void {
+  try {
+    sessionStorage.removeItem(`${SPIN_OFF_META_PREFIX}${instanceId}`);
+    sessionStorage.removeItem(`${LEGACY_HANDOFF_META_PREFIX}${instanceId}`);
+  } catch {
+    // ignore
+  }
+}
+
+function hasStoredDraft(instanceId: string): boolean {
+  try {
+    return !!sessionStorage.getItem(`${DRAFT_PREFIX}${instanceId}`)?.trim();
+  } catch {
+    return false;
+  }
+}
+
+function cleanSection(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function formatQuotedSelection(value: string): string {
+  return value
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
+function renderPacketFromEdits(
+  sourceName: string,
+  basePacket: SpinOffPacket,
+  edits: SpinOffDraftEdits,
+  selectedText?: string,
+  includeTouchedFiles?: boolean,
+): string {
+  const packet = {
+    ...basePacket,
+    currentState: cleanSection(edits.currentState) ?? basePacket.currentState,
+  };
+
+  const sections: string[] = [`[Spun off from: ${sourceName}]`, ""];
+  if (cleanSection(selectedText)) {
+    sections.push(`## Selected text\n${formatQuotedSelection(cleanSection(selectedText)!)}`);
+  }
+  if (packet.currentState) sections.push(`## Context\n${packet.currentState}`);
+  if (includeTouchedFiles && packet.touchedFiles) {
+    sections.push(`## Touched files\n${packet.touchedFiles}`);
+  }
+  return sections.join("\n\n");
+}
+
+/** Strip the visible source prefix from rendered spin-off text. */
+function stripSpinOffPrefix(text: string): string {
+  return text.replace(/^\[(?:Handoff|Spun off) from:\s+.+?\]\s*\n*/, "");
+}
+
+function SpinOffSourceBar({ meta, onClear }: { meta: SpinOffMeta | null; onClear: () => void }) {
+  if (!meta) return null;
+
+  return (
+    <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/5 px-3 py-1.5">
+      <ArrowRightFromLine size={12} className="shrink-0 text-accent" />
+      <span className="flex-1 truncate text-[0.75rem] text-accent">
+        Spun off from <span className="font-medium">{meta.sourceName}</span>
+      </span>
+      <button
+        onClick={() => {
+          onClear();
+        }}
+        className="rounded p-0.5 text-muted transition-colors hover:bg-surface-hover hover:text-text"
+        title="Remove source attribution"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
 
 function EmptyChatState({ projectName }: { projectName: string }) {
   return (
@@ -43,24 +172,222 @@ function EmptyChatState({ projectName }: { projectName: string }) {
   );
 }
 
+function SpinOffPrepDialog({
+  open,
+  onOpenChange,
+  edits,
+  onChange,
+  onConfirm,
+  isSubmitting,
+  selectedText,
+  includeTouchedFiles,
+  onIncludeTouchedFilesChange,
+  canIncludeTouchedFiles,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  edits: SpinOffDraftEdits;
+  onChange: (next: SpinOffDraftEdits) => void;
+  onConfirm: () => void;
+  isSubmitting: boolean;
+  selectedText?: string;
+  includeTouchedFiles: boolean;
+  onIncludeTouchedFilesChange: (checked: boolean) => void;
+  canIncludeTouchedFiles: boolean;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      {open && (
+        <Dialog.Content maxWidth="max-w-lg">
+          <Dialog.Header>
+            <Dialog.Title>Spin off to new chat</Dialog.Title>
+            <Dialog.Close />
+          </Dialog.Header>
+          <div className="space-y-4 overflow-y-auto">
+            <p className="text-sm text-muted">Add any extra context worth carrying over.</p>
+            {selectedText && (
+              <div className="space-y-1.5">
+                <p className="text-[0.75rem] font-medium text-muted">Selected text</p>
+                <div className="rounded-md border border-border bg-surface-hover px-3 py-2 text-[0.8125rem] leading-relaxed text-text">
+                  <span className="line-clamp-5 whitespace-pre-wrap">
+                    &ldquo;{selectedText}&rdquo;
+                  </span>
+                </div>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <label className="text-[0.75rem] font-medium text-muted" htmlFor="spin-off-state">
+                Context
+              </label>
+              <Textarea
+                id="spin-off-state"
+                autoFocus
+                rows={4}
+                placeholder="What should the new chat know before it starts?"
+                value={edits.currentState}
+                onChange={(e) => onChange({ ...edits, currentState: e.target.value })}
+              />
+            </div>
+            {canIncludeTouchedFiles && (
+              <CheckboxField
+                id="spin-off-include-files"
+                checked={includeTouchedFiles}
+                onCheckedChange={onIncludeTouchedFilesChange}
+                label="Include related files from this chat?"
+              />
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => onOpenChange(false)}
+                className="rounded-lg px-3 py-1.5 text-sm text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onConfirm}
+                disabled={isSubmitting}
+                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? "Preparing..." : "Create draft"}
+              </button>
+            </div>
+          </div>
+        </Dialog.Content>
+      )}
+    </Dialog.Root>
+  );
+}
+
 export function InstanceViewContent() {
   const { shared, actions } = useInstanceViewContext();
   const { instances: allInstances } = useWSState();
   const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
   const { send } = useWSMethods();
+  const navigate = useNavigate();
 
   const spaceId = shared.instance.spaceId;
   const instanceId = shared.id;
+  const projectId = shared.instance.projectId;
+  const workingDirectory = shared.instance.workingDirectory;
+  const canIncludeTouchedFiles = !!shared.currentFiles?.length;
+  const hasSeededDraft = hasStoredDraft(shared.id);
+  const [spinOffMeta, setSpinOffMeta] = useState<SpinOffMeta | null>(() =>
+    loadSpinOffMeta(shared.id),
+  );
+  const [spinOffDialogOpen, setSpinOffDialogOpen] = useState(false);
+  const [spinOffSubmitting, setSpinOffSubmitting] = useState(false);
+  const [spinOffDialogState, setSpinOffDialogState] = useState<SpinOffDialogState | null>(null);
+  const [spinOffIncludeTouchedFiles, setSpinOffIncludeTouchedFiles] = useState(false);
+  const [spinOffEdits, setSpinOffEdits] = useState<SpinOffDraftEdits>({
+    currentState: "",
+  });
+
+  useEffect(() => {
+    setSpinOffMeta(loadSpinOffMeta(shared.id));
+  }, [shared.id]);
+
+  // Prepend source attribution when a spun-off draft is sent for the first time.
+  const handleSendWithSpinOff = useCallback(
+    (text: string, images?: string[], internal?: boolean) => {
+      const meta = spinOffMeta;
+      if (meta) {
+        clearSpinOffMeta(instanceId);
+        setSpinOffMeta(null);
+        const attributed = `[Spun off from: ${meta.sourceName}]\n\n${text}`;
+        actions.handleSend(attributed, images, internal);
+      } else {
+        actions.handleSend(text, images, internal);
+      }
+    },
+    [instanceId, actions, spinOffMeta],
+  );
+
+  const handleSpinOff = useCallback(async () => {
+    const anchorIndex = spinOffDialogState?.anchorIndex;
+    const selectedText = spinOffDialogState?.selectedText;
+    setSpinOffSubmitting(true);
+    try {
+      const draft = await createSpinOff(instanceId, anchorIndex);
+      const sourceName = draft.sourceChatName || "Unknown";
+      const mergedText = renderPacketFromEdits(
+        sourceName,
+        draft.packet,
+        spinOffEdits,
+        selectedText,
+        spinOffIncludeTouchedFiles,
+      );
+      const draftBody = stripSpinOffPrefix(mergedText);
+
+      if (spaceId) {
+        // Space chat: dispatch event so the space view creates a tab
+        window.dispatchEvent(
+          new CustomEvent("relay:send-to-new-chat", {
+            detail: {
+              spaceId,
+              message: draftBody,
+              spinOffId: draft.id,
+              spinOffSourceName: sourceName,
+            },
+          }),
+        );
+      } else {
+        // Standalone chat: create a new instance, prefill draft, navigate
+        const created = await createInstance({ workingDirectory });
+        // Store source metadata for the styled bar
+        storeSpinOffMeta(created.id, { sourceName, spinOffId: draft.id });
+        // Seed the composer draft so the user can review/edit before sending
+        try {
+          sessionStorage.setItem(`relay:draft:${created.id}`, draftBody);
+        } catch {
+          // sessionStorage unavailable — fall back to sending directly
+          send({
+            type: "instance_message",
+            instanceId: created.id,
+            text: mergedText,
+          });
+        }
+        markSpinOffSent(draft.id, created.id).catch(() => {
+          // Non-fatal — packet was already delivered as a message
+        });
+        if (projectId) {
+          void navigate({
+            to: "/projects/$projectId/chats/$chatId",
+            params: { projectId, chatId: created.id },
+          });
+        }
+      }
+      setSpinOffDialogOpen(false);
+      setSpinOffDialogState(null);
+      setSpinOffIncludeTouchedFiles(false);
+      setSpinOffEdits({ currentState: "" });
+      toast.success("Spin-off draft ready");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create spin-off");
+    } finally {
+      setSpinOffSubmitting(false);
+    }
+  }, [
+    instanceId,
+    navigate,
+    projectId,
+    send,
+    spaceId,
+    spinOffDialogState,
+    spinOffEdits,
+    spinOffIncludeTouchedFiles,
+    workingDirectory,
+  ]);
 
   const relayValue = useMemo(() => {
-    if (!spaceId) return null;
-
-    const siblings = allInstances
-      .filter((inst) => inst.spaceId === spaceId && inst.id !== instanceId)
-      .map((inst) => ({ id: inst.id, name: inst.name, status: inst.status }));
+    const siblings = spaceId
+      ? allInstances
+          .filter((inst) => inst.spaceId === spaceId && inst.id !== instanceId)
+          .map((inst) => ({ id: inst.id, name: inst.name, status: inst.status }))
+      : [];
 
     return {
       siblings,
+      instanceId,
       onSendToChat: (targetId: string, messageText: string) => {
         const sourceChat = allInstances.find((inst) => inst.id === instanceId);
         const sourceName = sourceChat?.name || "Unknown";
@@ -68,16 +395,20 @@ export function InstanceViewContent() {
         send({ type: "instance_message", instanceId: targetId, text: attributed });
       },
       onSendToNewChat: (messageText: string) => {
-        // Store the message for delivery after instance creation
-        // We'll use a custom event to coordinate this
         const sourceChat = allInstances.find((inst) => inst.id === instanceId);
         const sourceName = sourceChat?.name || "Unknown";
         const attributed = `[From: ${sourceName}] ${messageText}`;
-        window.dispatchEvent(
-          new CustomEvent("relay:send-to-new-chat", {
-            detail: { spaceId, message: attributed },
-          }),
-        );
+        if (spaceId) {
+          window.dispatchEvent(
+            new CustomEvent("relay:send-to-new-chat", {
+              detail: { spaceId, message: attributed },
+            }),
+          );
+        }
+      },
+      onSpinOff: (request?: SpinOffRequest) => {
+        setSpinOffDialogState(request ?? {});
+        setSpinOffDialogOpen(true);
       },
     };
   }, [spaceId, instanceId, allInstances, send]);
@@ -106,7 +437,10 @@ export function InstanceViewContent() {
     <>
       {shared.isLoadingSession || (!shared.hasLoadedHistory && shared.items.length === 0) ? (
         loadingContent
-      ) : shared.items.length === 0 && !shared.isActive && !shared.showThinkingIndicator ? (
+      ) : shared.items.length === 0 &&
+        !shared.isActive &&
+        !shared.showThinkingIndicator &&
+        !hasSeededDraft ? (
         <EmptyChatState projectName={getProjectName(shared.instance.workingDirectory)} />
       ) : (
         <ErrorBoundary name="Message list">
@@ -223,6 +557,7 @@ export function InstanceViewContent() {
             {spaceId &&
               shared.items.length === 0 &&
               !shared.isActive &&
+              !hasSeededDraft &&
               // Hide suggestions for brand-new spaces — they reference prior
               // work that doesn't exist yet. Show only when the space already
               // has other chats (i.e. this isn't the very first one).
@@ -232,7 +567,7 @@ export function InstanceViewContent() {
                 </div>
               )}
             <InputArea
-              onSend={actions.handleSend}
+              onSend={handleSendWithSpinOff}
               onAnswerUserInput={actions.handleAnswerUserInput}
               onCancel={actions.handleCancel}
               onSwitchProvider={actions.handleSwitchProvider}
@@ -251,19 +586,47 @@ export function InstanceViewContent() {
               pendingPlan={shared.instance.pendingPlan}
               providerStatus={shared.instance.providerStatus}
               topSlot={
-                <TerminalContextStrip
-                  attachments={shared.terminalContexts}
-                  onRemove={actions.removeTerminalContext}
-                />
+                <>
+                  <SpinOffSourceBar
+                    meta={spinOffMeta}
+                    onClear={() => {
+                      clearSpinOffMeta(shared.id);
+                      setSpinOffMeta(null);
+                    }}
+                  />
+                  <TerminalContextStrip
+                    attachments={shared.terminalContexts}
+                    onRemove={actions.removeTerminalContext}
+                  />
+                </>
               }
             />
           </ErrorBoundary>
         ))}
+      <SpinOffPrepDialog
+        open={spinOffDialogOpen}
+        onOpenChange={(open) => {
+          setSpinOffDialogOpen(open);
+          if (!open) {
+            setSpinOffDialogState(null);
+            setSpinOffIncludeTouchedFiles(false);
+            setSpinOffEdits({ currentState: "" });
+          }
+        }}
+        edits={spinOffEdits}
+        onChange={setSpinOffEdits}
+        onConfirm={handleSpinOff}
+        isSubmitting={spinOffSubmitting}
+        selectedText={spinOffDialogState?.selectedText}
+        includeTouchedFiles={spinOffIncludeTouchedFiles}
+        onIncludeTouchedFilesChange={setSpinOffIncludeTouchedFiles}
+        canIncludeTouchedFiles={canIncludeTouchedFiles}
+      />
     </>
   );
 }
 
-/** Wraps children in MessageRelayProvider only when relay is available (i.e., inside a space). */
+/** Wraps children in MessageRelayProvider when cross-chat actions are available. */
 function MaybeRelayProvider({
   value,
   children,

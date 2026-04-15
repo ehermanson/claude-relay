@@ -35,6 +35,7 @@ import { SessionDB } from "#core/db.js";
 import type { SessionRow, ManagedInstanceRow } from "#core/db.js";
 import { BUILTIN_PROVIDER_MODELS } from "#core/provider-catalog.js";
 import { SpaceManager } from "#core/space-manager.js";
+import { SpinOffManager } from "#core/spin-off-manager.js";
 import { ProjectManager } from "#core/project-manager.js";
 import type { Project } from "#core/types.js";
 import { discoverSkills } from "#core/skills.js";
@@ -1263,6 +1264,8 @@ export class InstanceManager extends EventEmitter {
   private dismissedJsonlPaths = new Map<string, number>();
   /** Space lifecycle manager */
   private spaceManager: SpaceManager;
+  /** Spin-off generation and persistence */
+  private spinOffManager: SpinOffManager;
   /** Project manager for explicit project registration */
   private _projectManager: ProjectManager;
 
@@ -1277,6 +1280,7 @@ export class InstanceManager extends EventEmitter {
     };
     this.db = new SessionDB(config.dbPath, config.logger);
     this.spaceManager = new SpaceManager(this.db, config.logger);
+    this.spinOffManager = new SpinOffManager(this.db, config.logger);
     this._projectManager = new ProjectManager(this.db, config.logger);
     // Keep in-memory instances aligned with project registration changes.
     this._projectManager.on("project:created", (project) => {
@@ -2091,6 +2095,16 @@ export class InstanceManager extends EventEmitter {
 
   getSpaceManager(): SpaceManager {
     return this.spaceManager;
+  }
+
+  getSpinOffManager(): SpinOffManager {
+    return this.spinOffManager;
+  }
+
+  getChangedFiles(instanceId: string): FileChange[] | null {
+    const instance = this.instances.get(instanceId);
+    if (!instance?.files || instance.files.size === 0) return null;
+    return Array.from(instance.files.values());
   }
 
   private cloneInstanceInfo(info: InstanceInfo): InstanceInfo {

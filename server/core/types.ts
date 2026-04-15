@@ -884,6 +884,16 @@ export interface TerminalListResponse {
   terminals: TerminalInfo[];
 }
 
+export interface SpinOffCreatedMessage {
+  type: "spin_off_created";
+  spinOff: SpinOffInfo;
+}
+
+export interface SpinOffSentMessage {
+  type: "spin_off_sent";
+  spinOff: SpinOffInfo;
+}
+
 export interface HeartbeatMessage {
   type: "heartbeat";
 }
@@ -918,6 +928,8 @@ export type ServerMessage =
   | TerminalRemovedMessage
   | TerminalScrollbackMessage
   | TerminalListResponse
+  | SpinOffCreatedMessage
+  | SpinOffSentMessage
   | HeartbeatMessage;
 
 // =============================================================================
@@ -1029,6 +1041,38 @@ export interface SkillInfo {
   path: string;
   /** Which providers can use this skill (based on which directories it was found in) */
   providers: ProviderKind[];
+}
+
+// =============================================================================
+// Spin-off Types
+// =============================================================================
+
+export type SpinOffStatus = "draft" | "sent";
+
+/**
+ * Structured spin-off packet — minimal context for starting a focused follow-up
+ * chat. Empty/null sections should be omitted entirely in the rendered output.
+ */
+export interface SpinOffPacket {
+  currentState?: string;
+  touchedFiles?: string;
+}
+
+/**
+ * Standalone spin-off object with bidirectional provenance links.
+ * Persisted in SQLite; the packet payload is stored as JSON.
+ */
+export interface SpinOffInfo {
+  id: string;
+  sourceChatId: string;
+  sourceChatName: string | null;
+  targetChatId: string | null;
+  targetChatName: string | null;
+  sourceAnchorMessageIndex: number | null;
+  packet: SpinOffPacket;
+  status: SpinOffStatus;
+  createdAt: number;
+  sentAt: number | null;
 }
 
 export interface ProjectArtifacts {

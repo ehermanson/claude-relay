@@ -36,7 +36,7 @@ There is value in ambient access to sessions and project state, but a phone shou
 
 ## Dependencies
 
-- Better search, summaries, and handoff views
+- Better search, summaries, and spin-off views
 - A more explicit server/client split for remote access
 
 ## Open Questions
@@ -49,7 +49,7 @@ There is value in ambient access to sessions and project state, but a phone shou
 
 - [Themes](../themes.md)
 - [Now / Next / Later](../now-next-later.md)
-- [Handoff](./handoff.md)
+- [Spin Off To New Chat](./spin-off-to-new-chat.md)
 - [Cross-Chat Synthesis](./cross-chat-synthesis.md)
 - [Operational Awareness](./operational-awareness.md)
 

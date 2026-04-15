@@ -146,6 +146,19 @@ export interface ManagedInstanceRow {
   original_git_branch: string | null;
 }
 
+export interface SpinOffRow {
+  id: string;
+  source_chat_id: string;
+  source_chat_name: string | null;
+  target_chat_id: string | null;
+  target_chat_name: string | null;
+  source_anchor_message_index: number | null;
+  packet_json: string;
+  status: string;
+  created_at: number;
+  sent_at: number | null;
+}
+
 function normalizeSessionRow(row: SessionRow): SessionRow {
   const normalized = { ...row };
   normalized.summary ??= null;
@@ -368,6 +381,11 @@ export class SessionDB {
   private stmtUpsertSearchContent!: StatementSync;
   private stmtGetSearchContent!: StatementSync;
   private stmtDeleteSearchContent!: StatementSync;
+  private stmtInsertSpinOff!: StatementSync;
+  private stmtGetSpinOff!: StatementSync;
+  private stmtGetSpinOffsBySourceChat!: StatementSync;
+  private stmtGetSpinOffsByTargetChat!: StatementSync;
+  private stmtUpdateSpinOffStatus!: StatementSync;
 
   constructor(dbPath: string, logger: Logger) {
     // Ensure the directory exists
@@ -449,6 +467,25 @@ export class SessionDB {
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_space_id ON managed_sessions(space_id);
     `);
     this.ensureSearchIndex();
+
+    // Spin-off records stored in legacy `handoffs` table (added post-v20, uses
+    // CREATE IF NOT EXISTS to avoid destructive schema-version bump).
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS handoffs (
+        id TEXT PRIMARY KEY,
+        source_chat_id TEXT NOT NULL,
+        source_chat_name TEXT,
+        target_chat_id TEXT,
+        target_chat_name TEXT,
+        source_anchor_message_index INTEGER,
+        packet_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        created_at INTEGER NOT NULL,
+        sent_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_handoffs_source_chat_id ON handoffs(source_chat_id);
+      CREATE INDEX IF NOT EXISTS idx_handoffs_target_chat_id ON handoffs(target_chat_id);
+    `);
   }
 
   private ensureSearchIndex(): void {
@@ -1083,6 +1120,26 @@ export class SessionDB {
       "SELECT * FROM spaces WHERE project_directory = ? AND is_default = 0 ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, last_activity_at DESC",
     );
 
+    // Spin-offs (legacy storage remains in the `handoffs` table)
+    this.stmtInsertSpinOff = this.db.prepare(`
+      INSERT INTO handoffs (id, source_chat_id, source_chat_name, target_chat_id, target_chat_name,
+        source_anchor_message_index, packet_json, status, created_at, sent_at)
+      VALUES (@id, @source_chat_id, @source_chat_name, @target_chat_id, @target_chat_name,
+        @source_anchor_message_index, @packet_json, @status, @created_at, @sent_at)
+    `);
+    this.stmtGetSpinOff = this.db.prepare("SELECT * FROM handoffs WHERE id = ?");
+    this.stmtGetSpinOffsBySourceChat = this.db.prepare(
+      "SELECT * FROM handoffs WHERE source_chat_id = ? ORDER BY created_at DESC",
+    );
+    this.stmtGetSpinOffsByTargetChat = this.db.prepare(
+      "SELECT * FROM handoffs WHERE target_chat_id = ? ORDER BY created_at DESC",
+    );
+    this.stmtUpdateSpinOffStatus = this.db.prepare(`
+      UPDATE handoffs SET status = @status, target_chat_id = @target_chat_id,
+        target_chat_name = @target_chat_name, sent_at = @sent_at
+      WHERE id = @id
+    `);
+
     // Global settings
     this.stmtGetGlobalSettings = this.db.prepare("SELECT * FROM global_settings WHERE id = 1");
     this.stmtUpdateGlobalSettings = this.db.prepare(`
@@ -1689,6 +1746,48 @@ export class SessionDB {
         last_message_text: row.last_message_text ?? "",
         git_branch: row.git_branch ?? "",
         transcript_content: contentRow?.transcript_text ?? "",
+      }),
+    );
+  }
+
+  // =========================================================================
+  // Spin-offs
+  // =========================================================================
+
+  insertSpinOff(row: SpinOffRow): void {
+    this.stmtInsertSpinOff.run(asBindParams(row));
+  }
+
+  getSpinOff(id: string): SpinOffRow | undefined {
+    return asRow<SpinOffRow>(this.stmtGetSpinOff.get(id) as Record<string, unknown> | undefined);
+  }
+
+  getSpinOffsBySourceChat(sourceChatId: string): SpinOffRow[] {
+    return asRows<SpinOffRow>(
+      this.stmtGetSpinOffsBySourceChat.all(sourceChatId) as Record<string, unknown>[],
+    );
+  }
+
+  getSpinOffsByTargetChat(targetChatId: string): SpinOffRow[] {
+    return asRows<SpinOffRow>(
+      this.stmtGetSpinOffsByTargetChat.all(targetChatId) as Record<string, unknown>[],
+    );
+  }
+
+  updateSpinOffStatus(
+    id: string,
+    status: string,
+    targetChatId: string | null,
+    targetChatName: string | null,
+    sentAt: number | null,
+  ): void {
+    this.stmtUpdateSpinOffStatus.run(
+      asBindParams({
+        id,
+        status,
+        target_chat_id: targetChatId,
+        target_chat_name: targetChatName,
+        sent_at: sentAt,
       }),
     );
   }

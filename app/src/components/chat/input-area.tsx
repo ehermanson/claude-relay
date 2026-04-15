@@ -753,6 +753,7 @@ export function InputArea({
               value={composerValue}
               placeholder={composerPlaceholder}
               topContent={composerTopContent}
+              expanded={!hasMessages && !!composerValue}
               selectionOffset={isInSpecialMode ? null : pendingSelectionOffset}
               onSelectionApplied={clearPendingSelectionOffset}
               onChange={(value, selectionOffset) => {

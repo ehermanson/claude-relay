@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Clock,
   Forward,
+  ArrowRightFromLine,
   Zap,
   Slash,
 } from "lucide-react";
@@ -147,14 +148,41 @@ export function UserMessage({
   const hasImages = images.length > 0;
   const hasTerminal = terminalBlocks.length > 0;
 
+  // Detect spin-off messages, including the legacy handoff prefix for compatibility.
+  const spinOffMatch = textPart.match(/^\[(?:Handoff|Spun off) from:\s+(.+?)\]\s*/);
+  const spinOffSource = spinOffMatch?.[1] ?? null;
+  const spinOffContent = spinOffSource ? textPart.slice(spinOffMatch![0].length) : null;
+
   // Detect relayed messages: [From: Chat Name] content
-  const relayMatch = textPart.match(/^\[From:\s+(.+?)\]\s*/);
+  const relayMatch = !spinOffSource ? textPart.match(/^\[From:\s+(.+?)\]\s*/) : null;
   const relaySource = relayMatch?.[1] ?? null;
   const relayContent = relaySource ? textPart.slice(relayMatch![0].length) : textPart;
 
   // Detect slash-command messages (e.g. "/simplify", "$skill-creator some args")
   const displayText = relaySource ? relayContent : textPart;
-  const slashParsed = !relaySource ? parseSlashCommand(displayText) : null;
+  const slashParsed = !relaySource && !spinOffSource ? parseSlashCommand(displayText) : null;
+
+  // Spin-off messages get full-width card rendering
+  if (spinOffSource && spinOffContent) {
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        <div className="rounded-lg border border-accent/30 bg-accent/5">
+          <div className="flex items-center gap-1.5 border-b border-accent/20 px-3 py-2">
+            <ArrowRightFromLine size={12} className="shrink-0 text-accent" />
+            <span className="text-[0.75rem] font-medium text-accent">
+              Spun off from {spinOffSource}
+            </span>
+          </div>
+          <div className="px-3 py-2.5 text-sm leading-relaxed text-text/80">
+            <MarkdownContent text={spinOffContent} />
+          </div>
+        </div>
+        {timestamp && (
+          <span className="px-1 text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

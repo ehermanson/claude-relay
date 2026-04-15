@@ -18,6 +18,8 @@ interface ComposerPanelProps {
   composerMenu: ReactNode;
   toolbar: ReactNode;
   composerRef: React.RefObject<ComposerEditorHandle | null>;
+  /** When true, allow the editor to expand taller (e.g. empty chat with a pre-filled spin-off draft). */
+  expanded?: boolean;
 }
 
 export function ComposerPanel({
@@ -34,6 +36,7 @@ export function ComposerPanel({
   composerMenu,
   toolbar,
   composerRef,
+  expanded,
 }: ComposerPanelProps) {
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const { popoverState, close: closeTaskPopover } = useTaskMentionPopover(editorContainerRef);
@@ -72,8 +75,8 @@ export function ComposerPanel({
           onPaste={onPaste}
           className={
             compact
-              ? `min-h-[44px] max-h-[88px] overflow-y-auto bg-transparent px-3 pt-2.5 pb-1.5 text-[16px] leading-snug text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`
-              : `min-h-[52px] max-h-[140px] overflow-y-auto bg-transparent px-4 pt-3 pb-1 text-sm leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`
+              ? `min-h-[44px] ${expanded ? "max-h-[50vh]" : "max-h-[88px]"} overflow-y-auto bg-transparent px-3 pt-2.5 pb-1.5 text-[16px] leading-snug text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`
+              : `min-h-[52px] ${expanded ? "max-h-[50vh]" : "max-h-[140px]"} overflow-y-auto bg-transparent px-4 pt-3 pb-1 text-sm leading-normal text-text outline-none placeholder:text-muted ${disabled ? "opacity-40" : ""}`
           }
         />
       </div>

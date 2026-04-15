@@ -24,7 +24,7 @@ Relay should help organize real behavior, not only ideal pre-planned workflows.
 - Lightweight workstream entity with title, description, tags, and status
 - Add or remove chats manually
 - Shared overview with summary, notable decisions, and related files
-- Basic "start a new chat with this workstream's context" handoff path
+- Basic "start a new chat with this workstream's context" spin-off path
 - Optional promotion path into a formal space when that is useful, but not as an early core flow
 
 ## Key Risks
@@ -47,7 +47,7 @@ Relay should help organize real behavior, not only ideal pre-planned workflows.
 
 - [Themes](../themes.md)
 - [Now / Next / Later](../now-next-later.md)
-- [Handoff](./handoff.md)
+- [Spin Off To New Chat](./spin-off-to-new-chat.md)
 - [Cross-Chat Synthesis](./cross-chat-synthesis.md)
 - [Unified Workspace Model RFC](../../unified-workspace-model-rfc.md)
 

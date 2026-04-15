@@ -47,13 +47,13 @@ This is enough to validate the core retrieval loop. It is not yet the full cross
 - Preview / peek UX before full navigation
 - Result types beyond chats: summaries, decisions, spaces, workstreams, file-adjacent hits
 - Better ranking controls, phrase handling, and diagnostics
-- Retrieval-to-action flows like split-open, handoff, and synthesis
+- Retrieval-to-action flows like split-open, spin-off, and synthesis
 - Semantic retrieval only if real usage shows lexical recall failures
 
 Recommended next bets:
 
 - richer result types beyond chats
-- retrieval-to-action flows like split-open, handoff, and synthesis
+- retrieval-to-action flows like split-open, spin-off, and synthesis
 
 Those are the highest-leverage follow-ons because they improve both retrieval quality and what the user can do immediately after retrieval.
 

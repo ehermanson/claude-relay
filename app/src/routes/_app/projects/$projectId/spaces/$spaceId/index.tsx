@@ -29,6 +29,7 @@ import {
   fetchSpaceDetail,
   fetchSpaceDiff,
   pushSpace,
+  markSpinOffSent,
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
 import { aggregateSpaceStats, buildSpaceInstances, parseSpaceDiffFiles } from "@/lib/space-view";
@@ -313,7 +314,13 @@ export function SpaceView() {
   const creatingChatRef = useRef(false);
 
   const handleCreateChat = useCallback(
-    async (initialPrompt?: string) => {
+    async (options?: {
+      initialPrompt?: string;
+      spinOffId?: string;
+      spinOffSourceName?: string;
+      /** If true, prefill the composer draft instead of sending immediately */
+      prefill?: boolean;
+    }) => {
       if (creatingChatRef.current) return;
       creatingChatRef.current = true;
       setPendingNewChatActive(true);
@@ -327,11 +334,45 @@ export function SpaceView() {
           pendingCreatedChatIdRef.current = created.id;
         }
         setPendingNewChatId(created.id);
-        if (initialPrompt) {
-          send({
-            type: "instance_message",
-            instanceId: created.id,
-            text: initialPrompt,
+        // Store spin-off metadata for the styled composer bar
+        if (options?.spinOffId && options.spinOffSourceName) {
+          try {
+            sessionStorage.setItem(
+              `relay:spin-off-meta:${created.id}`,
+              JSON.stringify({
+                sourceName: options.spinOffSourceName,
+                spinOffId: options.spinOffId,
+              }),
+            );
+          } catch {
+            // ignore
+          }
+        }
+        if (options?.initialPrompt) {
+          if (options.prefill) {
+            // Seed the composer draft so the user can review/edit before sending
+            try {
+              sessionStorage.setItem(`relay:draft:${created.id}`, options.initialPrompt);
+            } catch {
+              // sessionStorage unavailable — fall back to sending directly
+              send({
+                type: "instance_message",
+                instanceId: created.id,
+                text: options.initialPrompt,
+              });
+            }
+          } else {
+            send({
+              type: "instance_message",
+              instanceId: created.id,
+              text: options.initialPrompt,
+            });
+          }
+        }
+        // Mark the spin-off as sent now that we have the target chat
+        if (options?.spinOffId) {
+          markSpinOffSent(options.spinOffId, created.id).catch(() => {
+            // Non-fatal — the spin-off packet was already delivered as a message.
           });
         }
       } catch (err) {
@@ -348,9 +389,25 @@ export function SpaceView() {
   // Listen for "Send to new chat" relay events from child instance views
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { spaceId: string; message: string };
+      const detail = (e as CustomEvent).detail as {
+        spaceId: string;
+        message: string;
+        spinOffId?: string;
+        spinOffSourceName?: string;
+      };
       if (detail.spaceId !== spaceId) return;
-      void handleCreateChat(detail.message);
+      if (detail.spinOffId) {
+        // Spin-off: prefill draft so the user can review/edit before sending
+        void handleCreateChat({
+          initialPrompt: detail.message,
+          spinOffId: detail.spinOffId,
+          spinOffSourceName: detail.spinOffSourceName,
+          prefill: true,
+        });
+      } else {
+        // Regular send-to-new-chat: send immediately
+        void handleCreateChat({ initialPrompt: detail.message });
+      }
     };
     window.addEventListener("relay:send-to-new-chat", handler);
     return () => window.removeEventListener("relay:send-to-new-chat", handler);

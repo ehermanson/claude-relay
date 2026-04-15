@@ -14,7 +14,7 @@ Start here:
 - [Search V1 Backend Design](./features/search-v1-backend.md)
 - [Project Memory](./features/project-memory.md)
 - [Workstreams](./features/workstreams.md)
-- [Handoff](./features/handoff.md)
+- [Spin Off To New Chat](./features/spin-off-to-new-chat.md)
 - [Cross-Chat Synthesis](./features/cross-chat-synthesis.md)
 - [Operational Awareness](./features/operational-awareness.md)
 - [Mobile Companion](./features/mobile-companion.md)

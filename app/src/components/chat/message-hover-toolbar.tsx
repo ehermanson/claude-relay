@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, Check, Send } from "lucide-react";
+import { Copy, Check, Send, GitBranchPlus } from "lucide-react";
 import { Menu } from "@/components/ui/menu";
 import { useMessageRelay } from "@/components/chat/message-relay-context";
 import { toast } from "sonner";
@@ -10,11 +10,28 @@ interface MessageHoverToolbarProps {
   text: string;
   visible: boolean;
   position?: ToolbarPosition;
+  anchorIndex?: number;
 }
 
-export function MessageHoverToolbar({ text, visible, position = "top" }: MessageHoverToolbarProps) {
+function ToolbarIconTooltip({ content, visible }: { content: string; visible: boolean }) {
+  if (!visible) return null;
+
+  return (
+    <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-surface px-2 py-1 text-[0.6875rem] leading-none text-text shadow-sm">
+      {content}
+    </div>
+  );
+}
+
+export function MessageHoverToolbar({
+  text,
+  visible,
+  position = "top",
+  anchorIndex,
+}: MessageHoverToolbarProps) {
   const relay = useMessageRelay();
   const [copied, setCopied] = useState(false);
+  const [hoveredIcon, setHoveredIcon] = useState<"copy" | "spin-off" | "send" | null>(null);
 
   if (!visible) return null;
 
@@ -29,9 +46,10 @@ export function MessageHoverToolbar({ text, visible, position = "top" }: Message
   };
 
   const hasSiblings = relay && relay.siblings.length > 0;
+  const showSendMenu = hasSiblings;
 
   const positionClasses =
-    position === "top" ? "absolute -top-3 right-2 z-10" : "absolute bottom-3 right-2 z-10";
+    position === "top" ? "absolute -top-4 right-2 z-10" : "absolute bottom-3 right-2 z-10";
 
   const menuSide = position === "top" ? "bottom" : "top";
 
@@ -39,22 +57,57 @@ export function MessageHoverToolbar({ text, visible, position = "top" }: Message
     <div
       className={`${positionClasses} flex items-center gap-0.5 rounded-md border border-border bg-surface px-0.5 py-0.5 shadow-sm`}
     >
-      <button
-        onClick={handleCopy}
-        className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text"
-        title="Copy"
-      >
-        {copied ? <Check size={12} /> : <Copy size={12} />}
-      </button>
+      <div className="relative">
+        <ToolbarIconTooltip content={copied ? "Copied" : "Copy"} visible={hoveredIcon === "copy"} />
+        <button
+          onClick={handleCopy}
+          onMouseEnter={() => setHoveredIcon("copy")}
+          onMouseLeave={() => setHoveredIcon(null)}
+          onFocus={() => setHoveredIcon("copy")}
+          onBlur={() => setHoveredIcon(null)}
+          className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          aria-label={copied ? "Copied" : "Copy"}
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+      </div>
 
       {relay && (
-        <Menu.Root>
-          <Menu.Trigger className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text">
-            <Send size={12} />
-          </Menu.Trigger>
-          <Menu.Content side={menuSide} align="end">
-            {hasSiblings ? (
-              <>
+        <>
+          <div className="relative">
+            <ToolbarIconTooltip
+              content="Spin off to new chat"
+              visible={hoveredIcon === "spin-off"}
+            />
+            <button
+              onClick={() => relay.onSpinOff({ anchorIndex })}
+              onMouseEnter={() => setHoveredIcon("spin-off")}
+              onMouseLeave={() => setHoveredIcon(null)}
+              onFocus={() => setHoveredIcon("spin-off")}
+              onBlur={() => setHoveredIcon(null)}
+              className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              aria-label="Spin off to new chat"
+            >
+              <GitBranchPlus size={12} />
+            </button>
+          </div>
+
+          {showSendMenu && (
+            <Menu.Root>
+              <div className="relative">
+                <ToolbarIconTooltip content="Send to chat" visible={hoveredIcon === "send"} />
+                <Menu.Trigger
+                  onMouseEnter={() => setHoveredIcon("send")}
+                  onMouseLeave={() => setHoveredIcon(null)}
+                  onFocus={() => setHoveredIcon("send")}
+                  onBlur={() => setHoveredIcon(null)}
+                  className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  aria-label="Send to chat"
+                >
+                  <Send size={12} />
+                </Menu.Trigger>
+              </div>
+              <Menu.Content side={menuSide} align="end">
                 {relay.siblings.map((sibling) => (
                   <Menu.Item
                     key={sibling.id}
@@ -68,18 +121,18 @@ export function MessageHoverToolbar({ text, visible, position = "top" }: Message
                   </Menu.Item>
                 ))}
                 <Menu.Separator />
-              </>
-            ) : null}
-            <Menu.Item
-              onClick={() => {
-                relay.onSendToNewChat(text);
-                toast.success("Sent to new chat");
-              }}
-            >
-              <span className="text-accent">New chat</span>
-            </Menu.Item>
-          </Menu.Content>
-        </Menu.Root>
+                <Menu.Item
+                  onClick={() => {
+                    relay.onSendToNewChat(text);
+                    toast.success("Sent to new chat");
+                  }}
+                >
+                  <span className="text-accent">New chat</span>
+                </Menu.Item>
+              </Menu.Content>
+            </Menu.Root>
+          )}
+        </>
       )}
     </div>
   );
