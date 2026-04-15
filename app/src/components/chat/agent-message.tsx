@@ -1,10 +1,13 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
 import { MarkdownContent } from "./markdown-content";
 import { MessageHoverToolbar } from "./message-hover-toolbar";
 import { formatTimestamp } from "../../lib/utils";
-import { GitBranchPlus } from "lucide-react";
+import { CornerDownLeft, GitBranchPlus } from "lucide-react";
 import { useMessageRelay } from "@/components/chat/message-relay-context";
+import { Textarea } from "@/components/ui/input";
+import { useTextSelection } from "@/hooks/use-text-selection";
 
 interface AgentMessageProps {
   text: string;
@@ -12,25 +15,129 @@ interface AgentMessageProps {
   anchorIndex?: number;
 }
 
-function SelectionSpinOffPopover({ rect, onSpinOff }: { rect: DOMRect; onSpinOff: () => void }) {
+function SelectionReplyPopover({
+  rect,
+  value,
+  onChange,
+  onConfirm,
+  onSpinOff,
+  onDismiss,
+}: {
+  rect: DOMRect;
+  value: string;
+  onChange: (value: string) => void;
+  onConfirm: () => void;
+  onSpinOff: () => void;
+  onDismiss: () => void;
+}) {
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<"top" | "bottom">("top");
+  const updatePlacement = useCallback(() => {
+    const popoverHeight = popoverRef.current?.offsetHeight ?? 0;
+    const gap = 8;
+    const topY = rect.top - gap - popoverHeight;
+    setPlacement(topY < 8 ? "bottom" : "top");
+  }, [rect]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  useEffect(() => {
+    updatePlacement();
+
+    const popover = popoverRef.current;
+    const resizeObserver =
+      popover && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => updatePlacement())
+        : null;
+    if (popover && resizeObserver) {
+      resizeObserver.observe(popover);
+    }
+
+    window.addEventListener("resize", updatePlacement);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updatePlacement);
+    };
+  }, [updatePlacement]);
+
   return createPortal(
-    <button
-      type="button"
-      data-selection-spin-off
-      onMouseDown={(e) => {
-        e.preventDefault();
-        onSpinOff();
-      }}
-      className="fixed z-50 flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[0.75rem] font-medium text-text shadow-lg transition-colors hover:bg-surface-hover"
+    <div
+      data-selection-reply-popover
+      ref={popoverRef}
+      className="fixed z-50"
       style={{
         left: rect.left + rect.width / 2,
-        top: rect.top - 8,
-        transform: "translate(-50%, -100%)",
+        top: placement === "top" ? rect.top - 8 : rect.bottom + 8,
+        transform: placement === "top" ? "translate(-50%, -100%)" : "translate(-50%, 0)",
       }}
     >
-      <GitBranchPlus size={13} className="text-muted" />
-      Spin off selection
-    </button>,
+      <motion.div
+        initial={{ opacity: 0, scale: 0.92, y: 6 }}
+        animate={{
+          opacity: 1,
+          scale: 1,
+          y: 0,
+          transition: { duration: 0.18, delay: 0.12, ease: [0.22, 1, 0.36, 1] },
+        }}
+        exit={{
+          opacity: 0,
+          scale: 0.92,
+          y: placement === "top" ? 6 : -6,
+          transition: { duration: 0.12, ease: [0.22, 1, 0.36, 1] },
+        }}
+        className="flex min-w-[280px] max-w-[min(32rem,calc(100vw-1rem))] items-center gap-2 rounded-xl border border-border bg-surface px-2 py-2 text-[0.75rem] shadow-lg"
+        style={{ transformOrigin: placement === "top" ? "bottom center" : "top center" }}
+      >
+        <Textarea
+          ref={inputRef}
+          inputSize="sm"
+          rows={1}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Reply to selection..."
+          className="min-w-0 flex-1 resize-none overflow-hidden border-border/80 bg-bg shadow-none [field-sizing:content]"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onConfirm();
+              return;
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              onDismiss();
+            }
+          }}
+        />
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onConfirm}
+          disabled={!value.trim()}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-accent text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Add inline reply"
+          title="Add reply"
+        >
+          <CornerDownLeft size={14} />
+        </button>
+        <button
+          type="button"
+          data-selection-spin-off
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onSpinOff();
+          }}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          aria-label="Spin off selection"
+          title="Spin off selection"
+        >
+          <GitBranchPlus size={14} />
+        </button>
+      </motion.div>
+    </div>,
     document.body,
   );
 }
@@ -41,10 +148,37 @@ export function AgentMessage({ text, timestamp, anchorIndex }: AgentMessageProps
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const [topVisible, setTopVisible] = useState(true);
-  const [selectionPopover, setSelectionPopover] = useState<{
-    text: string;
-    rect: DOMRect;
-  } | null>(null);
+  const [reply, setReply] = useState("");
+
+  const { selection: textSelection, clear: clearSelection } = useTextSelection(contentRef, {
+    minLength: 3,
+    popoverSelector: "[data-selection-reply-popover]",
+  });
+
+  const prevSelectionTextRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentSelText = textSelection?.text ?? null;
+    if (currentSelText === prevSelectionTextRef.current) return;
+    prevSelectionTextRef.current = currentSelText;
+    setReply("");
+  }, [textSelection?.text]);
+
+  // Compute highlight overlay rects from the saved selection range,
+  // positioned relative to the content container.
+  const highlightRects = useMemo(() => {
+    if (!textSelection?.range || !contentRef.current) return [];
+    const container = contentRef.current.getBoundingClientRect();
+    try {
+      return Array.from(textSelection.range.getClientRects()).map((r) => ({
+        left: r.left - container.left,
+        top: r.top - container.top,
+        width: r.width,
+        height: r.height,
+      }));
+    } catch {
+      return [];
+    }
+  }, [textSelection]);
 
   useEffect(() => {
     const sentinel = topSentinelRef.current;
@@ -57,118 +191,32 @@ export function AgentMessage({ text, timestamp, anchorIndex }: AgentMessageProps
     return () => observer.disconnect();
   }, []);
 
-  // Dismiss the selection popover on scroll, but tolerate small scroll
-  // movements (≤ 12px) so the user can nudge the viewport without losing the
-  // popover before they can click it.
-  useEffect(() => {
-    if (!selectionPopover) return;
-    let startY: number | null = null;
-    const SCROLL_THRESHOLD = 12;
-    const onScroll = () => {
-      if (startY === null) {
-        startY = window.scrollY;
-        return;
-      }
-      if (Math.abs(window.scrollY - startY) > SCROLL_THRESHOLD) {
-        setSelectionPopover(null);
-      }
-    };
-    window.addEventListener("scroll", onScroll, true);
-    return () => window.removeEventListener("scroll", onScroll, true);
-  }, [selectionPopover]);
-
-  // Track whether a dismiss just happened so the subsequent mouseup from the
-  // same click doesn't immediately re-show the popover (the browser selection
-  // may not be collapsed yet when mouseup fires).
-  const dismissedRef = useRef(false);
-
-  useEffect(() => {
-    if (!selectionPopover) return;
-    const handler = (e: MouseEvent) => {
-      if ((e.target as Element | null)?.closest?.("[data-selection-spin-off]")) return;
-      dismissedRef.current = true;
-      setSelectionPopover(null);
-      // Reset after the mouseup from this same click has had a chance to fire.
-      requestAnimationFrame(() => {
-        dismissedRef.current = false;
-      });
-    };
-    const timer = window.setTimeout(() => {
-      document.addEventListener("mousedown", handler);
-    }, 0);
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener("mousedown", handler);
-    };
-  }, [selectionPopover]);
-
-  // Also clear the popover when the selection itself is removed (e.g. Escape,
-  // clicking into an input, programmatic deselect).
-  useEffect(() => {
-    if (!selectionPopover) return;
-    const onSelectionChange = () => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) {
-        setSelectionPopover(null);
-      }
-    };
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
-  }, [selectionPopover]);
-
-  const handleSelectionMouseUp = useCallback(() => {
-    // If a dismiss mousedown just fired, skip — the selection may linger
-    // briefly and we don't want to re-show the popover.
-    if (dismissedRef.current) return;
-
-    if (!relay) {
-      setSelectionPopover(null);
-      return;
-    }
-
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !selection.rangeCount) {
-      setSelectionPopover(null);
-      return;
-    }
-
-    const selectedText = selection.toString().trim();
-    if (!selectedText || selectedText.length < 3) {
-      setSelectionPopover(null);
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    if (!contentRef.current?.contains(range.commonAncestorContainer)) {
-      setSelectionPopover(null);
-      return;
-    }
-
-    const rect = range.getBoundingClientRect();
-    if (!rect.width && !rect.height) {
-      setSelectionPopover(null);
-      return;
-    }
-
-    setSelectionPopover({ text: selectedText, rect });
-  }, [relay]);
+  const handleConfirmInlineReply = useCallback(() => {
+    if (!textSelection || !relay) return;
+    const trimmedReply = reply.trim();
+    if (!trimmedReply) return;
+    relay.onInlineReply({
+      anchorIndex,
+      selectedText: textSelection.text,
+      reply: trimmedReply,
+    });
+    clearSelection();
+  }, [anchorIndex, relay, textSelection, reply, clearSelection]);
 
   const handleSpinOffSelection = useCallback(() => {
-    if (!selectionPopover) return;
+    if (!textSelection) return;
     relay?.onSpinOff({
       anchorIndex,
-      selectedText: selectionPopover.text,
+      selectedText: textSelection.text,
     });
-    setSelectionPopover(null);
-    window.getSelection()?.removeAllRanges();
-  }, [anchorIndex, relay, selectionPopover]);
+    clearSelection();
+  }, [anchorIndex, relay, textSelection, clearSelection]);
 
   return (
     <div
       className="relative flex min-w-0 flex-col gap-1.5"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onMouseUp={handleSelectionMouseUp}
     >
       {/* Sentinel to detect if the top of the message is in view */}
       <div ref={topSentinelRef} className="pointer-events-none absolute top-0 h-px w-full" />
@@ -188,6 +236,18 @@ export function AgentMessage({ text, timestamp, anchorIndex }: AgentMessageProps
           className="relative min-w-0 overflow-hidden transition-[max-height] duration-200"
         >
           <MarkdownContent text={text} />
+          {/* Custom highlight overlay — preserves visual highlight when input is focused */}
+          {textSelection?.range && highlightRects.length > 0 && (
+            <div className="pointer-events-none absolute inset-0">
+              {highlightRects.map((r, i) => (
+                <div
+                  key={i}
+                  className="absolute rounded-[3px] bg-accent/20"
+                  style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -204,9 +264,19 @@ export function AgentMessage({ text, timestamp, anchorIndex }: AgentMessageProps
         <span className="px-1 text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
       )}
 
-      {selectionPopover && (
-        <SelectionSpinOffPopover rect={selectionPopover.rect} onSpinOff={handleSpinOffSelection} />
-      )}
+      <AnimatePresence>
+        {textSelection && (
+          <SelectionReplyPopover
+            key="selection-reply"
+            rect={textSelection.rect}
+            value={reply}
+            onChange={setReply}
+            onConfirm={handleConfirmInlineReply}
+            onSpinOff={handleSpinOffSelection}
+            onDismiss={clearSelection}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -12,12 +12,27 @@ export interface SpinOffRequest {
   selectedText?: string;
 }
 
+export interface InlineReplyRequest {
+  id: string;
+  anchorIndex?: number;
+  selectedText: string;
+  reply: string;
+}
+
+export interface InlineReplyFragment {
+  id: string;
+  selectedText: string;
+  reply: string;
+}
+
 interface MessageRelayContextValue {
   siblings: RelaySibling[];
   onSendToChat: (targetInstanceId: string, messageText: string) => void;
   onSendToNewChat: (messageText: string) => void;
   /** Trigger a spin-off from this chat, optionally anchored to a message or excerpt */
   onSpinOff: (request?: SpinOffRequest) => void;
+  /** Append a quoted inline reply into the current chat composer draft. */
+  onInlineReply: (request: Omit<InlineReplyRequest, "id">) => void;
   /** Current instance ID for this chat */
   instanceId: string;
 }

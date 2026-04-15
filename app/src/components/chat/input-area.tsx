@@ -26,11 +26,14 @@ import { useProviderModels } from "@/hooks/use-provider-models";
 import { useProviderSwitchState } from "@/components/chat/input-area/use-provider-switch-state";
 import { ComposerEditorHandle } from "@/components/chat/composer-editor";
 import { PlanReviewPanel, type PlanComment } from "@/components/chat/plan-review-card";
+import type { InlineReplyFragment } from "@/components/chat/message-relay-context";
 import { ProjectContext } from "@/context/project-context";
 import { useWSMethods } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { expandTaskReferences } from "@/lib/composer-mentions";
 import { formatModel } from "@/lib/utils";
+import { AnimatePresence, motion } from "motion/react";
+import { MessageSquareReply, X } from "lucide-react";
 import {
   FastModeToggle,
   PlanModePicker,
@@ -62,6 +65,8 @@ interface InputAreaProps {
   pendingUserInput?: ProviderRequest | null;
   pendingPlan?: string;
   providerStatus?: ProviderStatusSummary;
+  inlineReplyFragments?: InlineReplyFragment[];
+  onRemoveInlineReply?: (id: string) => void;
   /** Extra content rendered inside the composer container, above the text input. */
   topSlot?: React.ReactNode;
 }
@@ -100,6 +105,60 @@ function buildPromptPlaceholder(
   return `Type your answer for "${question.question}"`;
 }
 
+function formatInlineReplyFragment(selectedText: string, reply: string): string {
+  const quoted = selectedText
+    .trim()
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  return `${quoted}\n${reply.trim()}`;
+}
+
+function InlineReplyFragmentStrip({
+  fragments,
+  onRemove,
+}: {
+  fragments: InlineReplyFragment[];
+  onRemove: (id: string) => void;
+}) {
+  if (fragments.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1 border-b border-border/40 px-3 py-2">
+      <AnimatePresence initial={false}>
+        {fragments.map((f) => (
+          <motion.div
+            key={f.id}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="group flex items-start gap-2 rounded-lg border-l-2 border-accent/40 bg-accent/5 px-2.5 py-1.5">
+              <MessageSquareReply size={12} className="mt-0.5 shrink-0 text-accent/60" />
+              <div className="min-w-0 flex-1 text-[0.75rem] leading-snug">
+                <p className="line-clamp-1 text-muted italic">
+                  &ldquo;{f.selectedText.replace(/\n/g, " ")}&rdquo;
+                </p>
+                <p className="line-clamp-1 text-text/80">{f.reply}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemove(f.id)}
+                className="shrink-0 rounded p-0.5 text-muted/60 transition-colors hover:text-text"
+                title="Remove reply"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export function InputArea({
   onSend,
   onAnswerUserInput,
@@ -119,6 +178,8 @@ export function InputArea({
   pendingUserInput,
   pendingPlan,
   providerStatus,
+  inlineReplyFragments = [],
+  onRemoveInlineReply,
   topSlot,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
@@ -337,7 +398,16 @@ export function InputArea({
     if (!isConnected || uploading) return;
 
     let text = draftText.trim();
-    if (!text && images.length === 0) return;
+    const hasFragments = inlineReplyFragments.length > 0;
+    if (!text && images.length === 0 && !hasFragments) return;
+
+    // Prepend inline reply fragments as markdown blockquotes
+    if (hasFragments) {
+      const fragmentText = inlineReplyFragments
+        .map((f) => formatInlineReplyFragment(f.selectedText, f.reply))
+        .join("\n\n");
+      text = text ? `${fragmentText}\n\n${text}` : fragmentText;
+    }
 
     // Expand task references into structured XML blocks for the model
     const projectTasks = projectCtx?.artifacts.tasks;
@@ -537,6 +607,14 @@ export function InputArea({
       onCommentsChange={setPlanComments}
     />
   ) : null;
+  const composerTopSlot = (
+    <>
+      {!isInSpecialMode && inlineReplyFragments.length > 0 && onRemoveInlineReply ? (
+        <InlineReplyFragmentStrip fragments={inlineReplyFragments} onRemove={onRemoveInlineReply} />
+      ) : null}
+      {topSlot}
+    </>
+  );
   const sendLabel = hasPendingPrompt
     ? `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
     : hasPendingPlan
@@ -743,7 +821,7 @@ export function InputArea({
             ref={composerContainerRef}
             className="@container/toolbar relative rounded-2xl border border-border/60 bg-surface"
           >
-            {topSlot}
+            {composerTopSlot}
             {!isInSpecialMode ? (
               <ImageAttachmentStrip images={images} onRemove={removeImage} />
             ) : null}
@@ -832,7 +910,10 @@ export function InputArea({
                       ? disabled || !canSubmitPrompt
                       : disabled ||
                         uploading ||
-                        (!hasPendingPlan && !draftText.trim() && images.length === 0)
+                        (!hasPendingPlan &&
+                          !draftText.trim() &&
+                          images.length === 0 &&
+                          inlineReplyFragments.length === 0)
                   }
                 />
               }

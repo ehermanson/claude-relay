@@ -6,7 +6,11 @@ import { ChatDebug } from "@/components/chat/chat-debug";
 import { ExternalSessionBar } from "@/components/chat/external-session-bar";
 import { InputArea } from "@/components/chat/input-area";
 import { MessageList } from "@/components/chat/message-list";
-import { MessageRelayProvider, type SpinOffRequest } from "@/components/chat/message-relay-context";
+import {
+  MessageRelayProvider,
+  type InlineReplyFragment,
+  type SpinOffRequest,
+} from "@/components/chat/message-relay-context";
 import { PermissionBanner } from "@/components/chat/permission-banner";
 import { SpaceSuggestionCards } from "@/components/spaces/space-suggestion-cards";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
@@ -51,6 +55,41 @@ interface SpinOffDraftEdits {
 interface SpinOffDialogState {
   anchorIndex?: number;
   selectedText?: string;
+}
+
+function nextInlineReplyId(): string {
+  return `inline-reply-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+const INLINE_REPLIES_PREFIX = "relay:inline-replies:";
+
+function loadInlineReplyFragments(instanceId: string): InlineReplyFragment[] {
+  try {
+    const raw = sessionStorage.getItem(`${INLINE_REPLIES_PREFIX}${instanceId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveInlineReplyFragments(instanceId: string, fragments: InlineReplyFragment[]): void {
+  try {
+    if (fragments.length > 0) {
+      sessionStorage.setItem(`${INLINE_REPLIES_PREFIX}${instanceId}`, JSON.stringify(fragments));
+    } else {
+      sessionStorage.removeItem(`${INLINE_REPLIES_PREFIX}${instanceId}`);
+    }
+  } catch {
+    // sessionStorage full or unavailable
+  }
+}
+
+function clearInlineReplyFragments(instanceId: string): void {
+  try {
+    sessionStorage.removeItem(`${INLINE_REPLIES_PREFIX}${instanceId}`);
+  } catch {
+    // ignore
+  }
 }
 
 function storeSpinOffMeta(instanceId: string, meta: SpinOffMeta): void {
@@ -281,9 +320,13 @@ export function InstanceViewContent() {
   const [spinOffEdits, setSpinOffEdits] = useState<SpinOffDraftEdits>({
     currentState: "",
   });
+  const [inlineReplyFragments, setInlineReplyFragments] = useState<InlineReplyFragment[]>(() =>
+    loadInlineReplyFragments(shared.id),
+  );
 
   useEffect(() => {
     setSpinOffMeta(loadSpinOffMeta(shared.id));
+    setInlineReplyFragments(loadInlineReplyFragments(shared.id));
   }, [shared.id]);
 
   // Prepend source attribution when a spun-off draft is sent for the first time.
@@ -300,6 +343,29 @@ export function InstanceViewContent() {
       }
     },
     [instanceId, actions, spinOffMeta],
+  );
+
+  // Wrap send to clear inline reply fragments after sending.
+  const handleSendWithContext = useCallback(
+    (text: string, images?: string[], internal?: boolean) => {
+      if (inlineReplyFragments.length > 0) {
+        setInlineReplyFragments([]);
+        clearInlineReplyFragments(instanceId);
+      }
+      handleSendWithSpinOff(text, images, internal);
+    },
+    [instanceId, inlineReplyFragments, handleSendWithSpinOff],
+  );
+
+  const handleRemoveInlineReply = useCallback(
+    (id: string) => {
+      setInlineReplyFragments((prev) => {
+        const next = prev.filter((f) => f.id !== id);
+        saveInlineReplyFragments(instanceId, next);
+        return next;
+      });
+    },
+    [instanceId],
   );
 
   const handleSpinOff = useCallback(async () => {
@@ -409,6 +475,18 @@ export function InstanceViewContent() {
       onSpinOff: (request?: SpinOffRequest) => {
         setSpinOffDialogState(request ?? {});
         setSpinOffDialogOpen(true);
+      },
+      onInlineReply: (request: { anchorIndex?: number; selectedText: string; reply: string }) => {
+        const fragment: InlineReplyFragment = {
+          id: nextInlineReplyId(),
+          selectedText: request.selectedText,
+          reply: request.reply,
+        };
+        setInlineReplyFragments((prev) => {
+          const next = [...prev, fragment];
+          saveInlineReplyFragments(instanceId, next);
+          return next;
+        });
       },
     };
   }, [spaceId, instanceId, allInstances, send]);
@@ -567,7 +645,7 @@ export function InstanceViewContent() {
                 </div>
               )}
             <InputArea
-              onSend={handleSendWithSpinOff}
+              onSend={handleSendWithContext}
               onAnswerUserInput={actions.handleAnswerUserInput}
               onCancel={actions.handleCancel}
               onSwitchProvider={actions.handleSwitchProvider}
@@ -585,6 +663,8 @@ export function InstanceViewContent() {
               pendingUserInput={shared.pendingUserInput}
               pendingPlan={shared.instance.pendingPlan}
               providerStatus={shared.instance.providerStatus}
+              inlineReplyFragments={inlineReplyFragments}
+              onRemoveInlineReply={handleRemoveInlineReply}
               topSlot={
                 <>
                   <SpinOffSourceBar
