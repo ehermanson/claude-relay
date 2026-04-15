@@ -7,7 +7,11 @@
 
 import { execSync } from "child_process";
 
+let cachedClaudeBinary: string | null | undefined;
+
 export function findClaudeBinary(): string | null {
+  if (cachedClaudeBinary !== undefined) return cachedClaudeBinary;
+
   const candidates = [
     `${process.env.HOME}/.local/bin/claude`,
     "/usr/local/bin/claude",
@@ -17,7 +21,8 @@ export function findClaudeBinary(): string | null {
   for (const candidate of candidates) {
     try {
       if (execSync(`test -x "${candidate}" && echo ok`, { encoding: "utf-8" }).trim() === "ok") {
-        return candidate;
+        cachedClaudeBinary = candidate;
+        return cachedClaudeBinary;
       }
     } catch {
       // ignore and continue
@@ -26,12 +31,16 @@ export function findClaudeBinary(): string | null {
 
   try {
     const result = execSync("which claude", { encoding: "utf-8" }).trim();
-    if (result) return result;
+    if (result) {
+      cachedClaudeBinary = result;
+      return cachedClaudeBinary;
+    }
   } catch {
     // ignore
   }
 
-  return null;
+  cachedClaudeBinary = null;
+  return cachedClaudeBinary;
 }
 
 export function isClaudeInstalled(): boolean {

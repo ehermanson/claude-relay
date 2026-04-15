@@ -86,7 +86,10 @@ import {
   parseTranscriptForProvider,
   resolveManagedTranscriptPathForProvider,
 } from "#core/provider-registry.js";
-import type { DiscoveredExternalSession } from "#core/provider-registry.js";
+import type {
+  DiscoveredExternalSession,
+  ProviderDiscoveryTiming,
+} from "#core/provider-registry.js";
 import {
   AUTO_CONTINUE_MSG,
   buildCustomInstructionsPrompt,
@@ -280,18 +283,26 @@ export interface InstanceManager {
 
 const MAX_HISTORY = 1000;
 const MAX_TRANSCRIPT_CACHE_ENTRIES = 100;
-const DISCOVERY_INTERVAL = 10_000; // 10s
+const DISCOVERY_INTERVAL = 30_000; // 30s
 const SLOW_DISCOVERY_WARN_MS = 1_000;
 /** Git branch refresh runs at most this often (multiple of discovery interval) */
 const GIT_REFRESH_INTERVAL = 30_000; // 30s
 const WATCH_POLL_INTERVAL = 2_000; // 2s
 const WATCH_DEDUP_GRACE_MS = 2_000; // Allow JSONL writes to catch up to managed process output
 /** Number of consecutive discovery misses before marking an external session as ended */
-const STALE_THRESHOLD = 3; // 3 × 10s = 30s grace period
+const STALE_THRESHOLD = 3; // 3 × 30s = 90s grace period
 const MAX_TITLE_LENGTH = 50;
 const PLAN_TRANSCRIPT_RE = /read the full transcript at:\s*(\S+\.jsonl)/;
 const TRANSCRIPT_AVAILABLE_RE = /^Full transcript available at:\s+(\S+)$/;
 const COMPACT_COMMAND_RE = /^\s*\/compact\s*$/i;
+
+interface DiscoveryPollStats {
+  externalSessionCount: number;
+  activeSessionCount: number;
+  staleCheckedCount: number;
+  endedCount: number;
+  providerTimings: ProviderDiscoveryTiming[];
+}
 
 /**
  * Strip internal Claude CLI XML tags from message text.
@@ -1594,13 +1605,21 @@ export class InstanceManager extends EventEmitter {
   }
 
   private getProviderContext() {
+    const registeredDirectories = new Set(
+      this.getKnownDirectories().map((directoryInfo) => directoryInfo.path),
+    );
+    for (const project of this._projectManager.listProjects()) {
+      for (const space of this.spaceManager.listAllSpaces(project.directory)) {
+        if (space.worktreePath) {
+          registeredDirectories.add(space.worktreePath);
+        }
+      }
+    }
     return {
       providerDirs: this.providerDirs,
       logger: this.baseConfig.logger,
       sdkQueryFn: this._sdkQueryFn,
-      registeredDirectories: new Set(
-        this.getKnownDirectories().map((directoryInfo) => directoryInfo.path),
-      ),
+      registeredDirectories,
     };
   }
 
@@ -4150,27 +4169,41 @@ export class InstanceManager extends EventEmitter {
     if (this.discovering) return; // Prevent overlapping discovery polls
     this.discovering = true;
     const t0 = performance.now();
+    let discoverMs = 0;
+    let gitRefreshMs = 0;
+    let gitRefreshCount = 0;
+    let stats: DiscoveryPollStats = {
+      externalSessionCount: 0,
+      activeSessionCount: 0,
+      staleCheckedCount: 0,
+      endedCount: 0,
+      providerTimings: [],
+    };
     try {
-      await this.discoverExistingInner();
+      const discoverStartedAt = performance.now();
+      stats = await this.discoverExistingInner();
+      discoverMs = performance.now() - discoverStartedAt;
 
       // Throttle git-branch refresh — no need to run every discovery cycle
       const now = Date.now();
       if (now - this.lastGitRefreshAt >= GIT_REFRESH_INTERVAL) {
         this.lastGitRefreshAt = now;
-        await Promise.all(
-          Array.from(this.instances.entries())
-            .filter(
-              ([, instance]) => instance.externalState || instance.watchState || instance.process,
-            )
-            .map(([instanceId, instance]) =>
-              this.refreshGitBranchStateAsync(instanceId, instance).catch((err) => {
-                this.baseConfig.logger.debug(
-                  `[Discover] Git branch refresh failed for ${instanceId}:`,
-                  err instanceof Error ? err.message : err,
-                );
-              }),
-            ),
+        const refreshTargets = Array.from(this.instances.entries()).filter(
+          ([, instance]) => instance.externalState || instance.watchState || instance.process,
         );
+        gitRefreshCount = refreshTargets.length;
+        const gitRefreshStartedAt = performance.now();
+        await Promise.all(
+          refreshTargets.map(([instanceId, instance]) =>
+            this.refreshGitBranchStateAsync(instanceId, instance).catch((err) => {
+              this.baseConfig.logger.debug(
+                `[Discover] Git branch refresh failed for ${instanceId}:`,
+                err instanceof Error ? err.message : err,
+              );
+            }),
+          ),
+        );
+        gitRefreshMs = performance.now() - gitRefreshStartedAt;
       }
     } catch (err) {
       this.baseConfig.logger.debug(
@@ -4181,16 +4214,48 @@ export class InstanceManager extends EventEmitter {
       this.discovering = false;
       const ms = (performance.now() - t0).toFixed(0);
       if (Number(ms) > SLOW_DISCOVERY_WARN_MS) {
-        this.baseConfig.logger.warn(`[Discover] slow: ${ms}ms`);
+        const parts = [
+          `[Discover] slow: ${ms}ms`,
+          `discover=${discoverMs.toFixed(0)}ms`,
+          `external=${stats.externalSessionCount}`,
+          `active=${stats.activeSessionCount}`,
+          `staleChecks=${stats.staleCheckedCount}`,
+        ];
+        if (stats.endedCount > 0) {
+          parts.push(`ended=${stats.endedCount}`);
+        }
+        if (stats.providerTimings.length > 0) {
+          parts.push(
+            `providers=${stats.providerTimings
+              .map(
+                (timing) => `${timing.provider}:${timing.ms.toFixed(0)}ms/${timing.sessionCount}`,
+              )
+              .join(",")}`,
+          );
+        }
+        if (gitRefreshCount > 0) {
+          parts.push(`git=${gitRefreshMs.toFixed(0)}ms/${gitRefreshCount}`);
+        }
+        this.baseConfig.logger.warn(parts.join(" "));
       }
     }
   }
 
-  private async discoverExistingInner(): Promise<void> {
-    const discoveredSessions = await this.discoverExternalSessions();
+  private async discoverExistingInner(): Promise<DiscoveryPollStats> {
+    const rawDiscovery = await this.discoverExternalSessions();
+    const discovery = Array.isArray(rawDiscovery)
+      ? { sessions: rawDiscovery, timings: [] }
+      : rawDiscovery;
+    const discoveredSessions = discovery.sessions;
     if (discoveredSessions.length === 0) {
-      this.removeStaleExternals(new Set());
-      return;
+      const stale = this.removeStaleExternals(new Set());
+      return {
+        externalSessionCount: 0,
+        activeSessionCount: 0,
+        staleCheckedCount: stale.staleCount,
+        endedCount: stale.endedCount,
+        providerTimings: discovery.timings,
+      };
     }
 
     const activeSessions = new Map<string, DiscoveredExternalSession>();
@@ -4224,7 +4289,7 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Remove external instances that are no longer active
-    this.removeStaleExternals(new Set(activeSessions.keys()));
+    const stale = this.removeStaleExternals(new Set(activeSessions.keys()));
 
     // Discover new sessions (and upgrade restored stopped externals)
     for (const [jsonlPath, active] of activeSessions) {
@@ -4267,9 +4332,17 @@ export class InstanceManager extends EventEmitter {
         this.baseConfig.logger.debug(`[InstanceManager] Failed to add external session: ${err}`);
       }
     }
+
+    return {
+      externalSessionCount: discoveredSessions.length,
+      activeSessionCount: activeSessions.size,
+      staleCheckedCount: stale.staleCount,
+      endedCount: stale.endedCount,
+      providerTimings: discovery.timings,
+    };
   }
 
-  private async discoverExternalSessions(): Promise<DiscoveredExternalSession[]> {
+  private async discoverExternalSessions() {
     const managedPids = new Set<number>();
     for (const [, instance] of this.instances) {
       const pid = instance.process?.pid;
@@ -4396,6 +4469,7 @@ export class InstanceManager extends EventEmitter {
   }
 
   private reservePendingManagedClaudeJsonls(knownJsonls: Set<string>): void {
+    const recentJsonlsByProjectDir = new Map<string, string[]>();
     for (const instance of this.instances.values()) {
       if (instance.info.external || instance.jsonlPath) continue;
       if (instance.info.provider !== "claude") continue;
@@ -4403,7 +4477,12 @@ export class InstanceManager extends EventEmitter {
       const encoded = cwd.replace(/[^A-Za-z0-9_-]/g, "-");
       const projectDir = join(this.providerDirs.claude, "projects", encoded);
       if (!existsSync(projectDir)) continue;
-      for (const candidate of this.findRecentJsonls(projectDir, 5)) {
+      let recentJsonls = recentJsonlsByProjectDir.get(projectDir);
+      if (!recentJsonls) {
+        recentJsonls = this.findRecentJsonls(projectDir, 5);
+        recentJsonlsByProjectDir.set(projectDir, recentJsonls);
+      }
+      for (const candidate of recentJsonls) {
         if (!knownJsonls.has(candidate)) {
           knownJsonls.add(candidate);
           break;
@@ -4412,7 +4491,10 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
-  private removeStaleExternals(activeJsonlPaths: Set<string>): void {
+  private removeStaleExternals(activeJsonlPaths: Set<string>): {
+    staleCount: number;
+    endedCount: number;
+  } {
     let staleCount = 0;
     let endedCount = 0;
 
@@ -4476,6 +4558,8 @@ export class InstanceManager extends EventEmitter {
     if (endedCount > 0) {
       this.baseConfig.logger.info(`[InstanceManager] ${endedCount} external session(s) ended`);
     }
+
+    return { staleCount, endedCount };
   }
 
   /**

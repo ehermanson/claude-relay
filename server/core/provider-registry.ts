@@ -79,8 +79,20 @@ export interface DiscoveredExternalSession {
   pid?: number;
 }
 
+export interface ProviderDiscoveryTiming {
+  provider: ProviderKind;
+  ms: number;
+  sessionCount: number;
+}
+
+export interface LiveExternalDiscoveryResult {
+  sessions: DiscoveredExternalSession[];
+  timings: ProviderDiscoveryTiming[];
+}
+
 interface ProviderExternalDiscoveryContext extends ProviderDriverContext {
   excludePids: Set<number>;
+  runningProcessCwds?: Map<string, Map<string, { count: number; pids: number[] }>>;
 }
 
 interface ProviderDriver {
@@ -171,6 +183,14 @@ function isRegisteredDiscoveryDirectory(
   registeredDirectories?: Set<string>,
 ): boolean {
   if (!registeredDirectories || registeredDirectories.size === 0) return true;
+  if (registeredDirectories.has(directory)) return true;
+  if (existsSync(directory)) {
+    try {
+      if (registeredDirectories.has(realpathSync(directory))) return true;
+    } catch {
+      // best-effort canonicalization only
+    }
+  }
   for (const candidate of buildDiscoveryDirectoryCandidates(directory)) {
     if (registeredDirectories.has(candidate)) return true;
   }
@@ -181,23 +201,42 @@ async function findRunningProcessCwdsAsync(
   commandName: string,
   excludePids: Set<number>,
 ): Promise<Map<string, { count: number; pids: number[] }>> {
-  const cwdInfo = new Map<string, { count: number; pids: number[] }>();
+  const all = await findRunningProcessCwdsByCommandAsync([commandName], excludePids);
+  return all.get(commandName) ?? new Map();
+}
+
+async function findRunningProcessCwdsByCommandAsync(
+  commandNames: string[],
+  excludePids: Set<number>,
+): Promise<Map<string, Map<string, { count: number; pids: number[] }>>> {
+  const names = new Set(commandNames);
+  const grouped = new Map<string, Map<string, { count: number; pids: number[] }>>();
+  for (const name of names) {
+    grouped.set(name, new Map());
+  }
+
   try {
-    const { stdout: psOutput } = await execFileAsync(
-      "/bin/sh",
-      ["-c", `ps -eo pid,comm 2>/dev/null | grep -E '\\b${commandName}$' || true`],
-      { encoding: "utf-8", timeout: 5000 },
-    );
+    if (names.size === 0) return grouped;
+
+    const { stdout: psOutput } = await execFileAsync("ps", ["-eo", "pid=,comm="], {
+      encoding: "utf-8",
+      timeout: 5000,
+    });
 
     const pids: number[] = [];
+    const commandByPid = new Map<number, string>();
     for (const line of psOutput.split("\n")) {
-      const match = line.trim().match(/^(\d+)\s/);
+      const match = line.trim().match(/^(\d+)\s+(.+)$/);
       if (!match) continue;
       const pid = parseInt(match[1], 10);
-      if (!excludePids.has(pid)) pids.push(pid);
+      const command = match[2].split("/").pop() ?? match[2];
+      if (!names.has(command)) continue;
+      if (excludePids.has(pid)) continue;
+      pids.push(pid);
+      commandByPid.set(pid, command);
     }
 
-    if (pids.length === 0) return cwdInfo;
+    if (pids.length === 0) return grouped;
 
     const BATCH_SIZE = 64;
     for (let offset = 0; offset < pids.length; offset += BATCH_SIZE) {
@@ -216,18 +255,23 @@ async function findRunningProcessCwdsAsync(
           continue;
         }
         if (!line.startsWith("n/") || currentPid === null) continue;
+        const command = commandByPid.get(currentPid);
+        if (!command) continue;
         const cwd = line.slice(1);
+        const cwdInfo =
+          grouped.get(command) ?? new Map<string, { count: number; pids: number[] }>();
         const existing = cwdInfo.get(cwd) ?? { count: 0, pids: [] };
         existing.count++;
         existing.pids.push(currentPid);
         cwdInfo.set(cwd, existing);
+        grouped.set(command, cwdInfo);
       }
     }
   } catch {
-    return cwdInfo;
+    return grouped;
   }
 
-  return cwdInfo;
+  return grouped;
 }
 
 function readCodexSessionMeta(
@@ -235,6 +279,13 @@ function readCodexSessionMeta(
 ): { sessionId: string; cwd: string; mtime: number } | null {
   try {
     const stats = statSync(filePath);
+    const cached = codexSessionMetaCache.get(filePath);
+    if (cached && cached.mtime === stats.mtimeMs) {
+      return cached.meta
+        ? { sessionId: cached.meta.sessionId, cwd: cached.meta.cwd, mtime: cached.mtime }
+        : null;
+    }
+
     const firstLine = readFileSync(filePath, "utf-8").split("\n", 1)[0];
     if (!firstLine) return null;
     const parsed = JSON.parse(firstLine) as {
@@ -245,21 +296,32 @@ function readCodexSessionMeta(
     const sessionId = parsed.payload?.id;
     const cwd = parsed.payload?.cwd;
     if (!sessionId || !cwd) return null;
-    return { sessionId, cwd, mtime: stats.mtimeMs };
+    const meta = { sessionId, cwd, mtime: stats.mtimeMs };
+    codexSessionMetaCache.set(filePath, { mtime: stats.mtimeMs, meta });
+    return meta;
   } catch {
+    codexSessionMetaCache.set(filePath, { mtime: -1, meta: null });
     return null;
   }
 }
 
-function findRecentCodexTranscriptsForCwd(
-  codexDir: string,
-  cwd: string,
-  count: number,
-): Array<{ path: string; sessionId: string; mtime: number }> {
-  const sessionsDir = join(codexDir, "sessions");
-  if (!existsSync(sessionsDir)) return [];
+const codexSessionMetaCache = new Map<
+  string,
+  { mtime: number; meta: { sessionId: string; cwd: string } | null }
+>();
 
-  const matches: Array<{ path: string; sessionId: string; mtime: number }> = [];
+function findRecentCodexTranscriptsForCwds(
+  codexDir: string,
+  cwdCounts: Map<string, number>,
+): Map<string, Array<{ path: string; sessionId: string; mtime: number }>> {
+  const sessionsDir = join(codexDir, "sessions");
+  const results = new Map<string, Array<{ path: string; sessionId: string; mtime: number }>>();
+  for (const cwd of cwdCounts.keys()) {
+    results.set(cwd, []);
+  }
+  if (!existsSync(sessionsDir) || cwdCounts.size === 0) return results;
+
+  const targets = new Set(cwdCounts.keys());
   const stack = [sessionsDir];
   while (stack.length > 0) {
     const dir = stack.pop();
@@ -286,19 +348,26 @@ function findRecentCodexTranscriptsForCwd(
       }
       if (!entry.endsWith(".jsonl")) continue;
       const meta = readCodexSessionMeta(fullPath);
-      if (!meta || meta.cwd !== cwd) continue;
+      if (!meta || !targets.has(meta.cwd)) continue;
+      const matches = results.get(meta.cwd) ?? [];
       matches.push({ path: fullPath, sessionId: meta.sessionId, mtime: meta.mtime });
+      results.set(meta.cwd, matches);
     }
   }
 
-  matches.sort((a, b) => b.mtime - a.mtime);
-  return matches.slice(0, count);
+  for (const [cwd, matches] of results) {
+    matches.sort((a, b) => b.mtime - a.mtime);
+    results.set(cwd, matches.slice(0, cwdCounts.get(cwd) ?? 0));
+  }
+  return results;
 }
 
 async function discoverClaudeExternalSessions(
   context: ProviderExternalDiscoveryContext,
 ): Promise<DiscoveredExternalSession[]> {
-  const cwdInfoMap = await findRunningProcessCwdsAsync("claude", context.excludePids);
+  const cwdInfoMap =
+    context.runningProcessCwds?.get("claude") ??
+    (await findRunningProcessCwdsAsync("claude", context.excludePids));
   const sessions: DiscoveredExternalSession[] = [];
   for (const [cwd, info] of cwdInfoMap) {
     if (!isRegisteredDiscoveryDirectory(cwd, context.registeredDirectories)) continue;
@@ -323,15 +392,17 @@ async function discoverClaudeExternalSessions(
 async function discoverCodexExternalSessions(
   context: ProviderExternalDiscoveryContext,
 ): Promise<DiscoveredExternalSession[]> {
-  const cwdInfoMap = await findRunningProcessCwdsAsync("codex", context.excludePids);
+  const cwdInfoMap =
+    context.runningProcessCwds?.get("codex") ??
+    (await findRunningProcessCwdsAsync("codex", context.excludePids));
+  const transcriptsByCwd = findRecentCodexTranscriptsForCwds(
+    context.providerDirs.codex,
+    new Map(Array.from(cwdInfoMap.entries()).map(([cwd, info]) => [cwd, info.count])),
+  );
   const sessions: DiscoveredExternalSession[] = [];
   for (const [cwd, info] of cwdInfoMap) {
     if (!isRegisteredDiscoveryDirectory(cwd, context.registeredDirectories)) continue;
-    const transcripts = findRecentCodexTranscriptsForCwd(
-      context.providerDirs.codex,
-      cwd,
-      info.count,
-    );
+    const transcripts = transcriptsByCwd.get(cwd) ?? [];
     for (let i = 0; i < transcripts.length; i++) {
       const transcript = transcripts[i];
       sessions.push({
@@ -771,15 +842,45 @@ export function captureManagedSessionForProvider(
 export async function discoverLiveExternalSessions(
   context: ProviderDriverContext,
   excludePids: Set<number>,
-): Promise<DiscoveredExternalSession[]> {
-  const sessions = await Promise.all(
-    getRegisteredProviders().map(async (provider) => {
+): Promise<LiveExternalDiscoveryResult> {
+  const activeProviders = getRegisteredProviders().filter((provider) => {
+    const driver = getProviderDriver(provider);
+    return driver.discoverExternalSessions && driver.isAvailable(context);
+  });
+  const processCommands = activeProviders.flatMap((provider) => {
+    if (provider === "claude") return ["claude"];
+    if (provider === "codex") return ["codex"];
+    return [];
+  });
+  const runningProcessCwds = await findRunningProcessCwdsByCommandAsync(
+    processCommands,
+    excludePids,
+  );
+
+  const results = await Promise.all(
+    activeProviders.map(async (provider) => {
       const driver = getProviderDriver(provider);
-      if (!driver.discoverExternalSessions || !driver.isAvailable(context)) return [];
-      return driver.discoverExternalSessions({ ...context, excludePids });
+      const startedAt = performance.now();
+      const sessions = await driver.discoverExternalSessions!({
+        ...context,
+        excludePids,
+        runningProcessCwds,
+      });
+      return {
+        provider,
+        sessions,
+        ms: performance.now() - startedAt,
+      };
     }),
   );
-  return sessions.flat();
+  return {
+    sessions: results.flatMap((result) => result.sessions),
+    timings: results.map((result) => ({
+      provider: result.provider,
+      ms: result.ms,
+      sessionCount: result.sessions.length,
+    })),
+  };
 }
 
 export function getRegisteredProviders(): ProviderKind[] {

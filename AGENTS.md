@@ -87,7 +87,7 @@ Zero relative path navigation (`../`) in any server/cli import.
 
 ### External Session Discovery
 
-- InstanceManager polls provider-specific external discovery every 10s; drivers currently use `ps` + `lsof` and exclude managed PIDs
+- InstanceManager polls provider-specific external discovery every 30s; drivers currently use `ps` + `lsof` and exclude managed PIDs
 - `scanAllSessions()` walks provider transcript roots (`~/.claude/projects/`, `~/.codex/sessions/`) on startup for historical sessions
 - `decodeProjectDir()` uses greedy filesystem-validated decode (not naive `-` → `/`) to handle dashed project names
 - JSONL watchers track incremental changes with dedup: suppressed while process is active, offset advanced to EOF when process finishes

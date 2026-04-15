@@ -7,7 +7,11 @@
 
 import { execSync } from "child_process";
 
+let cachedCodexBinary: string | null | undefined;
+
 export function findCodexBinary(): string | null {
+  if (cachedCodexBinary !== undefined) return cachedCodexBinary;
+
   const candidates = [
     `${process.env.HOME}/.local/bin/codex`,
     "/usr/local/bin/codex",
@@ -17,7 +21,8 @@ export function findCodexBinary(): string | null {
   for (const candidate of candidates) {
     try {
       if (execSync(`test -x "${candidate}" && echo ok`, { encoding: "utf-8" }).trim() === "ok") {
-        return candidate;
+        cachedCodexBinary = candidate;
+        return cachedCodexBinary;
       }
     } catch {
       // ignore and continue
@@ -26,12 +31,16 @@ export function findCodexBinary(): string | null {
 
   try {
     const result = execSync("which codex", { encoding: "utf-8" }).trim();
-    if (result) return result;
+    if (result) {
+      cachedCodexBinary = result;
+      return cachedCodexBinary;
+    }
   } catch {
     // ignore
   }
 
-  return null;
+  cachedCodexBinary = null;
+  return cachedCodexBinary;
 }
 
 export function isCodexInstalled(): boolean {
