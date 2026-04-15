@@ -6,7 +6,7 @@ import { SessionIndicator } from "@/components/ui/session-indicator";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { getInstanceProjectRouteId } from "@/lib/project-route";
-import { formatTimeAgo } from "@/lib/utils";
+import { formatTimeAgo, getChatRecencyTimestamp } from "@/lib/utils";
 import { useUnreadStore, selectHasUnread } from "@/stores/unread-store";
 import type { InstanceInfo } from "@shared/types";
 
@@ -74,6 +74,7 @@ export function SidebarItem({
   };
 
   const unread = useUnreadStore((s) => selectHasUnread(s, instance.id, instance.lastActivityAt));
+  const recencyAt = getChatRecencyTimestamp(instance);
 
   // For non-external sessions the indicator mounts/unmounts; fade it out gracefully.
   const showIndicator = unread || !!instance.external;
@@ -163,11 +164,11 @@ export function SidebarItem({
           className={`relative ml-auto flex w-12 shrink-0 items-center justify-end self-start${hasMenu ? " sidebar-slot-has-menu" : ""}`}
         >
           {/* Timestamp — fades out on hover (kept visible on touch via CSS) */}
-          {instance.lastActivityAt > 0 && (
+          {recencyAt > 0 && (
             <span
               className={`sidebar-timestamp-fade pt-px text-[0.625rem] text-muted/50 transition-opacity duration-150${hasMenu ? " group-hover:opacity-0" : ""}`}
             >
-              {formatTimeAgo(instance.lastActivityAt)}
+              {formatTimeAgo(recencyAt)}
             </span>
           )}
 

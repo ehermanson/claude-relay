@@ -1,4 +1,5 @@
 import type { InstanceInfo, Project } from "@shared/types";
+import { getChatRecencyTimestamp } from "@/lib/utils";
 
 function getInstanceProjectDirectory(
   instance: Pick<InstanceInfo, "projectId" | "originalDirectory" | "workingDirectory">,
@@ -36,7 +37,7 @@ export function groupInstancesByProject(
   }
 
   for (const group of groupMap.values()) {
-    group.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+    group.sort((a, b) => getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a));
   }
 
   return Array.from(groupMap.entries());

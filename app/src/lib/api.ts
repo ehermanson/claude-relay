@@ -692,6 +692,7 @@ export interface SearchResultItem {
   projectId: string | null;
   spaceId: string | null;
   lastActivityAt: number;
+  lastMessageAt: number | null;
   createdAt: number;
   title: string;
   summary: string | null;

@@ -122,6 +122,11 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
     inputRef.current?.focus();
   }, []);
 
+  const getResultRecencyAt = useCallback(
+    (result: SearchResultItem) => result.lastMessageAt ?? result.lastActivityAt,
+    [],
+  );
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Content maxWidth="max-w-xl" className="!p-0 !gap-0">
@@ -204,7 +209,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                             {projectNameById.get(result.projectId) ?? "Unknown"}
                           </span>
                         )}
-                        {Date.now() - result.lastActivityAt < 86_400_000 && (
+                        {Date.now() - getResultRecencyAt(result) < 86_400_000 && (
                           <span className="rounded bg-accent/15 px-1 py-px text-[0.5625rem] font-medium uppercase tracking-wider text-accent">
                             Recent
                           </span>
@@ -216,7 +221,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                           </span>
                         )}
                         <span className="text-[0.625rem] text-muted/70">
-                          {formatTimeAgo(result.lastActivityAt)}
+                          {formatTimeAgo(getResultRecencyAt(result))}
                         </span>
                       </div>
                     </div>

@@ -241,6 +241,7 @@ interface SearchResultRow {
   project_id: string;
   space_id: string;
   last_activity_at: string;
+  last_message_at: string;
   created_at: string;
   archived: string;
   title: string;
@@ -264,6 +265,7 @@ export interface SearchResult {
   projectId: string | null;
   spaceId: string | null;
   lastActivityAt: number;
+  lastMessageAt: number | null;
   createdAt: number;
   title: string;
   summary: string | null;
@@ -498,7 +500,7 @@ export class SessionDB {
     if (
       info?.sql?.includes("content=''") ||
       info?.sql?.includes('content=""') ||
-      (info && !info.sql.includes("transcript_content"))
+      (info && (!info.sql.includes("transcript_content") || !info.sql.includes("last_message_at")))
     ) {
       this.db.exec("DROP TABLE IF EXISTS search_index");
     }
@@ -515,6 +517,7 @@ export class SessionDB {
         project_id UNINDEXED,
         space_id UNINDEXED,
         last_activity_at UNINDEXED,
+        last_message_at UNINDEXED,
         created_at UNINDEXED,
         archived UNINDEXED,
         title,
@@ -1169,8 +1172,8 @@ export class SessionDB {
         snippet(search_index, 8, '<mark>', '</mark>', '…', 60) AS summary_snippet,
         snippet(search_index, 9, '<mark>', '</mark>', '…', 60) AS prompt_snippet,
         snippet(search_index, 10, '<mark>', '</mark>', '…', 60) AS message_snippet,
-        snippet(search_index, 12, '<mark>', '</mark>', '…', 60) AS transcript_snippet,
-        rank * (1.0 / (1.0 + (CAST(? AS REAL) - CAST(s.last_activity_at AS REAL)) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
+        snippet(search_index, 13, '<mark>', '</mark>', '…', 60) AS transcript_snippet,
+        rank * (1.0 / (1.0 + (CAST(? AS REAL) - COALESCE(CAST(NULLIF(s.last_message_at, '') AS REAL), CAST(s.last_activity_at AS REAL))) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
       FROM search_index s
       WHERE search_index MATCH ?
         AND s.project_id = ?
@@ -1185,8 +1188,8 @@ export class SessionDB {
         snippet(search_index, 8, '<mark>', '</mark>', '…', 60) AS summary_snippet,
         snippet(search_index, 9, '<mark>', '</mark>', '…', 60) AS prompt_snippet,
         snippet(search_index, 10, '<mark>', '</mark>', '…', 60) AS message_snippet,
-        snippet(search_index, 12, '<mark>', '</mark>', '…', 60) AS transcript_snippet,
-        rank * (1.0 / (1.0 + (CAST(? AS REAL) - CAST(s.last_activity_at AS REAL)) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
+        snippet(search_index, 13, '<mark>', '</mark>', '…', 60) AS transcript_snippet,
+        rank * (1.0 / (1.0 + (CAST(? AS REAL) - COALESCE(CAST(NULLIF(s.last_message_at, '') AS REAL), CAST(s.last_activity_at AS REAL))) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
       FROM search_index s
       WHERE search_index MATCH ?
         AND s.archived = '0'
@@ -1201,12 +1204,12 @@ export class SessionDB {
     this.stmtInsertSearchDoc = this.db.prepare(`
       INSERT INTO search_index (
         instance_id, source, project_id, space_id,
-        last_activity_at, created_at, archived,
+        last_activity_at, last_message_at, created_at, archived,
         title, summary, first_prompt, last_message_text, git_branch,
         transcript_content
       ) VALUES (
         @instance_id, @source, @project_id, @space_id,
-        @last_activity_at, @created_at, @archived,
+        @last_activity_at, @last_message_at, @created_at, @archived,
         @title, @summary, @first_prompt, @last_message_text, @git_branch,
         @transcript_content
       )
@@ -1738,6 +1741,8 @@ export class SessionDB {
         project_id: row.project_id ?? "",
         space_id: row.space_id ?? "",
         last_activity_at: String(row.last_activity_at),
+        last_message_at:
+          row.last_message_at == null ? "" : String(row.last_message_at),
         created_at: String(row.created_at),
         archived: String(row.archived),
         title: row.name ?? "",
@@ -1904,6 +1909,10 @@ export class SessionDB {
           projectId: r.project_id || null,
           spaceId: r.space_id || null,
           lastActivityAt: Number(r.last_activity_at),
+          lastMessageAt:
+            r.last_message_at != null && r.last_message_at !== ""
+              ? Number(r.last_message_at)
+              : null,
           createdAt: Number(r.created_at),
           title: r.title,
           summary: r.summary || null,

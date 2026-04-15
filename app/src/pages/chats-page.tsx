@@ -20,6 +20,7 @@ import {
   formatModel,
   formatTimeAgo,
   formatTokens,
+  getChatRecencyTimestamp,
   getDisplaySessionStats,
 } from "@/lib/utils";
 import { PageShell } from "@/components/ui/page-shell";
@@ -36,6 +37,7 @@ function SessionCard({
   isMobile: boolean;
 }) {
   const route = getInstanceChatRoute(instance);
+  const recencyAt = getChatRecencyTimestamp(instance);
   const displayStats = instance.stats
     ? getDisplaySessionStats(instance.provider, instance.stats)
     : null;
@@ -111,9 +113,9 @@ function SessionCard({
 
       {/* Timestamps column */}
       <div className="hidden shrink-0 text-right sm:block">
-        {instance.lastActivityAt > 0 && (
+        {recencyAt > 0 && (
           <div className="text-[0.6875rem] text-muted">
-            {formatTimeAgo(instance.lastActivityAt)}
+            {formatTimeAgo(recencyAt)}
           </div>
         )}
         {instance.createdAt > 0 && (
@@ -176,7 +178,7 @@ export function ChatsPage() {
     projectInstancesMap.set(inst.id, inst);
   }
   const projectInstances = Array.from(projectInstancesMap.values()).sort(
-    (a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0),
+    (a, b) => getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a),
   );
   const standaloneInstances = projectInstances.filter(
     (inst) => !isSpaceOwnedInstance(inst, spaces),

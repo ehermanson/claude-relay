@@ -5,6 +5,7 @@ import { useProjectChatSummaries } from "./use-project-chat-summaries";
 import { useProjectOrder } from "../stores/project-order-store";
 import { useProjectsQuery } from "./use-projects-query";
 import { useProjectSpaces } from "./use-project-spaces";
+import { getChatRecencyTimestamp } from "@/lib/utils";
 import type { InstanceInfo, Project } from "@shared/types";
 
 export function useProjectNavigationModel() {
@@ -33,7 +34,7 @@ export function useProjectNavigationModel() {
   const latestActivityBySpace = new Map<string, number>();
   for (const instance of mergedInstances.values()) {
     if (!instance.spaceId) continue;
-    const activityAt = instance.lastActivityAt ?? 0;
+    const activityAt = getChatRecencyTimestamp(instance);
     const previous = latestActivityBySpace.get(instance.spaceId) ?? Number.NEGATIVE_INFINITY;
     if (activityAt >= previous) {
       latestActivityBySpace.set(instance.spaceId, activityAt);

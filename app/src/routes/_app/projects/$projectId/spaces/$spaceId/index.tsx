@@ -33,6 +33,7 @@ import {
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
 import { aggregateSpaceStats, buildSpaceInstances, parseSpaceDiffFiles } from "@/lib/space-view";
+import { getChatRecencyTimestamp } from "@/lib/utils";
 import "@/components/chat/sidecar.css";
 import type { TerminalScope } from "@shared/types";
 
@@ -678,7 +679,9 @@ export function SpaceView() {
 export const Route = createFileRoute("/_app/projects/$projectId/spaces/$spaceId/")({
   loader: async ({ params }) => {
     const chats = await fetchSpaceChats(params.spaceId);
-    const fallbackChat = chats.sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0))[0];
+    const fallbackChat = chats.sort(
+      (a, b) => getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a),
+    )[0];
 
     if (fallbackChat) {
       throw redirect({

@@ -8,7 +8,13 @@ import { MobileSidebarToggle } from "../components/ui/view-header";
 import { Tooltip } from "../components/ui/tooltip";
 import { EmptyProjectActions } from "../components/empty-project-actions";
 import { CreateSpaceDialog, useCreateSpaceDialog } from "../components/spaces/create-space-dialog";
-import { formatTimeAgo, formatTokens, formatModel, getDisplayTokenBreakdown } from "../lib/utils";
+import {
+  formatTimeAgo,
+  formatTokens,
+  formatModel,
+  getChatRecencyTimestamp,
+  getDisplayTokenBreakdown,
+} from "../lib/utils";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { useProjectOrder } from "../stores/project-order-store";
 import { useProjectsQuery } from "../hooks/use-projects-query";
@@ -62,7 +68,7 @@ function ProjectCard({
     (i) => i.status === "processing" || i.status === "idle",
   ).length;
   const lastActivity =
-    instances.length > 0 ? Math.max(...instances.map((i) => i.lastActivityAt)) : null;
+    instances.length > 0 ? Math.max(...instances.map((i) => getChatRecencyTimestamp(i))) : null;
   const [imgError, setImgError] = useState(false);
   const showIcon = iconPath && !imgError;
 
@@ -110,7 +116,7 @@ function ProjectCard({
           <div className="truncate text-[0.875rem] font-semibold text-text-bright">{dirName}</div>
           <div className="text-[0.6875rem] text-muted">
             {lastActivity
-              ? `last active: ${formatTimeAgo(lastActivity)}`
+              ? `last message: ${formatTimeAgo(lastActivity)}`
               : artifactsLoading
                 ? "\u00A0"
                 : "No chats yet"}
