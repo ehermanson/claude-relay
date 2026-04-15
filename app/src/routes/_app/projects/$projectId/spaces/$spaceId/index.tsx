@@ -283,7 +283,8 @@ export function SpaceView() {
   });
 
   // Once chatSummaries includes the pending new chat, sync the URL so the route
-  // loader won't reject it, then clear the override
+  // and the derived activeTab agree. Keep the pending override until the URL
+  // has caught up and the new chat is present in spaceInstances.
   useEffect(() => {
     if (
       pendingNewChatId &&
@@ -291,12 +292,16 @@ export function SpaceView() {
       chatSummaries.some((chat) => chat.id === pendingNewChatId)
     ) {
       navigateToChat(pendingNewChatId);
-      if (!pendingNewChatActive) {
+      if (
+        !pendingNewChatActive &&
+        chatId === pendingNewChatId &&
+        spaceInstances.some((instance) => instance.id === pendingNewChatId)
+      ) {
         setPendingNewChatId(null);
         pendingCreatedChatIdRef.current = null;
       }
     }
-  }, [pendingNewChatActive, pendingNewChatId, chatSummaries]);
+  }, [pendingNewChatActive, pendingNewChatId, chatSummaries, chatId, spaceInstances]);
 
   useEffect(() => {
     if (editingSpaceName) {
@@ -335,6 +340,7 @@ export function SpaceView() {
           pendingCreatedChatIdRef.current = created.id;
         }
         setPendingNewChatId(created.id);
+        navigateToChat(created.id);
         // Store spin-off metadata for the styled composer bar
         if (options?.spinOffId && options.spinOffSourceName) {
           try {

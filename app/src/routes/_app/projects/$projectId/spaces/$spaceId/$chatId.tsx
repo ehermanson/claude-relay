@@ -4,42 +4,14 @@
  * Re-uses the SpaceView component from the index route, which reads chatId
  * from URL params to determine which tab is active.
  */
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { fetchSpaceChats } from "@/lib/api";
+import { createFileRoute } from "@tanstack/react-router";
 import { validateChatSearch } from "@/routes/_app/projects/$projectId/chats/-search";
 import { SpaceView } from "./index";
 
 export const Route = createFileRoute("/_app/projects/$projectId/spaces/$spaceId/$chatId")({
-  loader: async ({ params }) => {
-    const spaceChats = (await fetchSpaceChats(params.spaceId)).sort(
-      (a, b) => (a.createdAt || 0) - (b.createdAt || 0),
-    );
-
-    const activeChat = spaceChats.find((chat) => chat.id === params.chatId);
-    if (activeChat) return;
-
-    const fallbackChat = spaceChats[0];
-    if (fallbackChat) {
-      throw redirect({
-        to: "/projects/$projectId/spaces/$spaceId/$chatId",
-        params: {
-          projectId: params.projectId,
-          spaceId: params.spaceId,
-          chatId: fallbackChat.id,
-        },
-        replace: true,
-      });
-    }
-
-    throw redirect({
-      to: "/projects/$projectId/spaces/$spaceId",
-      params: {
-        projectId: params.projectId,
-        spaceId: params.spaceId,
-      },
-      replace: true,
-    });
-  },
+  // SpaceView owns chat selection recovery. Keeping this loader passive avoids
+  // stale REST data fighting with the pending new-chat flow.
+  loader: async () => {},
   component: SpaceView,
   validateSearch: validateChatSearch,
 });
