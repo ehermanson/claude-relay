@@ -373,6 +373,8 @@ export function sanitiseForTitle(text: string): string {
     text
       // Strip XML/HTML tags (opening, closing, and self-closing)
       .replace(/<\/?[a-zA-Z_][\w.-]*(?:\s[^>]*)?\/?>/g, "")
+      // Strip truncated/unclosed XML-like tags (no closing >, e.g. from line splitting)
+      .replace(/<\/?[a-zA-Z_][\w.-]*(?:\s[^>]*)?$/g, "")
       // Decode @task:id:encoded inline mentions
       .replace(/@task:([a-f0-9]{8})(?::([^\s@]*))?/g, (_m, _id, encoded) => {
         if (!encoded) return "";
@@ -391,13 +393,15 @@ export function sanitiseForTitle(text: string): string {
       // Collapse runs of whitespace into a single space
       .replace(/\s+/g, " ")
       .trim()
+      // Strip leading pipe(s) and whitespace (markdown table artifacts)
+      .replace(/^[\s|]+/, "")
   );
 }
 
 /** Generate a short session title from a user message. */
 function generateTitle(text: string, provider?: ProviderKind): string {
   // Take the first line, strip markdown/special chars, then sanitise
-  const firstLine = sanitiseForTitle(text.split("\n")[0].replace(/[#*`_~[\]>]/g, ""));
+  const firstLine = sanitiseForTitle(text.split("\n")[0].replace(/[#*`_~[\]>|]/g, ""));
   if (!firstLine) return defaultSessionTitle(provider);
   if (firstLine.length <= MAX_TITLE_LENGTH) return firstLine;
   // Truncate at word boundary
@@ -413,7 +417,7 @@ const TRIVIAL_MESSAGE_RE =
 /** True if the message text is too short or too generic to be a useful title. */
 function isTrivialMessage(text: string): boolean {
   const cleaned = text
-    .replace(/[#*`_~[\]>]/g, "")
+    .replace(/[#*`_~[\]>|]/g, "")
     .split("\n")[0]
     .trim();
   return cleaned.length < 8 || TRIVIAL_MESSAGE_RE.test(cleaned);
@@ -4258,9 +4262,16 @@ export class InstanceManager extends EventEmitter {
       };
     }
 
+    // Collect managed session identity keys for dedup (session IDs + transcript paths)
+    const managedKeys = this.collectManagedSessionKeys();
+
     const activeSessions = new Map<string, DiscoveredExternalSession>();
     for (const session of discoveredSessions) {
       if (!this.getRegisteredProjectForDirectory(session.cwd)) {
+        continue;
+      }
+      // Skip sessions whose provider session ID matches a managed session
+      if (managedKeys.providerSessionIds.has(session.sessionId)) {
         continue;
       }
       activeSessions.set(session.transcriptPath, session);
@@ -4274,6 +4285,13 @@ export class InstanceManager extends EventEmitter {
       }
       if (instance.jsonlPath) {
         knownJsonls.set(instance.jsonlPath, instanceId);
+      }
+    }
+
+    // Reserve managed transcript paths (from DB) that may not be in memory yet
+    for (const managedPath of managedKeys.transcriptPaths) {
+      if (!knownJsonls.has(managedPath)) {
+        knownJsonls.set(managedPath, "__reserved_managed__");
       }
     }
 
@@ -6166,7 +6184,7 @@ export class InstanceManager extends EventEmitter {
     let archived = 0;
 
     // --- Scan Codex sessions (~/.codex/sessions/) ---
-    this.scanCodexSessions(knownPaths, diskPaths);
+    this.scanCodexSessions(knownPaths, diskPaths, managedKeys);
 
     if (!existsSync(projectsDir)) return;
 
@@ -6336,8 +6354,9 @@ export class InstanceManager extends EventEmitter {
           }
 
           const firstMsg = readFirstUserMessage(jsonlPath);
+          const rawSummary = indexEntry?.summary;
           const name =
-            indexEntry?.summary ||
+            (rawSummary ? sanitiseForTitle(rawSummary) || rawSummary : null) ||
             (firstMsg ? generateTitle(firstMsg, "claude") : defaultSessionTitle("claude"));
           const gitInfo = scanWorktreePath ? getGitInfo(scanWorktreePath) : getGitInfo(cwd);
           const lastMsg = readLastMessage(jsonlPath);
@@ -6458,11 +6477,16 @@ export class InstanceManager extends EventEmitter {
   }
 
   /** Recursively scan ~/.codex/sessions/ for Codex JSONL transcripts. */
-  private scanCodexSessions(knownPaths: Set<string>, diskPaths: Set<string>): void {
+  private scanCodexSessions(
+    knownPaths: Set<string>,
+    diskPaths: Set<string>,
+    managedKeys: { providerSessionIds: Set<string>; transcriptPaths: Set<string> },
+  ): void {
     const sessionsDir = join(this.providerDirs.codex, "sessions");
     if (!existsSync(sessionsDir)) return;
 
     const rows: SessionRow[] = [];
+    let archivedShadows = 0;
 
     const walk = (dir: string) => {
       let entries: string[];
@@ -6481,10 +6505,21 @@ export class InstanceManager extends EventEmitter {
             diskPaths.add(fullPath);
             if (knownPaths.has(fullPath)) {
               const existing = this.db.getByJsonlPath(fullPath);
-              if (existing && !existing.model) {
-                const meta = this.readCodexSessionMeta(fullPath);
-                if (meta?.model) {
-                  this.backfillSessionModel(existing.session_id, meta.model);
+              if (existing) {
+                // Archive external shadow rows that belong to managed sessions
+                const matchesManaged =
+                  managedKeys.providerSessionIds.has(existing.session_id) ||
+                  managedKeys.transcriptPaths.has(fullPath);
+                if (matchesManaged && existing.type === "external" && !existing.archived) {
+                  this.db.archive(existing.session_id);
+                  archivedShadows++;
+                  continue;
+                }
+                if (!existing.model) {
+                  const meta = this.readCodexSessionMeta(fullPath);
+                  if (meta?.model) {
+                    this.backfillSessionModel(existing.session_id, meta.model);
+                  }
                 }
               }
               continue;
@@ -6493,6 +6528,14 @@ export class InstanceManager extends EventEmitter {
             // Read session_meta from first line
             const meta = this.readCodexSessionMeta(fullPath);
             if (!meta) continue;
+
+            // Skip JSONL files that belong to managed sessions
+            if (
+              managedKeys.providerSessionIds.has(meta.id) ||
+              managedKeys.transcriptPaths.has(fullPath)
+            ) {
+              continue;
+            }
 
             const cwd = meta.cwd;
             if (!cwd || !existsSync(cwd)) continue;
@@ -6554,10 +6597,11 @@ export class InstanceManager extends EventEmitter {
 
     walk(sessionsDir);
 
-    if (rows.length > 0) {
-      this.db.upsertMany(rows);
+    if (rows.length > 0 || archivedShadows > 0) {
+      if (rows.length > 0) this.db.upsertMany(rows);
       this.baseConfig.logger.info(
-        `[InstanceManager] Codex scan: discovered ${rows.length} session(s)`,
+        `[InstanceManager] Codex scan: discovered ${rows.length} session(s)` +
+          (archivedShadows > 0 ? `, archived ${archivedShadows} managed shadow(s)` : ""),
       );
     }
   }
@@ -7655,8 +7699,9 @@ export class InstanceManager extends EventEmitter {
       ((name: string) => {
         void this.enqueueInstanceMutation(id, (live) => {
           if (this.shuttingDown || live.process !== proc) return;
-          if (live.info.customTitle || name === live.info.name) return;
-          live.info.name = name;
+          const sanitised = sanitiseForTitle(name) || name;
+          if (live.info.customTitle || sanitised === live.info.name) return;
+          live.info.name = sanitised;
           this.emitInstanceStatus(live);
           this.dbSave(live);
           const sid = live.sessionId || live.info.sessionId;
@@ -7850,7 +7895,7 @@ export class InstanceManager extends EventEmitter {
         const entry = indexData.entries.find(
           (e: { sessionId?: string }) => e.sessionId === sessionId,
         );
-        if (entry?.summary) return entry.summary;
+        if (entry?.summary) return sanitiseForTitle(entry.summary) || entry.summary;
       }
     } catch {
       // no index or parse error

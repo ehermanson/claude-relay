@@ -1200,4 +1200,17 @@ describe("sanitiseForTitle", () => {
   it("passes through plain text unchanged", () => {
     assert.equal(sanitiseForTitle("just a normal message"), "just a normal message");
   });
+
+  it("strips truncated/unclosed XML tags at end of string", () => {
+    assert.equal(sanitiseForTitle('<taskreference id="a92c0e3b"'), "");
+    assert.equal(sanitiseForTitle('hello <task_reference id="abc" title="test"'), "hello");
+  });
+
+  it("strips leading pipe characters", () => {
+    assert.equal(
+      sanitiseForTitle("| ✨ Update available! 0.115.0"),
+      "✨ Update available! 0.115.0",
+    );
+    assert.equal(sanitiseForTitle("| | header |"), "header |");
+  });
 });
