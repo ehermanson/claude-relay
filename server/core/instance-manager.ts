@@ -281,6 +281,7 @@ export interface InstanceManager {
 const MAX_HISTORY = 1000;
 const MAX_TRANSCRIPT_CACHE_ENTRIES = 100;
 const DISCOVERY_INTERVAL = 10_000; // 10s
+const SLOW_DISCOVERY_WARN_MS = 1_000;
 /** Git branch refresh runs at most this often (multiple of discovery interval) */
 const GIT_REFRESH_INTERVAL = 30_000; // 30s
 const WATCH_POLL_INTERVAL = 2_000; // 2s
@@ -1596,6 +1597,9 @@ export class InstanceManager extends EventEmitter {
       providerDirs: this.providerDirs,
       logger: this.baseConfig.logger,
       sdkQueryFn: this._sdkQueryFn,
+      registeredDirectories: new Set(
+        this.getKnownDirectories().map((directoryInfo) => directoryInfo.path),
+      ),
     };
   }
 
@@ -4157,7 +4161,7 @@ export class InstanceManager extends EventEmitter {
     } finally {
       this.discovering = false;
       const ms = (performance.now() - t0).toFixed(0);
-      if (Number(ms) > 500) {
+      if (Number(ms) > SLOW_DISCOVERY_WARN_MS) {
         this.baseConfig.logger.warn(`[Discover] slow: ${ms}ms`);
       }
     }

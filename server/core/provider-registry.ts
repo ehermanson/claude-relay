@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -29,6 +29,12 @@ import { isCodexInstalled } from "#core/providers/codex-cli.js";
 import { discoverCodexModels } from "#core/providers/codex-models.js";
 import { CodexAppServerSession } from "#core/providers/codex-app-server.js";
 import { findCodexTranscriptPath, parseCodexTranscript } from "#core/providers/codex-transcript.js";
+import {
+  isGitWorktree,
+  isRelayWorktreePath,
+  resolveAnyWorktreeOrigin,
+  resolveWorktreeOrigin,
+} from "#core/git.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,6 +52,7 @@ interface ProviderDriverContext {
   providerDirs: Record<ProviderKind, string>;
   logger: CoreConfig["logger"];
   sdkQueryFn: QueryFn;
+  registeredDirectories?: Set<string>;
 }
 
 interface ProviderSessionOptions {
@@ -131,6 +138,45 @@ function findRecentJsonls(projectDir: string, count: number): string[] {
   }
 }
 
+function normalizeDiscoveryDirectory(directory: string): string {
+  if (isRelayWorktreePath(directory)) {
+    return resolveWorktreeOrigin(directory) ?? directory;
+  }
+  if (isGitWorktree(directory)) {
+    return resolveAnyWorktreeOrigin(directory) ?? directory;
+  }
+  return directory;
+}
+
+function buildDiscoveryDirectoryCandidates(directory: string): string[] {
+  const candidates = new Set<string>();
+  const push = (value: string | null | undefined) => {
+    if (!value) return;
+    candidates.add(value);
+    candidates.add(normalizeDiscoveryDirectory(value));
+    if (existsSync(value)) {
+      try {
+        candidates.add(realpathSync(value));
+      } catch {
+        // best-effort canonicalization only
+      }
+    }
+  };
+  push(directory);
+  return [...candidates];
+}
+
+function isRegisteredDiscoveryDirectory(
+  directory: string,
+  registeredDirectories?: Set<string>,
+): boolean {
+  if (!registeredDirectories || registeredDirectories.size === 0) return true;
+  for (const candidate of buildDiscoveryDirectoryCandidates(directory)) {
+    if (registeredDirectories.has(candidate)) return true;
+  }
+  return false;
+}
+
 async function findRunningProcessCwdsAsync(
   commandName: string,
   excludePids: Set<number>,
@@ -151,26 +197,29 @@ async function findRunningProcessCwdsAsync(
       if (!excludePids.has(pid)) pids.push(pid);
     }
 
-    const results = await Promise.allSettled(
-      pids.map(async (pid) => {
-        const { stdout } = await execFileAsync(
-          "lsof",
-          ["-p", String(pid), "-a", "-d", "cwd", "-Fn"],
-          { encoding: "utf-8", timeout: 5000 },
-        );
-        return { pid, stdout };
-      }),
-    );
+    if (pids.length === 0) return cwdInfo;
 
-    for (const result of results) {
-      if (result.status !== "fulfilled") continue;
-      const { pid, stdout } = result.value;
+    const BATCH_SIZE = 64;
+    for (let offset = 0; offset < pids.length; offset += BATCH_SIZE) {
+      const batch = pids.slice(offset, offset + BATCH_SIZE);
+      const { stdout } = await execFileAsync(
+        "lsof",
+        ["-p", batch.join(","), "-a", "-d", "cwd", "-Fp", "-Fn"],
+        { encoding: "utf-8", timeout: 5000 },
+      );
+
+      let currentPid: number | null = null;
       for (const line of stdout.split("\n")) {
-        if (!line.startsWith("n/")) continue;
+        if (line.startsWith("p")) {
+          const parsed = parseInt(line.slice(1), 10);
+          currentPid = Number.isFinite(parsed) ? parsed : null;
+          continue;
+        }
+        if (!line.startsWith("n/") || currentPid === null) continue;
         const cwd = line.slice(1);
         const existing = cwdInfo.get(cwd) ?? { count: 0, pids: [] };
         existing.count++;
-        existing.pids.push(pid);
+        existing.pids.push(currentPid);
         cwdInfo.set(cwd, existing);
       }
     }
@@ -252,6 +301,7 @@ async function discoverClaudeExternalSessions(
   const cwdInfoMap = await findRunningProcessCwdsAsync("claude", context.excludePids);
   const sessions: DiscoveredExternalSession[] = [];
   for (const [cwd, info] of cwdInfoMap) {
+    if (!isRegisteredDiscoveryDirectory(cwd, context.registeredDirectories)) continue;
     const projectDir = resolveClaudeProjectDir(context.providerDirs.claude, cwd);
     if (!existsSync(projectDir)) continue;
     const jsonlPaths = findRecentJsonls(projectDir, info.count);
@@ -276,6 +326,7 @@ async function discoverCodexExternalSessions(
   const cwdInfoMap = await findRunningProcessCwdsAsync("codex", context.excludePids);
   const sessions: DiscoveredExternalSession[] = [];
   for (const [cwd, info] of cwdInfoMap) {
+    if (!isRegisteredDiscoveryDirectory(cwd, context.registeredDirectories)) continue;
     const transcripts = findRecentCodexTranscriptsForCwd(
       context.providerDirs.codex,
       cwd,
