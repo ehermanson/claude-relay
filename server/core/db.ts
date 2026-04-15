@@ -259,6 +259,72 @@ interface SearchResultRow {
   combined_rank: number;
 }
 
+const SEARCH_INDEX_COLUMNS = [
+  { name: "instance_id", unindexed: true },
+  { name: "source", unindexed: true },
+  { name: "project_id", unindexed: true },
+  { name: "space_id", unindexed: true },
+  { name: "last_activity_at", unindexed: true },
+  { name: "last_message_at", unindexed: true },
+  { name: "created_at", unindexed: true },
+  { name: "archived", unindexed: true },
+  { name: "title" },
+  { name: "summary" },
+  { name: "first_prompt" },
+  { name: "last_message_text" },
+  { name: "git_branch" },
+  { name: "transcript_content" },
+] as const;
+
+const SEARCH_SNIPPET_COLUMNS = [
+  { name: "title", alias: "title_snippet", maxTokens: 40 },
+  { name: "summary", alias: "summary_snippet", maxTokens: 60 },
+  { name: "first_prompt", alias: "prompt_snippet", maxTokens: 60 },
+  { name: "last_message_text", alias: "message_snippet", maxTokens: 60 },
+  { name: "transcript_content", alias: "transcript_snippet", maxTokens: 60 },
+] as const;
+
+type SearchIndexColumnName = (typeof SEARCH_INDEX_COLUMNS)[number]["name"];
+
+const SEARCH_INDEX_COLUMN_NUMBER = new Map<SearchIndexColumnName, number>(
+  SEARCH_INDEX_COLUMNS.map((column, index) => [column.name, index]),
+);
+
+function getSearchIndexColumnNumber(name: SearchIndexColumnName): number {
+  const columnNumber = SEARCH_INDEX_COLUMN_NUMBER.get(name);
+  if (columnNumber == null) {
+    throw new Error(`Unknown search index column: ${name}`);
+  }
+  return columnNumber;
+}
+
+function buildSearchIndexSchemaSql(): string {
+  return SEARCH_INDEX_COLUMNS.map((column) =>
+    "unindexed" in column && column.unindexed
+      ? `        ${column.name} UNINDEXED`
+      : `        ${column.name}`,
+  ).join(",\n");
+}
+
+function buildSnippetSelectSql(): string {
+  return SEARCH_SNIPPET_COLUMNS.map(
+    (column) =>
+      `snippet(search_index, ${getSearchIndexColumnNumber(column.name)}, '<mark>', '</mark>', '…', ${column.maxTokens}) AS ${column.alias}`,
+  ).join(",\n        ");
+}
+
+function buildSearchStatementSql(whereClause: string): string {
+  return `
+      SELECT *,
+        ${buildSnippetSelectSql()},
+        rank * (1.0 / (1.0 + (CAST(? AS REAL) - COALESCE(CAST(NULLIF(s.last_message_at, '') AS REAL), CAST(s.last_activity_at AS REAL))) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
+      FROM search_index s
+      WHERE ${whereClause}
+      ORDER BY combined_rank
+      LIMIT ?
+    `;
+}
+
 export interface SearchResult {
   instanceId: string;
   source: "session" | "managed";
@@ -497,10 +563,12 @@ export class SessionDB {
     const info = this.db
       .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='search_index'")
       .get() as { sql: string } | undefined;
+    const missingSearchColumn =
+      info && SEARCH_INDEX_COLUMNS.some((column) => !info.sql.includes(column.name));
     if (
       info?.sql?.includes("content=''") ||
       info?.sql?.includes('content=""') ||
-      (info && (!info.sql.includes("transcript_content") || !info.sql.includes("last_message_at")))
+      missingSearchColumn
     ) {
       this.db.exec("DROP TABLE IF EXISTS search_index");
     }
@@ -512,20 +580,7 @@ export class SessionDB {
       );
 
       CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
-        instance_id UNINDEXED,
-        source UNINDEXED,
-        project_id UNINDEXED,
-        space_id UNINDEXED,
-        last_activity_at UNINDEXED,
-        last_message_at UNINDEXED,
-        created_at UNINDEXED,
-        archived UNINDEXED,
-        title,
-        summary,
-        first_prompt,
-        last_message_text,
-        git_branch,
-        transcript_content,
+${buildSearchIndexSchemaSql()},
         tokenize='unicode61'
       )
     `);
@@ -1166,36 +1221,13 @@ export class SessionDB {
     // Combined: rank * recency_boost (both negative and <1, so product is more negative for recent+relevant).
     // The combined score is computed inline and used directly for ORDER BY + LIMIT.
 
-    this.stmtSearchProject = this.db.prepare(`
-      SELECT *,
-        snippet(search_index, 7, '<mark>', '</mark>', '…', 40) AS title_snippet,
-        snippet(search_index, 8, '<mark>', '</mark>', '…', 60) AS summary_snippet,
-        snippet(search_index, 9, '<mark>', '</mark>', '…', 60) AS prompt_snippet,
-        snippet(search_index, 10, '<mark>', '</mark>', '…', 60) AS message_snippet,
-        snippet(search_index, 13, '<mark>', '</mark>', '…', 60) AS transcript_snippet,
-        rank * (1.0 / (1.0 + (CAST(? AS REAL) - COALESCE(CAST(NULLIF(s.last_message_at, '') AS REAL), CAST(s.last_activity_at AS REAL))) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
-      FROM search_index s
-      WHERE search_index MATCH ?
-        AND s.project_id = ?
-        AND s.archived = '0'
-      ORDER BY combined_rank
-      LIMIT ?
-    `);
+    this.stmtSearchProject = this.db.prepare(
+      buildSearchStatementSql("search_index MATCH ?\n        AND s.project_id = ?\n        AND s.archived = '0'"),
+    );
 
-    this.stmtSearchGlobal = this.db.prepare(`
-      SELECT *,
-        snippet(search_index, 7, '<mark>', '</mark>', '…', 40) AS title_snippet,
-        snippet(search_index, 8, '<mark>', '</mark>', '…', 60) AS summary_snippet,
-        snippet(search_index, 9, '<mark>', '</mark>', '…', 60) AS prompt_snippet,
-        snippet(search_index, 10, '<mark>', '</mark>', '…', 60) AS message_snippet,
-        snippet(search_index, 13, '<mark>', '</mark>', '…', 60) AS transcript_snippet,
-        rank * (1.0 / (1.0 + (CAST(? AS REAL) - COALESCE(CAST(NULLIF(s.last_message_at, '') AS REAL), CAST(s.last_activity_at AS REAL))) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
-      FROM search_index s
-      WHERE search_index MATCH ?
-        AND s.archived = '0'
-      ORDER BY combined_rank
-      LIMIT ?
-    `);
+    this.stmtSearchGlobal = this.db.prepare(
+      buildSearchStatementSql("search_index MATCH ?\n        AND s.archived = '0'"),
+    );
 
     this.stmtDeleteSearchDoc = this.db.prepare(
       "DELETE FROM search_index WHERE instance_id = ? AND source = ?",
