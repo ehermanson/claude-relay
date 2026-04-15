@@ -9,8 +9,13 @@ import {
   Circle,
   CircleCheck,
   CircleDashed,
+  EllipsisVertical,
+  GitBranch,
   ListChecks,
+  MessageSquarePlus,
+  Pencil,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { MarkdownContent } from "@/components/chat/markdown-content";
@@ -28,8 +33,19 @@ import { useProjectContext } from "@/context/project-context";
 import { useWSMethods } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import type { Task, TaskStatus, TaskType, TasksChangedMessage } from "@shared/types";
-import { fetchTasks, createTaskApi, updateTaskApi, deleteTaskApi, initTasksApi } from "@/lib/api";
-import { formatTimeAgo } from "@/lib/utils";
+import {
+  fetchTasks,
+  createTaskApi,
+  updateTaskApi,
+  deleteTaskApi,
+  initTasksApi,
+  createInstance,
+  createSpace,
+  searchChats,
+} from "@/lib/api";
+import { getInstanceChatRoute, getSpaceRoute } from "@/lib/project-route";
+import { buildTaskReference } from "@/lib/task-links";
+import { formatTimeAgo, getChatRecencyTimestamp } from "@/lib/utils";
 import { patchTasksSearch } from "@/routes/_app/projects/$projectId/tasks/-search";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -158,7 +174,15 @@ function getColumnSortKey(status: TaskStatus, boardSort: SortKey): SortKey {
 
 // ─── Task Card ──────────────────────────────────────────────────────────────
 
-function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
+function TaskCard({
+  task,
+  onClick,
+  onStartChat,
+}: {
+  task: Task;
+  onClick: () => void;
+  onStartChat: (task: Task) => void;
+}) {
   const timeAgo = formatTimeAgo(task.updatedAt);
   const blockerCount = task.blockedBy?.length ?? 0;
 
@@ -175,10 +199,21 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
       }}
       className="w-full cursor-pointer rounded-lg border border-border/70 bg-surface px-3 py-2 text-left transition-all duration-150 hover:-translate-y-px hover:border-border-hover hover:bg-surface-hover hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
     >
-      <div className="mb-1">
+      <div className="mb-1 flex items-start gap-2">
         <span className="text-[0.8125rem] font-medium leading-snug text-text-bright">
           {task.title}
         </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ml-auto h-7 shrink-0 px-2 text-[0.6875rem]"
+          onClick={(e) => {
+            e.stopPropagation();
+            onStartChat(task);
+          }}
+        >
+          Start Chat
+        </Button>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="shrink-0 font-mono text-[0.625rem] text-muted/70">{task.id}</span>
@@ -208,19 +243,25 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
 // ─── Task Drawer Content ────────────────────────────────────────────────────
 
 function TaskDrawerBody({
+  projectId,
   task,
   allTasks,
   onSelectTask,
   onUpdate,
   onDelete,
+  onStartChat,
+  onStartSpace,
   showBack,
   onBack,
 }: {
+  projectId: string;
   task: Task;
   allTasks: Task[];
   onSelectTask: (id: string) => void;
   onUpdate: (taskId: string, patch: Partial<Task>) => void;
   onDelete: (taskId: string) => void;
+  onStartChat: (task: Task) => void;
+  onStartSpace: (task: Task) => void;
   showBack?: boolean;
   onBack?: () => void;
 }) {
@@ -252,6 +293,18 @@ function TaskDrawerBody({
   const dependents = allTasks.filter((t) => t.blockedBy?.includes(task.id));
   const children = allTasks.filter((t) => t.parent === task.id);
   const parentTask = task.parent ? allTasks.find((t) => t.id === task.parent) : null;
+  const navigate = useNavigate({ from: "/projects/$projectId/tasks/" });
+  const { data: relatedChats = [], isLoading: relatedChatsLoading } = useQuery({
+    queryKey: ["taskRelatedChats", projectId, task.id],
+    queryFn: async () => {
+      const results = await searchChats(`@task:${task.id}`, { projectId, limit: 50 });
+      return results.sort(
+        (a, b) =>
+          (b.lastMessageAt ?? b.lastActivityAt) - (a.lastMessageAt ?? a.lastActivityAt),
+      );
+    },
+    enabled: Boolean(projectId),
+  });
 
   return (
     <>
@@ -277,7 +330,45 @@ function TaskDrawerBody({
             <span className="shrink-0 font-mono text-xs text-muted">{task.id}</span>
           </div>
         </div>
-        <Drawer.Close />
+        <div className="flex shrink-0 items-center gap-1">
+          {editing ? (
+            <>
+              <Button variant="primary" size="sm" onClick={handleSave}>
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <Menu.Root>
+              <Menu.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-surface-hover hover:text-text">
+                <EllipsisVertical size={14} />
+              </Menu.Trigger>
+              <Menu.Content>
+                <Menu.Item onClick={() => onStartChat(task)}>
+                  <MessageSquarePlus size={13} strokeWidth={2} className="text-muted" />
+                  Start Chat
+                </Menu.Item>
+                <Menu.Item onClick={() => onStartSpace(task)}>
+                  <GitBranch size={13} strokeWidth={2} className="text-muted" />
+                  Start Space
+                </Menu.Item>
+                <Menu.Separator />
+                <Menu.Item onClick={() => setEditing(true)}>
+                  <Pencil size={13} strokeWidth={2} className="text-muted" />
+                  Edit
+                </Menu.Item>
+                <Menu.Separator />
+                <Menu.Item danger onClick={() => setConfirmDelete(true)}>
+                  <Trash2 size={13} />
+                  Delete
+                </Menu.Item>
+              </Menu.Content>
+            </Menu.Root>
+          )}
+          <Drawer.Close />
+        </div>
       </Drawer.Header>
       <Drawer.Body className="px-5 py-4">
         {/* Status + metadata */}
@@ -355,6 +446,48 @@ function TaskDrawerBody({
         <TaskLinkSection label="Children" tasks={children} onSelect={onSelectTask} />
         <TaskLinkSection label="Blocked by" tasks={blockers} onSelect={onSelectTask} />
         <TaskLinkSection label="Blocks" tasks={dependents} onSelect={onSelectTask} />
+        <div className="mb-4">
+          <h4 className="mb-1.5 text-[0.6875rem] font-medium text-muted">Related chats</h4>
+          {relatedChatsLoading ? (
+            <div className="text-[0.75rem] text-muted">Loading related chats…</div>
+          ) : relatedChats.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              {relatedChats.map((chat) => {
+                const route = chat.spaceId
+                  ? {
+                      to: "/projects/$projectId/spaces/$spaceId/$chatId" as const,
+                      params: { projectId, spaceId: chat.spaceId, chatId: chat.instanceId },
+                    }
+                  : {
+                      to: "/projects/$projectId/chats/$chatId" as const,
+                      params: { projectId, chatId: chat.instanceId },
+                    };
+                return (
+                  <button
+                    key={chat.instanceId}
+                    type="button"
+                    onClick={() => navigate(route)}
+                    className="flex items-start justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[0.8125rem] text-text-bright">
+                        {chat.title}
+                      </div>
+                      <div className="truncate font-mono text-[0.625rem] text-muted">
+                        {chat.instanceId}
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-[0.625rem] text-muted">
+                      {formatTimeAgo(getChatRecencyTimestamp(chat))}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-[0.75rem] text-muted">No chats linked to this task yet.</div>
+          )}
+        </div>
 
         <div className="mb-4 text-[0.6875rem] text-muted">
           Updated {formatTimeAgo(task.updatedAt)}
@@ -383,32 +516,6 @@ function TaskDrawerBody({
           <p className="text-sm text-muted italic">No description</p>
         )}
 
-        {/* Action buttons */}
-        <div className="mt-6 flex items-center gap-2 border-t border-border pt-4">
-          {editing ? (
-            <>
-              <Button variant="primary" size="sm" onClick={handleSave}>
-                Save changes
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-            </>
-          ) : (
-            <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-              Edit
-            </Button>
-          )}
-          <div className="flex-1" />
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-muted hover:text-error"
-            onClick={() => setConfirmDelete(true)}
-          >
-            Delete
-          </Button>
-        </div>
       </Drawer.Body>
       <ConfirmActionDialog
         open={confirmDelete}
@@ -439,6 +546,7 @@ interface StackItem {
 }
 
 function StackedDrawer({
+  projectId,
   item,
   task,
   allTasks,
@@ -448,7 +556,10 @@ function StackedDrawer({
   onSelectTask,
   onUpdate,
   onDelete,
+  onStartChat,
+  onStartSpace,
 }: {
+  projectId: string;
   item: StackItem;
   task: Task | null;
   allTasks: Task[];
@@ -458,6 +569,8 @@ function StackedDrawer({
   onSelectTask: (id: string) => void;
   onUpdate: (taskId: string, patch: Partial<Task>) => void;
   onDelete: (taskId: string) => void;
+  onStartChat: (task: Task) => void;
+  onStartSpace: (task: Task) => void;
 }) {
   const lastTask = useRef<Task | null>(null);
   if (task) lastTask.current = task;
@@ -478,11 +591,14 @@ function StackedDrawer({
         {display && (
           <TaskDrawerBody
             key={display.id}
+            projectId={projectId}
             task={display}
             allTasks={allTasks}
             onSelectTask={onSelectTask}
             onUpdate={onUpdate}
             onDelete={onDelete}
+            onStartChat={onStartChat}
+            onStartSpace={onStartSpace}
             showBack={!isFirst}
             onBack={onClose}
           />
@@ -499,11 +615,13 @@ function KanbanColumn({
   tasks,
   mobile,
   onSelectTask,
+  onStartChat,
 }: {
   status: string;
   tasks: Task[];
   mobile?: boolean;
   onSelectTask: (id: string) => void;
+  onStartChat: (task: Task) => void;
 }) {
   if (tasks.length === 0) return null;
 
@@ -522,7 +640,12 @@ function KanbanColumn({
         }
       >
         {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} onClick={() => onSelectTask(task.id)} />
+          <TaskCard
+            key={task.id}
+            task={task}
+            onClick={() => onSelectTask(task.id)}
+            onStartChat={onStartChat}
+          />
         ))}
       </div>
     </div>
@@ -762,6 +885,62 @@ export function TasksPage() {
     }
   };
 
+  const maybePromoteTaskToInProgress = async (task: Task) => {
+    if (task.status !== "open") return;
+    const previousStatus = task.status;
+    try {
+      await updateTaskApi(projectId, task.id, { status: "in_progress" });
+      await refreshTasks();
+      toast.success("Task moved to In Progress", {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void updateTaskApi(projectId, task.id, { status: previousStatus })
+              .then(() => refreshTasks())
+              .catch(() => {
+                toast.error("Failed to restore task status");
+              });
+          },
+        },
+      });
+    } catch {
+      // Non-fatal — chat creation already succeeded.
+    }
+  };
+
+  const handleStartChat = async (task: Task) => {
+    if (!artifacts.directory) {
+      toast.error("Project directory not found");
+      return;
+    }
+    try {
+      const created = await createInstance({ workingDirectory: artifacts.directory });
+      const draft = buildTaskReference(task);
+      sessionStorage.setItem(`relay:draft:${created.id}`, draft);
+      await maybePromoteTaskToInProgress(task);
+      await navigate(getInstanceChatRoute(created));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to start chat");
+    }
+  };
+
+  const handleStartSpace = async (task: Task) => {
+    try {
+      const space = await createSpace(projectId, {
+        name: task.title,
+        description: task.description || undefined,
+      });
+      const created = await createInstance({ spaceId: space.id });
+      const draft = buildTaskReference(task);
+      sessionStorage.setItem(`relay:draft:${created.id}`, draft);
+      await maybePromoteTaskToInProgress(task);
+      await queryClient.invalidateQueries({ queryKey: ["spaces", projectId] });
+      await navigate(getSpaceRoute(projectId, space.id, created.id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to start space");
+    }
+  };
+
   // Sync URL → stack (initial load, browser back/forward)
   useEffect(() => {
     if (selectedId) {
@@ -935,6 +1114,7 @@ export function TasksPage() {
     return (
       <StackedDrawer
         key={item.key}
+        projectId={projectId}
         item={item}
         task={task}
         allTasks={tasks}
@@ -944,6 +1124,8 @@ export function TasksPage() {
         onSelectTask={pushDrawer}
         onUpdate={handleUpdate}
         onDelete={handleDelete}
+        onStartChat={handleStartChat}
+        onStartSpace={handleStartSpace}
       />
     );
   });
@@ -974,7 +1156,14 @@ export function TasksPage() {
         </div>
         <div className="flex flex-col gap-6 px-4 py-2">
           {STATUS_ORDER.map((s) => (
-            <KanbanColumn key={s} status={s} tasks={grouped[s]} mobile onSelectTask={selectTask} />
+            <KanbanColumn
+              key={s}
+              status={s}
+              tasks={grouped[s]}
+              mobile
+              onSelectTask={selectTask}
+              onStartChat={handleStartChat}
+            />
           ))}
         </div>
         {drawerStack}
@@ -990,7 +1179,13 @@ export function TasksPage() {
       </div>
       <div className="flex flex-1 gap-4 overflow-x-auto px-6 py-2">
         {STATUS_ORDER.map((s) => (
-          <KanbanColumn key={s} status={s} tasks={grouped[s]} onSelectTask={selectTask} />
+          <KanbanColumn
+            key={s}
+            status={s}
+            tasks={grouped[s]}
+            onSelectTask={selectTask}
+            onStartChat={handleStartChat}
+          />
         ))}
       </div>
       {drawerStack}

@@ -5,6 +5,7 @@
 
 import { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
   Bug,
@@ -30,8 +31,15 @@ import { ProjectBreadcrumb } from "../ui/project-breadcrumb";
 import { OpenInMenu } from "../project/open-in-menu";
 import { HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
 import { CommitMessageDialog } from "../git/commit-message-dialog";
+import { useProjectContext } from "@/context/project-context";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
-import { fetchInstanceGitStatus, gitCommitInstance, gitPushInstance } from "../../lib/api";
+import {
+  fetchInstanceGitStatus,
+  fetchInstanceHistory,
+  gitCommitInstance,
+  gitPushInstance,
+} from "../../lib/api";
+import { extractPrimaryTaskIdFromHistory } from "../../lib/task-links";
 import { deriveInstanceStatusPresentation } from "../../lib/utils";
 import type { InstanceInfo, ProviderNotice, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
@@ -306,6 +314,8 @@ export function InstanceHeader({
   onToggleTerminal,
   terminalOpen,
 }: InstanceHeaderProps) {
+  const navigate = useNavigate();
+  const { artifacts } = useProjectContext();
   const displayBranch = instance.gitInfo?.branch || instance.gitBranch;
 
   const instanceStatus = deriveInstanceStatusPresentation(instance);
@@ -341,6 +351,15 @@ export function InstanceHeader({
   const [pushStatus, setPushStatus] = useState<InstanceGitStatus | null>(null);
   const [pushStatusError, setPushStatusError] = useState<string | null>(null);
   const [pushing, setPushing] = useState(false);
+  const { data: linkedTaskId = null } = useQuery({
+    queryKey: ["instance-linked-task", instance.id, instance.lastActivityAt],
+    queryFn: async () => {
+      const history = await fetchInstanceHistory(instance.id);
+      return extractPrimaryTaskIdFromHistory(history);
+    },
+    enabled: Boolean(artifacts.tasks?.length),
+  });
+  const linkedTask = artifacts.tasks?.find((task) => task.id === linkedTaskId) ?? null;
 
   const handleCommit = async (message: string) => {
     const result = await gitCommitInstance(instance.id, { message });
@@ -432,6 +451,25 @@ export function InstanceHeader({
               label={getProjectName(instance.workingDirectory)}
               mobile
             />
+            {linkedTask ? (
+              <>
+                <span className="text-border">·</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate({
+                      to: "/projects/$projectId/tasks",
+                      params: { projectId },
+                      search: { task: linkedTask.id },
+                    })
+                  }
+                  className="inline-flex max-w-[13rem] items-center gap-1 rounded-md border border-border/70 bg-panel px-1.5 py-0.5 text-[0.625rem] font-medium text-muted transition-colors hover:border-accent/40 hover:text-text"
+                >
+                  <ListChecks size={10} />
+                  <span className="truncate">{linkedTask.title}</span>
+                </button>
+              </>
+            ) : null}
             {displayBranchName ? (
               <>
                 <span className="text-border">·</span>
@@ -491,6 +529,22 @@ export function InstanceHeader({
           {instance.name}
         </h1>
         <span className="chat-header-badge contents">
+          {linkedTask ? (
+            <button
+              type="button"
+              onClick={() =>
+                navigate({
+                  to: "/projects/$projectId/tasks",
+                  params: { projectId },
+                  search: { task: linkedTask.id },
+                })
+              }
+              className="inline-flex max-w-[16rem] items-center gap-1 rounded-md border border-border/70 bg-panel px-2 py-0.5 text-[0.6875rem] font-medium text-muted transition-colors hover:border-accent/40 hover:text-text"
+            >
+              <ListChecks size={11} />
+              <span className="truncate">{linkedTask.title}</span>
+            </button>
+          ) : null}
           {promotedProviderNotice ? (
             <Tooltip
               content={

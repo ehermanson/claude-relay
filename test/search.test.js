@@ -143,6 +143,11 @@ describe("extractSearchableText", () => {
     assert.equal(result, "");
   });
 
+  it("keeps short task references so linked chats stay searchable", () => {
+    const result = extractSearchableText([userEntry("@task:a1b2c3d4:Fix%20login ")]);
+    assert.equal(result, "@task:a1b2c3d4:Fix%20login ");
+  });
+
   it("skips internal user messages", () => {
     const result = extractSearchableText([
       userEntry(
@@ -299,6 +304,17 @@ describe("SessionDB search", () => {
       db.syncSearchIndexForInstance("inst-1");
       const results = db.search("pagination");
       assert.equal(results.length, 1);
+      assert.equal(results[0].matchField, "transcript");
+    });
+
+    it("finds chats by task reference in the search index", () => {
+      db.upsert(makeRow({ project_id: "proj-1" }));
+      db.updateSearchContent("inst-1", "@task:a1b2c3d4:Fix%20login ");
+      db.syncSearchIndexForInstance("inst-1");
+
+      const results = db.search("@task:a1b2c3d4", { projectId: "proj-1" });
+      assert.equal(results.length, 1);
+      assert.equal(results[0].instanceId, "inst-1");
       assert.equal(results[0].matchField, "transcript");
     });
 
