@@ -94,7 +94,7 @@ Zero relative path navigation (`../`) in any server/cli import.
 
 ### Lazy Hydration
 
-Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a chat triggers lazy hydration: transcript replay, task/file/team state restore, git info refresh, watcher start, and provider session boot when resumable state exists.
+Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a chat triggers lazy hydration of transcript/task/file state and git info, but history reads stay passive: Relay does not boot/resume a stopped managed session until the user explicitly sends a message (or otherwise takes over/resumes it).
 
 ### Spaces
 
