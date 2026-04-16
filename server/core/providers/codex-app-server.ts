@@ -103,14 +103,6 @@ interface FileUpdateChange {
   diff: string;
 }
 
-interface TokenUsageBreakdown {
-  totalTokens: number;
-  inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
-  reasoningOutputTokens: number;
-}
-
 interface ThreadItemBase {
   type: string;
   id: string;
@@ -241,6 +233,14 @@ function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+function getNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+
 function getStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const strings = value.filter(
@@ -346,40 +346,17 @@ function buildMcpServerStatusList(value: unknown): ProviderMcpServerStatus[] | u
 }
 
 function buildAccountStatus(params: Record<string, unknown>): ProviderAccountStatus | undefined {
-  const account = (params.account as Record<string, unknown> | undefined) ?? params;
-  const rateLimits: NonNullable<ProviderAccountStatus["rateLimits"]> = [];
-  if (Array.isArray(account.rateLimits)) {
-    for (const entry of account.rateLimits) {
-      if (!entry || typeof entry !== "object") continue;
-      const row = entry as Record<string, unknown>;
-      rateLimits.push({
-        name: getString(row.name),
-        scope: getString(row.scope),
-        plan: getString(row.plan) ?? getString(row.planType),
-        windows: [
-          {
-            label: getString(row.label),
-            limit: typeof row.limit === "number" ? row.limit : undefined,
-            remaining: typeof row.remaining === "number" ? row.remaining : undefined,
-            usedPercent: typeof row.usedPercent === "number" ? row.usedPercent : undefined,
-            windowMinutes:
-              typeof row.windowMinutes === "number"
-                ? row.windowMinutes
-                : typeof row.windowDurationMins === "number"
-                  ? row.windowDurationMins
-                  : undefined,
-            resetAt: getString(row.resetAt) ?? getString(row.reset_at),
-          },
-        ],
-      });
-    }
-  }
+  const account = getRecord(params.account) ?? params;
+  const rateLimits =
+    buildAccountRateLimits(account) ??
+    normalizeCodexRateLimitsSnapshot(params) ??
+    normalizeCodexRateLimitsSnapshot(account);
   const result: ProviderAccountStatus = {
     plan: getString(account.plan) ?? getString(account.planType),
     label: getString(account.label) ?? getString(account.name),
     email: getString(account.email),
     status: getString(account.status),
-    rateLimits: rateLimits.length ? rateLimits : undefined,
+    rateLimits,
   };
   return result.plan || result.label || result.email || result.status || result.rateLimits
     ? result
@@ -448,8 +425,9 @@ function normalizeCodexRateLimitsSnapshot(
   result: unknown,
 ): ProviderAccountStatus["rateLimits"] | undefined {
   const payload = asRecord(result);
-  const primary = payload?.rateLimits;
-  const byLimitId = asRecord(payload?.rateLimitsByLimitId);
+  const primary = payload?.rateLimits ?? payload?.rate_limits;
+  const byLimitId =
+    asRecord(payload?.rateLimitsByLimitId) ?? asRecord(payload?.rate_limits_by_limit_id);
   const snapshots: unknown[] = [];
   if (primary) snapshots.push(primary);
   if (byLimitId) {
@@ -465,57 +443,153 @@ function normalizeCodexRateLimitsSnapshot(
     if (!snapshot) continue;
     const primaryWindow = asRecord(snapshot.primary);
     const secondaryWindow = asRecord(snapshot.secondary);
-    const name = getString(snapshot.limitName) ?? getString(snapshot.limitId);
-    const scope = getString(snapshot.limitId);
+    const name =
+      getString(snapshot.limitName) ??
+      getString(snapshot.limit_name) ??
+      getString(snapshot.limitId) ??
+      getString(snapshot.limit_id);
+    const scope = getString(snapshot.limitId) ?? getString(snapshot.limit_id);
     const dedupeKey = `${scope ?? ""}|${name ?? ""}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
     const windows: NonNullable<ProviderRateLimitStatus["windows"]> = [];
     if (primaryWindow) {
       const usedPercent =
-        typeof primaryWindow.usedPercent === "number" ? primaryWindow.usedPercent : undefined;
+        getNumber(primaryWindow.usedPercent) ?? getNumber(primaryWindow.used_percent);
       windows.push({
         label: "Primary",
         usedPercent,
         remaining:
           typeof usedPercent === "number" ? Math.max(0, Math.round(100 - usedPercent)) : undefined,
         windowMinutes:
-          typeof primaryWindow.windowDurationMins === "number"
-            ? primaryWindow.windowDurationMins
-            : undefined,
+          getNumber(primaryWindow.windowMinutes) ??
+          getNumber(primaryWindow.window_minutes) ??
+          getNumber(primaryWindow.windowDurationMins) ??
+          getNumber(primaryWindow.window_duration_mins),
         resetAt:
-          typeof primaryWindow.resetsAt === "number"
-            ? new Date(primaryWindow.resetsAt * 1000).toISOString()
+          typeof (getNumber(primaryWindow.resetsAt) ?? getNumber(primaryWindow.resets_at)) ===
+          "number"
+            ? new Date(
+                (getNumber(primaryWindow.resetsAt) ?? getNumber(primaryWindow.resets_at) ?? 0) *
+                  1000,
+              ).toISOString()
             : undefined,
       });
     }
     if (secondaryWindow) {
       const usedPercent =
-        typeof secondaryWindow.usedPercent === "number" ? secondaryWindow.usedPercent : undefined;
+        getNumber(secondaryWindow.usedPercent) ?? getNumber(secondaryWindow.used_percent);
       windows.push({
         label: "Secondary",
         usedPercent,
         remaining:
           typeof usedPercent === "number" ? Math.max(0, Math.round(100 - usedPercent)) : undefined,
         windowMinutes:
-          typeof secondaryWindow.windowDurationMins === "number"
-            ? secondaryWindow.windowDurationMins
-            : undefined,
+          getNumber(secondaryWindow.windowMinutes) ??
+          getNumber(secondaryWindow.window_minutes) ??
+          getNumber(secondaryWindow.windowDurationMins) ??
+          getNumber(secondaryWindow.window_duration_mins),
         resetAt:
-          typeof secondaryWindow.resetsAt === "number"
-            ? new Date(secondaryWindow.resetsAt * 1000).toISOString()
+          typeof (getNumber(secondaryWindow.resetsAt) ?? getNumber(secondaryWindow.resets_at)) ===
+          "number"
+            ? new Date(
+                (getNumber(secondaryWindow.resetsAt) ?? getNumber(secondaryWindow.resets_at) ?? 0) *
+                  1000,
+              ).toISOString()
             : undefined,
       });
     }
     limits.push({
       name,
       scope,
-      plan: getString(snapshot.planType),
+      plan: getString(snapshot.planType) ?? getString(snapshot.plan_type),
       windows: windows.length ? windows : undefined,
     });
   }
 
   return limits.length ? limits : undefined;
+}
+
+function buildAccountRateLimits(
+  account: Record<string, unknown>,
+): ProviderAccountStatus["rateLimits"] | undefined {
+  const rawRateLimits = account.rateLimits ?? account.rate_limits;
+  if (!Array.isArray(rawRateLimits)) return undefined;
+
+  const rateLimits: NonNullable<ProviderAccountStatus["rateLimits"]> = [];
+  for (const entry of rawRateLimits) {
+    const row = getRecord(entry);
+    if (!row) continue;
+    const explicitWindows = Array.isArray(row.windows)
+      ? row.windows
+          .map((window) => buildRateLimitWindow(getRecord(window)))
+          .filter((window): window is NonNullable<ProviderRateLimitStatus["windows"]>[number] =>
+            Boolean(window),
+          )
+      : undefined;
+    const snapshotWindows = buildSnapshotWindows(row);
+    const singleWindow = buildRateLimitWindow(row);
+    const windows = explicitWindows?.length
+      ? explicitWindows
+      : snapshotWindows?.length
+        ? snapshotWindows
+        : singleWindow
+          ? [singleWindow]
+          : undefined;
+    rateLimits.push({
+      name: getString(row.name),
+      scope: getString(row.scope),
+      plan: getString(row.plan) ?? getString(row.planType) ?? getString(row.plan_type),
+      windows,
+    });
+  }
+  return rateLimits.length ? rateLimits : undefined;
+}
+
+function buildSnapshotWindows(
+  snapshot: Record<string, unknown>,
+): NonNullable<ProviderRateLimitStatus["windows"]> | undefined {
+  const windows: NonNullable<ProviderRateLimitStatus["windows"]> = [];
+  const primary = buildRateLimitWindow(getRecord(snapshot.primary), "Primary");
+  if (primary) windows.push(primary);
+  const secondary = buildRateLimitWindow(getRecord(snapshot.secondary), "Secondary");
+  if (secondary) windows.push(secondary);
+  return windows.length ? windows : undefined;
+}
+
+function buildRateLimitWindow(
+  row: Record<string, unknown> | undefined,
+  defaultLabel?: string,
+): NonNullable<ProviderRateLimitStatus["windows"]>[number] | undefined {
+  if (!row) return undefined;
+  const usedPercent = getNumber(row.usedPercent) ?? getNumber(row.used_percent);
+  const limit = getNumber(row.limit);
+  const remaining = getNumber(row.remaining);
+  const windowMinutes =
+    getNumber(row.windowMinutes) ??
+    getNumber(row.window_minutes) ??
+    getNumber(row.windowDurationMins) ??
+    getNumber(row.window_duration_mins);
+  const resetAtEpoch = getNumber(row.resetsAt) ?? getNumber(row.resets_at);
+  const resetAt = getString(row.resetAt) ?? getString(row.reset_at);
+  const window = {
+    label: getString(row.label) ?? defaultLabel,
+    limit,
+    remaining,
+    usedPercent,
+    windowMinutes,
+    resetAt:
+      resetAt ??
+      (typeof resetAtEpoch === "number" ? new Date(resetAtEpoch * 1000).toISOString() : undefined),
+  };
+  return window.label ||
+    window.limit !== undefined ||
+    window.remaining !== undefined ||
+    window.usedPercent !== undefined ||
+    window.windowMinutes !== undefined ||
+    window.resetAt !== undefined
+    ? window
+    : undefined;
 }
 
 export function normalizeCodexSkillsSnapshot(
@@ -1799,26 +1873,59 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       // Token usage
       // -----------------------------------------------------------------------
       case "thread/tokenUsage/updated": {
-        const usage = params.tokenUsage as
-          | {
-              total?: TokenUsageBreakdown;
-              last?: TokenUsageBreakdown;
-              modelContextWindow?: number | null;
-            }
-          | undefined;
-        if (usage?.total) {
-          this._stats.inputTokens = usage.total.inputTokens;
-          this._stats.cacheReadTokens = usage.total.cachedInputTokens;
-          this._stats.outputTokens = usage.total.outputTokens;
-          this._stats.reasoningTokens = usage.total.reasoningOutputTokens;
-          this._stats.contextTokens =
-            usage.last?.totalTokens ??
-            (typeof usage.last?.inputTokens === "number"
-              ? usage.last.inputTokens + (usage.last.cachedInputTokens ?? 0)
-              : undefined);
-          if (typeof usage.modelContextWindow === "number") {
-            this._stats.contextWindow = usage.modelContextWindow;
+        const usage = getRecord(params.tokenUsage) ?? getRecord(params.token_usage);
+        const total = getRecord(usage?.total) ?? getRecord(usage?.total_token_usage);
+        const last = getRecord(usage?.last) ?? getRecord(usage?.last_token_usage);
+        let updated = false;
+
+        if (total) {
+          const inputTokens = getNumber(total.inputTokens) ?? getNumber(total.input_tokens);
+          const cachedInputTokens =
+            getNumber(total.cachedInputTokens) ?? getNumber(total.cached_input_tokens);
+          const outputTokens = getNumber(total.outputTokens) ?? getNumber(total.output_tokens);
+          const reasoningTokens =
+            getNumber(total.reasoningOutputTokens) ?? getNumber(total.reasoning_output_tokens);
+
+          if (inputTokens !== undefined) {
+            this._stats.inputTokens = inputTokens;
+            updated = true;
           }
+          if (cachedInputTokens !== undefined) {
+            this._stats.cacheReadTokens = cachedInputTokens;
+            updated = true;
+          }
+          if (outputTokens !== undefined) {
+            this._stats.outputTokens = outputTokens;
+            updated = true;
+          }
+          if (reasoningTokens !== undefined) {
+            this._stats.reasoningTokens = reasoningTokens;
+            updated = true;
+          }
+        }
+
+        if (last) {
+          const totalTokens = getNumber(last.totalTokens) ?? getNumber(last.total_tokens);
+          const inputTokens = getNumber(last.inputTokens) ?? getNumber(last.input_tokens);
+          const cachedInputTokens =
+            getNumber(last.cachedInputTokens) ?? getNumber(last.cached_input_tokens);
+          const contextTokens =
+            totalTokens ??
+            (inputTokens !== undefined ? inputTokens + (cachedInputTokens ?? 0) : undefined);
+          if (contextTokens !== undefined) {
+            this._stats.contextTokens = contextTokens;
+            updated = true;
+          }
+        }
+
+        const contextWindow =
+          getNumber(usage?.modelContextWindow) ?? getNumber(usage?.model_context_window);
+        if (contextWindow !== undefined) {
+          this._stats.contextWindow = contextWindow;
+          updated = true;
+        }
+
+        if (updated) {
           this.emit("stats", { ...this._stats });
         }
         break;

@@ -7608,6 +7608,7 @@ export class InstanceManager extends EventEmitter {
           ...stats,
           // Preserve context fields from prior refreshContextUsage() when this
           // stats event (e.g. a usage event) doesn't include them yet.
+          contextTokens: stats.contextTokens ?? live.info.stats?.contextTokens,
           contextWindow: stats.contextWindow ?? live.info.stats?.contextWindow,
           contextCategories: stats.contextCategories ?? live.info.stats?.contextCategories,
         };

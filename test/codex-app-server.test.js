@@ -406,6 +406,100 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
+  it("normalizes snake_case startup rate-limit snapshots into provider status", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const systemEvents = collectEvents(session, "systemEvent");
+
+    session.send("hello");
+    const child = harness.children[0];
+    child.stdin.on("data", (chunk) => {
+      const lines = chunk.toString().trim().split("\n");
+      for (const line of lines) {
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (msg.id === undefined || !msg.method) continue;
+        if (msg.method === "initialize") {
+          child.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: { userAgent: "codex-test/1.0" },
+            }) + "\n",
+          );
+        } else if (msg.method === "thread/start") {
+          child.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: {
+                thread: {
+                  id: "thread-001",
+                  cwd: msg.params?.cwd ?? "/tmp",
+                },
+              },
+            }) + "\n",
+          );
+        } else if (msg.method === "turn/start") {
+          child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\n");
+        } else if (msg.method === "account/read") {
+          child.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: {
+                account: { type: "chatgpt", email: "user@example.com", planType: "plus" },
+              },
+            }) + "\n",
+          );
+        } else if (msg.method === "account/rateLimits/read") {
+          child.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: {
+                rate_limits: {
+                  limit_id: "codex",
+                  limit_name: null,
+                  primary: { used_percent: 8, window_minutes: 300, resets_at: 1760000000 },
+                  secondary: { used_percent: 5, window_minutes: 10080, resets_at: 1760600000 },
+                  plan_type: "plus",
+                },
+              },
+            }) + "\n",
+          );
+        } else {
+          child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\n");
+        }
+      }
+    });
+
+    await tick(50);
+
+    const providerStatusEvents = systemEvents
+      .map(([event]) => event)
+      .filter((event) => event.event === "provider_status");
+    const rateLimitEvent = providerStatusEvents.find(
+      (event) => event.payload.account?.rateLimits?.[0]?.windows?.length === 2,
+    );
+    assert.ok(rateLimitEvent, "Should emit normalized snake_case rate-limit snapshot");
+    assert.equal(rateLimitEvent.payload.account.rateLimits[0].plan, "plus");
+    assert.equal(rateLimitEvent.payload.account.rateLimits[0].windows[0].windowMinutes, 300);
+    assert.equal(rateLimitEvent.payload.account.rateLimits[0].windows[1].windowMinutes, 10080);
+
+    session.close();
+  });
+
   it("emits a session_init system event when a thread starts", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
@@ -939,6 +1033,63 @@ describe("CodexAppServerSession", () => {
     assert.equal(lastStats.contextWindow, 200000);
   });
 
+  it("accepts snake_case token usage payloads from live notifications", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const statsEvents = collectEvents(session, "stats");
+
+    session.send("hello");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "thread/tokenUsage/updated",
+        params: {
+          thread_id: "thread-001",
+          turn_id: "turn-1",
+          token_usage: {
+            total_token_usage: {
+              total_tokens: 100,
+              input_tokens: 60,
+              cached_input_tokens: 10,
+              output_tokens: 30,
+              reasoning_output_tokens: 5,
+            },
+            last_token_usage: {
+              total_tokens: 100,
+              input_tokens: 60,
+              cached_input_tokens: 10,
+              output_tokens: 30,
+              reasoning_output_tokens: 5,
+            },
+            model_context_window: 200000,
+          },
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    assert.ok(statsEvents.length >= 1, "Expected at least one stats event");
+    const lastStats = statsEvents[statsEvents.length - 1][0];
+    assert.equal(lastStats.model, "gpt-5.4");
+    assert.equal(lastStats.inputTokens, 60);
+    assert.equal(lastStats.cacheReadTokens, 10);
+    assert.equal(lastStats.outputTokens, 30);
+    assert.equal(lastStats.reasoningTokens, 5);
+    assert.equal(lastStats.contextTokens, 100);
+    assert.equal(lastStats.contextWindow, 200000);
+  });
+
   it("emits task_list activity for turn/plan/updated notifications", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
@@ -1377,6 +1528,55 @@ describe("CodexAppServerSession", () => {
     assert.equal(providerStatusEvents[1].payload.account.label, "Plus");
     assert.equal(providerStatusEvents[1].payload.account.rateLimits[0].windows[0].remaining, 42);
     assert.equal(providerStatusEvents[2].payload.diff.changedFiles, 3);
+  });
+
+  it("normalizes snake_case live rate-limit updates into window entries", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const systemEvents = collectEvents(session, "systemEvent");
+
+    session.send("status updates");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "account/rateLimits/updated",
+        params: {
+          account: {
+            label: "Plus",
+            email: "user@example.com",
+          },
+          rate_limits: {
+            limit_id: "codex",
+            primary: { used_percent: 8, window_minutes: 300, resets_at: 1760000000 },
+            secondary: { used_percent: 5, window_minutes: 10080, resets_at: 1760600000 },
+            plan_type: "plus",
+          },
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const providerStatusEvents = systemEvents
+      .map(([event]) => event)
+      .filter((event) => event.event === "provider_status");
+    const rateLimitEvent = providerStatusEvents.find(
+      (event) => event.payload.account?.rateLimits?.[0]?.windows?.length === 2,
+    );
+    assert.ok(rateLimitEvent, "Expected normalized live rate-limit windows");
+    assert.equal(rateLimitEvent.payload.account.label, "Plus");
+    assert.equal(rateLimitEvent.payload.account.rateLimits[0].plan, "plus");
+    assert.equal(rateLimitEvent.payload.account.rateLimits[0].windows[0].windowMinutes, 300);
+    assert.equal(rateLimitEvent.payload.account.rateLimits[0].windows[1].windowMinutes, 10080);
   });
 
   it("emits reroute and notice system events with normalized payloads", async () => {
