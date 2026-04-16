@@ -223,14 +223,15 @@ export function createWebSocketServer(
   // Also sends an application-level heartbeat message so browser clients
   // (which can't see pong frames) know the connection is alive.
   const PING_INTERVAL = 30_000;
+  const MAX_MISSED_PONGS = 4;
   const missedPongs = new Map<WebSocket, number>();
   const pingTimer = setInterval(() => {
     for (const [ws] of subscriptions) {
       const misses = missedPongs.get(ws) ?? 0;
-      if (misses >= 2) {
-        // Allow a couple of missed ping cycles before declaring the
-        // connection dead. Mobile/Tailscale links can briefly stall without
-        // the socket being permanently gone.
+      if (misses >= MAX_MISSED_PONGS) {
+        // Allow several missed ping cycles before declaring the connection
+        // dead. Mobile/Tailscale links can briefly stall without the socket
+        // being permanently gone.
         log.info("WebSocket connection dead (missed heartbeat), terminating");
         missedPongs.delete(ws);
         ws.terminate();

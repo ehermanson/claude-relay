@@ -56,12 +56,14 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     handleMessage,
     setInstanceId,
     showThinking,
+    hydrateFromHistorySnapshot,
   } = useInstanceMessages();
 
   const liveInstance = instances.find((i) => i.id === id);
   const {
     data: summaryInstance,
     isFetching: isFetchingSummary,
+    isFetched: hasFetchedSummary,
     refetch: refetchSummary,
   } = useQuery({
     queryKey: ["instance-summary", id],
@@ -119,10 +121,46 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   // Navigate away if instance doesn't exist (skip in compact/split mode — parent handles it)
   useEffect(() => {
     if (compact) return;
-    if (isConnected && !isSyncing && instances.length > 0 && id && !instance) {
+    if (
+      isConnected &&
+      !isSyncing &&
+      instances.length > 0 &&
+      id &&
+      !instance &&
+      !isFetchingSummary &&
+      hasFetchedSummary &&
+      summaryInstance === null
+    ) {
       navigate({ to: "/", replace: true });
     }
-  }, [compact, isConnected, isSyncing, instances, id, instance, navigate]);
+  }, [
+    compact,
+    hasFetchedSummary,
+    id,
+    instance,
+    instances,
+    isConnected,
+    isFetchingSummary,
+    isSyncing,
+    navigate,
+    summaryInstance,
+  ]);
+
+  // Slow links can take a while to finish the WS replay handshake. Fall back to
+  // the passive REST history endpoint so the chat can render before WS catches up.
+  useEffect(() => {
+    if (!id || !instance || hasLoadedHistory) return;
+    const timer = setTimeout(() => {
+      void fetchInstanceHistory(id)
+        .then((history) => {
+          hydrateFromHistorySnapshot(id, history);
+        })
+        .catch(() => {
+          // Ignore — WS replay remains the source of truth and may still arrive.
+        });
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [hasLoadedHistory, hydrateFromHistorySnapshot, id, instance]);
 
   const handleSend = (text: string, images?: string[], internal?: boolean) => {
     if (!id) return;

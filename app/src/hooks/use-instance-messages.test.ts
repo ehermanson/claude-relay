@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { useInstanceMessages } from "@/hooks/use-instance-messages";
 import type {
   ActivityMessage,
+  HistoryEntry,
   InstanceStatusMessage,
   OutputMessage,
   UserMessage,
@@ -290,6 +291,81 @@ describe("useInstanceMessages message queue", () => {
 
     expect(result.current.items).toEqual([
       expect.objectContaining({ kind: "user", text: "queued", queued: true }),
+    ]);
+  });
+});
+
+describe("useInstanceMessages passive history hydration", () => {
+  it("hydrates from a REST snapshot before websocket replay arrives", () => {
+    const { result } = renderHook(() => useInstanceMessages());
+    const history: HistoryEntry[] = [
+      {
+        timestamp: 1,
+        message: {
+          type: "user",
+          instanceId: "inst-1",
+          text: "hello",
+        },
+      },
+      {
+        timestamp: 2,
+        message: {
+          type: "output",
+          instanceId: "inst-1",
+          text: "world",
+          isWaiting: true,
+        },
+      },
+    ];
+
+    act(() => {
+      result.current.setInstanceId("inst-1");
+      result.current.hydrateFromHistorySnapshot("inst-1", history);
+    });
+
+    expect(result.current.hasLoadedHistory).toBe(true);
+    expect(result.current.items).toEqual([
+      expect.objectContaining({ kind: "user", text: "hello" }),
+      expect.objectContaining({ kind: "assistant", text: "world" }),
+    ]);
+  });
+
+  it("does not overwrite websocket-loaded state with a later REST snapshot", () => {
+    const { result } = renderHook(() => useInstanceMessages());
+
+    act(() => {
+      result.current.setInstanceId("inst-1");
+      result.current.handleMessage("inst-1", {
+        type: "instance_history",
+        instanceId: "inst-1",
+        history: [
+          {
+            timestamp: 1,
+            message: {
+              type: "user",
+              instanceId: "inst-1",
+              text: "from websocket",
+            },
+          },
+        ],
+        replayMode: "full",
+        latestSequence: 3,
+        replayEpoch: 10,
+      });
+      result.current.hydrateFromHistorySnapshot("inst-1", [
+        {
+          timestamp: 1,
+          message: {
+            type: "user",
+            instanceId: "inst-1",
+            text: "from rest",
+          },
+        },
+      ]);
+    });
+
+    expect(result.current.items).toEqual([
+      expect.objectContaining({ kind: "user", text: "from websocket" }),
     ]);
   });
 });

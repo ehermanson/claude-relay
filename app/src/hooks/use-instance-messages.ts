@@ -878,6 +878,7 @@ export function useInstanceMessages() {
   // Ref tracks latest state so cache saves in setInstanceId aren't stale
   const stateRef = useRef(state);
   stateRef.current = state;
+  const historyReadyRef = useRef(false);
 
   /**
    * Dispatch an action while mirroring its history entry (if any) into the
@@ -919,6 +920,7 @@ export function useInstanceMessages() {
             } else if (!rawHistoryStore.has(instanceId)) {
               rawHistoryStore.set(instanceId, [...message.history]);
             }
+            historyReadyRef.current = true;
             dispatch({
               type: "replay",
               history: message.history,
@@ -1020,15 +1022,35 @@ export function useInstanceMessages() {
     if (id) {
       const cached = stateCache.get(id);
       if (cached) {
+        historyReadyRef.current = cached.hasLoadedHistory;
         dispatch({ type: "restore", cached });
         return;
       }
     }
+    historyReadyRef.current = false;
     dispatch({ type: "reset" });
   }, []);
 
   const showThinking = useCallback(() => {
     dispatch({ type: "show_thinking" });
+  }, []);
+
+  const hydrateFromHistorySnapshot = useCallback((instanceId: string, history: HistoryEntry[]) => {
+    if (
+      instanceIdRef.current !== instanceId ||
+      stateRef.current.hasLoadedHistory ||
+      historyReadyRef.current
+    ) {
+      return;
+    }
+    historyReadyRef.current = true;
+    rawHistoryStore.set(instanceId, [...history]);
+    dispatch({
+      type: "replay",
+      history,
+      replayMode: "full",
+      latestSequence: 0,
+    });
   }, []);
 
   const getReplayCursor = useCallback((instanceId: string) => {
@@ -1066,5 +1088,6 @@ export function useInstanceMessages() {
     handleMessage,
     setInstanceId,
     showThinking,
+    hydrateFromHistorySnapshot,
   };
 }
