@@ -361,6 +361,14 @@ export function ToolContent({
         }
         return null;
       }
+      case "Agent":
+      case "Task": {
+        const prompt = input.prompt as string | undefined;
+        if (prompt) {
+          return <ActivityCodeBlock content={prompt} />;
+        }
+        return null;
+      }
       case "ExitPlanMode":
         return (
           <div className="mt-1.5">

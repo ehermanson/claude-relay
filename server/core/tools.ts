@@ -212,6 +212,9 @@ export function extractInputDescription(
   switch (tool) {
     case "Bash":
       return input.description as string | undefined;
+    case "Agent":
+    case "Task":
+      return input.description as string | undefined;
     default:
       return undefined;
   }
@@ -258,6 +261,8 @@ export function describeToolUse(tool: string, input?: Record<string, unknown>): 
       return "Updating checklist";
     case "NotebookEdit":
       return "Editing notebook";
+    case "Agent":
+      return "Spawning agent";
     case "SendMessage":
       return "Sending message";
     case "TeamCreate":
@@ -315,6 +320,12 @@ export function describeToolDetail(
       return input.notebook_path as string;
     case "SendMessage":
       return (input.summary as string) || (input.recipient as string);
+    case "Agent": {
+      const desc = input.description as string | undefined;
+      if (input.name && input.subagent_type) return `${input.name} (${input.subagent_type})`;
+      if (input.name) return input.name as string;
+      return desc;
+    }
     case "Task":
       if (input.team_name && input.name) return `${input.name} (${input.subagent_type || "agent"})`;
       return input.description as string | undefined;

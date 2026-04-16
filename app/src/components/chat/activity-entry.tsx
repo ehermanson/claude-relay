@@ -10,7 +10,14 @@ import { ToolContent } from "@/components/chat/tool-content";
 import { PermissionDeniedContent } from "@/components/chat/tool-content";
 
 // Tools with rich input that's always worth seeing (diffs, file content, interactive UI).
-const ALWAYS_EXPANDABLE = new Set(["Edit", "Write", "AskUserQuestion", "ExitPlanMode"]);
+const ALWAYS_EXPANDABLE = new Set([
+  "Edit",
+  "Write",
+  "AskUserQuestion",
+  "ExitPlanMode",
+  "Agent",
+  "Task",
+]);
 
 interface ActivityEntryProps {
   activity: ActivityKind;
@@ -121,6 +128,11 @@ function computeDisplayName(
       return `Find \`${detail}\` in files`;
     case "Glob":
       return `Search files matching ${detail}`;
+    case "Agent":
+    case "Task":
+      if (inputDescription) return inputDescription;
+      if (detail) return detail;
+      return description;
     default:
       return description;
   }
