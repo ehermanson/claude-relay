@@ -41,11 +41,6 @@ function SelectionReplyPopover({
   }, [rect]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-
-  useEffect(() => {
     updatePlacement();
 
     const popover = popoverRef.current;
