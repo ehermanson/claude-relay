@@ -12,11 +12,18 @@ function rowToSettings(row: {
   space_branch_source: string;
   provider_defaults_json: string | null;
   custom_instructions: string | null;
+  project_order_json: string | null;
 }): GlobalSettings {
   let providerDefaults: Record<string, unknown> = {};
   if (row.provider_defaults_json) {
     try {
       providerDefaults = JSON.parse(row.provider_defaults_json);
+    } catch {}
+  }
+  let projectOrder: string[] | null = null;
+  if (row.project_order_json) {
+    try {
+      projectOrder = JSON.parse(row.project_order_json) as string[];
     } catch {}
   }
   return {
@@ -28,6 +35,7 @@ function rowToSettings(row: {
     spaceBranchSource: (row.space_branch_source as "local" | "remote") ?? "local",
     providerDefaults: providerDefaults as GlobalSettings["providerDefaults"],
     customInstructions: row.custom_instructions,
+    projectOrder,
   };
 }
 
@@ -53,6 +61,10 @@ export function registerSettingsRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
     if (body.spaceBranchSource !== undefined) dbPatch.space_branch_source = body.spaceBranchSource;
     if (body.customInstructions !== undefined)
       dbPatch.custom_instructions = body.customInstructions;
+
+    if (body.projectOrder !== undefined)
+      dbPatch.project_order_json =
+        body.projectOrder !== null ? JSON.stringify(body.projectOrder) : null;
 
     if (body.providerDefaults !== undefined) {
       const existing = instanceManager.sessionDb.getGlobalSettings();

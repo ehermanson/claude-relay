@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   spaceBranchSource: "local",
   providerDefaults: {},
   customInstructions: null,
+  projectOrder: null,
 };
 
 const REMOTE_ACCESS_ENDPOINT_KEY = "relay.remoteAccess.endpoint";

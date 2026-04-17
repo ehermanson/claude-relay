@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useWSState } from "@/context/websocket-context";
 import { groupInstancesByProject } from "@/lib/project-groups";
 import { useProjectChatSummaries } from "./use-project-chat-summaries";
@@ -6,6 +7,7 @@ import { useProjectOrder } from "../stores/project-order-store";
 import { useProjectsQuery } from "./use-projects-query";
 import { useProjectSpaces } from "./use-project-spaces";
 import { getChatRecencyTimestamp } from "@/lib/utils";
+import { fetchGlobalSettings } from "@/lib/api";
 import type { InstanceInfo, Project } from "@shared/types";
 
 export function useProjectNavigationModel() {
@@ -14,6 +16,20 @@ export function useProjectNavigationModel() {
   const { spacesByDir: projectSpaces, spacesLoadingByDir } = useProjectSpaces(projects);
   const { chatsByProjectId, chatsLoadingByProjectId } = useProjectChatSummaries(projects);
   const projectOrder = useProjectOrder();
+
+  // Seed order from server on first load so all devices stay in sync.
+  const serverInitialized = useRef(false);
+  const { data: globalSettings } = useQuery({
+    queryKey: ["global-settings"],
+    queryFn: fetchGlobalSettings,
+    staleTime: 60_000,
+  });
+  useEffect(() => {
+    if (!serverInitialized.current && globalSettings?.projectOrder) {
+      serverInitialized.current = true;
+      projectOrder.initFromServer(globalSettings.projectOrder);
+    }
+  }, [globalSettings?.projectOrder]);
 
   const mergedInstances = new Map<string, InstanceInfo>();
   for (const project of projects) {

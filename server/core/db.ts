@@ -10,7 +10,7 @@ import { dirname } from "path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Logger } from "#core/logger.js";
 
-const CURRENT_SCHEMA_VERSION = 21;
+const CURRENT_SCHEMA_VERSION = 22;
 type SQLiteBindValue = string | number | bigint | null | NodeJS.ArrayBufferView;
 type SQLiteBindParams = Record<string, SQLiteBindValue>;
 
@@ -70,6 +70,7 @@ export interface GlobalSettingsRow {
   space_branch_source: string;
   provider_defaults_json: string | null;
   custom_instructions: string | null;
+  project_order_json: string | null;
 }
 
 export interface SessionRow {
@@ -613,6 +614,14 @@ ${buildSearchIndexSchemaSql()},
 
     // Older version — run idempotent schema creation to add any new
     // tables/indexes, then bump the version. Data is preserved.
+    if (currentVersion < 22) {
+      // Add project_order_json to existing global_settings rows
+      try {
+        this.db.exec("ALTER TABLE global_settings ADD COLUMN project_order_json TEXT");
+      } catch {
+        // Column already exists (e.g. worktree ahead of main) — safe to ignore
+      }
+    }
     this.createSchema();
     this.db.exec(`UPDATE schema_version SET version = ${CURRENT_SCHEMA_VERSION}`);
   }
@@ -752,7 +761,8 @@ ${buildSearchIndexSchemaSql()},
         default_space_branch TEXT,
         space_branch_source TEXT DEFAULT 'local',
         provider_defaults_json TEXT,
-        custom_instructions TEXT
+        custom_instructions TEXT,
+        project_order_json TEXT
       );
 
       INSERT OR IGNORE INTO global_settings (id) VALUES (1);
@@ -1209,7 +1219,8 @@ ${buildSearchIndexSchemaSql()},
         default_space_branch = @default_space_branch,
         space_branch_source = @space_branch_source,
         provider_defaults_json = @provider_defaults_json,
-        custom_instructions = @custom_instructions
+        custom_instructions = @custom_instructions,
+        project_order_json = @project_order_json
       WHERE id = 1
     `);
 
@@ -1222,7 +1233,9 @@ ${buildSearchIndexSchemaSql()},
     // The combined score is computed inline and used directly for ORDER BY + LIMIT.
 
     this.stmtSearchProject = this.db.prepare(
-      buildSearchStatementSql("search_index MATCH ?\n        AND s.project_id = ?\n        AND s.archived = '0'"),
+      buildSearchStatementSql(
+        "search_index MATCH ?\n        AND s.project_id = ?\n        AND s.archived = '0'",
+      ),
     );
 
     this.stmtSearchGlobal = this.db.prepare(
@@ -1737,6 +1750,8 @@ ${buildSearchIndexSchemaSql()},
             : current.provider_defaults_json,
         custom_instructions:
           "custom_instructions" in patch ? patch.custom_instructions : current.custom_instructions,
+        project_order_json:
+          "project_order_json" in patch ? patch.project_order_json : current.project_order_json,
       }),
     );
     return this.getGlobalSettings();
@@ -1773,8 +1788,7 @@ ${buildSearchIndexSchemaSql()},
         project_id: row.project_id ?? "",
         space_id: row.space_id ?? "",
         last_activity_at: String(row.last_activity_at),
-        last_message_at:
-          row.last_message_at == null ? "" : String(row.last_message_at),
+        last_message_at: row.last_message_at == null ? "" : String(row.last_message_at),
         created_at: String(row.created_at),
         archived: String(row.archived),
         title: row.name ?? "",

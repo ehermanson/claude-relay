@@ -312,6 +312,7 @@ export interface GlobalSettings {
   spaceBranchSource: "local" | "remote";
   providerDefaults: Record<string, ProviderDefaults>;
   customInstructions: string | null;
+  projectOrder: string[] | null;
 }
 
 export interface SessionStats {
