@@ -24,6 +24,7 @@ export function InstanceViewHeader() {
       onDelete={() => actions.setConfirmDelete(true)}
       onOpenMobileSidecar={() => actions.setSidecarMobileOpen(true)}
       onSplit={actions.navigateToSplitPicker}
+      onRename={actions.handleRename}
       onToggleTerminal={actions.handleToggleTerminal}
       terminalOpen={shared.showTerminalPanel || shared.isTerminalCollapsed}
     />

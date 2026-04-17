@@ -4,11 +4,13 @@
  */
 
 import type { ReactNode } from "react";
-import { Menu as MenuIcon, Zap } from "lucide-react";
+import { GitBranch, Menu as MenuIcon, Zap } from "lucide-react";
 import { Tooltip } from "./tooltip";
+import { ProjectBreadcrumb } from "./project-breadcrumb";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useLayoutStore } from "@/stores/layout-store";
 import { formatTokens } from "@/lib/utils";
+import "./view-header.css";
 
 // ── Container ────────────────────────────────────────────────────────
 
@@ -76,4 +78,55 @@ interface ViewHeaderTitleProps {
 
 export function ViewHeaderTitle({ children }: ViewHeaderTitleProps) {
   return <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>;
+}
+
+// ── Mobile header (shared layout for chat + space views) ─────────────
+
+interface MobileViewHeaderProps {
+  /** Primary title shown on the top line. */
+  title: string;
+  /** Target project for the breadcrumb dropdown. */
+  projectId: string;
+  /** Visible label for the breadcrumb. */
+  projectLabel: string;
+  /** Git branch shown after the breadcrumb, with icon. */
+  gitBranch?: string;
+  /** Action slot (buttons, menus). Rendered inline after the title block. */
+  actions?: ReactNode;
+  /** Dialogs or other siblings rendered at the end of the header. */
+  children?: ReactNode;
+}
+
+export function MobileViewHeader({
+  title,
+  projectId,
+  projectLabel,
+  gitBranch,
+  actions,
+  children,
+}: MobileViewHeaderProps) {
+  return (
+    <ViewHeader style={{ containerName: "view-header", containerType: "inline-size" }}>
+      <MobileSidebarToggle />
+      <div className="min-w-0 flex-1">
+        <h1 className="truncate text-[0.875rem] font-semibold leading-snug tracking-tight text-text-bright">
+          {title}
+        </h1>
+        <div className="flex items-center gap-1 text-[0.6875rem] leading-tight text-muted">
+          <ProjectBreadcrumb projectId={projectId} label={projectLabel} mobile />
+          {gitBranch && (
+            <>
+              <span className="text-border">·</span>
+              <span className="flex items-center gap-0.5 truncate">
+                <GitBranch size={10} strokeWidth={2} className="shrink-0" />
+                <span className="truncate">{gitBranch}</span>
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+      {actions}
+      {children}
+    </ViewHeader>
+  );
 }

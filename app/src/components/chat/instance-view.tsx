@@ -535,6 +535,8 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
           params: { projectId: getInstanceProjectRouteId(instance) },
         }),
       sendRemoveInstance: () => send({ type: "remove_instance", instanceId: instance.id }),
+      handleRename: (name: string) =>
+        send({ type: "rename_instance", instanceId: instance.id, name }),
       handleSend,
       handleAnswerUserInput,
       handleTakeover,

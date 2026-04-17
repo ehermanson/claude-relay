@@ -1,0 +1,15 @@
+/* ── View header responsive container queries ────────────────────── */
+
+/* Narrow (≤600px): hide badges */
+@container view-header (max-width: 600px) {
+  .view-header-badge {
+    display: none;
+  }
+}
+
+/* Very narrow (≤480px): also hide breadcrumb */
+@container view-header (max-width: 480px) {
+  .view-header-breadcrumb {
+    display: none;
+  }
+}

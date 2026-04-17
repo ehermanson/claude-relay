@@ -8,6 +8,7 @@ import { MarkdownContent } from "./markdown-content";
 import { FilesPanel } from "./files-panel";
 import { ContextPanel } from "./context-panel";
 import { SidecarShell, type SidecarTabDef } from "./sidecar-shell";
+import { MobileSidecarOverlay } from "../ui/mobile-sidecar-overlay";
 import "./sidecar.css";
 
 const DiffDrawer = lazy(() => import("./diff-drawer").then((m) => ({ default: m.DiffDrawer })));
@@ -296,15 +297,7 @@ export const Sidecar = memo(
     if (isMobileOverlay) {
       return (
         <>
-          <div className="fixed inset-0 z-50 flex justify-end p-2" onClick={onClose}>
-            <div className="animate-fade-in absolute inset-0 bg-black/50" />
-            <div
-              className="relative z-10 my-auto h-[calc(100%-16px)]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {panel}
-            </div>
-          </div>
+          <MobileSidecarOverlay onClose={onClose ?? (() => {})}>{panel}</MobileSidecarOverlay>
           {diffDrawer}
         </>
       );

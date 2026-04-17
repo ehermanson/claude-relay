@@ -3,9 +3,18 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Menu } from "@/components/ui/menu";
 import { GitBadge } from "@/components/ui/git-badge";
-import { ViewHeader, ViewHeaderTitle, MobileSidebarToggle } from "@/components/ui/view-header";
+import {
+  ViewHeader,
+  ViewHeaderTitle,
+  MobileSidebarToggle,
+  MobileViewHeader,
+} from "@/components/ui/view-header";
 import { ProjectBreadcrumb } from "@/components/ui/project-breadcrumb";
-import { HeaderContextToggle, HeaderIconSkeleton } from "@/components/chat/header-actions";
+import {
+  HeaderContextToggle,
+  HeaderIconSkeleton,
+  HeaderTerminalToggle,
+} from "@/components/chat/header-actions";
 import { OpenInMenu } from "@/components/project/open-in-menu";
 import { GhCliRequiredDialog } from "@/components/git/gh-cli-required-dialog";
 import { CommitMessageDialog } from "@/components/git/commit-message-dialog";
@@ -21,9 +30,7 @@ import {
   GitBranch,
   LayoutGrid,
   Pencil,
-  TerminalSquare,
 } from "lucide-react";
-import "./space-view-header.css";
 
 export function SpaceViewHeader() {
   const { shared, actions } = useSpaceViewContext();
@@ -31,37 +38,26 @@ export function SpaceViewHeader() {
   // ── Mobile layout ──────────────────────────────────────────────────
   if (shared.isMobile) {
     return (
-      <ViewHeader style={{ containerName: "space-header", containerType: "inline-size" }}>
-        <MobileSidebarToggle />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[0.875rem] font-semibold leading-snug tracking-tight text-text-bright">
-            {shared.space.name}
-          </h1>
-          <div className="flex items-center gap-1 text-[0.6875rem] leading-tight text-muted">
-            <ProjectBreadcrumb projectId={shared.projectId} label={shared.projectName} mobile />
-            {shared.space.gitBranch ? (
-              <>
-                <span className="text-border">·</span>
-                <span className="flex items-center gap-0.5 truncate">
-                  <GitBranch size={10} strokeWidth={2} className="shrink-0" />
-                  <span className="truncate">{shared.space.gitBranch}</span>
-                </span>
-              </>
-            ) : null}
-          </div>
-        </div>
-        {shared.sidecarContentCount > 0 && (
-          <Button
-            variant="icon"
-            onClick={() => actions.setSidecarMobileOpen(true)}
-            className="relative h-9 w-9 shrink-0 rounded-lg"
-          >
-            <LayoutGrid size={17} strokeWidth={2} />
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
-              {shared.sidecarContentCount}
-            </span>
-          </Button>
-        )}
+      <MobileViewHeader
+        title={shared.space.name}
+        projectId={shared.projectId}
+        projectLabel={shared.projectName}
+        gitBranch={shared.space.gitBranch ?? undefined}
+        actions={
+          shared.sidecarContentCount > 0 ? (
+            <Button
+              variant="icon"
+              onClick={() => actions.setSidecarMobileOpen(true)}
+              className="relative h-9 w-9 shrink-0 rounded-lg"
+            >
+              <LayoutGrid size={17} strokeWidth={2} />
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-claude px-0.5 text-[0.5625rem] font-semibold leading-none text-white">
+                {shared.sidecarContentCount}
+              </span>
+            </Button>
+          ) : null
+        }
+      >
         <CommitMessageDialog
           open={shared.commitDialogOpen}
           onOpenChange={actions.setCommitDialogOpen}
@@ -72,15 +68,15 @@ export function SpaceViewHeader() {
           onOpenChange={actions.setGhCliDialogOpen}
           reason={shared.ghCliReason}
         />
-      </ViewHeader>
+      </MobileViewHeader>
     );
   }
 
   // ── Desktop layout ─────────────────────────────────────────────────
   return (
-    <ViewHeader style={{ containerName: "space-header", containerType: "inline-size" }}>
+    <ViewHeader style={{ containerName: "view-header", containerType: "inline-size" }}>
       <MobileSidebarToggle />
-      <span className="space-header-breadcrumb contents">
+      <span className="view-header-breadcrumb contents">
         <ProjectBreadcrumb projectId={shared.projectId} label={shared.projectName} />
       </span>
       <GitBranch size={14} className="shrink-0 text-accent" />
@@ -99,7 +95,7 @@ export function SpaceViewHeader() {
             {shared.space.name}
           </span>
         )}
-        <span className="space-header-badge contents">
+        <span className="view-header-badge contents">
           {shared.isMerged && (
             <Badge variant="success" size="sm">
               Merged
@@ -188,22 +184,10 @@ export function SpaceViewHeader() {
                 worktreePath={shared.space.worktreePath || undefined}
               />
             )}
-            <Tooltip
-              content={
-                shared.showTerminalPanel || shared.isTerminalCollapsed
-                  ? "Hide terminal"
-                  : "Show terminal"
-              }
-            >
-              <Button
-                variant="icon"
-                toggled={shared.showTerminalPanel || shared.isTerminalCollapsed}
-                onClick={actions.handleToggleTerminal}
-                className="shrink-0"
-              >
-                <TerminalSquare size={15} strokeWidth={2} />
-              </Button>
-            </Tooltip>
+            <HeaderTerminalToggle
+              open={shared.showTerminalPanel || shared.isTerminalCollapsed}
+              onClick={actions.handleToggleTerminal}
+            />
           </>
         )}
         <CommitMessageDialog

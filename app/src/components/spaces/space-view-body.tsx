@@ -7,6 +7,7 @@ import { SpaceSidebar } from "@/components/spaces/space-sidebar";
 import { useSpaceViewContext } from "@/components/spaces/space-view-context";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Button } from "@/components/ui/button";
+import { MobileSidecarOverlay } from "@/components/ui/mobile-sidecar-overlay";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { Spinner } from "@/components/ui/spinner";
 import { CollapsedTerminalBar } from "@/components/terminal/terminal-collapsed-bar";
@@ -230,27 +231,18 @@ export function SpaceViewBody() {
       </div>
 
       {shared.isMobile && shared.sidecarMobileOpen && shared.sidecarContentCount > 0 && (
-        <div
-          className="fixed inset-0 z-50 flex justify-end p-2"
-          onClick={() => actions.setSidecarMobileOpen(false)}
-        >
-          <div className="animate-fade-in absolute inset-0 bg-black/50" />
-          <div
-            className="relative z-10 my-auto h-[calc(100%-16px)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <SpaceSidebar
-              space={shared.space}
-              instances={shared.spaceInstances}
-              activePanels={shared.allContentPanels}
-              stats={shared.aggregatedStats}
-              fileChanges={shared.fileChanges}
-              onOpenDiff={openDiffAndCloseMobile}
-              isMobileOverlay
-              onClose={() => actions.setSidecarMobileOpen(false)}
-            />
-          </div>
-        </div>
+        <MobileSidecarOverlay onClose={() => actions.setSidecarMobileOpen(false)}>
+          <SpaceSidebar
+            space={shared.space}
+            instances={shared.spaceInstances}
+            activePanels={shared.allContentPanels}
+            stats={shared.aggregatedStats}
+            fileChanges={shared.fileChanges}
+            onOpenDiff={openDiffAndCloseMobile}
+            isMobileOverlay
+            onClose={() => actions.setSidecarMobileOpen(false)}
+          />
+        </MobileSidecarOverlay>
       )}
     </>
   );

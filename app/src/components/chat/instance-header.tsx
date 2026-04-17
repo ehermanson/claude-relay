@@ -3,20 +3,18 @@
  * and action buttons (open-in, debug, sidecar toggles).
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
   Bug,
   Columns2,
   EllipsisVertical,
   FileText,
-  GitBranch,
   LayoutGrid,
   ListChecks,
+  Pencil,
   ScrollText,
-  TerminalSquare,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,24 +24,21 @@ import { Input } from "../ui/input";
 import { Tooltip } from "../ui/tooltip";
 import { Menu } from "../ui/menu";
 import { GitBadge } from "../ui/git-badge";
-import { ViewHeader, ViewHeaderTitle, MobileSidebarToggle } from "../ui/view-header";
+import {
+  ViewHeader,
+  ViewHeaderTitle,
+  MobileSidebarToggle,
+  MobileViewHeader,
+} from "../ui/view-header";
 import { ProjectBreadcrumb } from "../ui/project-breadcrumb";
 import { OpenInMenu } from "../project/open-in-menu";
-import { HeaderContextToggle, HeaderIconSkeleton } from "./header-actions";
+import { HeaderContextToggle, HeaderIconSkeleton, HeaderTerminalToggle } from "./header-actions";
 import { CommitMessageDialog } from "../git/commit-message-dialog";
-import { useProjectContext } from "@/context/project-context";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
-import {
-  fetchInstanceGitStatus,
-  fetchInstanceHistory,
-  gitCommitInstance,
-  gitPushInstance,
-} from "../../lib/api";
-import { extractPrimaryTaskIdFromHistory } from "../../lib/task-links";
+import { fetchInstanceGitStatus, gitCommitInstance, gitPushInstance } from "../../lib/api";
 import { deriveInstanceStatusPresentation } from "../../lib/utils";
 import type { InstanceInfo, ProviderNotice, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
-import "./instance-header.css";
 
 // ── Sidecar toggle buttons ───────────────────────────────────────────
 
@@ -187,6 +182,7 @@ interface InstanceHeaderProps {
   onDelete?: () => void;
   onOpenMobileSidecar: () => void;
   onSplit?: () => void;
+  onRename?: (name: string) => void;
   /** Toggle embedded terminal panel. */
   onToggleTerminal?: () => void;
   /** Whether the terminal panel is currently open. */
@@ -311,11 +307,10 @@ export function InstanceHeader({
   onDelete,
   onOpenMobileSidecar,
   onSplit,
+  onRename,
   onToggleTerminal,
   terminalOpen,
 }: InstanceHeaderProps) {
-  const navigate = useNavigate();
-  const { artifacts } = useProjectContext();
   const displayBranch = instance.gitInfo?.branch || instance.gitBranch;
 
   const instanceStatus = deriveInstanceStatusPresentation(instance);
@@ -351,15 +346,31 @@ export function InstanceHeader({
   const [pushStatus, setPushStatus] = useState<InstanceGitStatus | null>(null);
   const [pushStatusError, setPushStatusError] = useState<string | null>(null);
   const [pushing, setPushing] = useState(false);
-  const { data: linkedTaskId = null } = useQuery({
-    queryKey: ["instance-linked-task", instance.id, instance.lastActivityAt],
-    queryFn: async () => {
-      const history = await fetchInstanceHistory(instance.id);
-      return extractPrimaryTaskIdFromHistory(history);
-    },
-    enabled: Boolean(artifacts.tasks?.length),
-  });
-  const linkedTask = artifacts.tasks?.find((task) => task.id === linkedTaskId) ?? null;
+
+  // Inline rename state
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const startRenaming = () => {
+    setNameDraft(instance.name);
+    setEditingName(true);
+    // Focus after state update
+    setTimeout(() => nameInputRef.current?.focus(), 0);
+  };
+
+  const commitRename = () => {
+    const trimmed = nameDraft.trim();
+    if (trimmed && trimmed !== instance.name) {
+      onRename?.(trimmed);
+    }
+    setEditingName(false);
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") commitRename();
+    if (e.key === "Escape") setEditingName(false);
+  };
 
   const handleCommit = async (message: string) => {
     const result = await gitCommitInstance(instance.id, { message });
@@ -414,6 +425,12 @@ export function InstanceHeader({
         <EllipsisVertical size={isMobile ? 18 : 14} />
       </Menu.Trigger>
       <Menu.Content>
+        {onRename && (
+          <Menu.Item onClick={startRenaming}>
+            <Pencil size={13} strokeWidth={2} className="text-muted" />
+            Rename
+          </Menu.Item>
+        )}
         {onSplit && !isMobile && (
           <Menu.Item onClick={onSplit}>
             <Columns2 size={13} strokeWidth={2} className="text-muted" />
@@ -439,61 +456,27 @@ export function InstanceHeader({
 
   if (isMobile) {
     return (
-      <ViewHeader style={{ containerName: "chat-header", containerType: "inline-size" }}>
-        <MobileSidebarToggle />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[0.875rem] font-semibold leading-snug tracking-tight text-text-bright">
-            {instance.name}
-          </h1>
-          <div className="flex items-center gap-1 text-[0.6875rem] leading-tight text-muted">
-            <ProjectBreadcrumb
-              projectId={projectId}
-              label={getProjectName(instance.workingDirectory)}
-              mobile
-            />
-            {linkedTask ? (
-              <>
-                <span className="text-border">·</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    navigate({
-                      to: "/projects/$projectId/tasks",
-                      params: { projectId },
-                      search: { task: linkedTask.id },
-                    })
-                  }
-                  className="inline-flex max-w-[13rem] items-center gap-1 rounded-md border border-border/70 bg-panel px-1.5 py-0.5 text-[0.625rem] font-medium text-muted transition-colors hover:border-accent/40 hover:text-text"
-                >
-                  <ListChecks size={10} />
-                  <span className="truncate">{linkedTask.title}</span>
-                </button>
-              </>
-            ) : null}
-            {displayBranchName ? (
-              <>
-                <span className="text-border">·</span>
-                <span className="flex items-center gap-0.5 truncate">
-                  <GitBranch size={10} strokeWidth={2} className="shrink-0" />
-                  <span className="truncate">{displayBranchName}</span>
-                </span>
-              </>
-            ) : null}
-          </div>
-        </div>
-        <SidecarToggles
-          loading={loadingSidecarActions}
-          isMobile={isMobile}
-          activePanels={activePanels}
-          tasksCount={tasksCount}
-          filesCount={filesCount}
-          hasPlanContent={hasPlanContent}
-          hasStats={hasStats}
-          stats={instance.stats}
-          sidecarContentCount={sidecarContentCount}
-          onTogglePanel={onTogglePanel}
-          onOpenMobileSidecar={onOpenMobileSidecar}
-        />
+      <MobileViewHeader
+        title={instance.name}
+        projectId={projectId}
+        projectLabel={getProjectName(instance.workingDirectory)}
+        gitBranch={displayBranchName}
+        actions={
+          <SidecarToggles
+            loading={loadingSidecarActions}
+            isMobile={isMobile}
+            activePanels={activePanels}
+            tasksCount={tasksCount}
+            filesCount={filesCount}
+            hasPlanContent={hasPlanContent}
+            hasStats={hasStats}
+            stats={instance.stats}
+            sidecarContentCount={sidecarContentCount}
+            onTogglePanel={onTogglePanel}
+            onOpenMobileSidecar={onOpenMobileSidecar}
+          />
+        }
+      >
         <CommitMessageDialog
           open={commitDialogOpen}
           onOpenChange={setCommitDialogOpen}
@@ -508,14 +491,14 @@ export function InstanceHeader({
           pushing={pushing}
           onConfirm={(commitMessage) => void handlePush(commitMessage)}
         />
-      </ViewHeader>
+      </MobileViewHeader>
     );
   }
 
   return (
-    <ViewHeader style={{ containerName: "chat-header", containerType: "inline-size" }}>
+    <ViewHeader style={{ containerName: "view-header", containerType: "inline-size" }}>
       <MobileSidebarToggle />
-      <span className="chat-header-breadcrumb contents">
+      <span className="view-header-breadcrumb contents">
         <ProjectBreadcrumb
           projectId={projectId}
           label={getProjectName(instance.workingDirectory)}
@@ -525,26 +508,21 @@ export function InstanceHeader({
         <span className={`h-2 w-2 shrink-0 rounded-full ${instanceStatus.dotClass}`} />
       </Tooltip>
       <ViewHeaderTitle>
-        <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
-          {instance.name}
-        </h1>
-        <span className="chat-header-badge contents">
-          {linkedTask ? (
-            <button
-              type="button"
-              onClick={() =>
-                navigate({
-                  to: "/projects/$projectId/tasks",
-                  params: { projectId },
-                  search: { task: linkedTask.id },
-                })
-              }
-              className="inline-flex max-w-[16rem] items-center gap-1 rounded-md border border-border/70 bg-panel px-2 py-0.5 text-[0.6875rem] font-medium text-muted transition-colors hover:border-accent/40 hover:text-text"
-            >
-              <ListChecks size={11} />
-              <span className="truncate">{linkedTask.title}</span>
-            </button>
-          ) : null}
+        {editingName ? (
+          <input
+            ref={nameInputRef}
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={handleNameKeyDown}
+            className="w-[14rem] max-w-[40vw] rounded border border-border bg-surface px-2 py-0.5 text-sm font-semibold text-text-bright outline-none focus:border-accent"
+          />
+        ) : (
+          <h1 className="truncate text-sm font-semibold tracking-tight text-text-bright">
+            {instance.name}
+          </h1>
+        )}
+        <span className="view-header-badge contents">
           {promotedProviderNotice ? (
             <Tooltip
               content={
@@ -572,7 +550,7 @@ export function InstanceHeader({
         </span>
         {moreMenu}
       </ViewHeaderTitle>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         <OpenInMenu path={instance.workingDirectory} className="hidden sm:flex" />
         {displayBranch && !isMobile && (
           <GitBadge
@@ -587,16 +565,7 @@ export function InstanceHeader({
           />
         )}
         {onToggleTerminal && !isMobile && (
-          <Tooltip content={terminalOpen ? "Hide terminal" : "Show terminal"}>
-            <Button
-              variant="icon"
-              toggled={terminalOpen}
-              onClick={onToggleTerminal}
-              className="shrink-0"
-            >
-              <TerminalSquare size={15} strokeWidth={2} />
-            </Button>
-          </Tooltip>
+          <HeaderTerminalToggle open={!!terminalOpen} onClick={onToggleTerminal} />
         )}
         <CommitMessageDialog
           open={commitDialogOpen}

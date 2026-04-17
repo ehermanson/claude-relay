@@ -80,6 +80,7 @@ export type InstanceViewContextValue = {
     navigateToSplitPicker: () => void;
     navigateAfterDelete: () => void;
     sendRemoveInstance: () => void;
+    handleRename: (name: string) => void;
     handleSend: (text: string, images?: string[], internal?: boolean) => void;
     handleAnswerUserInput: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
     handleTakeover: () => void;
