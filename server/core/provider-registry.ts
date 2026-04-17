@@ -515,31 +515,110 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
     },
     async getModels() {
       const sdkModels = getSdkDiscoveredModels();
-      if (!sdkModels?.length) {
-        return getBuiltinProviderModels("claude");
-      }
-      // SDK returns aliases ("default", "sonnet", "haiku") alongside full IDs.
-      // Drop the "default" meta-alias — we mark the actual model as default instead.
-      const defaultAlias = sdkModels.find((m) => m.value === "default");
-      const filtered = sdkModels.filter((m) => m.value !== "default");
-      if (filtered.length === 0) return getBuiltinProviderModels("claude");
+
+      // The SDK returns short aliases ("default", "sonnet", "haiku") rather
+      // than canonical model IDs like "claude-opus-4-6". We enrich builtin
+      // catalog entries with SDK capability metadata where available, and
+      // surface SDK-reported extras (models not in the catalog) too.
 
       const builtins = getBuiltinProviderModels("claude");
-      const builtinMap = new Map(builtins.map((m) => [m.id, m]));
+      if (!sdkModels?.length) return builtins;
 
-      return filtered.map((m) => {
-        const builtin = builtinMap.get(m.value);
-        // Mark as default if the SDK's "default" alias has the same display name
-        const isDefault =
-          defaultAlias?.displayName === m.displayName || (builtin?.isDefault ?? false);
+      // Map: alias value → SDK info (skip "default" meta-alias)
+      const sdkByAlias = new Map(
+        sdkModels.filter((m) => m.value !== "default").map((m) => [m.value, m]),
+      );
+
+      // Map builtin IDs to the SDK alias they correspond to. Only the *current*
+      // generation model claims a short alias ("opus"/"sonnet"/"haiku") — older
+      // versions keep their hardcoded catalog capabilities so they don't
+      // accidentally inherit newer-gen features (e.g. higher reasoning tiers)
+      // via the SDK's alias output.
+      const ALIAS_MAP: Record<string, string> = {
+        "claude-opus-4-7": "opus",
+        "claude-sonnet-4-6": "sonnet",
+        "claude-haiku-4-5-20251001": "haiku",
+      };
+
+      // Programmatic per-model capabilities — derived from SDK metadata where
+      // available. This is what makes e.g. Opus 4.7's higher reasoning tier
+      // surface in the UI without hardcoding it client-side.
+      const claudeProviderCaps = DEFAULT_PROVIDER_CAPABILITIES.claude;
+      const builtinEffortLevels = claudeProviderCaps.reasoningEffortLevels ?? [];
+      const buildModelCapabilities = (
+        sdkMatch: ReturnType<typeof sdkByAlias.get>,
+        builtinOverride: Partial<ProviderCapabilities> | undefined,
+      ): Partial<ProviderCapabilities> | undefined => {
+        const override: Partial<ProviderCapabilities> = { ...(builtinOverride ?? {}) };
+        if (sdkMatch) {
+          if (typeof sdkMatch.supportsEffort === "boolean") {
+            override.supportsReasoningEffort = sdkMatch.supportsEffort;
+          }
+          if (sdkMatch.supportedEffortLevels && sdkMatch.supportedEffortLevels.length > 0) {
+            const allowed = new Set<string>(sdkMatch.supportedEffortLevels);
+            // Use per-model levels as filter base (preserves per-model isDefault),
+            // falling back to provider-level levels for SDK-only extras.
+            const baseLevels = override.reasoningEffortLevels ?? builtinEffortLevels;
+            const filtered = baseLevels.filter((level) => allowed.has(level.effort));
+            if (filtered.length > 0) override.reasoningEffortLevels = filtered;
+          }
+          if (typeof sdkMatch.supportsFastMode === "boolean") {
+            override.supportsFastMode = sdkMatch.supportsFastMode;
+          }
+        }
+        return Object.keys(override).length > 0 ? override : undefined;
+      };
+
+      // Enrich builtins with SDK capability metadata. We do NOT filter the
+      // list to SDK-reported aliases only — the Claude API accepts full model
+      // IDs (e.g. "claude-opus-4-7") even when the SDK's supportedModels()
+      // alias list doesn't enumerate them, so removing unlisted models would
+      // make valid choices disappear without actually preventing session use.
+      const enrichedBuiltins = builtins.map((builtin) => {
+        const alias = ALIAS_MAP[builtin.id];
+        const sdkMatch = alias ? sdkByAlias.get(alias) : sdkByAlias.get(builtin.id);
+        const capabilities = buildModelCapabilities(sdkMatch, builtin.capabilities);
+
+        // Catalog is the source of truth for isDefault on builtin models.
+        // Overriding it from SDK detection changes what the "Default" label
+        // points to, which changes what the SDK receives when no explicit
+        // model is chosen — confusing when the SDK default doesn't match
+        // what the catalog (and the user) expects.
+        const isDefault = builtin.isDefault ?? false;
+
         return {
           provider: "claude" as const,
-          id: m.value,
-          label: builtin?.label ?? m.displayName,
-          description: m.description || builtin?.description,
+          id: builtin.id,
+          label: builtin.label,
+          description: sdkMatch?.description || builtin.description,
           isDefault,
+          ...(capabilities ? { capabilities } : {}),
         };
       });
+
+      // Forward-compat: surface SDK-reported models that aren't covered by
+      // a builtin alias and aren't already a builtin ID. Without this, a
+      // new Claude model shipped by the SDK would be invisible in Relay
+      // until we updated the builtin catalog.
+      const aliasValues = new Set(Object.values(ALIAS_MAP));
+      const builtinIds = new Set(builtins.map((b) => b.id));
+      const extras = sdkModels
+        .filter(
+          (m) => m.value !== "default" && !aliasValues.has(m.value) && !builtinIds.has(m.value),
+        )
+        .map((m) => {
+          const capabilities = buildModelCapabilities(m, undefined);
+          return {
+            provider: "claude" as const,
+            id: m.value,
+            label: m.displayName || m.value,
+            description: m.description || undefined,
+            isDefault: false,
+            ...(capabilities ? { capabilities } : {}),
+          };
+        });
+
+      return [...enrichedBuiltins, ...extras];
     },
     parseTranscript(filePath, parseClaudeTranscript) {
       return parseClaudeTranscript(filePath);
@@ -627,21 +706,38 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
         return getBuiltinProviderModels("codex");
       }
 
-      const discoveredById = new Map(discovered.map((model) => [model.id, model]));
-      const merged = getBuiltinProviderModels("codex")
-        .filter((model) => discoveredById.has(model.id))
-        .map((model) => {
-          const discoveredModel = discoveredById.get(model.id);
-          return {
-            ...model,
-            description: discoveredModel?.description ?? model.description,
-            hidden: discoveredModel?.hidden ?? model.hidden,
-            isDefault: discoveredModel?.isDefault ?? model.isDefault,
-            availabilityNote: discoveredModel?.availabilityNote ?? model.availabilityNote,
-            upgradeTo: discoveredModel?.upgradeTo ?? model.upgradeTo,
-          };
-        });
-      return merged.length > 0 ? merged : getBuiltinProviderModels("codex");
+      // Discovered list is canonical — new models the Codex binary reports
+      // should surface even if we haven't added them to the builtin catalog.
+      // Builtins still contribute polished labels + any per-model capability
+      // overrides (Codex JSON-RPC doesn't expose capability metadata today).
+      const builtinById = new Map(
+        getBuiltinProviderModels("codex").map((model) => [model.id, model]),
+      );
+      // Default resolution: trust the binary's `isDefault` if any model is
+      // marked. Otherwise fall back to our builtin catalog's default mark so
+      // a predictable model (e.g. gpt-5.4) is selected. Without this, Codex
+      // binaries that don't report `isDefault` would leave no model marked,
+      // and `resolveProviderDefaultModelOption` would fall through to
+      // `candidateModels[0]` — whatever the binary happened to list first.
+      const discoveredHasDefault = discovered.some((model) => model.isDefault);
+      return discovered.map((model) => {
+        const builtin = builtinById.get(model.id);
+        if (!builtin) return model;
+        const isDefault = discoveredHasDefault
+          ? model.isDefault
+          : (builtin.isDefault ?? model.isDefault);
+        return {
+          ...model,
+          label: builtin.label || model.label,
+          description: model.description ?? builtin.description,
+          // Prefer discovered metadata where available; fall back to builtin.
+          hidden: model.hidden ?? builtin.hidden,
+          isDefault,
+          availabilityNote: model.availabilityNote ?? builtin.availabilityNote,
+          upgradeTo: model.upgradeTo ?? builtin.upgradeTo,
+          ...(builtin.capabilities ? { capabilities: builtin.capabilities } : {}),
+        };
+      });
     },
     parseTranscript(filePath) {
       const parsed = parseCodexTranscript(filePath);
@@ -741,61 +837,11 @@ export async function getProviderModels(
 }
 
 export function getProviderCapabilities(provider: ProviderKind): ProviderCapabilities {
-  const base = getProviderDriver(provider).capabilities;
-  if (provider !== "claude") return base;
-
-  // Augment with SDK-discovered model capabilities when available
-  const sdkModels = getSdkDiscoveredModels();
-  if (!sdkModels?.length) return base;
-
-  const anySupportsEffort = sdkModels.some((m) => m.supportsEffort);
-  const anySupportsFastMode = sdkModels.some((m) => m.supportsFastMode);
-
-  const addEffort = anySupportsEffort;
-  if (!addEffort && !anySupportsFastMode) return base;
-
-  return {
-    ...base,
-    // When SDK reports effort support, override effort levels from discovery
-    ...(addEffort && {
-      supportsReasoningEffort: true,
-      reasoningEffortLevels: deriveEffortLevels(sdkModels),
-    }),
-    ...(anySupportsFastMode && {
-      supportsFastMode: true,
-      fastModes: base.fastModes ?? {
-        off: { label: "Standard", description: "Default speed" },
-        on: { label: "Fast", description: "Faster responses, uses more credits" },
-      },
-    }),
-  };
-}
-
-function deriveEffortLevels(
-  sdkModels: NonNullable<ReturnType<typeof getSdkDiscoveredModels>>,
-): { effort: string; label: string; description: string }[] {
-  // Collect all unique effort levels across models
-  const allLevels = new Set<string>();
-  for (const m of sdkModels) {
-    if (m.supportedEffortLevels) {
-      for (const level of m.supportedEffortLevels) allLevels.add(level);
-    }
-  }
-  if (allLevels.size === 0) return [];
-
-  const LABELS: Record<string, { label: string; description: string }> = {
-    low: { label: "Low", description: "Fastest responses, minimal reasoning" },
-    medium: { label: "Medium", description: "Balanced depth and speed" },
-    high: { label: "High", description: "More reasoning for harder tasks" },
-    max: { label: "Max", description: "Deepest reasoning, usually slower" },
-  };
-  const ORDER = ["low", "medium", "high", "max"];
-
-  return ORDER.filter((l) => allLevels.has(l)).map((l) => ({
-    effort: l,
-    label: LABELS[l]?.label ?? l,
-    description: LABELS[l]?.description ?? "",
-  }));
+  // Return static provider-level defaults. Per-model capability overrides
+  // (derived from SDK discovery in getModels()) are applied via
+  // mergeCapabilities() in the route — this avoids leaking capabilities from
+  // one model onto another through provider-level aggregation.
+  return getProviderDriver(provider).capabilities;
 }
 
 export function createManagedProviderSession(

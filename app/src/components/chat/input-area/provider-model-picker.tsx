@@ -28,6 +28,7 @@ interface ProviderModelPickerProps {
   preferredModel?: string;
   availableProviders: ProviderDescriptor[];
   currentProviderModels: ProviderModelOption[];
+  currentDefaultModelId?: string;
   modelLabel: string;
   onSelectModel: (model: string | null, label?: string) => void;
   /** Called when user selects a model from a different provider's panel */
@@ -42,6 +43,7 @@ export function ProviderModelPicker({
   preferredModel,
   availableProviders,
   currentProviderModels,
+  currentDefaultModelId,
   modelLabel,
   onSelectModel,
   onSelectProviderModel,
@@ -69,7 +71,11 @@ export function ProviderModelPicker({
           const models = isCurrent
             ? currentProviderModels
             : (BUILTIN_PROVIDER_MODELS[option.provider] as ProviderModelOption[]);
-          const defaultModel = models.find((m) => m.isDefault) ?? models[0];
+          const defaultModel = isCurrent
+            ? (models.find((model) => model.id === currentDefaultModelId) ??
+              models.find((model) => model.isDefault) ??
+              models[0])
+            : (models.find((model) => model.isDefault) ?? models[0]);
 
           return (
             <Menu.Sub key={option.provider}>
@@ -80,24 +86,37 @@ export function ProviderModelPicker({
                 <ChevronRight size={14} strokeWidth={2} className="shrink-0 opacity-50" />
               </Menu.SubTrigger>
               <Menu.SubContent className="min-w-44">
+                {isCurrent && (
+                  <Menu.Item
+                    onClick={() => {
+                      onSelectModel(null, defaultModel?.label ?? "Default");
+                      onOpenChange(false);
+                    }}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      Default{defaultModel ? ` (${defaultModel.label})` : ""}
+                    </span>
+                    {!preferredModel && <Check size={14} strokeWidth={2.5} className="shrink-0" />}
+                  </Menu.Item>
+                )}
                 {models.map((model) => {
                   const isDefault = model.id === defaultModel?.id;
-                  const isSelected = isCurrent
-                    ? preferredModel === model.id || (!preferredModel && isDefault)
-                    : false;
+                  // Picker reflects the user's *choice*: "Default" is checked
+                  // when no explicit model is selected; per-model items only
+                  // check when the user explicitly picked that model. The
+                  // toolbar and context panel show the actual running model
+                  // (which the "default" tag next to the catalog default
+                  // already communicates as "Default resolves to …").
+                  const isSelected = isCurrent ? preferredModel === model.id : false;
 
                   return (
                     <Menu.Item
                       key={model.id}
                       onClick={() => {
                         if (isCurrent) {
-                          onSelectModel(isDefault ? null : model.id, model.label);
+                          onSelectModel(model.id, model.label);
                         } else if (onSelectProviderModel) {
-                          onSelectProviderModel(
-                            option.provider,
-                            isDefault ? null : model.id,
-                            model.label,
-                          );
+                          onSelectProviderModel(option.provider, model.id, model.label);
                         }
                         onOpenChange(false);
                       }}
@@ -186,7 +205,7 @@ export function PermissionsToggle({
 interface ReasoningEffortPickerProps {
   isProcessing: boolean;
   reasoningEffort?: ReasoningEffort;
-  levels: { effort: ReasoningEffort; label: string; description: string }[];
+  levels: { effort: ReasoningEffort; label: string; description: string; isDefault?: boolean }[];
   onSelectEffort: (effort: ReasoningEffort | null) => void;
 }
 
@@ -197,7 +216,8 @@ export function ReasoningEffortPicker({
   onSelectEffort,
 }: ReasoningEffortPickerProps) {
   const activeLevel = levels.find((l) => l.effort === reasoningEffort);
-  const label = activeLevel?.label ?? "Default";
+  const defaultLevel = levels.find((l) => l.isDefault);
+  const label = activeLevel?.label ?? defaultLevel?.label ?? "Default";
 
   return (
     <Menu.Root>
@@ -215,7 +235,7 @@ export function ReasoningEffortPicker({
       <Menu.Content side="top" align="start">
         <Menu.Item onClick={() => onSelectEffort(null)}>
           <span className="flex flex-1 flex-col">
-            <span>Default</span>
+            <span>Default{defaultLevel ? ` (${defaultLevel.label})` : ""}</span>
             <span className="text-[0.6875rem] text-muted">Uses the model default effort</span>
           </span>
           {!reasoningEffort && <Check size={13} strokeWidth={2.5} />}

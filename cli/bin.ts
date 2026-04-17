@@ -22,7 +22,6 @@
  *   RELAY_HOME                  Base directory for Relay state, default ~/.relay
  *   SESSION_FILE                Path to session persistence file
  *   DB_PATH                     Path to SQLite database
- *   DEFAULT_MODEL               Default model for new sessions
  *   CLAUDE_DIR                  Claude data directory, default ~/.claude
  *   CODEX_DIR                   Codex data directory, default ~/.codex
  *   GEMINI_DIR                  Gemini data directory, default ~/.gemini
@@ -107,7 +106,6 @@ function startServer(cliArgs: string[]): void {
     processTimeout: parseInt(process.env.PROCESS_TIMEOUT || String(5 * 60 * 1000)),
     workingDirectory: process.env.WORKING_DIR || process.cwd(),
     maxProcesses,
-    defaultModel: process.env.DEFAULT_MODEL || "claude-opus-4-6",
     serveUI: true,
     ...(process.env.SESSION_FILE ? { sessionFile: process.env.SESSION_FILE } : {}),
     ...(process.env.DB_PATH ? { dbPath: process.env.DB_PATH } : {}),

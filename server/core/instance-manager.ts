@@ -1593,7 +1593,7 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Eagerly resolve the Agent SDK's query function and pre-warm the subprocess.
+   * Eagerly resolve the Agent SDK's query function and discover available models.
    * Call this once at startup before creating instances.
    * If the SDK is not installed, falls back to CLI provider silently.
    */
@@ -1601,7 +1601,9 @@ export class InstanceManager extends EventEmitter {
     try {
       this._sdkQueryFn = (await resolveQueryFn()) as typeof this._sdkQueryFn;
       this.baseConfig.logger.info("[InstanceManager] Agent SDK provider initialized");
-      // Pre-warm the CLI subprocess so the first session is fast (~20x improvement)
+      // Spawn a short-lived subprocess to discover models from the SDK so
+      // the model list is available immediately (not just after the first session).
+      // Fire-and-forget — model discovery is best-effort; builtins are the fallback.
       void prewarmSdk(this.baseConfig.logger);
     } catch {
       this.baseConfig.logger.info("[InstanceManager] Agent SDK not available, using CLI provider");
@@ -1800,19 +1802,28 @@ export class InstanceManager extends EventEmitter {
     }
     const perProvider = providerDefaults[provider];
 
-    // Resolve model: explicit > project default > per-provider default > base config default.
-    // Validate the resolved model belongs to the chosen provider — if not, fall back to
-    // the provider's own default model to avoid cross-provider mismatches (e.g. codex + claude model).
-    let model =
-      options?.model ?? project?.defaultModel ?? perProvider?.model ?? this.baseConfig.defaultModel;
+    // Resolve model: explicit > project default > per-provider default.
+    // `isExplicitModel` tracks whether this came from a user choice (vs. being
+    // inferred). It drives `preferredModel` on InstanceInfo, which the UI reads
+    // to show the "Default" label when no explicit model was selected.
+    // The *effective* session model (used in createProviderSession below) falls
+    // back to the catalog default so the SDK/binary doesn't silently override
+    // with its own internal default (which may not match our catalog).
+    let model = options?.model ?? project?.defaultModel ?? perProvider?.model;
+    let isExplicitModel = !!model;
+
     if (model) {
-      const providerModels = BUILTIN_PROVIDER_MODELS[provider];
-      if (providerModels && providerModels.length > 0) {
-        const isValidForProvider = providerModels.some((m) => m.id === model);
-        if (!isValidForProvider) {
-          const providerDefault = providerModels.find((m) => m.isDefault) ?? providerModels[0];
-          model = providerDefault.id;
-        }
+      // Cross-provider mismatch guard: clear the model when the requested ID
+      // belongs to a *different* provider's builtin catalog (e.g. a Claude
+      // model ID got stored while this session is Codex). Unknown model IDs
+      // pass through — they may be newly discovered models the binary
+      // supports but we don't list in the hardcoded catalog.
+      const belongsToOtherProvider = (Object.keys(BUILTIN_PROVIDER_MODELS) as ProviderKind[]).some(
+        (kind) => kind !== provider && BUILTIN_PROVIDER_MODELS[kind].some((m) => m.id === model),
+      );
+      if (belongsToOtherProvider) {
+        model = undefined;
+        isExplicitModel = false;
       }
     }
 
@@ -1840,10 +1851,20 @@ export class InstanceManager extends EventEmitter {
     if (perProvider?.fastMode != null && options?.modelOptions?.fastMode === undefined) {
       modelOptions = { ...modelOptions, fastMode: perProvider.fastMode };
     }
+
+    // Effective session model: explicit choice, or catalog default as a stable seed.
+    // When no explicit model is chosen we still want the provider session to use the
+    // catalog's declared default (e.g. Opus 4.7 for Claude) rather than letting the
+    // SDK/binary silently fall back to its own internal default (which may differ).
+    // This is separate from `preferredModel` on InstanceInfo, which stays undefined
+    // so the UI renders the "Default" label and the user can always override.
+    const effectiveSessionModel =
+      model ?? BUILTIN_PROVIDER_MODELS[provider].find((m) => m.isDefault)?.id;
+
     const proc = this.createProviderSession(instanceConfig, {
       provider,
       resumeSessionId: resumeId,
-      model,
+      model: effectiveSessionModel,
       planMode: options?.planMode,
       modelOptions,
     });
@@ -1867,7 +1888,7 @@ export class InstanceManager extends EventEmitter {
       gitInfo: initialGitInfo,
       gitBranch: spaceGitBranch,
       originalGitBranch: initialGitInfo?.branch ?? getCurrentBranch(workingDirectory) ?? undefined,
-      preferredModel: model,
+      preferredModel: isExplicitModel ? model : undefined,
       modelOptions,
       planMode: options?.planMode,
       skipPermissions: resolvedSkipPermissions,
@@ -7932,7 +7953,13 @@ export class InstanceManager extends EventEmitter {
       if (instance.info.external) return false;
 
       instance.info.preferredModel = model ?? undefined;
-      instance.process?.setModel(model);
+      // When clearing to "Default", resolve the catalog default so the SDK
+      // doesn't silently fall back to its own internal default (e.g. Sonnet).
+      const effectiveModel =
+        model ??
+        BUILTIN_PROVIDER_MODELS[instance.info.provider].find((m) => m.isDefault)?.id ??
+        null;
+      instance.process?.setModel(effectiveModel);
       this.emitInstanceStatus(instance);
       this.dbSave(instance);
       const sid = instance.sessionId || instance.info.sessionId;
@@ -8055,6 +8082,7 @@ export class InstanceManager extends EventEmitter {
       const proc = this.createProviderSession(instanceConfig, {
         provider,
         planMode: instance.info.planMode,
+        model: BUILTIN_PROVIDER_MODELS[provider].find((m) => m.isDefault)?.id,
       });
       instance.process = proc;
       instance.providerBinding = proc.getRuntimeBinding();

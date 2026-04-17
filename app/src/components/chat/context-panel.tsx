@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import { Tooltip } from "../ui/tooltip";
 import { Badge } from "../ui/badge";
 import type { ChatItem } from "@/hooks/use-instance-messages";
+
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
 import {
   formatTokens,
@@ -195,8 +196,7 @@ interface InstanceContextProps {
   mode: "instance";
   stats: SessionStats | null;
   items: ChatItem[];
-  provider?: string;
-  preferredModel?: string;
+  provider?: ProviderKind;
   providerStatus?: ProviderStatusSummary;
   providerGlobalState?: ProviderGlobalState;
   createdAt: number;
@@ -231,7 +231,6 @@ function InstanceContext({
   stats,
   items,
   provider,
-  preferredModel,
   providerStatus,
   providerGlobalState,
   createdAt,
@@ -255,7 +254,6 @@ function InstanceContext({
     contextWindow: safeStats.contextWindow || (safeStats.contextTokens ? 1_000_000 : 0),
   });
   const reasoning = safeStats.reasoningTokens ?? 0;
-  const displayModel = safeStats.model ?? preferredModel;
   const segments = computeSegments(safeStats, provider);
   const globalProviderState = providerGlobalState;
   const hasProviderSummary = Boolean(
@@ -280,7 +278,6 @@ function InstanceContext({
             label="Provider"
             value={provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "—"}
           />
-          <StatRow label="Model" value={displayModel ? formatModel(displayModel) : "—"} />
           {contextUsage.contextWindow > 0 && (
             <>
               <StatRow

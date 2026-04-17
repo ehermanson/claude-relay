@@ -28,8 +28,6 @@ export interface CoreConfig {
   logger: Logger;
   /** Path to the SQLite database for session persistence */
   dbPath: string;
-  /** Default model for new managed instances (e.g. "claude-opus-4-6"). Omit to use Claude's default. */
-  defaultModel?: string;
   /** Provider-specific data directories (e.g. { claude: "~/.claude", codex: "~/.codex" }) */
   providerDirs: Partial<Record<ProviderKind, string>>;
 }
@@ -86,7 +84,6 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
     maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? defaultLogger,
     dbPath: options.dbPath ?? join(relayDir, "sessions.db"),
-    defaultModel: options.defaultModel,
     providerDirs: options.providerDirs ?? {
       claude: join(home, ".claude"),
       codex: join(home, ".codex"),

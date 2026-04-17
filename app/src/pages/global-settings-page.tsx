@@ -500,6 +500,12 @@ function ProviderDefaultsRow({
 
   // Find actual defaults to show in placeholder text
   const defaultModel = models.find((m) => m.isDefault);
+
+  // Per-model capabilities: reasoning effort levels and fast mode vary by model
+  // (e.g. xhigh only on Opus 4.7). Use the selected model's resolvedCapabilities
+  // so the controls reflect what that model actually supports.
+  const selectedModel = defaults.model ? models.find((m) => m.id === defaults.model) : defaultModel;
+  const modelCaps = selectedModel?.resolvedCapabilities ?? caps;
   const defaultPermLabel = caps.permissionModes?.restricted.label; // restricted is always the default
 
   const hasAnyControls =
@@ -549,7 +555,7 @@ function ProviderDefaultsRow({
               </Select>
             </div>
           )}
-          {caps.supportsReasoningEffort && caps.reasoningEffortLevels && (
+          {modelCaps.supportsReasoningEffort && modelCaps.reasoningEffortLevels && (
             <div className="flex flex-col gap-1.5">
               <label className="text-[0.6875rem] font-medium text-muted">Reasoning</label>
               <Select
@@ -557,8 +563,11 @@ function ProviderDefaultsRow({
                 value={defaults.reasoningEffort ?? ""}
                 onChange={(e) => onChange("reasoningEffort", e.target.value)}
               >
-                <option value="">Medium (default)</option>
-                {caps.reasoningEffortLevels.map((level) => (
+                <option value="">
+                  {modelCaps.reasoningEffortLevels.find((l) => l.isDefault)?.label ?? "Medium"}{" "}
+                  (default)
+                </option>
+                {modelCaps.reasoningEffortLevels.map((level) => (
                   <option key={level.effort} value={level.effort}>
                     {level.label}
                   </option>
@@ -582,7 +591,7 @@ function ProviderDefaultsRow({
               </Select>
             </div>
           )}
-          {caps.supportsFastMode && caps.fastModes && (
+          {modelCaps.supportsFastMode && modelCaps.fastModes && (
             <div className="flex flex-col gap-1.5">
               <label className="text-[0.6875rem] font-medium text-muted">Speed</label>
               <Select
@@ -590,9 +599,9 @@ function ProviderDefaultsRow({
                 value={defaults.fastMode != null ? String(defaults.fastMode) : ""}
                 onChange={(e) => onChange("fastMode", e.target.value)}
               >
-                <option value="">{caps.fastModes.off.label} (default)</option>
-                <option value="true">{caps.fastModes.on.label}</option>
-                <option value="false">{caps.fastModes.off.label}</option>
+                <option value="">{modelCaps.fastModes.off.label} (default)</option>
+                <option value="true">{modelCaps.fastModes.on.label}</option>
+                <option value="false">{modelCaps.fastModes.off.label}</option>
               </Select>
             </div>
           )}

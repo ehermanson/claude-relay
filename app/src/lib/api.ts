@@ -148,11 +148,12 @@ export async function fetchWorkspaceEntries(
 export async function fetchProviderModels(provider: ProviderKind): Promise<ProviderModelsResponse> {
   const res = await fetch(`/api/provider-models?provider=${encodeURIComponent(provider)}`);
   if (!res.ok) throw new Error("Failed to fetch provider models");
-  const data = (await res.json()) as Partial<ProviderModelsResponse>;
+  const data = (await res.json()) as ProviderModelsResponse;
   return {
     provider,
     models: data.models ?? [],
     capabilities: data.capabilities ?? getDefaultProviderCapabilities(provider),
+    defaultModel: data.defaultModel,
   };
 }
 

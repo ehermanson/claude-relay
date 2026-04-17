@@ -31,7 +31,7 @@ import { ProjectContext } from "@/context/project-context";
 import { useWSMethods } from "@/context/websocket-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { expandTaskReferences } from "@/lib/composer-mentions";
-import { formatModel } from "@/lib/utils";
+
 import { AnimatePresence, motion } from "motion/react";
 import { MessageSquareReply, X } from "lucide-react";
 import {
@@ -59,7 +59,6 @@ interface InputAreaProps {
   preferredModel?: string;
   modelOptions?: ProviderModelOptions;
   planMode?: boolean;
-  activeModel?: string;
   skipPermissions?: boolean;
   hasMessages?: boolean;
   pendingUserInput?: ProviderRequest | null;
@@ -172,7 +171,6 @@ export function InputArea({
   preferredModel,
   modelOptions,
   planMode,
-  activeModel,
   skipPermissions,
   hasMessages,
   pendingUserInput,
@@ -217,7 +215,7 @@ export function InputArea({
       ...artifactProviderSkills.filter((s) => !runtimeNames.has(s.name)),
     ];
   })();
-  const { showModelMenu, setShowModelMenu, availableProviderModels, capabilities } =
+  const { showModelMenu, setShowModelMenu, availableProviderModels, capabilities, defaultModel } =
     useProviderModels(displayedProvider);
   const { providers: availableProviders } = useAvailableProviders();
   const {
@@ -323,21 +321,20 @@ export function InputArea({
     })),
   ];
   const currentProviderModelLabels = buildModelLabelLookup(currentProviderModels);
-  const activeModelLabel =
-    optimisticProviderSelection == null && activeModel
-      ? (currentProviderModelLabels.get(activeModel) ?? formatModel(activeModel))
-      : null;
-  const catalogDefaultLabel = currentProviderModels.find((m) => m.isDefault)?.label ?? null;
-  const resolvedDefaultLabel = activeModelLabel ?? catalogDefaultLabel ?? "Default";
+  const resolvedDefaultLabel = defaultModel?.label ?? "Default";
   const modelLabel = displayedPreferredModel
     ? (optimisticProviderSelection?.modelLabel ??
       currentProviderModelLabels.get(displayedPreferredModel) ??
       displayedPreferredModel)
     : resolvedDefaultLabel;
-  const supportsModelSelection = capabilities.supportsModelSelection;
-  const supportsReasoningEffort = capabilities.supportsReasoningEffort;
-  const supportsFastMode = capabilities.supportsFastMode;
-  const supportsPlanMode = capabilities.supportsPlanMode;
+  const selectedModelOption = displayedPreferredModel
+    ? currentProviderModels.find((m) => m.id === displayedPreferredModel)
+    : defaultModel;
+  const effectiveCapabilities = selectedModelOption?.resolvedCapabilities ?? capabilities;
+  const supportsModelSelection = effectiveCapabilities.supportsModelSelection;
+  const supportsReasoningEffort = effectiveCapabilities.supportsReasoningEffort;
+  const supportsFastMode = effectiveCapabilities.supportsFastMode;
+  const supportsPlanMode = effectiveCapabilities.supportsPlanMode;
   const visibleProviders =
     availableProviders.length > 0
       ? availableProviders.some((entry) => entry.provider === displayedProvider)
@@ -522,7 +519,7 @@ export function InputArea({
     slashMenuDismissed,
     preferredModel: displayedPreferredModel,
     modelLabel,
-    reasoningEffortLevels: capabilities.reasoningEffortLevels,
+    reasoningEffortLevels: effectiveCapabilities.reasoningEffortLevels,
     supportsModelSelection,
     supportsReasoningEffort,
     currentReasoningEffort: modelOptions?.reasoningEffort,
@@ -641,6 +638,7 @@ export function InputArea({
         preferredModel={displayedPreferredModel}
         availableProviders={visibleProviders}
         currentProviderModels={currentProviderModels}
+        currentDefaultModelId={defaultModel?.id}
         modelLabel={modelLabel}
         onSelectModel={setModel}
         onSelectProviderModel={(targetProvider, model, label) => {
@@ -659,46 +657,46 @@ export function InputArea({
         }}
       />
     ) : null,
-    supportsReasoningEffort && capabilities.reasoningEffortLevels ? (
+    supportsReasoningEffort && effectiveCapabilities.reasoningEffortLevels ? (
       <ReasoningEffortPicker
         key="effort-picker"
         isProcessing={isProcessing}
         reasoningEffort={modelOptions?.reasoningEffort}
-        levels={capabilities.reasoningEffortLevels}
+        levels={effectiveCapabilities.reasoningEffortLevels}
         onSelectEffort={setReasoningEffort}
       />
     ) : null,
-    supportsFastMode && capabilities.fastModes ? (
+    supportsFastMode && effectiveCapabilities.fastModes ? (
       <FastModeToggle
         key="fast-mode-toggle"
         isProcessing={isProcessing}
         fastMode={modelOptions?.fastMode}
-        modes={capabilities.fastModes}
+        modes={effectiveCapabilities.fastModes}
         onToggle={setFastMode}
       />
     ) : null,
-    supportsPlanMode && capabilities.planModes ? (
+    supportsPlanMode && effectiveCapabilities.planModes ? (
       <PlanModePicker
         key="plan-mode-toggle"
         isProcessing={isProcessing}
         planMode={planMode}
-        modes={capabilities.planModes}
+        modes={effectiveCapabilities.planModes}
         onTogglePlanMode={setPlanMode}
       />
     ) : null,
-    capabilities.permissionModes ? (
+    effectiveCapabilities.permissionModes ? (
       <PermissionsToggle
         key="permissions-toggle"
         isProcessing={isProcessing}
         skipPermissions={skipPermissions}
-        modes={capabilities.permissionModes}
+        modes={effectiveCapabilities.permissionModes}
         onToggle={togglePermissions}
       />
     ) : null,
   ];
 
   const overflowSections: OverflowSection[] = [
-    ...(supportsReasoningEffort && capabilities.reasoningEffortLevels
+    ...(supportsReasoningEffort && effectiveCapabilities.reasoningEffortLevels
       ? [
           {
             label: "Effort",
@@ -708,7 +706,7 @@ export function InputArea({
                 selected: !modelOptions?.reasoningEffort,
                 onSelect: () => setReasoningEffort(null),
               },
-              ...capabilities.reasoningEffortLevels.map((level) => ({
+              ...effectiveCapabilities.reasoningEffortLevels.map((level) => ({
                 label: level.label,
                 selected: modelOptions?.reasoningEffort === level.effort,
                 onSelect: () => setReasoningEffort(level.effort),
@@ -717,18 +715,18 @@ export function InputArea({
           },
         ]
       : []),
-    ...(supportsFastMode && capabilities.fastModes
+    ...(supportsFastMode && effectiveCapabilities.fastModes
       ? [
           {
             label: "Fast Mode",
             options: [
               {
-                label: capabilities.fastModes.off.label,
+                label: effectiveCapabilities.fastModes.off.label,
                 selected: !modelOptions?.fastMode,
                 onSelect: () => setFastMode(false),
               },
               {
-                label: capabilities.fastModes.on.label,
+                label: effectiveCapabilities.fastModes.on.label,
                 selected: !!modelOptions?.fastMode,
                 onSelect: () => setFastMode(true),
               },
@@ -736,18 +734,18 @@ export function InputArea({
           },
         ]
       : []),
-    ...(supportsPlanMode && capabilities.planModes
+    ...(supportsPlanMode && effectiveCapabilities.planModes
       ? [
           {
             label: "Mode",
             options: [
               {
-                label: capabilities.planModes.off.label,
+                label: effectiveCapabilities.planModes.off.label,
                 selected: !planMode,
                 onSelect: () => setPlanMode(false),
               },
               {
-                label: capabilities.planModes.on.label,
+                label: effectiveCapabilities.planModes.on.label,
                 selected: !!planMode,
                 onSelect: () => setPlanMode(true),
               },
@@ -755,20 +753,20 @@ export function InputArea({
           },
         ]
       : []),
-    ...(capabilities.permissionModes
+    ...(effectiveCapabilities.permissionModes
       ? [
           {
             label: "Access",
             options: [
               {
-                label: capabilities.permissionModes.restricted.label,
+                label: effectiveCapabilities.permissionModes.restricted.label,
                 selected: !skipPermissions,
                 onSelect: () => {
                   if (skipPermissions) togglePermissions();
                 },
               },
               {
-                label: capabilities.permissionModes.fullAccess.label,
+                label: effectiveCapabilities.permissionModes.fullAccess.label,
                 selected: !!skipPermissions,
                 onSelect: () => {
                   if (!skipPermissions) togglePermissions();

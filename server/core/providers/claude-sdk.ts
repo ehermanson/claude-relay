@@ -101,7 +101,7 @@ interface SdkModelInfo {
   displayName: string;
   description: string;
   supportsEffort?: boolean;
-  supportedEffortLevels?: ("low" | "medium" | "high" | "max")[];
+  supportedEffortLevels?: ("low" | "medium" | "high" | "xhigh" | "max")[];
   supportsAdaptiveThinking?: boolean;
   supportsFastMode?: boolean;
   supportsAutoMode?: boolean;
@@ -157,7 +157,7 @@ interface SDKOptions {
   canUseTool?: CanUseTool;
   env?: Record<string, string | undefined>;
   allowedTools?: string[];
-  effort?: "low" | "medium" | "high" | "max";
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
   settings?: Record<string, unknown>;
   pathToClaudeCodeExecutable?: string;
 }
@@ -295,10 +295,7 @@ export interface ClaudeSdkSession extends ProviderSession {
 let cachedQueryFn: QueryFn | null = null;
 let cachedStartupFn: StartupFn | null = null;
 
-/** Pre-warmed query instance from startup() — shared across sessions for faster first query. */
-let warmQuery: WarmQuery | null = null;
-
-/** Module-level cache of SDK-discovered models. Updated by each session that calls supportedModels(). */
+/** Module-level cache of SDK-discovered models. Populated eagerly by prewarmSdk(), updated by sessions. */
 let sdkDiscoveredModels: SdkModelInfo[] | null = null;
 
 /**
@@ -326,26 +323,54 @@ export async function resolveQueryFn(): Promise<QueryFn> {
 }
 
 /**
- * Pre-warm the Claude Code subprocess so the first query is ~20x faster.
- * Safe to call multiple times — only the first call spawns the subprocess.
- * Returns the WarmQuery instance, or null if startup() is unavailable.
+ * Pre-warm the Claude Code subprocess and eagerly discover available models.
+ *
+ * startup() spawns a subprocess and completes initialization (including the
+ * model list) before returning.  We consume the single-use WarmQuery handle
+ * to call supportedModels(), populate the module-level sdkDiscoveredModels
+ * cache, then close the handle.  This means the /api/provider-models endpoint
+ * returns SDK-reported models from the moment the server finishes booting,
+ * without waiting for a user to start a managed session.
+ *
+ * The warm subprocess is closed after probing — session creation still goes
+ * through queryFn() as before.  Re-using the warm handle for the first real
+ * session is a possible future optimisation but adds complexity around cwd
+ * compatibility and canUseTool late-binding.
  */
-export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<WarmQuery | null> {
-  if (warmQuery) return warmQuery;
-  if (!cachedStartupFn) return null;
+export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<void> {
+  if (sdkDiscoveredModels) return; // already discovered
+  if (!cachedStartupFn) return;
   try {
-    warmQuery = await cachedStartupFn({ initializeTimeoutMs: 30_000 });
+    const warm = await cachedStartupFn({ initializeTimeoutMs: 30_000 });
     logger.info("[SdkSession] Pre-warmed Claude Code subprocess via startup()");
-    return warmQuery;
+
+    // Consume the single-use warm handle to probe models.
+    // supportedModels() reads from the already-resolved initialization
+    // promise, so this is effectively free (no extra network/IPC call).
+    const promptQueue = new PromptQueue();
+    const handle = warm.query(promptQueue);
+    try {
+      const models = await handle.supportedModels();
+      sdkDiscoveredModels = models;
+      logger.info(`[SdkSession] Pre-warm discovered ${models.length} models`);
+    } catch (err) {
+      logger.debug(`[SdkSession] Pre-warm supportedModels() failed (non-fatal): ${err}`);
+    }
+    // Done with the warm subprocess — close it cleanly.
+    promptQueue.terminate();
+    try {
+      await handle.close();
+    } catch {
+      /* ignore close errors */
+    }
   } catch (err) {
     logger.debug(`[SdkSession] startup() pre-warm failed (non-fatal): ${err}`);
-    return null;
   }
 }
 
 /**
  * Return SDK-discovered model capabilities if available.
- * Populated by the first SDK session that successfully calls supportedModels().
+ * Populated eagerly by prewarmSdk() at server startup, and refreshed by sessions.
  */
 export function getSdkDiscoveredModels(): SdkModelInfo[] | null {
   return sdkDiscoveredModels;

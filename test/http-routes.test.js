@@ -243,14 +243,19 @@ describe("HTTP Routes — Additional Coverage", () => {
       });
       assert.equal(res.status, 200);
       assert.equal(res.body.provider, "codex");
-      assert.deepEqual(res.body.models, [
-        {
-          provider: "codex",
-          id: "gpt-5.4",
-          label: "GPT-5.4",
-          isDefault: true,
-        },
-      ]);
+      assert.equal(res.body.models.length, 1);
+      const [model] = res.body.models;
+      // Strip resolvedCapabilities (injected by the route from provider caps)
+      // before comparing the model shape.
+      const { resolvedCapabilities, ...modelShape } = model;
+      assert.ok(resolvedCapabilities, "expected resolvedCapabilities to be present");
+      assert.deepEqual(modelShape, {
+        provider: "codex",
+        id: "gpt-5.4",
+        label: "GPT-5.4",
+        isDefault: true,
+      });
+      assert.equal(res.body.defaultModel?.id, "gpt-5.4");
     });
   });
 

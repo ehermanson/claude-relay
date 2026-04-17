@@ -141,7 +141,7 @@ const TasksPanel = memo(function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
 
 import type { SidecarTab } from "@/stores/sidecar-store";
 export type { SidecarTab } from "@/stores/sidecar-store";
-import type { ProviderGlobalState } from "@shared/types";
+import type { ProviderGlobalState, ProviderKind } from "@shared/types";
 
 function samePanelSets(a: ReadonlySet<SidecarTab>, b: ReadonlySet<SidecarTab>): boolean {
   if (a.size !== b.size) return false;
@@ -155,8 +155,7 @@ interface SidecarProps {
   planContent?: string | null;
   stats?: SessionStats | null;
   items?: ChatItem[];
-  provider?: string;
-  preferredModel?: string;
+  provider?: ProviderKind;
   providerStatus?: ProviderStatusSummary;
   providerGlobalState?: ProviderGlobalState;
   instanceId?: string;
@@ -178,7 +177,6 @@ export const Sidecar = memo(
     stats,
     items,
     provider,
-    preferredModel,
     providerStatus,
     providerGlobalState,
     instanceId,
@@ -263,7 +261,6 @@ export const Sidecar = memo(
             stats={stats ?? null}
             items={items ?? []}
             provider={provider}
-            preferredModel={preferredModel}
             providerStatus={providerStatus}
             providerGlobalState={providerGlobalState}
             createdAt={createdAt ?? Date.now()}
@@ -330,7 +327,6 @@ export const Sidecar = memo(
       prev.lastActivityAt === next.lastActivityAt &&
       prev.stats === next.stats &&
       prev.items === next.items &&
-      prev.preferredModel === next.preferredModel &&
       prev.provider === next.provider &&
       prev.providerStatus === next.providerStatus &&
       prev.providerGlobalState === next.providerGlobalState &&

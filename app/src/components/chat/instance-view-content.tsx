@@ -657,7 +657,6 @@ export function InstanceViewContent() {
               preferredModel={shared.instance.preferredModel}
               modelOptions={shared.instance.modelOptions}
               planMode={shared.instance.planMode}
-              activeModel={shared.instance.stats?.model}
               skipPermissions={shared.instance.skipPermissions}
               hasMessages={shared.items.length > 0}
               pendingUserInput={shared.pendingUserInput}

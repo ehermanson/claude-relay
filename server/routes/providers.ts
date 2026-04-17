@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import type { ProviderModelsResponse } from "#core/types.js";
+import { mergeCapabilities, resolveProviderDefaultModelOption } from "#core/provider-catalog.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
 
 export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
@@ -12,11 +13,17 @@ export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
       return c.json({ error: "Invalid provider" }, 400);
     }
     try {
-      const models = await deps.getProviderModels(provider);
+      const capabilities = deps.getProviderCapabilities(provider);
+      const models = (await deps.getProviderModels(provider)).map((model) => ({
+        ...model,
+        resolvedCapabilities: mergeCapabilities(capabilities, model.capabilities),
+      }));
+      const defaultModel = resolveProviderDefaultModelOption(provider, models);
       const response: ProviderModelsResponse = {
         provider,
         models,
-        capabilities: deps.getProviderCapabilities(provider),
+        capabilities,
+        defaultModel,
       };
       return c.json(response);
     } catch (err) {

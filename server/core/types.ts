@@ -245,7 +245,12 @@ export interface ProviderCapabilities {
   supportsModelSelection: boolean;
   supportsTitleUpdates: boolean;
   /** Labels/descriptions for reasoning effort levels, rendered by the UI as-is */
-  reasoningEffortLevels?: { effort: ReasoningEffort; label: string; description: string }[];
+  reasoningEffortLevels?: {
+    effort: ReasoningEffort;
+    label: string;
+    description: string;
+    isDefault?: boolean;
+  }[];
   /** Labels/descriptions for the permission mode toggle */
   permissionModes?: { restricted: ControlOption; fullAccess: ControlOption };
   /** Labels/descriptions for the plan mode toggle */
@@ -269,12 +274,26 @@ export interface ProviderModelOption {
   isDefault?: boolean;
   availabilityNote?: string;
   upgradeTo?: string;
+  /**
+   * Per-model capability overrides. Merged on top of the provider's default
+   * capabilities by `mergeCapabilities()` — present fields win, omitted fields
+   * inherit from the provider. Use for model-specific deltas (e.g. Opus 4.7
+   * exposes a higher reasoning-effort tier than other Claude models).
+   *
+   * Populated programmatically when the provider exposes per-model metadata
+   * (Claude SDK's `supportedModels()` reports `supportedEffortLevels` etc.),
+   * or hardcoded in the builtin catalog otherwise.
+   */
+  capabilities?: Partial<ProviderCapabilities>;
+  /** Provider-default capabilities with per-model overrides already applied. */
+  resolvedCapabilities?: ProviderCapabilities;
 }
 
 export interface ProviderModelsResponse {
   provider: ProviderKind;
   models: ProviderModelOption[];
   capabilities: ProviderCapabilities;
+  defaultModel?: ProviderModelOption;
 }
 
 export interface ProviderDefaults {

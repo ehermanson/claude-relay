@@ -37,6 +37,8 @@ export {
   findProviderModelLabel,
   getBuiltinProviderModels,
   getProviderDisplayName,
+  mergeCapabilities,
+  resolveProviderDefaultModelOption,
 } from "#core/provider-catalog.js";
 export {
   getProviderCapabilities,

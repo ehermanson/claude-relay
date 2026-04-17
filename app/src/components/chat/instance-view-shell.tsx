@@ -96,7 +96,6 @@ export function InstanceViewShell() {
                   stats={shared.instance.stats}
                   items={shared.items}
                   provider={shared.instance.provider}
-                  preferredModel={shared.instance.preferredModel}
                   providerStatus={shared.instance.providerStatus}
                   providerGlobalState={currentProviderGlobalState}
                   instanceId={shared.id}
@@ -119,7 +118,6 @@ export function InstanceViewShell() {
             stats={shared.instance.stats}
             items={shared.items}
             provider={shared.instance.provider}
-            preferredModel={shared.instance.preferredModel}
             providerStatus={shared.instance.providerStatus}
             providerGlobalState={currentProviderGlobalState}
             instanceId={shared.id}

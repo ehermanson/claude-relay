@@ -40,7 +40,12 @@ interface UseComposerMenusParams {
   slashMenuDismissed: boolean;
   preferredModel?: string;
   modelLabel: string;
-  reasoningEffortLevels?: { effort: ReasoningEffort; label: string; description: string }[];
+  reasoningEffortLevels?: {
+    effort: ReasoningEffort;
+    label: string;
+    description: string;
+    isDefault?: boolean;
+  }[];
   supportsModelSelection: boolean;
   supportsReasoningEffort: boolean;
   currentReasoningEffort?: ReasoningEffort;
@@ -355,10 +360,11 @@ export function useComposerMenus({
     ) {
       const items: SlashMenuItem[] = [];
       if (matchesQuery(slashContext.argQuery, ["default", "auto"])) {
+        const defaultEffortLabel = reasoningEffortLevels.find((l) => l.isDefault)?.label;
         items.push({
           key: "effort-default",
           category: "Effort",
-          title: "Default",
+          title: defaultEffortLabel ? `Default (${defaultEffortLabel})` : "Default",
           description: "Uses the model default effort",
           hint: !currentReasoningEffort ? "Current" : undefined,
           actionHint: "Enter",
