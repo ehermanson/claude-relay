@@ -49,7 +49,7 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     password: options.password,
     sessionMaxAge: options.sessionMaxAge ?? 7 * 24 * 60 * 60 * 1000,
     dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? true,
-    processTimeout: options.processTimeout ?? 10 * 60 * 1000,
+    processTimeout: options.processTimeout ?? 30 * 60 * 1000,
     workingDirectory: options.workingDirectory ?? options.defaultWorkingDirectory ?? process.cwd(),
     serveUI: options.serveUI ?? true,
     logger: options.logger ?? defaultLogger,

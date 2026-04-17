@@ -2365,9 +2365,20 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this.clearTimeout();
     if (this.processTimeout <= 0) return;
     this.timeoutHandle = setTimeout(() => {
-      if (!this.process) return;
+      const child = this.process;
+      if (!child) return;
       this.logger.warn(`[CodexAppServer] Timeout after ${this.processTimeout}ms`);
-      this.close();
+      // Seed stderr so the exit event carries a human-readable reason.
+      // Do NOT flip _closingIntentionally — we want wireLifecycle to emit
+      // the exit so the UI can move out of "working" into an error state.
+      const reason = `Codex app-server went idle for ${Math.round(
+        this.processTimeout / 1000,
+      )}s and was terminated.`;
+      this.stderrBuffer = (this.stderrBuffer ? this.stderrBuffer + "\n" : "") + reason;
+      this.timeoutHandle = null;
+      if (child.exitCode === null && !child.killed) {
+        child.kill("SIGKILL");
+      }
     }, this.processTimeout);
   }
 

@@ -324,7 +324,6 @@ Sessions still carry a working directory, and that directory remains the agent's
 | `WORKING_DIR`     | `process.cwd()`          | Default working directory                  |
 | `MAX_PROCESSES`   | `15`                     | Maximum concurrent managed processes       |
 | `TUNNEL`          | `false`                  | Start a Cloudflare Tunnel                  |
-| `PROCESS_TIMEOUT` | `300000`                 | Process timeout in ms (5 min)              |
 | `SESSION_MAX_AGE` | `604800000`              | Auth session lifetime in ms (7 days)       |
 | `SESSION_FILE`    | `~/.relay/sessions.json` | Auth session persistence file              |
 | `DB_PATH`         | `~/.relay/sessions.db`   | Relay SQLite database path                 |

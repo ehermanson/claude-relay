@@ -16,7 +16,6 @@
  *   PORT                        Server port (or use --port)
  *   TUNNEL                      Set to "true" to start a cloudflared tunnel to the Relay server
  *   SESSION_MAX_AGE             Session lifetime in ms, default 7 days
- *   PROCESS_TIMEOUT             Claude process timeout in ms, default 5 min
  *   WORKING_DIR                 Working directory for Claude, default cwd
  *   MAX_PROCESSES               Maximum concurrent managed processes, default 15
  *   RELAY_HOME                  Base directory for Relay state, default ~/.relay
@@ -103,7 +102,6 @@ function startServer(cliArgs: string[]): void {
     password,
     port,
     sessionMaxAge: parseInt(process.env.SESSION_MAX_AGE || String(7 * 24 * 60 * 60 * 1000)),
-    processTimeout: parseInt(process.env.PROCESS_TIMEOUT || String(5 * 60 * 1000)),
     workingDirectory: process.env.WORKING_DIR || process.cwd(),
     maxProcesses,
     serveUI: true,

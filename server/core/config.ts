@@ -80,7 +80,7 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
   return {
     workingDirectory: options.workingDirectory ?? process.cwd(),
     dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? true,
-    processTimeout: options.processTimeout ?? 10 * 60 * 1000,
+    processTimeout: options.processTimeout ?? 30 * 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? defaultLogger,
     dbPath: options.dbPath ?? join(relayDir, "sessions.db"),
