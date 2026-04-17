@@ -8247,6 +8247,40 @@ export class InstanceManager extends EventEmitter {
     // We keep raw on the message too so it flows to clients over WS.
     const msgAny = message as unknown as Record<string, unknown>;
     const raw = msgAny.raw;
+
+    // Coalesce consecutive streaming output deltas that share the same provider
+    // itemId into a single history entry. Without this, Codex (which emits one
+    // OutputMessage per delta chunk) would fill MAX_HISTORY with fragments of a
+    // single assistant turn and evict earlier turns from memory.
+    if (
+      message.type === "output" &&
+      !(message as OutputMessage).isWaiting &&
+      !(message as OutputMessage).thinking &&
+      raw !== null &&
+      typeof raw === "object"
+    ) {
+      const itemId = (raw as Record<string, unknown>).itemId;
+      if (typeof itemId === "string") {
+        const last = instance.history[instance.history.length - 1];
+        if (
+          last &&
+          last.message.type === "output" &&
+          last.raw !== null &&
+          typeof last.raw === "object" &&
+          (last.raw as Record<string, unknown>).itemId === itemId
+        ) {
+          // Append delta text to existing entry in-place.
+          const lastOut = last.message as OutputMessage;
+          lastOut.text = (lastOut.text ?? "") + ((message as OutputMessage).text ?? "");
+          last.timestamp = now;
+          if (lastOut.text.trim()) {
+            instance.info.lastMessage = { text: lastOut.text, from: "assistant", timestamp: now };
+          }
+          return;
+        }
+      }
+    }
+
     const entry: HistoryEntry = { timestamp: now, message };
     if (raw !== undefined) entry.raw = raw;
     instance.history.push(entry);
