@@ -299,6 +299,15 @@ let cachedStartupFn: StartupFn | null = null;
 let sdkDiscoveredModels: SdkModelInfo[] | null = null;
 
 /**
+ * Module-level cache of SDK-discovered account info (plan/email/org).
+ * Populated eagerly by prewarmSdk() — refreshed by real sessions via
+ * fetchAccountInfo(). The SDK doesn't expose a snapshot-style rateLimits
+ * API today, so rate-limit data still only comes from live `rate_limit_event`
+ * messages mid-session.
+ */
+let sdkDiscoveredAccountInfo: AccountInfo | null = null;
+
+/**
  * Resolve the SDK's `query` and `startup` functions via dynamic import.
  * Caches the result so subsequent calls are synchronous.
  * Call this once at startup (e.g. in InstanceManager.restoreInstances())
@@ -338,30 +347,53 @@ export async function resolveQueryFn(): Promise<QueryFn> {
  * compatibility and canUseTool late-binding.
  */
 export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<void> {
-  if (sdkDiscoveredModels) return; // already discovered
+  if (sdkDiscoveredModels && sdkDiscoveredAccountInfo) return; // already discovered
   if (!cachedStartupFn) return;
   try {
     const warm = await cachedStartupFn({ initializeTimeoutMs: 30_000 });
     logger.info("[SdkSession] Pre-warmed Claude Code subprocess via startup()");
 
-    // Consume the single-use warm handle to probe models.
-    // supportedModels() reads from the already-resolved initialization
-    // promise, so this is effectively free (no extra network/IPC call).
+    // Consume the single-use warm handle to probe both models and account info.
+    // supportedModels() reads from the already-resolved initialization promise,
+    // so it's effectively free. accountInfo() is also a zero-token lookup
+    // against the SDK's cached auth state. Running them in parallel keeps the
+    // warm subprocess alive for only as long as the slower of the two takes.
     const promptQueue = new PromptQueue();
     const handle = warm.query(promptQueue);
     try {
-      const models = await handle.supportedModels();
-      sdkDiscoveredModels = models;
-      logger.info(`[SdkSession] Pre-warm discovered ${models.length} models`);
-    } catch (err) {
-      logger.debug(`[SdkSession] Pre-warm supportedModels() failed (non-fatal): ${err}`);
-    }
-    // Done with the warm subprocess — close it cleanly.
-    promptQueue.terminate();
-    try {
-      await handle.close();
-    } catch {
-      /* ignore close errors */
+      const [modelsResult, accountResult] = await Promise.allSettled([
+        handle.supportedModels(),
+        handle.accountInfo(),
+      ]);
+      if (modelsResult.status === "fulfilled") {
+        sdkDiscoveredModels = modelsResult.value;
+        logger.info(`[SdkSession] Pre-warm discovered ${modelsResult.value.length} models`);
+      } else {
+        logger.debug(
+          `[SdkSession] Pre-warm supportedModels() failed (non-fatal): ${modelsResult.reason}`,
+        );
+      }
+      if (accountResult.status === "fulfilled") {
+        sdkDiscoveredAccountInfo = accountResult.value;
+        const summary =
+          accountResult.value.subscriptionType ||
+          accountResult.value.apiProvider ||
+          accountResult.value.tokenSource ||
+          "account-ok";
+        logger.info(`[SdkSession] Pre-warm accountInfo: ${summary}`);
+      } else {
+        logger.debug(
+          `[SdkSession] Pre-warm accountInfo() failed (non-fatal): ${accountResult.reason}`,
+        );
+      }
+    } finally {
+      // Done with the warm subprocess — close it cleanly.
+      promptQueue.terminate();
+      try {
+        await handle.close();
+      } catch {
+        /* ignore close errors */
+      }
     }
   } catch (err) {
     logger.debug(`[SdkSession] startup() pre-warm failed (non-fatal): ${err}`);
@@ -374,6 +406,14 @@ export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<void> {
  */
 export function getSdkDiscoveredModels(): SdkModelInfo[] | null {
   return sdkDiscoveredModels;
+}
+
+/**
+ * Return SDK-discovered account info (plan/email/org) if available.
+ * Populated eagerly by prewarmSdk() at server startup, and refreshed by sessions.
+ */
+export function getSdkDiscoveredAccountInfo(): AccountInfo | null {
+  return sdkDiscoveredAccountInfo;
 }
 
 /**
@@ -1260,6 +1300,10 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     void this.query
       .accountInfo()
       .then((info) => {
+        // Always refresh the module-level cache so the pre-warmed copy
+        // doesn't go stale (e.g. if plan tier changes mid-day).
+        sdkDiscoveredAccountInfo = info;
+
         const account: Record<string, unknown> = {};
         if (info.subscriptionType) account.plan = info.subscriptionType;
         if (info.email) account.email = info.email;

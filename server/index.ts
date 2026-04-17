@@ -90,6 +90,10 @@ export class Relay {
    */
   async start(): Promise<void> {
     await this.instanceManager.initSdkProvider();
+    // Kick off Codex pre-warm in parallel with the rest of boot — model list
+    // and account/rate-limit snapshot are both fetched via short-lived
+    // `codex app-server` subprocesses; no need to await before serving HTTP.
+    this.instanceManager.initCodexProvider();
     this.instanceManager.restoreInstances(); // DB-only, fast
 
     // Initialize terminal support (non-fatal if node-pty is unavailable)

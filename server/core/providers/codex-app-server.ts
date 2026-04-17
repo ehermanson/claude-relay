@@ -2446,6 +2446,7 @@ export async function fetchCodexProviderGlobalStateSnapshot({
       try {
         const msg = JSON.parse(line) as JsonRpcMessage;
         if ("id" in msg && msg.id !== undefined && !("method" in msg)) {
+          // RPC response
           const id = typeof msg.id === "number" ? msg.id : Number(msg.id);
           const entry = pending.get(id);
           if (!entry) continue;
@@ -2457,6 +2458,12 @@ export async function fetchCodexProviderGlobalStateSnapshot({
           } else {
             entry.resolve(msg.result);
           }
+        } else if ("method" in msg && msg.method && !("id" in msg && msg.id !== undefined)) {
+          // Push notification — ignored during cold snapshot (Codex no longer
+          // pushes rate limits proactively; live sessions handle these separately)
+          logger.debug(
+            `[CodexAppServer] Snapshot received push notification: ${msg.method as string}`,
+          );
         }
       } catch {
         logger.debug(`[CodexAppServer] Snapshot fetch ignoring non-JSON line: ${line}`);
@@ -2501,6 +2508,10 @@ export async function fetchCodexProviderGlobalStateSnapshot({
     const mcpPayload = asRecord(mcpResult);
     const appPayload = asRecord(appResult);
     const account = normalizeCodexAccountSnapshot(accountResult) ?? undefined;
+
+    // account/rateLimits/read currently returns null from a cold subprocess
+    // (requires internal snapshots that only exist after a live turn). Kept
+    // here so it starts working automatically if Codex adds cold-snapshot support.
     const rateLimits = normalizeCodexRateLimitsSnapshot(rateLimitsResult);
 
     return {

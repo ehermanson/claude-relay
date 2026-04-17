@@ -26,7 +26,7 @@ import type {
 import { createSdkSessionSync, getSdkDiscoveredModels } from "#core/providers/claude-sdk.js";
 import { isClaudeInstalled } from "#core/providers/claude-cli.js";
 import { isCodexInstalled } from "#core/providers/codex-cli.js";
-import { discoverCodexModels } from "#core/providers/codex-models.js";
+import { discoverCodexModels, getCachedCodexModels } from "#core/providers/codex-models.js";
 import { CodexAppServerSession } from "#core/providers/codex-app-server.js";
 import { findCodexTranscriptPath, parseCodexTranscript } from "#core/providers/codex-transcript.js";
 import {
@@ -701,7 +701,12 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       });
     },
     async getModels(context) {
-      const discovered = await discoverCodexModels({ logger: context.logger });
+      // Prefer the pre-warm cache populated at server boot so the first
+      // /api/provider-models?provider=codex hit doesn't pay the cost of
+      // spawning `codex app-server`. Falls through to a live probe if the
+      // pre-warm hasn't completed yet (or the binary wasn't present at boot).
+      const discovered =
+        getCachedCodexModels() ?? (await discoverCodexModels({ logger: context.logger }));
       if (discovered.length === 0) {
         return getBuiltinProviderModels("codex");
       }

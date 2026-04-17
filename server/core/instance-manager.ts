@@ -27,10 +27,16 @@ import { join, resolve } from "path";
 import { homedir } from "os";
 import { execFileSync } from "child_process";
 import type { ProviderSession } from "#core/provider.js";
-import { resolveQueryFn, prewarmSdk } from "#core/providers/claude-sdk.js";
+import {
+  resolveQueryFn,
+  prewarmSdk,
+  getSdkDiscoveredAccountInfo,
+} from "#core/providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "#core/providers/claude-sdk.js";
 import { convertCodexTranscriptEntry } from "#core/providers/codex-transcript.js";
 import { fetchCodexProviderGlobalStateSnapshot } from "#core/providers/codex-app-server.js";
+import { prewarmCodexModels } from "#core/providers/codex-models.js";
+import { isCodexInstalled } from "#core/providers/codex-cli.js";
 import { SessionDB } from "#core/db.js";
 import type { SessionRow, ManagedInstanceRow } from "#core/db.js";
 import { BUILTIN_PROVIDER_MODELS } from "#core/provider-catalog.js";
@@ -41,6 +47,12 @@ import type { Project } from "#core/types.js";
 import { discoverSkills } from "#core/skills.js";
 import { hasTasks, loadTasks } from "#core/task-manager.js";
 import type { CoreConfig } from "#core/config.js";
+import { relayDir } from "#core/config.js";
+import {
+  providerStateFilePath,
+  loadPersistedProviderState,
+  persistProviderState,
+} from "#core/provider-state-file.js";
 import { createPatch } from "diff";
 import { extFromPath } from "#core/paths.js";
 import type {
@@ -1243,6 +1255,8 @@ export class InstanceManager extends EventEmitter {
     import("#core/types.js").ProviderGlobalState
   >();
   private providerGlobalHydrationInFlight = new Map<ProviderKind, Promise<void>>();
+  private _providerStateFilePath = providerStateFilePath(relayDir);
+  private _persistStateTimeout: ReturnType<typeof setTimeout> | null = null;
   private instances = new Map<string, Instance>();
   private instanceMutationChains = new Map<string, Promise<void>>();
   private missingRunnableCwdWarnings = new Map<string, string>();
@@ -1317,6 +1331,19 @@ export class InstanceManager extends EventEmitter {
       this.emit("projects:changed");
     });
     this._projectManager.recoverProjectsFromSessionDirectories();
+
+    // Restore persisted provider global state (rate limits, account info, etc.)
+    // from the previous run. Treated as stale-but-valid: shown immediately while
+    // live sessions push fresh updates.
+    const persisted = loadPersistedProviderState(this._providerStateFilePath);
+    for (const state of persisted) {
+      this.providerGlobalState.set(state.provider, state);
+    }
+    if (persisted.length > 0) {
+      this.baseConfig.logger.debug(
+        `[InstanceManager] Restored provider state for: ${persisted.map((s) => s.provider).join(", ")}`,
+      );
+    }
   }
 
   /** Access the project manager for project CRUD operations. */
@@ -1601,13 +1628,44 @@ export class InstanceManager extends EventEmitter {
     try {
       this._sdkQueryFn = (await resolveQueryFn()) as typeof this._sdkQueryFn;
       this.baseConfig.logger.info("[InstanceManager] Agent SDK provider initialized");
-      // Spawn a short-lived subprocess to discover models from the SDK so
-      // the model list is available immediately (not just after the first session).
-      // Fire-and-forget — model discovery is best-effort; builtins are the fallback.
-      void prewarmSdk(this.baseConfig.logger);
+      // Spawn a short-lived subprocess to discover models + account info from
+      // the SDK so both are available immediately (not just after the first
+      // session). Fire-and-forget — pre-warm is best-effort; builtins are the
+      // fallback for models, and account info remains null until a real
+      // session runs if the pre-warm fails.
+      void prewarmSdk(this.baseConfig.logger).then(() => {
+        // Promote pre-warmed Claude account info into the provider global
+        // state so the UI's global settings page sees plan/email at boot.
+        void this.ensureProviderGlobalState("claude");
+      });
     } catch {
       this.baseConfig.logger.info("[InstanceManager] Agent SDK not available, using CLI provider");
     }
+  }
+
+  /**
+   * Pre-warm Codex: discover the model list and hydrate provider global
+   * state (account + rate limits + MCP servers + apps) before the UI asks
+   * for any of it. Fire-and-forget; non-fatal if the Codex binary is absent.
+   *
+   * Called alongside `initSdkProvider()` at server start so both providers'
+   * model lists and account status are hot from the moment the HTTP server
+   * begins accepting connections.
+   */
+  initCodexProvider(): void {
+    if (!isCodexInstalled()) {
+      this.baseConfig.logger.info(
+        "[InstanceManager] Codex binary not available, skipping pre-warm",
+      );
+      return;
+    }
+    // Model discovery → populates module-level cache in codex-models.ts,
+    // consumed by the codex provider driver's getModels() on next call.
+    void prewarmCodexModels({ logger: this.baseConfig.logger });
+    // Account info + MCP + apps → populates providerGlobalState, served to
+    // the UI on connect. Rate limits come from live sessions (the cold
+    // app-server probe can't read them without a prior turn snapshot).
+    void this.ensureProviderGlobalState("codex");
   }
 
   private getProviderContext() {
@@ -2236,8 +2294,18 @@ export class InstanceManager extends EventEmitter {
     const run = (async () => {
       try {
         if (provider === "claude") {
-          // Claude doesn't have an RPC to poll — try to harvest rate limit
-          // data from any active session that has already received events.
+          // Plan/email/org come from the pre-warmed SDK account info if
+          // available — this means the UI sees the user's plan at boot
+          // instead of having to wait for the first managed session.
+          const accountInfo = getSdkDiscoveredAccountInfo();
+          const accountPatch: import("#core/types.js").ProviderAccountStatus = {};
+          if (accountInfo?.subscriptionType) accountPatch.plan = accountInfo.subscriptionType;
+          if (accountInfo?.email) accountPatch.email = accountInfo.email;
+          if (accountInfo?.organization) accountPatch.label = accountInfo.organization;
+
+          // Rate limits: Claude's SDK doesn't expose a snapshot-style
+          // rateLimits/read RPC, so we can only surface data that active
+          // sessions have already received via `rate_limit_event`.
           for (const instance of this.instances.values()) {
             if (instance.info.provider !== "claude" || !instance.process) continue;
             const session =
@@ -2245,9 +2313,13 @@ export class InstanceManager extends EventEmitter {
             if (typeof session.getRateLimitSnapshot !== "function") continue;
             const rateLimits = session.getRateLimitSnapshot();
             if (rateLimits?.length) {
-              this.updateProviderGlobalState("claude", { account: { rateLimits } });
+              accountPatch.rateLimits = rateLimits;
               break;
             }
+          }
+
+          if (Object.keys(accountPatch).length > 0) {
+            this.updateProviderGlobalState("claude", { account: accountPatch });
           }
           return;
         }
@@ -2313,6 +2385,19 @@ export class InstanceManager extends EventEmitter {
     };
     this.providerGlobalState.set(provider, next);
     this.emit("provider_global_state:updated", provider, this.cloneProviderGlobalState(next));
+
+    // Debounced persistence: write all provider state to disk ~500 ms after the
+    // last update so rapid consecutive updates collapse into a single write.
+    if (this._persistStateTimeout !== null) {
+      clearTimeout(this._persistStateTimeout);
+    }
+    this._persistStateTimeout = setTimeout(() => {
+      this._persistStateTimeout = null;
+      persistProviderState(
+        this._providerStateFilePath,
+        Array.from(this.providerGlobalState.values()),
+      );
+    }, 500);
   }
 
   private emitInstanceStatus(instance: Instance): void {

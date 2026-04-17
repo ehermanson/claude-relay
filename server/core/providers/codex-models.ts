@@ -35,6 +35,48 @@ export interface DiscoverCodexModelsOptions {
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 
+/**
+ * Module-level cache of Codex-reported models. Populated by
+ * `prewarmCodexModels()` at server startup and refreshed when callers opt in
+ * via `discoverCodexModels({ cache: true })`. The Codex binary spawns a fresh
+ * `app-server` subprocess on every model probe, so this cache is what lets
+ * `/api/provider-models?provider=codex` serve hot instead of paying the
+ * subprocess startup cost on the first UI request.
+ */
+let codexDiscoveredModels: ProviderModelOption[] | null = null;
+
+/**
+ * Return the cached Codex model list if `prewarmCodexModels()` (or a cached
+ * `discoverCodexModels()` call) has populated it. Returns null otherwise so
+ * callers know to fall back to a live probe.
+ */
+export function getCachedCodexModels(): ProviderModelOption[] | null {
+  return codexDiscoveredModels;
+}
+
+/**
+ * Fire-and-forget pre-warm: probe `codex app-server` for models and cache
+ * the result. Safe to call at server startup; the Codex binary may be missing,
+ * in which case this resolves with an empty list and we leave the cache empty
+ * so the provider driver falls back to the builtin catalog.
+ */
+export async function prewarmCodexModels(options: DiscoverCodexModelsOptions = {}): Promise<void> {
+  if (codexDiscoveredModels) return;
+  try {
+    const models = await discoverCodexModels(options);
+    if (models.length > 0) {
+      codexDiscoveredModels = models;
+      options.logger?.info?.(`[CodexModels] Pre-warm discovered ${models.length} models`);
+    } else {
+      options.logger?.debug?.(
+        "[CodexModels] Pre-warm returned no models (binary missing or empty list)",
+      );
+    }
+  } catch (err) {
+    options.logger?.debug?.(`[CodexModels] Pre-warm failed (non-fatal): ${err}`);
+  }
+}
+
 export async function discoverCodexModels(
   options: DiscoverCodexModelsOptions = {},
 ): Promise<ProviderModelOption[]> {
