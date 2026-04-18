@@ -8,6 +8,7 @@ import {
   ArrowRightFromLine,
   Zap,
   Slash,
+  MessageSquareReply,
 } from "lucide-react";
 import { formatTimestamp } from "../../lib/utils";
 import { MarkdownContent, ImageThumbnail, IMAGE_PATTERN } from "./markdown-content";
@@ -28,9 +29,17 @@ const TERMINAL_CONTEXT_PATTERN =
 const TASK_REFERENCE_PATTERN =
   /<task_reference\s+id="([^"]*)"\s+title="([^"]*)">([\s\S]*?)\n?<\/task_reference>/g;
 
+const INLINE_REPLY_PATTERN =
+  /<inline_reply>\s*<quote>\n?([\s\S]*?)\n?<\/quote>\n?([\s\S]*?)\n?<\/inline_reply>/g;
+
 interface TerminalBlock {
   source: string;
   text: string;
+}
+
+interface InlineReplyBlock {
+  quote: string;
+  reply: string;
 }
 
 /** Reverse XML entity escaping applied by expandTaskReferences. */
@@ -46,11 +55,17 @@ function splitContent(text: string): {
   textPart: string;
   images: string[];
   terminalBlocks: TerminalBlock[];
+  inlineReplies: InlineReplyBlock[];
 } {
   const images: string[] = [];
   const terminalBlocks: TerminalBlock[] = [];
+  const inlineReplies: InlineReplyBlock[] = [];
 
   let cleaned = text
+    .replace(INLINE_REPLY_PATTERN, (_match, quote: string, reply: string) => {
+      inlineReplies.push({ quote: quote.trim(), reply: reply.trim() });
+      return "";
+    })
     .replace(TERMINAL_CONTEXT_PATTERN, (_match, source: string | undefined, content: string) => {
       terminalBlocks.push({ source: source || "Terminal", text: content });
       return "";
@@ -64,7 +79,7 @@ function splitContent(text: string): {
     })
     .trim();
 
-  return { textPart: cleaned, images, terminalBlocks };
+  return { textPart: cleaned, images, terminalBlocks, inlineReplies };
 }
 
 // ── Slash command detection ──────────────────────────────────────────
@@ -99,6 +114,17 @@ function ImageRow({ images }: { images: string[] }) {
           alt="Image"
         />
       ))}
+    </div>
+  );
+}
+
+function InlineReplyQuote({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-1.5 rounded-md bg-accent/10 px-2 py-1.5">
+      <MessageSquareReply size={11} className="mt-[3px] shrink-0 text-accent/70" />
+      <div className="min-w-0 flex-1 whitespace-pre-wrap text-[0.75rem] italic leading-snug text-muted">
+        {text}
+      </div>
     </div>
   );
 }
@@ -143,10 +169,11 @@ export function UserMessage({
   queued,
   onInterruptAndSend,
 }: UserMessageProps) {
-  const { textPart, images, terminalBlocks } = splitContent(text);
+  const { textPart, images, terminalBlocks, inlineReplies } = splitContent(text);
   const hasText = textPart.length > 0;
   const hasImages = images.length > 0;
   const hasTerminal = terminalBlocks.length > 0;
+  const hasInlineReplies = inlineReplies.length > 0;
 
   // Detect spin-off messages, including the legacy handoff prefix for compatibility.
   const spinOffMatch = textPart.match(/^\[(?:Handoff|Spun off) from:\s+(.+?)\]\s*/);
@@ -201,7 +228,30 @@ export function UserMessage({
           <span>From: {relaySource}</span>
         </div>
       )}
-      {hasText && slashParsed && !slashParsed.rest ? (
+      {hasInlineReplies ? (
+        <div
+          className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed ${
+            queued
+              ? "border-border/30 border-dashed bg-user-bg/60 text-user-text/70"
+              : "border-border/50 bg-user-bg text-user-text"
+          }`}
+          style={shrinkwrapWidth ? { maxWidth: shrinkwrapWidth } : undefined}
+        >
+          <div className="flex flex-col gap-2.5">
+            {inlineReplies.map((block, i) => (
+              <div key={i} className="flex flex-col gap-1.5 border-l-2 border-accent/40 pl-2.5">
+                <InlineReplyQuote text={block.quote} />
+                {block.reply.length > 0 && <MarkdownContent text={block.reply} />}
+              </div>
+            ))}
+            {hasText && (
+              <div className="border-t border-border/40 pt-2">
+                <MarkdownContent text={displayText} />
+              </div>
+            )}
+          </div>
+        </div>
+      ) : hasText && slashParsed && !slashParsed.rest ? (
         <SlashCommandChip command={slashParsed.command} />
       ) : hasText && slashParsed?.rest ? (
         <div

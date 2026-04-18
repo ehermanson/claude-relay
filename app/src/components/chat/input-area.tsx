@@ -105,12 +105,17 @@ function buildPromptPlaceholder(
 }
 
 function formatInlineReplyFragment(selectedText: string, reply: string): string {
-  const quoted = selectedText
-    .trim()
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n");
-  return `${quoted}\n${reply.trim()}`;
+  // Structured XML tag (matches the `<terminal_context>` / `<task_reference>` convention)
+  // so the UI can render quote + reply as distinct visual regions instead of a single
+  // markdown blockquote. The model reads this as "user is replying to a quoted excerpt".
+  return [
+    "<inline_reply>",
+    "<quote>",
+    selectedText.trim(),
+    "</quote>",
+    reply.trim(),
+    "</inline_reply>",
+  ].join("\n");
 }
 
 function InlineReplyFragmentStrip({
