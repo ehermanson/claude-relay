@@ -40,7 +40,9 @@ import { registerSettingsRoutes } from "#server/routes/settings.js";
 import { registerSearchRoutes } from "#server/routes/search.js";
 import { registerWorkspaceRoutes } from "#server/routes/workspace.js";
 import { registerSpinOffRoutes } from "#server/routes/spin-offs.js";
+import { registerSystemUpdateRoutes } from "#server/routes/system-update.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
+import { UpdateManager } from "#server/update-manager.js";
 
 // From dist: dist/server/http.js → ../../ = project root
 // From source: server/http.ts → ../ = project root
@@ -81,6 +83,7 @@ interface RequestHandlerOverrides {
   getAvailableProviders?: () => ProviderDescriptor[];
   getOpenTargets?: (targetPath: string) => Promise<NativeOpenTargetsResponse>;
   openNativePath?: (request: NativeOpenRequest) => Promise<void>;
+  updateManager?: UpdateManager;
 }
 
 function createGitRepoLister() {
@@ -261,6 +264,16 @@ export function createRequestHandler(
       return pending;
     });
 
+  const updateManager =
+    overrides.updateManager ??
+    new UpdateManager({
+      installDir: projectRoot,
+      currentVersion: packageVersion,
+      logger: log,
+      requestRestart: () => {},
+      restartSupported: false,
+    });
+
   const deps: HttpDeps = {
     config,
     auth,
@@ -283,6 +296,7 @@ export function createRequestHandler(
     openNativePath:
       overrides.openNativePath ?? ((request: NativeOpenRequest) => projectOpener.open(request)),
     getGitRepos: createGitRepoLister(),
+    updateManager,
   };
 
   const app = new Hono<AppEnv>();
@@ -301,6 +315,7 @@ export function createRequestHandler(
   registerUploadRoutes(app, deps);
   registerSearchRoutes(app, deps);
   registerSettingsRoutes(app, deps);
+  registerSystemUpdateRoutes(app, deps);
   registerUiRoutes(app, deps);
 
   app.onError((error, c) => {

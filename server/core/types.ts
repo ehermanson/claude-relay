@@ -904,6 +904,38 @@ export interface TerminalListResponse {
   terminals: TerminalInfo[];
 }
 
+// =============================================================================
+// Update Types
+// =============================================================================
+
+export type UpdateStatus =
+  | "unavailable"
+  | "idle"
+  | "checking"
+  | "available"
+  | "up_to_date"
+  | "updating"
+  | "restart_pending"
+  | "error";
+
+export interface UpdateSnapshot {
+  enabled: boolean;
+  installAction: "restart";
+  status: UpdateStatus;
+  currentVersion: string;
+  currentCommit: string | null;
+  latestCommit: string | null;
+  updateAvailable: boolean;
+  checkedAt: number | null;
+  error: string | null;
+}
+
+export interface UpdateInstallResult {
+  ok: boolean;
+  action: "restart";
+  error?: string;
+}
+
 export interface SpinOffCreatedMessage {
   type: "spin_off_created";
   spinOff: SpinOffInfo;

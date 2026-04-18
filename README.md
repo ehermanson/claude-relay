@@ -27,6 +27,22 @@ curl -fsSL https://raw.githubusercontent.com/ehermanson/relay/main/install.sh | 
 
 This clones to `~/.relay/app`, builds, and links the `relay` command to `~/.local/bin`. Run it again to update.
 
+Installed production builds can also update themselves from Settings → General in the UI. Relay checks whether the local checkout is behind GitHub `main`, pulls the latest commit, rebuilds, and restarts in place. The updater is hidden in dev/source mode.
+
+For updater testing, you can override the target without changing code:
+
+```bash
+RELAY_UPDATE_REMOTE=origin \
+RELAY_UPDATE_BRANCH=my-test-branch \
+relay start
+```
+
+You can also force the UI to report an available update for restart-flow testing:
+
+```bash
+RELAY_UPDATE_FORCE_AVAILABLE=1 relay start
+```
+
 Then:
 
 ```bash

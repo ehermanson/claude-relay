@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
-import { FolderPlus, Loader2, LogOut, PanelLeftClose, Plus, Search, Settings } from "lucide-react";
+import {
+  DownloadCloud,
+  FolderPlus,
+  Loader2,
+  LogOut,
+  PanelLeftClose,
+  Plus,
+  Search,
+  Settings,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAuthContext } from "../../context/auth-context";
 import { useWSState } from "../../context/websocket-context";
@@ -11,6 +20,8 @@ import {
   addProject as apiAddProject,
   createProject as apiCreateProject,
   fetchHealth,
+  fetchUpdateStatus,
+  installUpdate,
 } from "../../lib/api";
 import { AddProjectForm } from "../forms/add-project-form";
 import { CreateProjectForm } from "../forms/create-project-form";
@@ -35,6 +46,22 @@ export function Sidebar({
     queryKey: ["health"],
     queryFn: fetchHealth,
     staleTime: Infinity,
+  });
+  const { data: updateSnapshot } = useQuery({
+    queryKey: ["system-update"],
+    queryFn: fetchUpdateStatus,
+    staleTime: 30_000,
+  });
+  const updateAvailable = Boolean(updateSnapshot?.enabled && updateSnapshot.updateAvailable);
+  const installMutation = useMutation({
+    mutationFn: installUpdate,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["system-update"] });
+      toast.success("Relay update installed. Restarting now.");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to install update");
+    },
   });
 
   useEffect(() => {
@@ -276,7 +303,7 @@ export function Sidebar({
         </div>
 
         <div className="shrink-0 border-t border-border">
-          <div className="sidebar-footer flex items-center justify-between px-2 py-2">
+          <div className="sidebar-footer flex items-center justify-between gap-1 px-2 py-2">
             <div className="flex items-center gap-0.5">
               <Link to="/settings">
                 <Button variant="ghost" size="sm">
@@ -285,12 +312,34 @@ export function Sidebar({
                 </Button>
               </Link>
             </div>
-            {isAuthenticated && (
-              <Button variant="ghost" size="sm" onClick={logout}>
-                <LogOut size={13} />
-                Sign out
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {updateAvailable && (
+                <Tooltip content="Install update and restart Relay" side="top">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={installMutation.isPending}
+                    onClick={() => installMutation.mutate()}
+                    className="relative !text-amber-400 hover:!bg-amber-500/10 hover:!text-amber-300"
+                  >
+                    <DownloadCloud
+                      size={13}
+                      className={installMutation.isPending ? "animate-pulse" : ""}
+                    />
+                    Update
+                    {!installMutation.isPending && (
+                      <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse-dot rounded-full bg-amber-400" />
+                    )}
+                  </Button>
+                </Tooltip>
+              )}
+              {isAuthenticated && (
+                <Button variant="ghost" size="sm" onClick={logout}>
+                  <LogOut size={13} />
+                  Sign out
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </aside>

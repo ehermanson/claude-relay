@@ -603,26 +603,24 @@ ${buildSearchIndexSchemaSql()},
     if (currentVersion === 0) {
       // Fresh database — create everything
       this.createSchema();
+      this.ensureGlobalSettingsColumns();
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
       return;
     }
 
     if (currentVersion >= CURRENT_SCHEMA_VERSION) {
-      // Current or newer (e.g. worktree branch with a schema bump) — leave it alone
+      // Current or newer can still have schema drift (e.g. interrupted/manual
+      // migrations, branch switches, older dev checkouts). Keep lightweight
+      // shape repairs idempotent and independent of schema_version.
+      this.createSchema();
+      this.ensureGlobalSettingsColumns();
       return;
     }
 
     // Older version — run idempotent schema creation to add any new
     // tables/indexes, then bump the version. Data is preserved.
-    if (currentVersion < 22) {
-      // Add project_order_json to existing global_settings rows
-      try {
-        this.db.exec("ALTER TABLE global_settings ADD COLUMN project_order_json TEXT");
-      } catch {
-        // Column already exists (e.g. worktree ahead of main) — safe to ignore
-      }
-    }
     this.createSchema();
+    this.ensureGlobalSettingsColumns();
     this.db.exec(`UPDATE schema_version SET version = ${CURRENT_SCHEMA_VERSION}`);
   }
 
@@ -767,6 +765,19 @@ ${buildSearchIndexSchemaSql()},
 
       INSERT OR IGNORE INTO global_settings (id) VALUES (1);
     `);
+  }
+
+  private ensureGlobalSettingsColumns(): void {
+    const columns = this.db.prepare("PRAGMA table_info(global_settings)").all() as Array<{
+      name?: string;
+    }>;
+    const columnNames = new Set(
+      columns.map((column) => (typeof column.name === "string" ? column.name : "")).filter(Boolean),
+    );
+
+    if (!columnNames.has("project_order_json")) {
+      this.db.exec("ALTER TABLE global_settings ADD COLUMN project_order_json TEXT");
+    }
   }
 
   private prepareStatements(): void {

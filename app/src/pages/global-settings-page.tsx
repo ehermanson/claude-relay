@@ -2,15 +2,27 @@ import { useRef, useCallback, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
-import { Sun, Moon, Monitor } from "lucide-react";
 import {
+  AlertCircle,
+  CheckCircle2,
+  DownloadCloud,
+  Loader2,
+  Monitor,
+  Moon,
+  RefreshCw,
+  Sun,
+} from "lucide-react";
+import {
+  checkForUpdates,
   createPairingCode,
   fetchConnectEndpoints,
   fetchHealth,
   fetchGlobalSettings,
+  fetchUpdateStatus,
   updateGlobalSettings,
   fetchProviders,
   fetchProviderModels,
+  installUpdate,
 } from "../lib/api";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +39,7 @@ import type {
   ProviderDefaults,
   ProviderDescriptor,
   ProviderGlobalState,
+  UpdateSnapshot,
 } from "@shared/types";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -108,8 +121,228 @@ export function GeneralSettingsSection() {
       <SettingRow label="Theme" description="Choose between light, dark, or system appearance.">
         <ThemeToggle value={themeStore.preference} onChange={handleThemeChange} />
       </SettingRow>
+      <UpdateSettingsRow />
       <RemoteAccessSettingsRow />
     </SettingsSection>
+  );
+}
+
+function formatShortCommit(commit: string | null | undefined): string | null {
+  return commit ? commit.slice(0, 7) : null;
+}
+
+function formatCheckedAt(checkedAt: number | null | undefined): string | null {
+  if (!checkedAt) return null;
+  const diffMs = Date.now() - checkedAt;
+  if (diffMs < 0) return "just now";
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 45) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+type UpdateStatusTone = "neutral" | "info" | "success" | "warn" | "error";
+
+interface UpdateStatusDescriptor {
+  title: string;
+  tone: UpdateStatusTone;
+  icon: typeof CheckCircle2;
+  spin?: boolean;
+}
+
+function getUpdateStatus(snapshot: UpdateSnapshot | undefined): UpdateStatusDescriptor {
+  if (!snapshot) {
+    return { title: "Checking availability…", tone: "neutral", icon: Loader2, spin: true };
+  }
+  if (!snapshot.enabled) {
+    return {
+      title: snapshot.error ?? "Updates are unavailable for this checkout",
+      tone: "neutral",
+      icon: AlertCircle,
+    };
+  }
+  switch (snapshot.status) {
+    case "checking":
+      return { title: "Checking for updates…", tone: "info", icon: Loader2, spin: true };
+    case "updating":
+      return { title: "Installing update…", tone: "info", icon: Loader2, spin: true };
+    case "restart_pending":
+      return { title: "Restarting Relay…", tone: "info", icon: Loader2, spin: true };
+    case "available":
+      return { title: "Update available", tone: "warn", icon: DownloadCloud };
+    case "up_to_date":
+      return { title: "Relay is up to date", tone: "success", icon: CheckCircle2 };
+    case "error":
+      return { title: snapshot.error ?? "Update check failed", tone: "error", icon: AlertCircle };
+    default:
+      return { title: "Not checked yet", tone: "neutral", icon: RefreshCw };
+  }
+}
+
+const STATUS_TONE_STYLES: Record<UpdateStatusTone, { icon: string; bg: string }> = {
+  neutral: { icon: "text-muted", bg: "bg-surface/70" },
+  info: { icon: "text-accent", bg: "bg-accent/10" },
+  success: { icon: "text-emerald-400", bg: "bg-emerald-500/10" },
+  warn: { icon: "text-amber-400", bg: "bg-amber-500/10" },
+  error: { icon: "text-error", bg: "bg-error/10" },
+};
+
+function UpdateSettingsRow() {
+  const queryClient = useQueryClient();
+  const [restartRequested, setRestartRequested] = useState(false);
+
+  const { data: snapshot, isLoading } = useQuery({
+    queryKey: ["system-update"],
+    queryFn: fetchUpdateStatus,
+    staleTime: 30_000,
+    refetchInterval: (query) => {
+      const state = query.state.data;
+      if (
+        state?.status === "checking" ||
+        state?.status === "updating" ||
+        state?.status === "restart_pending"
+      ) {
+        return 1_000;
+      }
+      return false;
+    },
+  });
+
+  const checkMutation = useMutation({
+    mutationFn: (force?: boolean) => checkForUpdates(Boolean(force)),
+    onSuccess: (nextSnapshot) => {
+      queryClient.setQueryData(["system-update"], nextSnapshot);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to check for updates");
+    },
+  });
+
+  useEffect(() => {
+    if (!restartRequested || !snapshot) return;
+    if (
+      snapshot.status !== "restart_pending" &&
+      snapshot.status !== "updating" &&
+      !snapshot.updateAvailable
+    ) {
+      setRestartRequested(false);
+    }
+  }, [restartRequested, snapshot]);
+
+  const installMutation = useMutation({
+    mutationFn: installUpdate,
+    onSuccess: () => {
+      setRestartRequested(true);
+      queryClient.invalidateQueries({ queryKey: ["system-update"] });
+      toast.success("Relay update installed. Restarting now.");
+    },
+    onError: (error) => {
+      setRestartRequested(false);
+      toast.error(error instanceof Error ? error.message : "Failed to install update");
+    },
+  });
+
+  const currentCommit = formatShortCommit(snapshot?.currentCommit);
+  const latestCommit = formatShortCommit(snapshot?.latestCommit);
+  const status =
+    restartRequested && snapshot?.status !== "restart_pending"
+      ? {
+          title: "Waiting for Relay to restart…",
+          tone: "info" as const,
+          icon: Loader2,
+          spin: true,
+        }
+      : getUpdateStatus(snapshot);
+  const tone = STATUS_TONE_STYLES[status.tone];
+  const StatusIcon = status.icon;
+  const isBusy =
+    checkMutation.isPending ||
+    installMutation.isPending ||
+    snapshot?.status === "checking" ||
+    snapshot?.status === "updating" ||
+    snapshot?.status === "restart_pending";
+  const checkedLabel = formatCheckedAt(snapshot?.checkedAt);
+  const canInstall = Boolean(snapshot?.enabled && snapshot?.updateAvailable && !isBusy);
+  const showCommitDiff = snapshot?.updateAvailable && latestCommit && currentCommit;
+  const isUnavailable = Boolean(!isLoading && snapshot && !snapshot.enabled);
+
+  return (
+    <SettingRow
+      label="Relay Updates"
+      description="Check whether this Relay checkout is behind GitHub and update it in place."
+      vertical
+    >
+      <div className="overflow-hidden rounded-xl border border-border/70 bg-surface/30">
+        <div className="flex items-start gap-3 p-4">
+          <div
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone.bg}`}
+          >
+            <StatusIcon size={18} className={`${tone.icon} ${status.spin ? "animate-spin" : ""}`} />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="text-[0.8125rem] font-medium text-text-bright">{status.title}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.75rem] text-muted">
+              {showCommitDiff ? (
+                <>
+                  <span className="font-mono text-muted">{currentCommit}</span>
+                  <span className="text-border">→</span>
+                  <span className="font-mono text-text">{latestCommit}</span>
+                </>
+              ) : currentCommit ? (
+                <span className="font-mono">{currentCommit}</span>
+              ) : null}
+              {checkedLabel && snapshot?.enabled && (
+                <>
+                  {currentCommit && <span className="text-border">·</span>}
+                  <span>Checked {checkedLabel}</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border/60 bg-surface/40 px-4 py-3">
+          {isUnavailable && (
+            <div className="text-[0.75rem] text-muted">
+              Available only in installed production builds. Dev/source checkouts don&apos;t
+              self-update.
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => checkMutation.mutate(true)}
+              disabled={isBusy || !snapshot?.enabled || isLoading}
+            >
+              <RefreshCw
+                size={12}
+                className={
+                  checkMutation.isPending || snapshot?.status === "checking" ? "animate-spin" : ""
+                }
+              />
+              Check
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={() => installMutation.mutate()}
+              disabled={!canInstall}
+            >
+              <DownloadCloud size={13} />
+              Update and Restart
+            </Button>
+          </div>
+        </div>
+      </div>
+    </SettingRow>
   );
 }
 

@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
-import { LogOut, Moon, PanelLeftOpen, Plus, Sun } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DownloadCloud, LogOut, PanelLeftOpen, Plus, Settings } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { SidebarItem } from "@/components/layout/sidebar-item";
 import { useAuthContext } from "@/context/auth-context";
 import { SidebarActionsProvider } from "@/context/sidebar-actions-context";
-import { useTheme } from "@/stores/theme-store";
 import { useSidebarNavigationController } from "@/hooks/use-sidebar-navigation-controller";
 import { getInstanceProjectRouteId, getProjectName, getSpaceRoute } from "@/lib/project-route";
+import { fetchUpdateStatus, installUpdate } from "@/lib/api";
 import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
 // ── Project flyout (sessions for one project) ────────────────────────
@@ -179,7 +181,23 @@ function ProjectIcon({
 
 export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   const { isAuthenticated, logout } = useAuthContext();
-  const { theme, toggle: toggleTheme } = useTheme();
+  const queryClient = useQueryClient();
+  const { data: updateSnapshot } = useQuery({
+    queryKey: ["system-update"],
+    queryFn: fetchUpdateStatus,
+    staleTime: 30_000,
+  });
+  const updateAvailable = Boolean(updateSnapshot?.enabled && updateSnapshot.updateAvailable);
+  const installMutation = useMutation({
+    mutationFn: installUpdate,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["system-update"] });
+      toast.success("Relay update installed. Restarting now.");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to install update");
+    },
+  });
   const {
     latestChatIdBySpace,
     currentChatId,
@@ -285,10 +303,30 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
           {/* Footer icons */}
           <div className="mx-auto mt-2 mb-2 h-px w-6 bg-border/60" />
           <div className="flex flex-col items-center gap-1">
-            <Tooltip content={theme === "dark" ? "Light mode" : "Dark mode"} side="right">
-              <Button variant="icon" onClick={toggleTheme}>
-                {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-              </Button>
+            {updateAvailable && (
+              <Tooltip content="Install update and restart Relay" side="right">
+                <Button
+                  variant="icon"
+                  disabled={installMutation.isPending}
+                  onClick={() => installMutation.mutate()}
+                  className="relative !text-amber-400 hover:!bg-amber-500/10 hover:!text-amber-300"
+                >
+                  <DownloadCloud
+                    size={14}
+                    className={installMutation.isPending ? "animate-pulse" : ""}
+                  />
+                  {!installMutation.isPending && (
+                    <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse-dot rounded-full bg-amber-400" />
+                  )}
+                </Button>
+              </Tooltip>
+            )}
+            <Tooltip content="Settings" side="right">
+              <Link to="/settings">
+                <Button variant="icon">
+                  <Settings size={14} />
+                </Button>
+              </Link>
             </Tooltip>
             {isAuthenticated && (
               <Tooltip content="Sign out" side="right">
@@ -303,7 +341,7 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
         {/* Per-project flyout */}
         {flyoutEntry && (
           <div
-            className="glass fixed left-[64px] z-50 flex w-64 animate-slide-in-left flex-col overflow-hidden rounded-xl border-0"
+            className="glass fixed left-[58px] z-50 flex w-64 animate-slide-in-left flex-col overflow-hidden rounded-xl border-0"
             style={{
               top: Math.max(8, Math.min(flyoutTop - 8, window.innerHeight - 400)),
               maxHeight: "min(80vh, 500px)",

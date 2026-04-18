@@ -1,64 +1,111 @@
 #!/usr/bin/env node
 
-/**
- * Relay CLI entry point
- *
- * Usage:
- *   relay start [options]       Start the relay server
- *
- * Start options:
- *   --port <number>             Server port (default: 7777, env: PORT)
- *   --password <string>         Require password for auth (env: RELAY_PASSWORD)
- *   --tunnel                    Start a cloudflared tunnel to this Relay server (env: TUNNEL=true)
- *
- * Environment variables (all optional):
- *   RELAY_PASSWORD              Password for authentication (or use --password)
- *   PORT                        Server port (or use --port)
- *   TUNNEL                      Set to "true" to start a cloudflared tunnel to the Relay server
- *   SESSION_MAX_AGE             Session lifetime in ms, default 7 days
- *   WORKING_DIR                 Working directory for Claude, default cwd
- *   MAX_PROCESSES               Maximum concurrent managed processes, default 15
- *   RELAY_HOME                  Base directory for Relay state, default ~/.relay
- *   SESSION_FILE                Path to session persistence file
- *   DB_PATH                     Path to SQLite database
- *   CLAUDE_DIR                  Claude data directory, default ~/.claude
- *   CODEX_DIR                   Codex data directory, default ~/.codex
- *   GEMINI_DIR                  Gemini data directory, default ~/.gemini
- */
-
+import { spawn } from "node:child_process";
+import fs from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import path from "node:path";
+import process from "node:process";
 import { createRelay } from "#server/index.js";
 import { startTunnel, stopTunnel } from "#server/tunnel.js";
+import { UpdateManager } from "#server/update-manager.js";
 
-// ---------- Arg parsing helpers ----------
-
-function parseFlag(args: string[], flag: string): string | undefined {
-  const idx = args.indexOf(flag);
-  if (idx === -1 || idx + 1 >= args.length) return undefined;
-  return args[idx + 1];
-}
-
-function hasFlag(args: string[], flag: string): boolean {
-  return args.includes(flag);
-}
-
-// ---------- Main dispatch ----------
+const CLI_CHILD_MODE_ENV_VAR = "RELAY_CLI_CHILD_MODE";
+const CLI_UPDATE_RESTART_EXIT_CODE = 75;
 
 const args = process.argv.slice(2);
-const command = args[0];
 
-if (command === "--help" || command === "-h") {
-  printUsage();
-} else if (command === "start") {
-  startServer(args.slice(1));
-} else if (!command) {
-  // Bare `relay` with no args — start the server (backwards compat)
-  startServer(args);
-} else {
-  console.error(`Unknown command: ${command}\n`);
-  printUsage();
-  process.exit(1);
+if (process.env[CLI_CHILD_MODE_ENV_VAR] === "1") {
+  const exitCode = await runRelayRuntime(args);
+  process.exit(exitCode);
+}
+
+const projectRoot = import.meta.dirname.includes(`${path.sep}dist${path.sep}`)
+  ? path.join(import.meta.dirname, "..", "..")
+  : path.join(import.meta.dirname, "..");
+const packageJsonPath = path.join(projectRoot, "package.json");
+const packageJson = fs.readFileSync(packageJsonPath, "utf8");
+const childScriptPath = process.argv[1];
+
+while (true) {
+  const childResult = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolve, reject) => {
+      const child = spawn(process.execPath, [...process.execArgv, childScriptPath, ...args], {
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          [CLI_CHILD_MODE_ENV_VAR]: "1",
+          RELAY_PACKAGE_JSON: packageJson,
+        },
+      });
+
+      const forwardSignal = (signal: NodeJS.Signals) => {
+        if (child.exitCode !== null) return;
+        child.kill(signal);
+      };
+
+      const onSigint = () => {
+        forwardSignal("SIGINT");
+      };
+      const onSigterm = () => {
+        forwardSignal("SIGTERM");
+      };
+
+      process.on("SIGINT", onSigint);
+      process.on("SIGTERM", onSigterm);
+
+      child.once("error", (error) => {
+        process.off("SIGINT", onSigint);
+        process.off("SIGTERM", onSigterm);
+        reject(error);
+      });
+
+      child.once("exit", (code, signal) => {
+        process.off("SIGINT", onSigint);
+        process.off("SIGTERM", onSigterm);
+        resolve({ code, signal });
+      });
+    },
+  );
+
+  if (childResult.signal === null && childResult.code === CLI_UPDATE_RESTART_EXIT_CODE) {
+    console.log("[Relay] Update installed, restarting in the same terminal session");
+    continue;
+  }
+
+  process.exit(childResult.code ?? (childResult.signal ? 1 : 0));
+}
+
+function parseFlag(argv: string[], flag: string): string | undefined {
+  const idx = argv.indexOf(flag);
+  if (idx === -1 || idx + 1 >= argv.length) return undefined;
+  return argv[idx + 1];
+}
+
+function hasFlag(argv: string[], flag: string): boolean {
+  return argv.includes(flag);
+}
+
+function resolveProjectRoot(): string {
+  return import.meta.dirname.includes(`${path.sep}dist${path.sep}`)
+    ? path.join(import.meta.dirname, "..", "..")
+    : path.join(import.meta.dirname, "..");
+}
+
+async function runRelayRuntime(argv: string[]): Promise<number> {
+  const command = argv[0];
+
+  if (command === "--help" || command === "-h") {
+    printUsage();
+    return 0;
+  }
+  if (command && command !== "start") {
+    console.error(`Unknown command: ${command}\n`);
+    printUsage();
+    return 1;
+  }
+
+  return startServer(command === "start" ? argv.slice(1) : argv);
 }
 
 function printUsage(): void {
@@ -76,13 +123,12 @@ Notes:
   - The tunnel exposes the same Relay server; it is not a separate runtime mode.`);
 }
 
-function startServer(cliArgs: string[]): void {
+async function startServer(cliArgs: string[]): Promise<number> {
   const password = parseFlag(cliArgs, "--password") || process.env.RELAY_PASSWORD || undefined;
   const port = parseInt(parseFlag(cliArgs, "--port") || process.env.PORT || "7777");
   const enableTunnel = hasFlag(cliArgs, "--tunnel") || process.env.TUNNEL === "true";
   const home = homedir();
 
-  // Warn if exposing via tunnel without a password
   if (enableTunnel && !password) {
     console.warn(
       "Warning: Starting tunnel without a password. Anyone with the URL can access Relay.\n" +
@@ -91,12 +137,21 @@ function startServer(cliArgs: string[]): void {
   }
 
   const maxProcesses = parseInt(process.env.MAX_PROCESSES || "15");
-
-  // @anthropic-ai/claude-agent-sdk attaches one `process.on("exit", …)` handler
-  // per live Claude Code subprocess (removed on close). With many concurrent
-  // managed sessions we exceed Node's default 10-listener warning threshold.
-  // Raise the per-event limit to cover maxProcesses + shutdown/rejection handlers.
   process.setMaxListeners(maxProcesses + 20);
+
+  let restartRequested = false;
+  let shutdownFn: (() => void) | null = null;
+
+  const updateManager = new UpdateManager({
+    installDir: resolveProjectRoot(),
+    currentVersion: JSON.parse(process.env.RELAY_PACKAGE_JSON ?? '{"version":"0.0.0"}').version,
+    logger: console,
+    requestRestart: () => {
+      restartRequested = true;
+      shutdownFn?.();
+    },
+  });
+  await updateManager.init();
 
   const relay = createRelay({
     password,
@@ -112,29 +167,29 @@ function startServer(cliArgs: string[]): void {
       codex: process.env.CODEX_DIR ?? join(home, ".codex"),
       gemini: process.env.GEMINI_DIR ?? join(home, ".gemini"),
     },
+    updateManager,
   });
 
-  relay
-    .start()
-    .then(() => {
-      if (process.env.DEV) {
-        console.log(`Relay UI at http://localhost:${process.env.VITE_PORT || "5173"}\n`);
-      } else if (enableTunnel) {
-        startTunnel(port);
-      }
-    })
-    .catch((err: Error) => {
-      console.error(`\n  Failed to start Relay: ${err.message}`);
-      if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
-        console.error(
-          `  Port ${port} is already in use. Try a different port with: relay start --port 8888`,
-        );
-        console.error(`  To inspect the current listener: lsof -nP -iTCP:${port} -sTCP:LISTEN`);
-      }
-      process.exit(1);
-    });
+  try {
+    await relay.start();
+    if (process.env.DEV) {
+      console.log(`Relay UI at http://localhost:${process.env.VITE_PORT || "5173"}\n`);
+    } else if (enableTunnel) {
+      startTunnel(port);
+    }
+  } catch (err) {
+    console.error(`\n  Failed to start Relay: ${(err as Error).message}`);
+    if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      console.error(
+        `  Port ${port} is already in use. Try a different port with: relay start --port 8888`,
+      );
+      console.error(`  To inspect the current listener: lsof -nP -iTCP:${port} -sTCP:LISTEN`);
+    }
+    return 1;
+  }
 
   let stopping = false;
+
   function shutdown() {
     if (stopping) return;
     stopping = true;
@@ -142,21 +197,25 @@ function startServer(cliArgs: string[]): void {
 
     stopTunnel();
 
-    const forceExit = setTimeout(() => process.exit(1), 10000);
+    const forceExit = setTimeout(
+      () => process.exit(restartRequested ? CLI_UPDATE_RESTART_EXIT_CODE : 1),
+      10_000,
+    );
     forceExit.unref();
 
     relay.stop().then(
-      () => process.exit(0),
-      () => process.exit(1),
+      () => process.exit(restartRequested ? CLI_UPDATE_RESTART_EXIT_CODE : 0),
+      () => process.exit(restartRequested ? CLI_UPDATE_RESTART_EXIT_CODE : 1),
     );
   }
 
+  shutdownFn = shutdown;
+
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
-
-  // Log unhandled rejections so crashes leave a trail.
-  // Node 15+ exits on unhandled rejections by default — this ensures we see why.
   process.on("unhandledRejection", (reason) => {
     console.error("[FATAL] Unhandled rejection:", reason);
   });
+
+  return await new Promise<number>(() => {});
 }

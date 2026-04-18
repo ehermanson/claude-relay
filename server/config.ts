@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { relayDir, type CoreConfig } from "#core/config.js";
 import { defaultLogger } from "#core/logger.js";
+import type { UpdateManager } from "#server/update-manager.js";
 
 /**
  * Fully resolved server configuration (all fields required).
@@ -37,6 +38,8 @@ export interface RelayConfig extends CoreConfig {
 export type RelayOptions = Partial<RelayConfig> & {
   /** Alias for workingDirectory */
   defaultWorkingDirectory?: string;
+  /** Optional install/update manager used by the UI updater flow. */
+  updateManager?: UpdateManager;
 };
 
 /**

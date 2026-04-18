@@ -10,6 +10,8 @@ import type {
   ProjectArtifacts,
   SpinOffInfo,
   SpaceInfo,
+  UpdateInstallResult,
+  UpdateSnapshot,
 } from "@shared/types";
 import { getDefaultProviderCapabilities } from "@shared/provider-catalog";
 
@@ -162,6 +164,41 @@ export async function fetchProviders(): Promise<ProviderDescriptor[]> {
   if (!res.ok) throw new Error("Failed to fetch providers");
   const data = (await res.json()) as { providers?: ProviderDescriptor[] };
   return data.providers ?? [];
+}
+
+export async function fetchUpdateStatus(): Promise<UpdateSnapshot> {
+  const res = await fetch("/api/system/update");
+  if (!res.ok) throw new Error("Failed to fetch update status");
+  return res.json();
+}
+
+export async function checkForUpdates(force = false): Promise<UpdateSnapshot> {
+  const params = force ? "?force=1" : "";
+  const res = await fetch(`/api/system/update/check${params}`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to check for updates" }));
+    throw new Error(data.error || "Failed to check for updates");
+  }
+  return res.json();
+}
+
+export async function installUpdate(): Promise<UpdateInstallResult> {
+  const res = await fetch("/api/system/update/install", {
+    method: "POST",
+  });
+  const data = (await res
+    .json()
+    .catch(() => ({
+      ok: false,
+      action: "restart",
+      error: "Failed to install update",
+    }))) as UpdateInstallResult;
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to install update");
+  }
+  return data;
 }
 
 export async function createInstance(

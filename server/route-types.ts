@@ -3,6 +3,7 @@ import type { Session } from "#core/types.js";
 import type { AuthManager } from "#server/auth.js";
 import type { InstanceManager } from "#core/instance-manager.js";
 import type { RelayConfig } from "#server/config.js";
+import type { UpdateManager } from "#server/update-manager.js";
 import type {
   NativeOpenRequest,
   NativeOpenTargetsResponse,
@@ -28,6 +29,7 @@ export interface HttpDeps {
   getOpenTargets: (targetPath: string) => Promise<NativeOpenTargetsResponse>;
   openNativePath: (request: NativeOpenRequest) => Promise<void>;
   getGitRepos: () => Promise<string[]>;
+  updateManager: UpdateManager;
 }
 
 export interface ContextVariables {

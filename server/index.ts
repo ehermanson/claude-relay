@@ -51,8 +51,14 @@ export class Relay {
     // even though the WSS is created after the HTTP server.
     let wsGetConnectionCount: (() => number) | null = null;
 
-    const handler = createRequestHandler(this.config, this.auth, this.instanceManager, () =>
-      wsGetConnectionCount ? wsGetConnectionCount() : 0,
+    const handler = createRequestHandler(
+      this.config,
+      this.auth,
+      this.instanceManager,
+      () => (wsGetConnectionCount ? wsGetConnectionCount() : 0),
+      {
+        ...(options.updateManager ? { updateManager: options.updateManager } : {}),
+      },
     );
     this.server = http.createServer(handler);
 
