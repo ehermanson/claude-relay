@@ -166,7 +166,7 @@ export function SidebarItem({
           {/* Timestamp — fades out on hover (kept visible on touch via CSS) */}
           {recencyAt > 0 && (
             <span
-              className={`sidebar-timestamp-fade pt-px text-[0.625rem] text-muted/50 transition-opacity duration-150${hasMenu ? " group-hover:opacity-0" : ""}`}
+              className={`sidebar-timestamp-fade pt-px text-[0.625rem] text-muted/50 transition-opacity duration-150${hasMenu ? " group-hover:opacity-0" : ""}${menuOpen ? " !opacity-0" : ""}`}
             >
               {formatTimeAgo(recencyAt)}
             </span>
