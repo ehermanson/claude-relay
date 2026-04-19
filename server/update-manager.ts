@@ -163,6 +163,9 @@ export class UpdateManager {
         this.resolveCurrentCommit(),
         this.resolveRemoteCommit(this.gitTarget),
       ]);
+      if (latestCommit) {
+        await this.ensureCommitLocal(latestCommit.trim(), this.gitTarget);
+      }
       const isBehind =
         !!currentCommit &&
         !!latestCommit &&
@@ -312,6 +315,27 @@ export class UpdateManager {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  private async hasCommitLocally(commit: string): Promise<boolean> {
+    try {
+      await this.execGit(["cat-file", "-e", `${commit}^{commit}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async ensureCommitLocal(commit: string, target: GitTarget): Promise<void> {
+    if (await this.hasCommitLocally(commit)) return;
+    try {
+      await this.execGit(["fetch", "--no-tags", "--quiet", target.pullSource, target.branch]);
+    } catch (error) {
+      this.logger.debug(
+        "[Relay] update check fetch failed:",
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
