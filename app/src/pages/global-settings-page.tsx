@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Sun,
 } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 import {
   createPairingCode,
   fetchConnectEndpoints,
@@ -245,6 +246,8 @@ function UpdateSettingsRow() {
   const installButtonLabel = isInstalling
     ? (describeUpdateStage(snapshot?.status, snapshot?.stage) ?? "Installing…")
     : "Update and Restart";
+  // The status icon is clickable to re-check when idle and enabled.
+  const iconIsClickable = Boolean(snapshot?.enabled && !isBusy && !status.spin);
 
   return (
     <SettingRow
@@ -254,11 +257,26 @@ function UpdateSettingsRow() {
     >
       <div className="overflow-hidden rounded-xl border border-border/70 bg-surface/30">
         <div className="flex items-start gap-3 p-4">
-          <div
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone.bg}`}
-          >
-            <StatusIcon size={18} className={`${tone.icon} ${status.spin ? "animate-spin" : ""}`} />
-          </div>
+          {iconIsClickable ? (
+            <Tooltip content="Check for updates" side="right">
+              <button
+                type="button"
+                onClick={() => check(true)}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-opacity ${tone.bg} cursor-pointer hover:opacity-75 active:opacity-60`}
+              >
+                <StatusIcon size={18} className={tone.icon} />
+              </button>
+            </Tooltip>
+          ) : (
+            <div
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone.bg}`}
+            >
+              <StatusIcon
+                size={18}
+                className={`${tone.icon} ${status.spin ? "animate-spin" : ""}`}
+              />
+            </div>
+          )}
 
           <div className="min-w-0 flex-1">
             <div className="text-[0.8125rem] font-medium text-text-bright">{status.title}</div>

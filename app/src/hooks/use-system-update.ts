@@ -4,6 +4,10 @@ import { toast } from "sonner";
 import { checkForUpdates, fetchUpdateStatus, installUpdate } from "@/lib/api";
 import type { UpdateSnapshot, UpdateStage, UpdateStatus } from "@shared/types";
 
+// Module-level interval so we only schedule one background check regardless of
+// how many hook instances are mounted (mini-sidebar + sidebar + settings page).
+let bgCheckInterval: ReturnType<typeof setInterval> | null = null;
+
 const TOAST_ID = "system-update";
 const QUERY_KEY = ["system-update"] as const;
 
@@ -38,6 +42,11 @@ export function describeUpdateStage(
   }
   return null;
 }
+
+/** How stale the last check can be before we auto-re-check (5 min = server TTL). */
+const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+/** How often we proactively recheck in the background. */
+const BG_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
 export interface UseSystemUpdateResult {
   snapshot: UpdateSnapshot | undefined;
@@ -134,6 +143,25 @@ export function useSystemUpdate(): UseSystemUpdateResult {
       toast.error(error instanceof Error ? error.message : "Failed to check for updates");
     },
   });
+
+  // Auto-check: fire once when the snapshot first becomes enabled + stale,
+  // then keep a 30-min background interval. Multiple hook instances share a
+  // single module-level interval; the server deduplicates via checkPromise.
+  useEffect(() => {
+    if (!snapshot?.enabled) return;
+    const stale = !snapshot.checkedAt || Date.now() - snapshot.checkedAt > STALE_THRESHOLD_MS;
+    if (stale && !installMutation.isPending) {
+      checkMutation.mutate(false);
+    }
+    if (!bgCheckInterval) {
+      bgCheckInterval = setInterval(() => {
+        checkMutation.mutate(false);
+      }, BG_CHECK_INTERVAL_MS);
+    }
+    // Note: intentionally no cleanup — we want the interval to survive across
+    // hook unmounts/remounts (e.g., navigating in and out of the settings page).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot?.enabled]);
 
   // Track the last stage key we rendered so we only update the persistent
   // "system-update" toast when the stage actually changes.
