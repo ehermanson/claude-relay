@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Logger } from "#core/logger.js";
-import type { UpdateInstallResult, UpdateSnapshot } from "#core/types.js";
+import type { UpdateInstallResult, UpdateSnapshot, UpdateStage } from "#core/types.js";
 
 const execFileAsync = promisify(execFile);
 const CHECK_TTL_MS = 5 * 60 * 1000;
@@ -40,6 +40,7 @@ export class UpdateManager {
       enabled: false,
       installAction: "restart",
       status: "unavailable",
+      stage: null,
       currentVersion: options.currentVersion,
       currentCommit: null,
       latestCommit: null,
@@ -113,6 +114,7 @@ export class UpdateManager {
     this.snapshot = {
       ...this.snapshot,
       status: "checking",
+      stage: null,
       error: null,
     };
 
@@ -178,6 +180,7 @@ export class UpdateManager {
         latestCommit: latestCommit ?? currentCommit,
         updateAvailable,
         status: updateAvailable ? "available" : "up_to_date",
+        stage: null,
         checkedAt: Date.now(),
         error: null,
       };
@@ -185,6 +188,7 @@ export class UpdateManager {
       this.snapshot = {
         ...this.snapshot,
         status: "error",
+        stage: null,
         checkedAt: Date.now(),
         error: error instanceof Error ? error.message : String(error),
       };
@@ -201,16 +205,14 @@ export class UpdateManager {
       return { ok: false, action: "restart", error: "Relay is already up to date." };
     }
 
-    this.snapshot = {
-      ...this.snapshot,
-      status: "updating",
-      error: null,
-    };
+    this.setStage("pulling");
 
     try {
       await this.ensureCleanWorktree();
       await this.execGit(["pull", "--ff-only", this.gitTarget.pullSource, this.gitTarget.branch]);
+      this.setStage("installing");
       await this.execPnpm(["install", "--frozen-lockfile"], true);
+      this.setStage("building");
       await this.execPnpm(["build"]);
 
       const currentCommit = await this.resolveCurrentCommit();
@@ -221,6 +223,7 @@ export class UpdateManager {
         updateAvailable: false,
         checkedAt: Date.now(),
         status: "restart_pending",
+        stage: "restarting",
         error: null,
       };
 
@@ -241,11 +244,21 @@ export class UpdateManager {
       this.snapshot = {
         ...this.snapshot,
         status: "error",
+        stage: null,
         checkedAt: Date.now(),
         error: message,
       };
       return { ok: false, action: "restart", error: message };
     }
+  }
+
+  private setStage(stage: UpdateStage): void {
+    this.snapshot = {
+      ...this.snapshot,
+      status: stage === "restarting" ? "restart_pending" : "updating",
+      stage,
+      error: null,
+    };
   }
 
   private async resolveGitTarget(): Promise<GitTarget | null> {

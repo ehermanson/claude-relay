@@ -918,10 +918,17 @@ export type UpdateStatus =
   | "restart_pending"
   | "error";
 
+/**
+ * Sub-stage of the "updating" status, so the UI can surface finer-grained
+ * progress (pull → install deps → build → restart). `null` when not installing.
+ */
+export type UpdateStage = "pulling" | "installing" | "building" | "restarting";
+
 export interface UpdateSnapshot {
   enabled: boolean;
   installAction: "restart";
   status: UpdateStatus;
+  stage: UpdateStage | null;
   currentVersion: string;
   currentCommit: string | null;
   latestCommit: string | null;

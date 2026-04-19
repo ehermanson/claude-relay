@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   DownloadCloud,
@@ -20,9 +20,8 @@ import {
   addProject as apiAddProject,
   createProject as apiCreateProject,
   fetchHealth,
-  fetchUpdateStatus,
-  installUpdate,
 } from "../../lib/api";
+import { useSystemUpdate } from "@/hooks/use-system-update";
 import { AddProjectForm } from "../forms/add-project-form";
 import { CreateProjectForm } from "../forms/create-project-form";
 import { Badge } from "../ui/badge";
@@ -47,22 +46,16 @@ export function Sidebar({
     queryFn: fetchHealth,
     staleTime: Infinity,
   });
-  const { data: updateSnapshot } = useQuery({
-    queryKey: ["system-update"],
-    queryFn: fetchUpdateStatus,
-    staleTime: 30_000,
-  });
-  const updateAvailable = Boolean(updateSnapshot?.enabled && updateSnapshot.updateAvailable);
-  const installMutation = useMutation({
-    mutationFn: installUpdate,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["system-update"] });
-      toast.success("Relay update installed. Restarting now.");
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to install update");
-    },
-  });
+  const {
+    snapshot: updateSnapshot,
+    isInstalling: isUpdateInstalling,
+    isBusy: isUpdateBusy,
+    stageLabel: updateStageLabel,
+    install: installUpdateAction,
+  } = useSystemUpdate();
+  const showUpdateButton = Boolean(
+    (updateSnapshot?.enabled && updateSnapshot.updateAvailable) || isUpdateInstalling,
+  );
 
   useEffect(() => {
     if (health?.git?.isWorktree && health.git.spaceName) {
@@ -313,22 +306,40 @@ export function Sidebar({
               </Link>
             </div>
             <div className="flex items-center gap-1">
-              {updateAvailable && (
-                <Tooltip content="Install update and restart Relay" side="top">
+              {showUpdateButton && (
+                <Tooltip
+                  content={
+                    isUpdateInstalling
+                      ? (updateStageLabel ?? "Installing update…")
+                      : "Install update and restart Relay"
+                  }
+                  side="top"
+                >
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={installMutation.isPending}
-                    onClick={() => installMutation.mutate()}
-                    className="relative !text-amber-400 hover:!bg-amber-500/10 hover:!text-amber-300"
+                    disabled={isUpdateBusy}
+                    onClick={() => installUpdateAction()}
+                    className="relative !text-amber-400 hover:!bg-amber-500/10 hover:!text-amber-300 disabled:!opacity-100"
+                    aria-label={
+                      isUpdateInstalling
+                        ? (updateStageLabel ?? "Installing update…")
+                        : "Install update and restart Relay"
+                    }
                   >
-                    <DownloadCloud
-                      size={13}
-                      className={installMutation.isPending ? "animate-pulse" : ""}
-                    />
-                    Update
-                    {!installMutation.isPending && (
-                      <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse-dot rounded-full bg-amber-400" />
+                    {isUpdateInstalling ? (
+                      <>
+                        <Loader2 size={13} className="animate-spin" />
+                        <span className="max-w-[120px] truncate">
+                          {updateStageLabel ?? "Updating…"}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <DownloadCloud size={13} />
+                        Update
+                        <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse-dot rounded-full bg-amber-400" />
+                      </>
                     )}
                   </Button>
                 </Tooltip>

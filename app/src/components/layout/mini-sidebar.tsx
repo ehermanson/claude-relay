@@ -1,16 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { DownloadCloud, LogOut, PanelLeftOpen, Plus, Settings } from "lucide-react";
-import { toast } from "sonner";
+import { DownloadCloud, Loader2, LogOut, PanelLeftOpen, Plus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { SidebarItem } from "@/components/layout/sidebar-item";
 import { useAuthContext } from "@/context/auth-context";
 import { SidebarActionsProvider } from "@/context/sidebar-actions-context";
 import { useSidebarNavigationController } from "@/hooks/use-sidebar-navigation-controller";
+import { useSystemUpdate } from "@/hooks/use-system-update";
 import { getInstanceProjectRouteId, getProjectName, getSpaceRoute } from "@/lib/project-route";
-import { fetchUpdateStatus, installUpdate } from "@/lib/api";
 import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
 // ── Project flyout (sessions for one project) ────────────────────────
@@ -181,23 +179,18 @@ function ProjectIcon({
 
 export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
   const { isAuthenticated, logout } = useAuthContext();
-  const queryClient = useQueryClient();
-  const { data: updateSnapshot } = useQuery({
-    queryKey: ["system-update"],
-    queryFn: fetchUpdateStatus,
-    staleTime: 30_000,
-  });
-  const updateAvailable = Boolean(updateSnapshot?.enabled && updateSnapshot.updateAvailable);
-  const installMutation = useMutation({
-    mutationFn: installUpdate,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["system-update"] });
-      toast.success("Relay update installed. Restarting now.");
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to install update");
-    },
-  });
+  const {
+    snapshot: updateSnapshot,
+    isInstalling,
+    isBusy: isUpdateBusy,
+    stageLabel: updateStageLabel,
+    install: installUpdateAction,
+  } = useSystemUpdate();
+  // Keep the button visible throughout the install so the user keeps seeing
+  // the busy state — not just when `updateAvailable` is true.
+  const showUpdateButton = Boolean(
+    (updateSnapshot?.enabled && updateSnapshot.updateAvailable) || isInstalling,
+  );
   const {
     latestChatIdBySpace,
     currentChatId,
@@ -303,20 +296,33 @@ export function MiniSidebar({ onExpand }: { onExpand: () => void }) {
           {/* Footer icons */}
           <div className="mx-auto mt-2 mb-2 h-px w-6 bg-border/60" />
           <div className="flex flex-col items-center gap-1">
-            {updateAvailable && (
-              <Tooltip content="Install update and restart Relay" side="right">
+            {showUpdateButton && (
+              <Tooltip
+                content={
+                  isInstalling
+                    ? (updateStageLabel ?? "Installing update…")
+                    : "Install update and restart Relay"
+                }
+                side="right"
+              >
                 <Button
                   variant="icon"
-                  disabled={installMutation.isPending}
-                  onClick={() => installMutation.mutate()}
-                  className="relative !text-amber-400 hover:!bg-amber-500/10 hover:!text-amber-300"
+                  disabled={isUpdateBusy}
+                  onClick={() => installUpdateAction()}
+                  className="relative !text-amber-400 hover:!bg-amber-500/10 hover:!text-amber-300 disabled:!opacity-100"
+                  aria-label={
+                    isInstalling
+                      ? (updateStageLabel ?? "Installing update…")
+                      : "Install update and restart Relay"
+                  }
                 >
-                  <DownloadCloud
-                    size={14}
-                    className={installMutation.isPending ? "animate-pulse" : ""}
-                  />
-                  {!installMutation.isPending && (
-                    <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse-dot rounded-full bg-amber-400" />
+                  {isInstalling ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <>
+                      <DownloadCloud size={14} />
+                      <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse-dot rounded-full bg-amber-400" />
+                    </>
                   )}
                 </Button>
               </Tooltip>

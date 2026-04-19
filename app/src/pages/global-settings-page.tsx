@@ -13,17 +13,15 @@ import {
   Sun,
 } from "lucide-react";
 import {
-  checkForUpdates,
   createPairingCode,
   fetchConnectEndpoints,
   fetchHealth,
   fetchGlobalSettings,
-  fetchUpdateStatus,
   updateGlobalSettings,
   fetchProviders,
   fetchProviderModels,
-  installUpdate,
 } from "../lib/api";
+import { useSystemUpdate, describeUpdateStage } from "@/hooks/use-system-update";
 
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Select } from "../components/ui/input";
@@ -169,7 +167,12 @@ function getUpdateStatus(snapshot: UpdateSnapshot | undefined): UpdateStatusDesc
     case "checking":
       return { title: "Checking for updates…", tone: "info", icon: Loader2, spin: true };
     case "updating":
-      return { title: "Installing update…", tone: "info", icon: Loader2, spin: true };
+      return {
+        title: describeUpdateStage(snapshot.status, snapshot.stage) ?? "Installing update…",
+        tone: "info",
+        icon: Loader2,
+        spin: true,
+      };
     case "restart_pending":
       return { title: "Restarting Relay…", tone: "info", icon: Loader2, spin: true };
     case "available":
@@ -192,35 +195,25 @@ const STATUS_TONE_STYLES: Record<UpdateStatusTone, { icon: string; bg: string }>
 };
 
 function UpdateSettingsRow() {
-  const queryClient = useQueryClient();
   const [restartRequested, setRestartRequested] = useState(false);
 
-  const { data: snapshot, isLoading } = useQuery({
-    queryKey: ["system-update"],
-    queryFn: fetchUpdateStatus,
-    staleTime: 30_000,
-    refetchInterval: (query) => {
-      const state = query.state.data;
-      if (
-        state?.status === "checking" ||
-        state?.status === "updating" ||
-        state?.status === "restart_pending"
-      ) {
-        return 1_000;
-      }
-      return false;
-    },
-  });
+  const {
+    snapshot,
+    isLoading,
+    isBusy,
+    isInstalling,
+    canInstall,
+    install,
+    check,
+    installPending,
+    checkPending,
+  } = useSystemUpdate();
 
-  const checkMutation = useMutation({
-    mutationFn: (force?: boolean) => checkForUpdates(Boolean(force)),
-    onSuccess: (nextSnapshot) => {
-      queryClient.setQueryData(["system-update"], nextSnapshot);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to check for updates");
-    },
-  });
+  useEffect(() => {
+    if (installPending) {
+      setRestartRequested(true);
+    }
+  }, [installPending]);
 
   useEffect(() => {
     if (!restartRequested || !snapshot) return;
@@ -233,23 +226,10 @@ function UpdateSettingsRow() {
     }
   }, [restartRequested, snapshot]);
 
-  const installMutation = useMutation({
-    mutationFn: installUpdate,
-    onSuccess: () => {
-      setRestartRequested(true);
-      queryClient.invalidateQueries({ queryKey: ["system-update"] });
-      toast.success("Relay update installed. Restarting now.");
-    },
-    onError: (error) => {
-      setRestartRequested(false);
-      toast.error(error instanceof Error ? error.message : "Failed to install update");
-    },
-  });
-
   const currentCommit = formatShortCommit(snapshot?.currentCommit);
   const latestCommit = formatShortCommit(snapshot?.latestCommit);
   const status =
-    restartRequested && snapshot?.status !== "restart_pending"
+    restartRequested && snapshot?.status !== "restart_pending" && snapshot?.status !== "updating"
       ? {
           title: "Waiting for Relay to restart…",
           tone: "info" as const,
@@ -259,16 +239,12 @@ function UpdateSettingsRow() {
       : getUpdateStatus(snapshot);
   const tone = STATUS_TONE_STYLES[status.tone];
   const StatusIcon = status.icon;
-  const isBusy =
-    checkMutation.isPending ||
-    installMutation.isPending ||
-    snapshot?.status === "checking" ||
-    snapshot?.status === "updating" ||
-    snapshot?.status === "restart_pending";
   const checkedLabel = formatCheckedAt(snapshot?.checkedAt);
-  const canInstall = Boolean(snapshot?.enabled && snapshot?.updateAvailable && !isBusy);
   const showCommitDiff = snapshot?.updateAvailable && latestCommit && currentCommit;
   const isUnavailable = Boolean(!isLoading && snapshot && !snapshot.enabled);
+  const installButtonLabel = isInstalling
+    ? (describeUpdateStage(snapshot?.status, snapshot?.stage) ?? "Installing…")
+    : "Update and Restart";
 
   return (
     <SettingRow
@@ -318,14 +294,12 @@ function UpdateSettingsRow() {
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => checkMutation.mutate(true)}
+              onClick={() => check(true)}
               disabled={isBusy || !snapshot?.enabled || isLoading}
             >
               <RefreshCw
                 size={12}
-                className={
-                  checkMutation.isPending || snapshot?.status === "checking" ? "animate-spin" : ""
-                }
+                className={checkPending || snapshot?.status === "checking" ? "animate-spin" : ""}
               />
               Check
             </Button>
@@ -333,11 +307,15 @@ function UpdateSettingsRow() {
               type="button"
               variant="primary"
               size="sm"
-              onClick={() => installMutation.mutate()}
+              onClick={() => install()}
               disabled={!canInstall}
             >
-              <DownloadCloud size={13} />
-              Update and Restart
+              {isInstalling ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <DownloadCloud size={13} />
+              )}
+              {installButtonLabel}
             </Button>
           </div>
         </div>
