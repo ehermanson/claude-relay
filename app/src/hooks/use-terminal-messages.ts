@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useWSMethods } from "@/context/websocket-context";
+import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useTerminalStore } from "@/stores/terminal-store";
 import type { ServerMessage, TerminalScope } from "@shared/types";
 
@@ -20,6 +20,7 @@ import type { ServerMessage, TerminalScope } from "@shared/types";
  */
 export function useTerminalMessages(scope: TerminalScope | null) {
   const { addMessageHandler, send } = useWSMethods();
+  const { connectionId } = useWSState();
   const addTerminal = useTerminalStore((s) => s.addTerminal);
   const removeTerminal = useTerminalStore((s) => s.removeTerminal);
   const updateTerminal = useTerminalStore((s) => s.updateTerminal);
@@ -40,7 +41,10 @@ export function useTerminalMessages(scope: TerminalScope | null) {
   }, [addMessageHandler, addTerminal, removeTerminal, setTerminalsForScope, updateTerminal]);
 
   // Fetch the initial terminal list for this scope so the store is populated
-  // before the user interacts with the terminal toggle.
+  // before the user interacts with the terminal toggle. Also refires after
+  // every WS reconnect (connectionId change) so the store reflects any
+  // terminal lifecycle that happened while the socket was disconnected (e.g.
+  // dev-server restart, mobile tab suspend).
   //
   // Key on a primitive scope identifier rather than the object itself so that
   // unmemoized callers (e.g. `{ type: "space", spaceId }` recreated each render)
@@ -54,8 +58,13 @@ export function useTerminalMessages(scope: TerminalScope | null) {
     : null;
   useEffect(() => {
     if (!scope) return;
-    send({ type: "terminal_list", scope });
+    // Yield one task after each WS connect so enclosing instance subscriptions
+    // are restored before the scope-scoped terminal list request is sent.
+    const listTimer = setTimeout(() => {
+      send({ type: "terminal_list", scope });
+    }, 0);
+    return () => clearTimeout(listTimer);
     // scope is intentionally excluded — we key on the primitive scopeKey above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, send]);
+  }, [scopeKey, send, connectionId]);
 }

@@ -9,16 +9,6 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { ToolContent } from "@/components/chat/tool-content";
 import { PermissionDeniedContent } from "@/components/chat/tool-content";
 
-// Tools with rich input that's always worth seeing (diffs, file content, interactive UI).
-const ALWAYS_EXPANDABLE = new Set([
-  "Edit",
-  "Write",
-  "AskUserQuestion",
-  "ExitPlanMode",
-  "Agent",
-  "Task",
-]);
-
 interface ActivityEntryProps {
   activity: ActivityKind;
   description: string;
@@ -178,13 +168,9 @@ export function ActivityEntry({
       ? (((input as Record<string, unknown>).file_path as string | undefined) ?? detail)
       : undefined;
 
-  // Any completed tool (has resultStatus) is expandable to see input+output.
-  const hasCompletedResult = !!resultStatus;
-  const isExpandable =
-    isPermDenied ||
-    (hasRichContent && ALWAYS_EXPANDABLE.has(tool!)) ||
-    (hasRichContent && hasCompletedResult) ||
-    (hasRichContent && !!resultDetail);
+  // Any tool call with input is expandable — the generic JSON fallback in
+  // ToolContent handles tools without a custom renderer.
+  const isExpandable = isPermDenied || hasRichContent;
 
   return (
     <div className={`flex flex-col ${collapsed ? "hidden" : ""}`}>

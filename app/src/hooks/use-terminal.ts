@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useRef } from "react";
-import { useWSMethods } from "@/context/websocket-context";
+import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useTerminalStore } from "@/stores/terminal-store";
 import type { ServerMessage, TerminalScope } from "@shared/types";
 
@@ -29,6 +29,11 @@ export function useTerminal({
   onExit,
 }: UseTerminalOptions) {
   const { send, addMessageHandler } = useWSMethods();
+  // `connectionId` increments on every new WS connection. Re-subscribing on
+  // change keeps the server-side `terminalSubscriptions` in sync after a
+  // reconnect — otherwise the ws would stop receiving `terminal_output` for
+  // this terminal even though xterm.js is still mounted and forwarding input.
+  const { connectionId } = useWSState();
   const { updateTerminal } = useTerminalStore();
   const onDataRef = useRef(onData);
   const onScrollbackRef = useRef(onScrollback);
@@ -43,7 +48,12 @@ export function useTerminal({
   useEffect(() => {
     if (!terminalId) return;
 
-    send({ type: "terminal_subscribe", terminalId });
+    // Yield one task after each WS connect so the enclosing chat/space view can
+    // re-establish its instance subscription first. The socket preserves send
+    // order, so this avoids the reconnect race without widening terminal auth.
+    const subscribeTimer = setTimeout(() => {
+      send({ type: "terminal_subscribe", terminalId });
+    }, 0);
 
     const cleanup = addMessageHandler((message: ServerMessage) => {
       if (message.type === "terminal_output" && message.terminalId === terminalId) {
@@ -57,10 +67,11 @@ export function useTerminal({
     });
 
     return () => {
+      clearTimeout(subscribeTimer);
       cleanup();
       send({ type: "terminal_unsubscribe", terminalId });
     };
-  }, [terminalId, send, addMessageHandler, updateTerminal]);
+  }, [terminalId, send, addMessageHandler, updateTerminal, connectionId]);
 
   const write = useCallback(
     (data: string) => {
