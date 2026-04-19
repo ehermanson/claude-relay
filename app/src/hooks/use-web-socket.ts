@@ -202,6 +202,33 @@ export function useWebSocket() {
     };
   }, [setProviderGlobalStateList, updateProviderGlobalState]);
 
+  // Reconnect immediately on visibility restore (e.g. unlocking phone via Tailscale).
+  // The pending backoff timer may be several seconds out; skip it and try right away.
+  const reconnectNow = useCallback(() => {
+    const ws = wsRef.current;
+    const isDead = !ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED;
+    const isStale =
+      ws?.readyState === WebSocket.OPEN && Date.now() - lastMessageRef.current > STALE_TIMEOUT;
+
+    if (isDead) {
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      backoffRef.current = RECONNECT_BASE;
+      connect();
+    } else if (isStale) {
+      ws.close();
+    }
+  }, [connect]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        reconnectNow();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [reconnectNow]);
+
   useEffect(() => {
     connect();
     return () => {
