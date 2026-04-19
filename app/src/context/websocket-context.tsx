@@ -8,6 +8,7 @@ interface WSMethodsContextValue {
   subscribe: (instanceId: string, lastSeenSequence?: number, replayEpoch?: number) => void;
   unsubscribe: (instanceId: string) => void;
   addMessageHandler: (handler: MessageHandler) => () => void;
+  reconnectNow: () => void;
 }
 
 // State that changes over time
@@ -31,11 +32,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     subscribe,
     unsubscribe,
     addMessageHandler,
+    reconnectNow,
   } = useWebSocket();
 
   const methods = useMemo(
-    () => ({ send, subscribe, unsubscribe, addMessageHandler }),
-    [send, subscribe, unsubscribe, addMessageHandler],
+    () => ({ send, subscribe, unsubscribe, addMessageHandler, reconnectNow }),
+    [send, subscribe, unsubscribe, addMessageHandler, reconnectNow],
   );
   const state = useMemo(
     () => ({ isConnected, isSyncing, connectionId, instances }),

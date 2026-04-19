@@ -17,6 +17,7 @@ type ConnectionBannerState = {
   kind: "reconnecting" | "resyncing" | "running" | "interrupted";
   onDismiss?: () => void;
   onContinue?: () => void;
+  onRetry?: () => void;
 } | null;
 
 export type InstanceViewContextValue = {

@@ -8,6 +8,7 @@ interface ConnectionStatusBannerProps {
   kind: "reconnecting" | "resyncing" | "running" | "interrupted";
   onDismiss?: () => void;
   onContinue?: () => void;
+  onRetry?: () => void;
 }
 
 function toneClasses(tone: ConnectionBannerTone): {
@@ -37,6 +38,7 @@ export function ConnectionStatusBanner({
   kind,
   onDismiss,
   onContinue,
+  onRetry,
 }: ConnectionStatusBannerProps) {
   let title = "";
   let detail = "";
@@ -46,8 +48,7 @@ export function ConnectionStatusBanner({
 
   if (kind === "reconnecting") {
     title = "Reconnecting to Relay";
-    detail =
-      "The server connection dropped. Relay will reconnect automatically when the backend is back.";
+    detail = "The connection dropped. Relay will reconnect automatically.";
     tone = "warning";
     Icon = WifiOff;
   } else if (kind === "resyncing") {
@@ -84,6 +85,11 @@ export function ConnectionStatusBanner({
             <p className="text-[0.8125rem] font-medium text-text-bright">{title}</p>
             <p className="mt-0.5 text-[0.75rem] text-muted">{detail}</p>
           </div>
+          {onRetry && (
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={onRetry}>
+              Retry
+            </Button>
+          )}
           {onContinue && (
             <Button variant="primary" size="sm" className="shrink-0" onClick={onContinue}>
               Continue

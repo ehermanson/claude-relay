@@ -202,21 +202,32 @@ export function useWebSocket() {
     };
   }, [setProviderGlobalStateList, updateProviderGlobalState]);
 
-  // Reconnect immediately on visibility restore (e.g. unlocking phone via Tailscale).
-  // The pending backoff timer may be several seconds out; skip it and try right away.
+  // Force an immediate reconnect regardless of current socket state.
+  // Covers all four readyState cases so a manual retry or visibility-restore
+  // is never a silent no-op (e.g. socket stuck in CONNECTING on a wedged
+  // Tailscale handshake).
   const reconnectNow = useCallback(() => {
     const ws = wsRef.current;
-    const isDead = !ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED;
-    const isStale =
-      ws?.readyState === WebSocket.OPEN && Date.now() - lastMessageRef.current > STALE_TIMEOUT;
 
-    if (isDead) {
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      // Nothing open — reconnect immediately with reset backoff.
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
       backoffRef.current = RECONNECT_BASE;
       connect();
-    } else if (isStale) {
-      ws.close();
+      return;
     }
+
+    if (ws.readyState === WebSocket.CLOSING) {
+      // Already tearing down — just reset backoff so onclose reconnects fast.
+      backoffRef.current = RECONNECT_BASE;
+      return;
+    }
+
+    // CONNECTING or OPEN (including stale-open): force-close and let onclose
+    // reconnect with the reset backoff.
+    backoffRef.current = RECONNECT_BASE;
+    if (reconnectRef.current) clearTimeout(reconnectRef.current);
+    ws.close();
   }, [connect]);
 
   useEffect(() => {
@@ -250,5 +261,6 @@ export function useWebSocket() {
     subscribe,
     unsubscribe,
     addMessageHandler,
+    reconnectNow,
   };
 }

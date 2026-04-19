@@ -4,9 +4,14 @@ interface ConnectionBanner {
   kind: "reconnecting" | "resyncing" | "running" | "interrupted";
   onDismiss?: () => void;
   onContinue?: () => void;
+  onRetry?: () => void;
 }
 
 const AUTO_DISMISS_MS = 15_000;
+
+// Grace period before showing the reconnecting banner on initial load.
+// Avoids a flash during normal cold-start WS handshake.
+const INITIAL_CONNECT_GRACE_MS = 3_000;
 
 /**
  * Derives the connection-status banner for an instance view.
@@ -23,6 +28,7 @@ export function useConnectionBanner({
   isStopped,
   isLoadingSession,
   onContinue,
+  onRetry,
 }: {
   isConnected: boolean;
   connectionId: number;
@@ -32,13 +38,25 @@ export function useConnectionBanner({
   isStopped: boolean;
   isLoadingSession: boolean;
   onContinue: () => void;
+  onRetry: () => void;
 }): ConnectionBanner | null {
   const [reconnectAt, setReconnectAt] = useState<number | null>(null);
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
+  // Whether the initial grace period has elapsed without connecting.
+  const [initialGraceElapsed, setInitialGraceElapsed] = useState(false);
 
   const prevConnectedRef = useRef(isConnected);
   const prevConnectionIdRef = useRef(connectionId);
   const wasActiveAtDisconnectRef = useRef(false);
+
+  // Show the reconnecting banner after the grace period if we still haven't connected.
+  // This covers the case where the WS never establishes (e.g. on a slow Tailscale link),
+  // so connectionId stays 0 and the user would otherwise see a silently disabled input.
+  useEffect(() => {
+    if (isConnected) return;
+    const timer = setTimeout(() => setInitialGraceElapsed(true), INITIAL_CONNECT_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Detect disconnect-while-active and reconnection in one pass.
   useEffect(() => {
@@ -73,7 +91,9 @@ export function useConnectionBanner({
 
   let banner: (ConnectionBanner & { key: string }) | null = null;
 
-  if (connectionId > 0 && !isConnected) {
+  // Show reconnecting when disconnected — either after a prior successful connection
+  // (connectionId > 0) or after the initial grace period has elapsed.
+  if (!isConnected && (connectionId > 0 || initialGraceElapsed)) {
     banner = { key: "reconnecting", kind: "reconnecting" };
   } else if (reconnectAt && isSyncing) {
     banner = { key: `resyncing-${reconnectAt}`, kind: "resyncing" };
@@ -90,5 +110,6 @@ export function useConnectionBanner({
   const result: ConnectionBanner = { kind: banner.kind };
   if (dismissible) result.onDismiss = () => setDismissedKey(banner!.key);
   if (banner.kind === "interrupted" && !isStopped) result.onContinue = onContinue;
+  if (banner.kind === "reconnecting") result.onRetry = onRetry;
   return result;
 }

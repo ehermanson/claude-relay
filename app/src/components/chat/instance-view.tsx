@@ -40,7 +40,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         }
       : null;
   const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
-  const { send, subscribe, unsubscribe, addMessageHandler } = useWSMethods();
+  const { send, subscribe, unsubscribe, addMessageHandler, reconnectNow } = useWSMethods();
   const { isConnected, isSyncing, connectionId, instances } = useWSState();
   const {
     items,
@@ -300,6 +300,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     isStopped: instance?.status === "stopped",
     isLoadingSession: connectionId > 0 && !hasLoadedHistory,
     onContinue: handleTakeover,
+    onRetry: reconnectNow,
   });
 
   const hasStats =

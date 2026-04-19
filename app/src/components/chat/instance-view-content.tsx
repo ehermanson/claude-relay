@@ -301,7 +301,7 @@ export function InstanceViewContent() {
   const { shared, actions } = useInstanceViewContext();
   const { instances: allInstances } = useWSState();
   const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
-  const { send } = useWSMethods();
+  const { send, reconnectNow } = useWSMethods();
   const navigate = useNavigate();
 
   const spaceId = shared.instance.spaceId;
@@ -608,6 +608,7 @@ export function InstanceViewContent() {
           kind={shared.connectionBanner.kind}
           onContinue={shared.connectionBanner.onContinue}
           onDismiss={shared.connectionBanner.onDismiss}
+          onRetry={shared.connectionBanner.onRetry}
         />
       )}
 
@@ -651,6 +652,7 @@ export function InstanceViewContent() {
               onSwitchProvider={actions.handleSwitchProvider}
               isProcessing={shared.isActive}
               isConnected={shared.isConnected}
+              onReconnect={reconnectNow}
               instanceId={shared.id}
               isStopped={shared.isStopped}
               provider={shared.instance.provider}

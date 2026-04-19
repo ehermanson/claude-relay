@@ -53,6 +53,7 @@ interface InputAreaProps {
   ) => Promise<void> | void;
   isProcessing: boolean;
   isConnected: boolean;
+  onReconnect?: () => void;
   instanceId: string;
   isStopped?: boolean;
   provider: ProviderKind;
@@ -183,6 +184,7 @@ export function InputArea({
   providerStatus,
   inlineReplyFragments = [],
   onRemoveInlineReply,
+  onReconnect,
   topSlot,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
@@ -575,17 +577,19 @@ export function InputArea({
         : "Use @ for files and / for commands";
 
   const hasPlanFeedback = planFeedbackText.trim().length > 0 || planComments.length > 0;
-  const composerPlaceholder = hasPendingPrompt
-    ? buildPromptPlaceholder(primaryPromptQuestion, allowPromptTextInput)
-    : hasPendingPlan
-      ? "Add feedback to refine the plan, or leave blank to approve"
-      : isStopped
-        ? isMobile
-          ? "Send a message to resume..."
-          : `Send a message to resume... ${composerHelpText}`
-        : isMobile
-          ? "Send a message..."
-          : `Send a message... ${composerHelpText}`;
+  const composerPlaceholder = !isConnected
+    ? "Reconnecting to Relay..."
+    : hasPendingPrompt
+      ? buildPromptPlaceholder(primaryPromptQuestion, allowPromptTextInput)
+      : hasPendingPlan
+        ? "Add feedback to refine the plan, or leave blank to approve"
+        : isStopped
+          ? isMobile
+            ? "Send a message to resume..."
+            : `Send a message to resume... ${composerHelpText}`
+          : isMobile
+            ? "Send a message..."
+            : `Send a message... ${composerHelpText}`;
   const composerValue = hasPendingPrompt
     ? promptText
     : hasPendingPlan
@@ -923,6 +927,18 @@ export function InputArea({
               composerRef={composerRef}
             />
           </div>
+
+          {!isConnected && onReconnect && (
+            <div className="flex justify-center pt-1.5">
+              <button
+                type="button"
+                onClick={onReconnect}
+                className="text-[0.75rem] text-muted underline-offset-2 hover:text-text-bright hover:underline"
+              >
+                Retry connection
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </>
