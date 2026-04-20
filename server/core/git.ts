@@ -511,6 +511,28 @@ export interface GitWorktreeStatus {
   aheadBehind: { ahead: number; behind: number };
 }
 
+/**
+ * Count commits on HEAD that are not in `baseRef` (i.e., commits this branch
+ * has added since it diverged from the base). Returns 0 if the ref is missing,
+ * unreachable, or identical to HEAD.
+ */
+export function getCommitsAhead(worktreePath: string, baseRef: string): number {
+  try {
+    const output = execFileSync("git", ["rev-list", "--count", `${baseRef}..HEAD`], {
+      cwd: worktreePath,
+      timeout: 5000,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+      .toString()
+      .trim();
+    const n = Number(output);
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function getWorktreeStatus(worktreePath: string): GitWorktreeStatus {
   let changeCount = 0;
   try {

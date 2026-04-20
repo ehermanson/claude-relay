@@ -627,6 +627,12 @@ interface GitWorktreeStatus {
   dirty: boolean;
   changeCount: number;
   aheadBehind: { ahead: number; behind: number };
+  /**
+   * True when the worktree is dirty OR (in a space) commits exist on the
+   * space branch that aren't in the base branch. Broader than `dirty` —
+   * captures committed-but-unmerged space work.
+   */
+  reviewableDiff?: boolean;
 }
 
 export async function fetchBranches(projectId: string): Promise<BranchesResponse> {

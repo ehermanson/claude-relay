@@ -38,24 +38,24 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
       "Scan the codebase for potential bugs, code smells, or improvements. Give me a prioritized list of findings ranked by importance.",
   },
 
-  // ── Requires uncommitted changes ────────────────────────────────────
+  // ── Requires a reviewable diff (uncommitted OR ahead of base) ───────
   {
     id: "review-changes",
     label: "Review Changes",
-    description: "Check uncommitted work for bugs, edge cases, and oversights.",
+    description: "Check recent work for bugs, edge cases, and oversights.",
     icon: "Eye",
     prompt:
-      "Review the uncommitted changes in this workspace. Give me a prioritized list of issues ranked by importance.",
-    conditions: ["has-changes"],
+      "Review the changes in this workspace — both uncommitted edits and any commits that aren't yet in the base branch. Give me a prioritized list of issues ranked by importance.",
+    conditions: ["has-reviewable-diff"],
   },
   {
     id: "write-tests",
     label: "Write Tests",
-    description: "Generate tests for uncommitted changes, matching project conventions.",
+    description: "Generate tests for recent changes, matching project conventions.",
     icon: "FlaskConical",
     prompt:
-      "Write tests for the uncommitted changes in this workspace, matching the existing test patterns and conventions in the project.",
-    conditions: ["has-changes"],
+      "Write tests for the recent changes in this workspace — both uncommitted edits and any commits that aren't yet in the base branch. Match the existing test patterns and conventions in the project.",
+    conditions: ["has-reviewable-diff"],
   },
 
   // ── Requires space with sibling chats ───────────────────────────────
@@ -75,7 +75,7 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
     icon: "ScrollText",
     prompt:
       "Summarize what has been accomplished in this space so far based on the git diff and shared context.",
-    conditions: ["in-space"],
+    conditions: ["in-space", "has-reviewable-diff"],
   },
 
   // ── Requires open tasks (server-filtered) ───────────────────────────

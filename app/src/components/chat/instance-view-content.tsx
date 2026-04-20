@@ -32,7 +32,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { getProjectName } from "@/lib/project-route";
 import { ArrowRightFromLine, X } from "lucide-react";
 import type { SpinOffPacket } from "@shared/types";
-import { fetchProjectSuggestions, fetchBranches } from "@/lib/api";
+import { fetchProjectSuggestions, fetchInstanceGitStatus } from "@/lib/api";
 import type { SuggestionCondition } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
@@ -456,17 +456,30 @@ export function InstanceViewContent() {
     enabled: !!projectId,
   });
 
-  // Git state for condition-based suggestion filtering (shares cache with GitStatusBar)
-  const { data: branchData } = useQuery({
-    queryKey: ["branches", projectId],
-    queryFn: () => (projectId ? fetchBranches(projectId) : Promise.resolve(null)),
+  // Only show suggestions on a fresh chat, so we only need git state in that case.
+  const isFreshChat =
+    shared.items.length === 0 && !shared.isActive && !hasSeededDraft && !shared.instance.external;
+
+  // Does any resolved suggestion actually depend on git state? Avoid a pointless
+  // git call when none do (e.g. user disabled review-changes/write-tests globally).
+  const needsGitStatus = !!resolvedSuggestions?.some((s) =>
+    s.conditions?.some((c) => c === "has-changes" || c === "has-reviewable-diff"),
+  );
+
+  // Per-instance dirty check — a space chat's worktree may differ from the project
+  // root, so project-level branch data would give the wrong answer here.
+  const { data: instanceGitStatus } = useQuery({
+    queryKey: ["instance-git-status", instanceId],
+    queryFn: () => fetchInstanceGitStatus(instanceId),
     staleTime: 15_000,
-    enabled: !!projectId,
+    enabled: isFreshChat && needsGitStatus,
   });
 
   // Filter suggestions by conditions the client can evaluate
   const isInSpace = !!spaceId && allInstances.filter((i) => i.spaceId === spaceId).length > 1;
-  const hasChanges = branchData?.dirty ?? false;
+  const hasChanges = instanceGitStatus?.dirty ?? false;
+  // Fall back to `dirty` if server didn't populate `reviewableDiff` (older builds).
+  const hasReviewableDiff = instanceGitStatus?.reviewableDiff ?? instanceGitStatus?.dirty ?? false;
 
   const filteredSuggestions = useMemo(() => {
     if (!resolvedSuggestions) return undefined;
@@ -475,6 +488,7 @@ export function InstanceViewContent() {
     // are pre-filtered before reaching the client.
     const conditionState: Partial<Record<SuggestionCondition, boolean>> = {
       "has-changes": hasChanges,
+      "has-reviewable-diff": hasReviewableDiff,
       "in-space": isInSpace,
     };
 
@@ -482,7 +496,7 @@ export function InstanceViewContent() {
       if (!s.conditions?.length) return true;
       return s.conditions.every((c) => conditionState[c] ?? true);
     });
-  }, [resolvedSuggestions, hasChanges, isInSpace]);
+  }, [resolvedSuggestions, hasChanges, hasReviewableDiff, isInSpace]);
 
   const clearPendingDraft = useCallback(() => setPendingDraft(null), []);
 

@@ -1,5 +1,12 @@
 import type { Hono } from "hono";
-import { commitAll, getWorktreeStatus, gitPush, isWorktreeDirty } from "#core/git.js";
+import {
+  commitAll,
+  getCommitsAhead,
+  getDefaultBranch,
+  getWorktreeStatus,
+  gitPush,
+  isWorktreeDirty,
+} from "#core/git.js";
 import type { ProviderKind, ProviderModelOptions } from "#core/types.js";
 import { readJsonBody } from "#server/hono-utils.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
@@ -109,7 +116,26 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
       return c.json({ error: "Instance not found" }, 404);
     }
     try {
-      return c.json(getWorktreeStatus(instance.workingDirectory));
+      const status = getWorktreeStatus(instance.workingDirectory);
+
+      // `reviewableDiff` is broader than `dirty`: for a space chat, committed
+      // work on the space branch (not yet in the base branch) also counts as
+      // "reviewable", so suggestions like "Review Changes" stay relevant after
+      // the agent has already committed its work.
+      let reviewableDiff = status.dirty;
+      if (!reviewableDiff) {
+        const spaceId = instance.spaceId;
+        if (spaceId) {
+          const space = instanceManager.getSpaceManager().getSpace(spaceId);
+          const baseRef =
+            space?.targetBranch || getDefaultBranch(instance.workingDirectory) || null;
+          if (baseRef && baseRef !== space?.gitBranch) {
+            reviewableDiff = getCommitsAhead(instance.workingDirectory, baseRef) > 0;
+          }
+        }
+      }
+
+      return c.json({ ...status, reviewableDiff });
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Failed to read git status" },

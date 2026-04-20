@@ -106,10 +106,12 @@ export interface SuggestionsConfig {
 /**
  * Conditions that control when a suggestion is visible.
  * - `"has-changes"` — only show when the working tree has uncommitted changes (client-evaluated)
+ * - `"has-reviewable-diff"` — uncommitted changes OR commits ahead of base branch; for
+ *   space chats this includes committed work on the space branch (client-evaluated)
  * - `"in-space"` — only show inside a space with sibling chats (client-evaluated)
  * - `"has-tasks"` — only show when the project has open tasks (server-evaluated, filtered before sending)
  */
-export type SuggestionCondition = "has-changes" | "in-space" | "has-tasks";
+export type SuggestionCondition = "has-changes" | "has-reviewable-diff" | "in-space" | "has-tasks";
 
 /** Built-in suggestion definition (immutable base set). */
 export interface BuiltInSuggestion {
