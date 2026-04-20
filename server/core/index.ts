@@ -179,6 +179,13 @@ export type {
   TaskStatus,
   TaskType,
   TasksChangedMessage,
+  SuggestionIcon,
+  SuggestionCondition,
+  SuggestionPatch,
+  CustomSuggestion,
+  SuggestionsConfig,
+  BuiltInSuggestion,
+  ResolvedSuggestion,
 } from "#core/types.js";
 
 export {
@@ -189,3 +196,10 @@ export {
   hasTasks,
   initTasks,
 } from "#core/task-manager.js";
+
+export {
+  BUILT_IN_SUGGESTIONS,
+  MAX_SUGGESTIONS,
+  resolveSuggestions,
+  type SuggestionContext,
+} from "#core/actions.js";

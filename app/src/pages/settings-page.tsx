@@ -15,6 +15,7 @@ import { useProjectContext } from "../context/project-context";
 import { Input, Textarea, Select } from "../components/ui/input";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import { SettingsSection, SettingRow } from "@/components/settings/settings-shared";
+import { SuggestionSettings } from "@/components/settings/suggestion-settings";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { PageShell } from "@/components/ui/page-shell";
 import type { Project, GlobalSettings, ProviderKind } from "@shared/types";
@@ -35,6 +36,7 @@ function useProjectAutoSave(project: Project) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", project.id] });
+      queryClient.invalidateQueries({ queryKey: ["project-suggestions", project.id] });
       toast.success("Settings saved");
     },
     onError: (err, _patch, context) => {
@@ -101,6 +103,13 @@ function SettingsForm({
           save={save}
         />
         <ProvidersSection project={project} globalSettings={globalSettings} save={save} />
+        <SuggestionSettings
+          config={project.suggestions}
+          onChange={(suggestions) => save.mutate({ suggestions })}
+          title="Suggestions"
+          description="Customize prompt suggestions for new chats in this project. Layers on top of global defaults."
+          globalConfig={globalSettings.suggestions}
+        />
       </div>
     </PageShell>
   );

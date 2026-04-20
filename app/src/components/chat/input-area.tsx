@@ -69,6 +69,10 @@ interface InputAreaProps {
   onRemoveInlineReply?: (id: string) => void;
   /** Extra content rendered inside the composer container, above the text input. */
   topSlot?: React.ReactNode;
+  /** When set, pre-fills the composer with this text (without sending). Cleared after applying. */
+  pendingDraft?: string | null;
+  /** Called after pendingDraft has been applied so the parent can clear it. */
+  onPendingDraftApplied?: () => void;
 }
 
 interface OptimisticProviderSelection {
@@ -186,6 +190,8 @@ export function InputArea({
   onRemoveInlineReply,
   onReconnect,
   topSlot,
+  pendingDraft,
+  onPendingDraftApplied,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
   const composerContainerRef = useRef<HTMLDivElement>(null);
@@ -271,6 +277,14 @@ export function InputArea({
       composerRef.current?.focus();
     }
   }, [pendingPlan]);
+
+  // Apply pending draft from suggestion cards (pre-fill without sending)
+  useEffect(() => {
+    if (pendingDraft) {
+      setComposerValue(pendingDraft);
+      onPendingDraftApplied?.();
+    }
+  }, [pendingDraft, setComposerValue, onPendingDraftApplied]);
 
   const promptRequestId =
     pendingUserInput?.kind === "user_input" ? pendingUserInput.requestId : null;

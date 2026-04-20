@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { BranchChangeBanner } from "@/components/chat/branch-change-banner";
 import { ConnectionStatusBanner } from "@/components/chat/connection-status-banner";
@@ -12,7 +13,7 @@ import {
   type SpinOffRequest,
 } from "@/components/chat/message-relay-context";
 import { PermissionBanner } from "@/components/chat/permission-banner";
-import { SpaceSuggestionCards } from "@/components/spaces/space-suggestion-cards";
+import { SuggestionCards } from "@/components/chat/suggestion-cards";
 import { TerminalPermissionBar } from "@/components/chat/terminal-permission-bar";
 import { TerminalInputBanner } from "@/components/chat/terminal-input-banner";
 import { TerminalContextStrip } from "@/components/terminal/terminal-context-strip";
@@ -31,6 +32,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { getProjectName } from "@/lib/project-route";
 import { ArrowRightFromLine, X } from "lucide-react";
 import type { SpinOffPacket } from "@shared/types";
+import { fetchProjectSuggestions, fetchBranches } from "@/lib/api";
+import type { SuggestionCondition } from "@shared/types";
 
 const MotionLogo = motion.create(RelayLogo);
 
@@ -303,6 +306,7 @@ export function InstanceViewContent() {
   const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
   const { send, reconnectNow } = useWSMethods();
   const navigate = useNavigate();
+  const [pendingDraft, setPendingDraft] = useState<string | null>(null);
 
   const spaceId = shared.instance.spaceId;
   const instanceId = shared.id;
@@ -443,6 +447,44 @@ export function InstanceViewContent() {
     spinOffIncludeTouchedFiles,
     workingDirectory,
   ]);
+
+  // Fetch resolved suggestions for this project
+  const { data: resolvedSuggestions } = useQuery({
+    queryKey: ["project-suggestions", projectId],
+    queryFn: () => (projectId ? fetchProjectSuggestions(projectId) : Promise.resolve([])),
+    staleTime: 60_000,
+    enabled: !!projectId,
+  });
+
+  // Git state for condition-based suggestion filtering (shares cache with GitStatusBar)
+  const { data: branchData } = useQuery({
+    queryKey: ["branches", projectId],
+    queryFn: () => (projectId ? fetchBranches(projectId) : Promise.resolve(null)),
+    staleTime: 15_000,
+    enabled: !!projectId,
+  });
+
+  // Filter suggestions by conditions the client can evaluate
+  const isInSpace = !!spaceId && allInstances.filter((i) => i.spaceId === spaceId).length > 1;
+  const hasChanges = branchData?.dirty ?? false;
+
+  const filteredSuggestions = useMemo(() => {
+    if (!resolvedSuggestions) return undefined;
+
+    // Client-evaluated conditions only; server-evaluated ones (e.g. has-tasks)
+    // are pre-filtered before reaching the client.
+    const conditionState: Partial<Record<SuggestionCondition, boolean>> = {
+      "has-changes": hasChanges,
+      "in-space": isInSpace,
+    };
+
+    return resolvedSuggestions.filter((s) => {
+      if (!s.conditions?.length) return true;
+      return s.conditions.every((c) => conditionState[c] ?? true);
+    });
+  }, [resolvedSuggestions, hasChanges, isInSpace]);
+
+  const clearPendingDraft = useCallback(() => setPendingDraft(null), []);
 
   const relayValue = useMemo(() => {
     const siblings = spaceId
@@ -633,16 +675,17 @@ export function InstanceViewContent() {
           />
         ) : (
           <ErrorBoundary name="Input area" inline>
-            {spaceId &&
-              shared.items.length === 0 &&
+            {shared.items.length === 0 &&
               !shared.isActive &&
               !hasSeededDraft &&
-              // Hide suggestions for brand-new spaces — they reference prior
-              // work that doesn't exist yet. Show only when the space already
-              // has other chats (i.e. this isn't the very first one).
-              allInstances.filter((inst) => inst.spaceId === spaceId).length > 1 && (
+              filteredSuggestions &&
+              filteredSuggestions.length > 0 && (
                 <div className="mx-auto w-full max-w-3xl px-6 max-[768px]:px-3">
-                  <SpaceSuggestionCards onSelect={(prompt) => actions.handleSend(prompt)} />
+                  <SuggestionCards
+                    suggestions={filteredSuggestions}
+                    onSelect={setPendingDraft}
+                    settingsHref="/settings/suggestions"
+                  />
                 </div>
               )}
             <InputArea
@@ -666,6 +709,8 @@ export function InstanceViewContent() {
               providerStatus={shared.instance.providerStatus}
               inlineReplyFragments={inlineReplyFragments}
               onRemoveInlineReply={handleRemoveInlineReply}
+              pendingDraft={pendingDraft}
+              onPendingDraftApplied={clearPendingDraft}
               topSlot={
                 <>
                   <SpinOffSourceBar

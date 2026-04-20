@@ -10,7 +10,7 @@ import { dirname } from "path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Logger } from "#core/logger.js";
 
-const CURRENT_SCHEMA_VERSION = 22;
+const CURRENT_SCHEMA_VERSION = 23;
 type SQLiteBindValue = string | number | bigint | null | NodeJS.ArrayBufferView;
 type SQLiteBindParams = Record<string, SQLiteBindValue>;
 
@@ -40,6 +40,7 @@ export interface ProjectRow {
   default_model: string | null;
   created_at: number;
   last_activity_at: number | null;
+  suggestions_json: string | null;
 }
 
 export interface SpaceRow {
@@ -71,6 +72,7 @@ export interface GlobalSettingsRow {
   provider_defaults_json: string | null;
   custom_instructions: string | null;
   project_order_json: string | null;
+  suggestions_json: string | null;
 }
 
 export interface SessionRow {
@@ -233,6 +235,7 @@ function normalizeProjectRow(row: ProjectRow): ProjectRow {
   normalized.default_provider ??= null;
   normalized.default_model ??= null;
   normalized.last_activity_at ??= null;
+  normalized.suggestions_json ??= null;
   return normalized;
 }
 
@@ -604,6 +607,7 @@ ${buildSearchIndexSchemaSql()},
       // Fresh database — create everything
       this.createSchema();
       this.ensureGlobalSettingsColumns();
+      this.ensureSuggestionsColumns();
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
       return;
     }
@@ -614,6 +618,7 @@ ${buildSearchIndexSchemaSql()},
       // shape repairs idempotent and independent of schema_version.
       this.createSchema();
       this.ensureGlobalSettingsColumns();
+      this.ensureSuggestionsColumns();
       return;
     }
 
@@ -621,6 +626,7 @@ ${buildSearchIndexSchemaSql()},
     // tables/indexes, then bump the version. Data is preserved.
     this.createSchema();
     this.ensureGlobalSettingsColumns();
+    this.ensureSuggestionsColumns();
     this.db.exec(`UPDATE schema_version SET version = ${CURRENT_SCHEMA_VERSION}`);
   }
 
@@ -725,7 +731,8 @@ ${buildSearchIndexSchemaSql()},
         default_provider TEXT,
         default_model TEXT,
         created_at INTEGER NOT NULL,
-        last_activity_at INTEGER
+        last_activity_at INTEGER,
+        suggestions_json TEXT
       );
 
       CREATE TABLE IF NOT EXISTS spaces (
@@ -760,7 +767,8 @@ ${buildSearchIndexSchemaSql()},
         space_branch_source TEXT DEFAULT 'local',
         provider_defaults_json TEXT,
         custom_instructions TEXT,
-        project_order_json TEXT
+        project_order_json TEXT,
+        suggestions_json TEXT
       );
 
       INSERT OR IGNORE INTO global_settings (id) VALUES (1);
@@ -778,6 +786,29 @@ ${buildSearchIndexSchemaSql()},
     if (!columnNames.has("project_order_json")) {
       this.db.exec("ALTER TABLE global_settings ADD COLUMN project_order_json TEXT");
     }
+  }
+
+  private ensureSuggestionsColumns(): void {
+    const ensureFor = (table: "global_settings" | "projects") => {
+      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+        name?: string;
+      }>;
+      const names = new Set(
+        columns
+          .map((column) => (typeof column.name === "string" ? column.name : ""))
+          .filter(Boolean),
+      );
+      // Legacy (pre-release) column rename: space_actions_json -> suggestions_json.
+      if (names.has("space_actions_json") && !names.has("suggestions_json")) {
+        this.db.exec(`ALTER TABLE ${table} RENAME COLUMN space_actions_json TO suggestions_json`);
+        return;
+      }
+      if (!names.has("suggestions_json")) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN suggestions_json TEXT`);
+      }
+    };
+    ensureFor("global_settings");
+    ensureFor("projects");
   }
 
   private prepareStatements(): void {
@@ -1074,8 +1105,8 @@ ${buildSearchIndexSchemaSql()},
 
     // Project CRUD
     this.stmtUpsertProject = this.db.prepare(`
-      INSERT INTO projects (id, name, directory, repo_root, remote_url, target_branch, custom_instructions, default_space_branch, space_branch_source, default_provider, default_model, created_at, last_activity_at)
-      VALUES (@id, @name, @directory, @repo_root, @remote_url, @target_branch, @custom_instructions, @default_space_branch, @space_branch_source, @default_provider, @default_model, @created_at, @last_activity_at)
+      INSERT INTO projects (id, name, directory, repo_root, remote_url, target_branch, custom_instructions, default_space_branch, space_branch_source, default_provider, default_model, created_at, last_activity_at, suggestions_json)
+      VALUES (@id, @name, @directory, @repo_root, @remote_url, @target_branch, @custom_instructions, @default_space_branch, @space_branch_source, @default_provider, @default_model, @created_at, @last_activity_at, @suggestions_json)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         directory = excluded.directory,
@@ -1087,7 +1118,8 @@ ${buildSearchIndexSchemaSql()},
         space_branch_source = excluded.space_branch_source,
         default_provider = excluded.default_provider,
         default_model = excluded.default_model,
-        last_activity_at = excluded.last_activity_at
+        last_activity_at = excluded.last_activity_at,
+        suggestions_json = excluded.suggestions_json
     `);
     this.stmtGetProject = this.db.prepare("SELECT * FROM projects WHERE id = ?");
     this.stmtGetProjectByDir = this.db.prepare("SELECT * FROM projects WHERE directory = ?");
@@ -1231,7 +1263,8 @@ ${buildSearchIndexSchemaSql()},
         space_branch_source = @space_branch_source,
         provider_defaults_json = @provider_defaults_json,
         custom_instructions = @custom_instructions,
-        project_order_json = @project_order_json
+        project_order_json = @project_order_json,
+        suggestions_json = @suggestions_json
       WHERE id = 1
     `);
 
@@ -1763,6 +1796,8 @@ ${buildSearchIndexSchemaSql()},
           "custom_instructions" in patch ? patch.custom_instructions : current.custom_instructions,
         project_order_json:
           "project_order_json" in patch ? patch.project_order_json : current.project_order_json,
+        suggestions_json:
+          "suggestions_json" in patch ? patch.suggestions_json : current.suggestions_json,
       }),
     );
     return this.getGlobalSettings();

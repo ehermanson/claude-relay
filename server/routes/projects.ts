@@ -10,8 +10,10 @@ import {
   isWorktreeDirty,
   listBranches,
 } from "#core/git.js";
+import { resolveSuggestions } from "#core/actions.js";
 import { readJsonBody } from "#server/hono-utils.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
+import type { SuggestionsConfig } from "#core/types.js";
 
 export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { instanceManager } = deps;
@@ -176,6 +178,7 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
         spaceBranchSource?: "local" | "remote" | null;
         defaultProvider?: string | null;
         defaultModel?: string | null;
+        suggestions?: import("#core/types.js").SuggestionsConfig | null;
       }>(c);
       const project = instanceManager.projectManager.updateProject(c.req.param("id"), body);
       if (!project) {
@@ -196,6 +199,29 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
       return c.json({ success: true });
     }
     return c.json({ error: "Project not found" }, 404);
+  });
+
+  /** Get resolved suggestions for a project (built-in + global + project layers). */
+  app.get("/api/projects/:id/suggestions", (c) => {
+    const project = instanceManager.projectManager.getProject(c.req.param("id"));
+    if (!project) return c.json({ error: "Project not found" }, 404);
+
+    const globalRow = instanceManager.sessionDb.getGlobalSettings();
+    let globalSuggestions: SuggestionsConfig | null = null;
+    if (globalRow.suggestions_json) {
+      try {
+        globalSuggestions = JSON.parse(globalRow.suggestions_json);
+      } catch {}
+    }
+
+    // Check for open tasks (server-evaluated condition)
+    let hasOpenTasks = false;
+    if (taskManager.hasTasks(project.directory)) {
+      const tasks = taskManager.loadTasks(project.directory);
+      hasOpenTasks = tasks.some((t) => t.status === "open" || t.status === "in_progress");
+    }
+
+    return c.json(resolveSuggestions(globalSuggestions, project.suggestions, { hasOpenTasks }));
   });
 
   app.get("/api/project-icons", (c) => {

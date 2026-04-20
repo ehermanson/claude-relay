@@ -30,6 +30,7 @@ import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { RateLimitBar, flattenRateLimitWindows } from "@/components/ui/rate-limit-bar";
 import { SettingsSection, SettingRow } from "@/components/settings/settings-shared";
+import { SuggestionSettings } from "@/components/settings/suggestion-settings";
 import { endpointHint, isLocalhostUrl, resolveEndpointSelection } from "@/lib/remote-access";
 import { useThemeStore, type ThemePreference } from "@/stores/theme-store";
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
@@ -55,6 +56,7 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   providerDefaults: {},
   customInstructions: null,
   projectOrder: null,
+  suggestions: null,
 };
 
 const REMOTE_ACCESS_ENDPOINT_KEY = "relay.remoteAccess.endpoint";
@@ -91,6 +93,7 @@ function useAutoSave() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["global-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["project-suggestions"] });
       toast.success("Settings saved");
     },
     onError: (err, _patch, context) => {
@@ -966,5 +969,21 @@ export function InstructionsSettingsSection() {
         />
       </div>
     </SettingsSection>
+  );
+}
+
+// ─── Suggestions Section ─────────────────────────────────────────────────
+
+export function SuggestionsSettingsSection() {
+  const { data: settings } = useGlobalSettings();
+  const save = useAutoSave();
+
+  return (
+    <SuggestionSettings
+      config={settings?.suggestions}
+      onChange={(suggestions) => save.mutate({ suggestions })}
+      title="Suggestions"
+      description="Customize the prompt suggestions shown on new chats. Projects can further customize these."
+    />
   );
 }

@@ -1,7 +1,16 @@
 import type { Hono } from "hono";
 import { readJsonBody } from "#server/hono-utils.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
-import type { GlobalSettings } from "#core/types.js";
+import type { GlobalSettings, SuggestionsConfig } from "#core/types.js";
+
+function parseJson<T>(raw: string | null): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
 
 function rowToSettings(row: {
   theme: string;
@@ -13,6 +22,7 @@ function rowToSettings(row: {
   provider_defaults_json: string | null;
   custom_instructions: string | null;
   project_order_json: string | null;
+  suggestions_json: string | null;
 }): GlobalSettings {
   let providerDefaults: Record<string, unknown> = {};
   if (row.provider_defaults_json) {
@@ -36,6 +46,7 @@ function rowToSettings(row: {
     providerDefaults: providerDefaults as GlobalSettings["providerDefaults"],
     customInstructions: row.custom_instructions,
     projectOrder,
+    suggestions: parseJson<SuggestionsConfig>(row.suggestions_json),
   };
 }
 
@@ -76,6 +87,10 @@ export function registerSettingsRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
       }
       const merged = { ...current, ...body.providerDefaults };
       dbPatch.provider_defaults_json = JSON.stringify(merged);
+    }
+
+    if ("suggestions" in body) {
+      dbPatch.suggestions_json = body.suggestions ? JSON.stringify(body.suggestions) : null;
     }
 
     const updated = instanceManager.sessionDb.updateGlobalSettings(dbPatch);

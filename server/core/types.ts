@@ -52,6 +52,89 @@ export interface SpaceInfo {
 }
 
 // =============================================================================
+// Suggestion Types
+// =============================================================================
+
+/**
+ * String enum of allowed Lucide icon names for suggestions.
+ * Mapped to actual Lucide components at render time in the UI.
+ */
+export type SuggestionIcon =
+  | "Eye"
+  | "FlaskConical"
+  | "Play"
+  | "ScrollText"
+  | "Sparkles"
+  | "Bug"
+  | "Code"
+  | "FileText"
+  | "GitBranch"
+  | "Lightbulb"
+  | "ListChecks"
+  | "MessageSquare"
+  | "Pencil"
+  | "Rocket"
+  | "Search"
+  | "Settings"
+  | "Shield"
+  | "Trash2"
+  | "Wrench"
+  | "Zap";
+
+/** Patch applied to a built-in suggestion. `prompt` reserved for Phase 3 editing. */
+export interface SuggestionPatch {
+  prompt?: string;
+  disabled?: boolean;
+}
+
+/** User-defined custom suggestion. */
+export interface CustomSuggestion {
+  id: string;
+  label: string;
+  description: string;
+  icon: SuggestionIcon;
+  prompt: string;
+  disabled?: boolean;
+}
+
+/** Layered config: patches target built-in IDs, custom adds new suggestions. */
+export interface SuggestionsConfig {
+  patches: Record<string, SuggestionPatch>;
+  custom: CustomSuggestion[];
+}
+
+/**
+ * Conditions that control when a suggestion is visible.
+ * - `"has-changes"` — only show when the working tree has uncommitted changes (client-evaluated)
+ * - `"in-space"` — only show inside a space with sibling chats (client-evaluated)
+ * - `"has-tasks"` — only show when the project has open tasks (server-evaluated, filtered before sending)
+ */
+export type SuggestionCondition = "has-changes" | "in-space" | "has-tasks";
+
+/** Built-in suggestion definition (immutable base set). */
+export interface BuiltInSuggestion {
+  id: string;
+  label: string;
+  description: string;
+  icon: SuggestionIcon;
+  prompt: string;
+  /** Client-evaluated visibility conditions. All must be satisfied. */
+  conditions?: SuggestionCondition[];
+}
+
+/** Fully resolved suggestion ready for rendering. */
+export interface ResolvedSuggestion {
+  id: string;
+  label: string;
+  description: string;
+  icon: SuggestionIcon;
+  prompt: string;
+  builtIn: boolean;
+  /** Client-evaluated visibility conditions. All must be satisfied. */
+  conditions?: SuggestionCondition[];
+}
+
+// =============================================================================
 // Instance Types
 // =============================================================================
 
@@ -313,6 +396,7 @@ export interface GlobalSettings {
   providerDefaults: Record<string, ProviderDefaults>;
   customInstructions: string | null;
   projectOrder: string[] | null;
+  suggestions: SuggestionsConfig | null;
 }
 
 export interface SessionStats {
@@ -1019,6 +1103,7 @@ export interface Project {
   defaultModel: string | null;
   createdAt: number;
   lastActivityAt: number | null;
+  suggestions: SuggestionsConfig | null;
 }
 
 export interface ProjectPlan {

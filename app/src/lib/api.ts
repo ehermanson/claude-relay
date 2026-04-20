@@ -188,13 +188,11 @@ export async function installUpdate(): Promise<UpdateInstallResult> {
   const res = await fetch("/api/system/update/install", {
     method: "POST",
   });
-  const data = (await res
-    .json()
-    .catch(() => ({
-      ok: false,
-      action: "restart",
-      error: "Failed to install update",
-    }))) as UpdateInstallResult;
+  const data = (await res.json().catch(() => ({
+    ok: false,
+    action: "restart",
+    error: "Failed to install update",
+  }))) as UpdateInstallResult;
   if (!res.ok) {
     throw new Error(data.error || "Failed to install update");
   }
@@ -482,6 +480,7 @@ export async function updateProject(
     spaceBranchSource?: "local" | "remote" | null;
     defaultProvider?: string | null;
     defaultModel?: string | null;
+    suggestions?: import("@shared/types").SuggestionsConfig | null;
   },
 ): Promise<Project> {
   const res = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
@@ -494,6 +493,20 @@ export async function updateProject(
     throw new Error(data.error || "Failed to update project");
   }
   return res.json();
+}
+
+export async function fetchProjectSuggestions(
+  projectId: string,
+): Promise<import("@shared/types").ResolvedSuggestion[]> {
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/suggestions`);
+    if (!res.ok) return [];
+    const ct = res.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
 }
 
 export async function removeProject(id: string): Promise<void> {

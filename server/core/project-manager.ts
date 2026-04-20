@@ -13,7 +13,7 @@ import { EventEmitter } from "events";
 
 import { SessionDB } from "#core/db.js";
 import type { ProjectRow } from "#core/db.js";
-import type { Project } from "#core/types.js";
+import type { Project, SuggestionsConfig } from "#core/types.js";
 import type { Logger } from "#core/logger.js";
 import {
   gitInit,
@@ -45,6 +45,15 @@ export interface ProjectManager {
   ): this;
 }
 
+function parseJson<T>(raw: string | null): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
 function rowToProject(row: ProjectRow): Project {
   return {
     id: row.id,
@@ -60,6 +69,7 @@ function rowToProject(row: ProjectRow): Project {
     defaultModel: row.default_model,
     createdAt: row.created_at,
     lastActivityAt: row.last_activity_at,
+    suggestions: parseJson<SuggestionsConfig>(row.suggestions_json),
   };
 }
 
@@ -182,6 +192,7 @@ export class ProjectManager extends EventEmitter {
           default_model: null,
           created_at: now,
           last_activity_at: null,
+          suggestions_json: null,
         };
         this.db.upsertProject(project);
         existingByDirectory.set(canonicalDirectory, project);
@@ -251,6 +262,7 @@ export class ProjectManager extends EventEmitter {
       default_model: null,
       created_at: now,
       last_activity_at: null,
+      suggestions_json: null,
     };
 
     this.db.upsertProject(row);
@@ -350,6 +362,7 @@ export class ProjectManager extends EventEmitter {
       spaceBranchSource?: "local" | "remote" | null;
       defaultProvider?: string | null;
       defaultModel?: string | null;
+      suggestions?: SuggestionsConfig | null;
     },
   ): Project | undefined {
     const existing = this.db.getProject(id);
@@ -376,6 +389,12 @@ export class ProjectManager extends EventEmitter {
         updates.defaultProvider !== undefined ? updates.defaultProvider : existing.default_provider,
       default_model:
         updates.defaultModel !== undefined ? updates.defaultModel : existing.default_model,
+      suggestions_json:
+        "suggestions" in updates
+          ? updates.suggestions
+            ? JSON.stringify(updates.suggestions)
+            : null
+          : existing.suggestions_json,
     };
 
     this.db.upsertProject(row);

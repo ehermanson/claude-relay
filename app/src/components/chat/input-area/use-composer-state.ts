@@ -45,6 +45,8 @@ interface ComposerState {
   mentionMenuDismissed: boolean;
   selectedSlashKey: string | null;
   slashMenuDismissed: boolean;
+  /** Set by set_composer_value to guard against stale update_draft dispatches. */
+  _pendingProgrammaticValue: string | null;
 }
 
 type ComposerAction =
@@ -77,6 +79,7 @@ const INITIAL_STATE: ComposerState = {
   mentionMenuDismissed: false,
   selectedSlashKey: null,
   slashMenuDismissed: false,
+  _pendingProgrammaticValue: null,
 };
 
 function reducer(state: ComposerState, action: ComposerAction): ComposerState {
@@ -89,6 +92,18 @@ function reducer(state: ComposerState, action: ComposerAction): ComposerState {
         pendingSelectionOffset: action.value.length,
       };
     case "update_draft":
+      // Guard against stale Lexical onChange dispatches that arrive after a
+      // programmatic set_composer_value. If a programmatic set is pending and
+      // the incoming value doesn't match, this is a stale echo — skip it.
+      // Once the editor syncs and sends the matching value, clear the guard.
+      if (state._pendingProgrammaticValue !== null) {
+        if (action.value === state._pendingProgrammaticValue) {
+          // Editor synced — clear guard, accept the value (no-op since it matches)
+          return { ...state, _pendingProgrammaticValue: null };
+        }
+        // Stale echo — skip
+        return state;
+      }
       return {
         ...state,
         draftText: action.value,
@@ -103,6 +118,7 @@ function reducer(state: ComposerState, action: ComposerAction): ComposerState {
         pendingSelectionOffset: action.selectionOffset,
         mentionMenuDismissed: false,
         slashMenuDismissed: false,
+        _pendingProgrammaticValue: action.value,
       };
     case "set_selection_offset":
       return {
@@ -198,7 +214,10 @@ export function useComposerState(
     (value: string, selectionOffset = value.length) => {
       persistDraft(value);
       dispatch({ type: "set_composer_value", value, selectionOffset });
-      composerRef.current?.focus();
+      // Defer focus — calling focus() synchronously triggers Lexical's onChange
+      // which reads the still-empty editor and dispatches updateDraft(""),
+      // clobbering the value we just set.
+      requestAnimationFrame(() => composerRef.current?.focus());
     },
     [composerRef, persistDraft],
   );
