@@ -27,7 +27,7 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
     description: "Get oriented with the project structure, architecture, and tech stack.",
     icon: "Search",
     prompt:
-      "Read the project structure and key files, then give me a brief overview of the architecture and tech stack.",
+      "Give me a tour of this project. Start with the README and manifest files (package.json, pyproject.toml, Cargo.toml, go.mod, etc.), then skim the top-level source directories to understand the layout. Cover: what the project does, its tech stack, how it's structured, how to build/run/test it, and any notable conventions, patterns, or gotchas. Keep the summary tight — a few paragraphs or short bullets, not an exhaustive file listing. Don't modify anything; this is a read-only pass.",
   },
   {
     id: "find-issues",
@@ -35,7 +35,7 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
     description: "Scan for potential bugs, code smells, or improvements.",
     icon: "Bug",
     prompt:
-      "Scan the codebase for potential bugs, code smells, or improvements. Give me a prioritized list of findings ranked by importance.",
+      "Scan the codebase for potential bugs, correctness issues, security concerns, and maintainability risks. Focus on high-leverage areas — entry points, shared utilities, and code that handles persistence, auth, or external input. Don't try to read every file. For each finding, include: severity (critical / high / medium / low), a file:line reference, what the issue is and why it matters, and a suggested fix in one or two sentences. Return a prioritized list, most important first. Don't make any edits — this is a read-only pass. Stop once you have a solid short list; exhaustiveness matters less than signal.",
   },
 
   // ── Requires a reviewable diff (uncommitted OR ahead of base) ───────
@@ -45,7 +45,7 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
     description: "Check recent work for bugs, edge cases, and oversights.",
     icon: "Eye",
     prompt:
-      "Review the changes in this workspace — both uncommitted edits and any commits that aren't yet in the base branch. Give me a prioritized list of issues ranked by importance.",
+      "Review the changes on this branch. Read the full diff: both uncommitted edits (`git diff` and `git diff --staged`) and any commits not yet in the base branch (`git log <base>..HEAD` and `git diff <base>..HEAD`, where `<base>` is the branch this one was created from — typically `main` or `master`). Look for: correctness bugs, edge cases, regressions or unintended behavior changes, missing or inadequate tests, inconsistent naming, and anything that looks half-finished or left over from an earlier approach. Return a prioritized list of findings, each with a file:line reference, what's wrong, and a concrete suggestion. Don't make edits — review only.",
     conditions: ["has-reviewable-diff"],
   },
   {
@@ -54,7 +54,7 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
     description: "Generate tests for recent changes, matching project conventions.",
     icon: "FlaskConical",
     prompt:
-      "Write tests for the recent changes in this workspace — both uncommitted edits and any commits that aren't yet in the base branch. Match the existing test patterns and conventions in the project.",
+      "Write tests for the recent changes on this branch. First, read the diff — both uncommitted edits and any commits not yet in the base branch — so you know what actually changed. Then find existing tests for similar code to learn the test framework, file layout, and assertion style used in this project. Focus on behavior that changed: new public surface, new branches and edge cases, and regression coverage for any bug fixes. Don't re-test unchanged code, and don't invent a new test style — match what's already here. When you're done, run the tests and fix any failures before handing off.",
     conditions: ["has-reviewable-diff"],
   },
 
@@ -65,7 +65,7 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
     description: "Pick up where the last chat left off using the shared context.",
     icon: "Play",
     prompt:
-      "Read the shared context and recent chat history, then pick up the next piece of unfinished work.",
+      "Pick up the next piece of unfinished work in this space. Before starting, orient yourself: read `.relay/space-context.md` for decisions, interfaces, status, and blockers recorded by sibling chats; skim recent commits on this branch (`git log --oneline -20`); and check the current working-tree state (`git status`, `git diff`). Then identify what's in progress, what's obviously next, and what's blocked. Start on the next logical piece of work and tell me up front what you're doing and why. If the direction is genuinely ambiguous, ask before committing to an approach. When you finish significant work, record it in `.relay/space-context.md` so other chats in this space stay in sync.",
     conditions: ["in-space"],
   },
   {
@@ -74,7 +74,7 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
     description: "Recap what's been done so far based on the diff and shared context.",
     icon: "ScrollText",
     prompt:
-      "Summarize what has been accomplished in this space so far based on the git diff and shared context.",
+      "Recap what has been accomplished in this space so far. Pull from three sources: commits on this branch that aren't in the base branch (`git log <base>..HEAD` plus the corresponding diff), uncommitted working-tree changes (`git status`, `git diff`, `git diff --staged`), and `.relay/space-context.md`. Structure the summary as: **Done** (what's landed or clearly working), **In progress** (partial or uncommitted work), and **Open questions / next steps** (anything known to be unresolved). Be concrete — reference specific files, features, or behaviors rather than talking in generalities. Keep it tight: bullets, not paragraphs.",
     conditions: ["in-space", "has-reviewable-diff"],
   },
 
@@ -85,7 +85,7 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
     description: "Grab the highest-priority open task and start working on it.",
     icon: "ListChecks",
     prompt:
-      "Read the task list and pick up the highest-priority open task. Start by understanding the requirements, then begin implementation.",
+      'Read `.relay/tasks.jsonl` and pick the highest-priority open task that isn\'t blocked (i.e. `status: "open"` with no unresolved `blockedBy` refs, highest `priority`). Before coding, understand the task: read its description carefully, follow any `parent` link for broader context, and look at the code or files it references. Mark the task `in_progress` before starting, do the work, and mark it `done` when finished — both as append-only JSON lines in `.relay/tasks.jsonl`. If the requirements are unclear or the task spans more than the description implies, ask me before writing code.',
     conditions: ["has-tasks"],
   },
 ];

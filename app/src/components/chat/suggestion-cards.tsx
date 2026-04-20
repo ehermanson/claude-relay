@@ -10,9 +10,16 @@ interface SuggestionCardsProps {
   onSelect: (prompt: string) => void;
   /** Optional link target for the settings gear icon. */
   settingsHref?: string;
+  /** Visually dim the cards (e.g., when the user has started composing). */
+  dimmed?: boolean;
 }
 
-export function SuggestionCards({ suggestions, onSelect, settingsHref }: SuggestionCardsProps) {
+export function SuggestionCards({
+  suggestions,
+  onSelect,
+  settingsHref,
+  dimmed,
+}: SuggestionCardsProps) {
   const [dismissed, setDismissed] = useState(false);
 
   if (dismissed || suggestions.length === 0) return null;
@@ -22,7 +29,7 @@ export function SuggestionCards({ suggestions, onSelect, settingsHref }: Suggest
       <motion.div
         className="flex w-full flex-col items-end gap-3 px-1"
         initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
+        animate={{ opacity: dimmed ? 0.45 : 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }}
         transition={{ duration: 0.25, ease: "easeOut" }}
       >

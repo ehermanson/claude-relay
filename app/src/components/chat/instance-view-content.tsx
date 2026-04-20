@@ -313,7 +313,11 @@ export function InstanceViewContent() {
   const projectId = shared.instance.projectId;
   const workingDirectory = shared.instance.workingDirectory;
   const canIncludeTouchedFiles = !!shared.currentFiles?.length;
-  const hasSeededDraft = hasStoredDraft(shared.id);
+  // Whether the composer currently has any non-empty content. Used to dim
+  // (not hide) the suggestion cards while a draft is being composed. The
+  // empty state / suggestion visibility is gated purely on "has this chat
+  // received a message yet" — see `hasMessagesSent` below.
+  const [composerHasContent, setComposerHasContent] = useState(() => hasStoredDraft(shared.id));
   const [spinOffMeta, setSpinOffMeta] = useState<SpinOffMeta | null>(() =>
     loadSpinOffMeta(shared.id),
   );
@@ -331,6 +335,7 @@ export function InstanceViewContent() {
   useEffect(() => {
     setSpinOffMeta(loadSpinOffMeta(shared.id));
     setInlineReplyFragments(loadInlineReplyFragments(shared.id));
+    setComposerHasContent(hasStoredDraft(shared.id));
   }, [shared.id]);
 
   // Prepend source attribution when a spun-off draft is sent for the first time.
@@ -456,9 +461,10 @@ export function InstanceViewContent() {
     enabled: !!projectId,
   });
 
-  // Only show suggestions on a fresh chat, so we only need git state in that case.
-  const isFreshChat =
-    shared.items.length === 0 && !shared.isActive && !hasSeededDraft && !shared.instance.external;
+  // "Fresh chat" = nothing sent yet. Empty state and suggestions stay up until
+  // a message lands, regardless of whether there's a pending draft.
+  const hasMessagesSent = shared.items.length > 0;
+  const isFreshChat = !hasMessagesSent && !shared.isActive && !shared.instance.external;
 
   // Does any resolved suggestion actually depend on git state? Avoid a pointless
   // git call when none do (e.g. user disabled review-changes/write-tests globally).
@@ -571,10 +577,7 @@ export function InstanceViewContent() {
     <>
       {shared.isLoadingSession || (!shared.hasLoadedHistory && shared.items.length === 0) ? (
         loadingContent
-      ) : shared.items.length === 0 &&
-        !shared.isActive &&
-        !shared.showThinkingIndicator &&
-        !hasSeededDraft ? (
+      ) : !hasMessagesSent && !shared.isActive && !shared.showThinkingIndicator ? (
         <EmptyChatState projectName={getProjectName(shared.instance.workingDirectory)} />
       ) : (
         <ErrorBoundary name="Message list">
@@ -689,9 +692,8 @@ export function InstanceViewContent() {
           />
         ) : (
           <ErrorBoundary name="Input area" inline>
-            {shared.items.length === 0 &&
+            {!hasMessagesSent &&
               !shared.isActive &&
-              !hasSeededDraft &&
               filteredSuggestions &&
               filteredSuggestions.length > 0 && (
                 <div className="mx-auto w-full max-w-3xl px-6 max-[768px]:px-3">
@@ -699,6 +701,7 @@ export function InstanceViewContent() {
                     suggestions={filteredSuggestions}
                     onSelect={setPendingDraft}
                     settingsHref="/settings/suggestions"
+                    dimmed={composerHasContent}
                   />
                 </div>
               )}
@@ -725,6 +728,7 @@ export function InstanceViewContent() {
               onRemoveInlineReply={handleRemoveInlineReply}
               pendingDraft={pendingDraft}
               onPendingDraftApplied={clearPendingDraft}
+              onDraftChange={setComposerHasContent}
               topSlot={
                 <>
                   <SpinOffSourceBar

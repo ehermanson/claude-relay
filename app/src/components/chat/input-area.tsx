@@ -73,6 +73,8 @@ interface InputAreaProps {
   pendingDraft?: string | null;
   /** Called after pendingDraft has been applied so the parent can clear it. */
   onPendingDraftApplied?: () => void;
+  /** Notifies the parent when the composer transitions between empty and non-empty. */
+  onDraftChange?: (hasContent: boolean) => void;
 }
 
 interface OptimisticProviderSelection {
@@ -192,6 +194,7 @@ export function InputArea({
   topSlot,
   pendingDraft,
   onPendingDraftApplied,
+  onDraftChange,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
   const composerContainerRef = useRef<HTMLDivElement>(null);
@@ -285,6 +288,12 @@ export function InputArea({
       onPendingDraftApplied?.();
     }
   }, [pendingDraft, setComposerValue, onPendingDraftApplied]);
+
+  // Notify parent when the composer transitions between empty / non-empty.
+  // Used to dim suggestion cards while a draft is being composed.
+  useEffect(() => {
+    onDraftChange?.(draftText.trim().length > 0);
+  }, [draftText, onDraftChange]);
 
   const promptRequestId =
     pendingUserInput?.kind === "user_input" ? pendingUserInput.requestId : null;
