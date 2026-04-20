@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { checkForUpdates, fetchUpdateStatus, installUpdate } from "@/lib/api";
 import type { UpdateSnapshot, UpdateStage, UpdateStatus } from "@shared/types";
@@ -10,6 +10,40 @@ let bgCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 const TOAST_ID = "system-update";
 const QUERY_KEY = ["system-update"] as const;
+
+// Mutation keys let us observe in-flight install/check mutations across *every*
+// `useSystemUpdate()` instance via `useIsMutating`. Without a shared key, each
+// mounted component has its own `useMutation` instance and its own
+// `isPending` — so triggering install from the sidebar wouldn't flip the
+// settings page into a loading state until the server's polled status caught
+// up (~1s). With a shared key, every instance sees the pending state instantly.
+const INSTALL_MUTATION_KEY = ["system-update", "install"] as const;
+const CHECK_MUTATION_KEY = ["system-update", "check"] as const;
+
+// Module-level post-install tracking. `pendingReload` and `preInstallCommit`
+// need to survive the triggering component unmounting (e.g., the sidebar
+// unmounts while the user navigates to the settings page mid-install) so the
+// success toast still fires once the server reports the new commit.
+let modulePendingReload = false;
+let modulePreInstallCommit: string | null = null;
+const reloadListeners = new Set<() => void>();
+
+function setPendingReload(next: boolean): void {
+  if (modulePendingReload === next) return;
+  modulePendingReload = next;
+  for (const listener of reloadListeners) listener();
+}
+
+function subscribeReload(listener: () => void): () => void {
+  reloadListeners.add(listener);
+  return () => {
+    reloadListeners.delete(listener);
+  };
+}
+
+function getPendingReload(): boolean {
+  return modulePendingReload;
+}
 
 const BUSY_STATUSES: readonly UpdateStatus[] = ["checking", "updating", "restart_pending"];
 
@@ -99,15 +133,15 @@ export function useSystemUpdate(): UseSystemUpdateResult {
     },
   });
 
-  // Tracks whether an install is still awaiting its post-restart "ready" signal
-  // so we can show the Reload action once the server is back on the new commit.
-  const [pendingReload, setPendingReload] = useState(false);
-  const preInstallCommitRef = useRef<string | null>(null);
+  // Subscribe to module-level `pendingReload` so every mounted hook instance
+  // re-renders together when install is triggered anywhere in the app.
+  const pendingReload = useSyncExternalStore(subscribeReload, getPendingReload, getPendingReload);
 
   const installMutation = useMutation({
+    mutationKey: INSTALL_MUTATION_KEY,
     mutationFn: installUpdate,
     onMutate: () => {
-      preInstallCommitRef.current = snapshot?.currentCommit ?? null;
+      modulePreInstallCommit = snapshot?.currentCommit ?? null;
       setPendingReload(true);
       toast.loading("Starting Relay update…", {
         id: TOAST_ID,
@@ -125,7 +159,7 @@ export function useSystemUpdate(): UseSystemUpdateResult {
     },
     onError: (error) => {
       setPendingReload(false);
-      preInstallCommitRef.current = null;
+      modulePreInstallCommit = null;
       toast.error(error instanceof Error ? error.message : "Failed to install update", {
         id: TOAST_ID,
         description: undefined,
@@ -135,6 +169,7 @@ export function useSystemUpdate(): UseSystemUpdateResult {
   });
 
   const checkMutation = useMutation({
+    mutationKey: CHECK_MUTATION_KEY,
     mutationFn: (force?: boolean) => checkForUpdates(Boolean(force)),
     onSuccess: (nextSnapshot) => {
       queryClient.setQueryData(QUERY_KEY, nextSnapshot);
@@ -144,13 +179,21 @@ export function useSystemUpdate(): UseSystemUpdateResult {
     },
   });
 
+  // Shared pending state — counts in-flight mutations globally by key, so every
+  // hook instance (sidebar, mini-sidebar, settings page) sees the same value
+  // regardless of which one triggered the mutation.
+  const installingCount = useIsMutating({ mutationKey: INSTALL_MUTATION_KEY });
+  const checkingCount = useIsMutating({ mutationKey: CHECK_MUTATION_KEY });
+  const anyInstallPending = installingCount > 0;
+  const anyCheckPending = checkingCount > 0;
+
   // Auto-check: fire once when the snapshot first becomes enabled + stale,
   // then keep a 30-min background interval. Multiple hook instances share a
   // single module-level interval; the server deduplicates via checkPromise.
   useEffect(() => {
     if (!snapshot?.enabled) return;
     const stale = !snapshot.checkedAt || Date.now() - snapshot.checkedAt > STALE_THRESHOLD_MS;
-    if (stale && !installMutation.isPending) {
+    if (stale && !anyInstallPending) {
       checkMutation.mutate(false);
     }
     if (!bgCheckInterval) {
@@ -172,7 +215,7 @@ export function useSystemUpdate(): UseSystemUpdateResult {
   useEffect(() => {
     const status = snapshot?.status;
     const installInProgress =
-      installMutation.isPending || (status != null && INSTALL_BUSY_STATUSES.includes(status));
+      anyInstallPending || (status != null && INSTALL_BUSY_STATUSES.includes(status));
 
     if (!installInProgress) {
       lastToastStageRef.current = null;
@@ -188,7 +231,7 @@ export function useSystemUpdate(): UseSystemUpdateResult {
       id: TOAST_ID,
       duration: Infinity,
     });
-  }, [installMutation.isPending, snapshot?.status, snapshot?.stage]);
+  }, [anyInstallPending, snapshot?.status, snapshot?.stage]);
 
   // Post-restart toast: once we've cleared the busy states AND we see a commit
   // that differs from the one we captured before install, show the final
@@ -196,13 +239,13 @@ export function useSystemUpdate(): UseSystemUpdateResult {
   // the old JS bundle, so refreshing is the last step.
   useEffect(() => {
     if (!pendingReload) return;
-    if (installMutation.isPending) return;
+    if (anyInstallPending) return;
     const status = snapshot?.status;
     if (status == null) return;
 
     if (status === "error") {
       setPendingReload(false);
-      preInstallCommitRef.current = null;
+      modulePreInstallCommit = null;
       toast.error(snapshot?.error ?? "Relay update failed", {
         id: TOAST_ID,
         duration: 8_000,
@@ -212,14 +255,14 @@ export function useSystemUpdate(): UseSystemUpdateResult {
 
     if (INSTALL_BUSY_STATUSES.includes(status)) return;
 
-    const before = preInstallCommitRef.current;
+    const before = modulePreInstallCommit;
     const after = snapshot?.currentCommit ?? null;
     const commitChanged = !!after && !!before && after !== before;
 
     if (!commitChanged) return;
 
     setPendingReload(false);
-    preInstallCommitRef.current = null;
+    modulePreInstallCommit = null;
 
     const shortCommit = formatShortCommit(after);
     toast.success(shortCommit ? `Relay updated to ${shortCommit}` : "Relay updated", {
@@ -235,7 +278,7 @@ export function useSystemUpdate(): UseSystemUpdateResult {
     });
   }, [
     pendingReload,
-    installMutation.isPending,
+    anyInstallPending,
     snapshot?.status,
     snapshot?.currentCommit,
     snapshot?.error,
@@ -243,11 +286,8 @@ export function useSystemUpdate(): UseSystemUpdateResult {
 
   const status = snapshot?.status;
   const isBusy =
-    installMutation.isPending ||
-    checkMutation.isPending ||
-    (status != null && BUSY_STATUSES.includes(status));
-  const isInstalling =
-    installMutation.isPending || status === "updating" || status === "restart_pending";
+    anyInstallPending || anyCheckPending || (status != null && BUSY_STATUSES.includes(status));
+  const isInstalling = anyInstallPending || status === "updating" || status === "restart_pending";
   const stageLabel = isInstalling
     ? (describeUpdateStage(status, snapshot?.stage) ?? "Installing update…")
     : status === "checking"
@@ -256,9 +296,9 @@ export function useSystemUpdate(): UseSystemUpdateResult {
   const canInstall = Boolean(snapshot?.enabled && snapshot?.updateAvailable && !isBusy);
 
   const install = useCallback(() => {
-    if (installMutation.isPending) return;
+    if (anyInstallPending) return;
     installMutation.mutate();
-  }, [installMutation]);
+  }, [installMutation, anyInstallPending]);
 
   const check = useCallback(
     (force = false) => {
@@ -276,7 +316,7 @@ export function useSystemUpdate(): UseSystemUpdateResult {
     canInstall,
     install,
     check,
-    installPending: installMutation.isPending,
-    checkPending: checkMutation.isPending,
+    installPending: anyInstallPending,
+    checkPending: anyCheckPending,
   };
 }
