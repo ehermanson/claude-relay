@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AlertTriangle, Loader2, RefreshCcw, WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -40,6 +41,8 @@ export function ConnectionStatusBanner({
   onContinue,
   onRetry,
 }: ConnectionStatusBannerProps) {
+  const [retrying, setRetrying] = useState(false);
+
   let title = "";
   let detail = "";
   let tone: ConnectionBannerTone = "accent";
@@ -50,7 +53,8 @@ export function ConnectionStatusBanner({
     title = "Reconnecting to Relay";
     detail = "The connection dropped. Relay will reconnect automatically.";
     tone = "warning";
-    Icon = WifiOff;
+    Icon = retrying ? Loader2 : WifiOff;
+    iconClassName = retrying ? "animate-spin" : "";
   } else if (kind === "resyncing") {
     title = "Relay is back, restoring live state";
     detail = "Re-subscribing to this chat and refreshing its latest status.";
@@ -70,6 +74,13 @@ export function ConnectionStatusBanner({
 
   const classes = toneClasses(tone);
 
+  const handleRetry = () => {
+    if (!onRetry || retrying) return;
+    setRetrying(true);
+    onRetry();
+    setTimeout(() => setRetrying(false), 3_000);
+  };
+
   return (
     <div className="shrink-0 pb-2">
       <div className="mx-auto max-w-3xl px-6 max-[768px]:px-2">
@@ -86,8 +97,14 @@ export function ConnectionStatusBanner({
             <p className="mt-0.5 text-[0.75rem] text-muted">{detail}</p>
           </div>
           {onRetry && (
-            <Button variant="ghost" size="sm" className="shrink-0" onClick={onRetry}>
-              Retry
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              disabled={retrying}
+              onClick={handleRetry}
+            >
+              {retrying ? "Retrying…" : "Retry"}
             </Button>
           )}
           {onContinue && (

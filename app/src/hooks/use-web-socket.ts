@@ -223,11 +223,14 @@ export function useWebSocket() {
       return;
     }
 
-    // CONNECTING or OPEN (including stale-open): force-close and let onclose
-    // reconnect with the reset backoff.
+    // CONNECTING or OPEN: detach the old socket so its onclose doesn't interfere,
+    // then start a fresh connection immediately. The old socket is closed in the
+    // background but we don't wait for it.
+    wsRef.current = null;
+    ws.close();
     backoffRef.current = RECONNECT_BASE;
     if (reconnectRef.current) clearTimeout(reconnectRef.current);
-    ws.close();
+    connect();
   }, [connect]);
 
   useEffect(() => {

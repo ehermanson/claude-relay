@@ -201,6 +201,7 @@ export function InputArea({
   const mentionListRef = useRef<HTMLDivElement>(null);
   const slashListRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [retrying, setRetrying] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const projectCtx = useContext(ProjectContext);
   const { send } = useWSMethods();
@@ -955,10 +956,16 @@ export function InputArea({
             <div className="flex justify-center pt-1.5">
               <button
                 type="button"
-                onClick={onReconnect}
-                className="text-[0.75rem] text-muted underline-offset-2 hover:text-text-bright hover:underline"
+                disabled={retrying}
+                onClick={() => {
+                  if (retrying) return;
+                  setRetrying(true);
+                  onReconnect();
+                  setTimeout(() => setRetrying(false), 3_000);
+                }}
+                className="text-[0.75rem] text-muted underline-offset-2 hover:text-text-bright hover:underline disabled:opacity-50"
               >
-                Retry connection
+                {retrying ? "Retrying…" : "Retry connection"}
               </button>
             </div>
           )}
