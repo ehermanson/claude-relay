@@ -208,8 +208,12 @@ export class UpdateManager {
     this.setStage("pulling");
 
     try {
-      await this.ensureCleanWorktree();
-      await this.execGit(["pull", "--ff-only", this.gitTarget.pullSource, this.gitTarget.branch]);
+      const stashed = await this.stashLocalChanges();
+      try {
+        await this.execGit(["pull", "--ff-only", this.gitTarget.pullSource, this.gitTarget.branch]);
+      } finally {
+        if (stashed) await this.popStash();
+      }
       this.setStage("installing");
       await this.execPnpm(["install", "--frozen-lockfile"], true);
       this.setStage("building");
@@ -294,10 +298,29 @@ export class UpdateManager {
     }
   }
 
-  private async ensureCleanWorktree(): Promise<void> {
+  /** Stash local changes if any. Returns true if a stash was created. */
+  private async stashLocalChanges(): Promise<boolean> {
     const status = await this.execGit(["status", "--porcelain"]);
-    if (status.trim()) {
-      throw new Error("Relay install has local changes. Commit or discard them before updating.");
+    if (!status.trim()) return false;
+    await this.execGit([
+      "stash",
+      "push",
+      "--include-untracked",
+      "--message",
+      "relay-update-autostash",
+    ]);
+    return true;
+  }
+
+  /** Pop the most recent stash. Errors are logged but not re-thrown — the update already succeeded. */
+  private async popStash(): Promise<void> {
+    try {
+      await this.execGit(["stash", "pop"]);
+    } catch (error) {
+      this.logger.warn(
+        "[Relay] Could not restore stashed local changes after update:",
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
