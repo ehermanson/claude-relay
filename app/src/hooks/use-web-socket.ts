@@ -29,6 +29,7 @@ export type MessageHandler = (message: ServerMessage) => void;
 // Reconnect backoff: 300ms, 600ms, 1.2s, 2.4s, capped at 5s
 const RECONNECT_BASE = 300;
 const RECONNECT_MAX = 5_000;
+const HANDSHAKE_TIMEOUT = 10_000;
 
 // Grace period before showing disconnected state in the UI.
 // Hides brief dev-mode server restarts from the user.
@@ -39,6 +40,7 @@ const DISCONNECT_GRACE = 1_500;
 // sends a heartbeat message every 30s, so allow several missed beats
 // before forcing a reconnect on slower mobile/Tailscale links.
 const STALE_TIMEOUT = 150_000;
+const WS_LOG_PREFIX = "[Relay WS]";
 
 export function useWebSocket() {
   const [isConnected, setIsConnected] = useState(false);
@@ -54,10 +56,42 @@ export function useWebSocket() {
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
   const backoffRef = useRef(RECONNECT_BASE);
   const graceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handshakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageRef = useRef(0);
   const staleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectAttemptRef = useRef(0);
   const setProviderGlobalStateList = useProviderRuntimeStore((s) => s.setProviderGlobalStateList);
   const updateProviderGlobalState = useProviderRuntimeStore((s) => s.updateProviderGlobalState);
+
+  const clearHandshakeTimer = useCallback(() => {
+    if (handshakeTimerRef.current) {
+      clearTimeout(handshakeTimerRef.current);
+      handshakeTimerRef.current = null;
+    }
+  }, []);
+
+  const replaceSocket = useCallback(
+    (reason: string) => {
+      const ws = wsRef.current;
+      if (reconnectRef.current) {
+        clearTimeout(reconnectRef.current);
+        reconnectRef.current = null;
+      }
+      backoffRef.current = RECONNECT_BASE;
+      clearHandshakeTimer();
+
+      if (!ws || ws.readyState === WebSocket.CLOSED) {
+        console.info(`${WS_LOG_PREFIX} reconnecting (${reason}) with no active socket`);
+        return false;
+      }
+
+      wsRef.current = null;
+      console.info(`${WS_LOG_PREFIX} replacing socket (${reason}, readyState=${ws.readyState})`);
+      ws.close();
+      return true;
+    },
+    [clearHandshakeTimer],
+  );
 
   const send = useCallback((message: ClientMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -87,14 +121,28 @@ export function useWebSocket() {
   }, []);
 
   const connect = useCallback(() => {
+    const attempt = ++connectAttemptRef.current;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}`);
+    const url = `${protocol}//${window.location.host}`;
+    console.info(`${WS_LOG_PREFIX} connect attempt ${attempt} -> ${url}`);
+    const ws = new WebSocket(url);
     wsRef.current = ws;
+    clearHandshakeTimer();
+    handshakeTimerRef.current = setTimeout(() => {
+      if (wsRef.current !== ws || ws.readyState !== WebSocket.CONNECTING) return;
+      console.warn(
+        `${WS_LOG_PREFIX} connect attempt ${attempt} timed out after ${HANDSHAKE_TIMEOUT}ms`,
+      );
+      replaceSocket(`handshake timeout on attempt ${attempt}`);
+      connect();
+    }, HANDSHAKE_TIMEOUT);
 
     ws.onopen = () => {
       if (wsRef.current !== ws) return;
+      clearHandshakeTimer();
       lastMessageRef.current = Date.now();
       hasConnectedRef.current = true;
+      console.info(`${WS_LOG_PREFIX} connected on attempt ${attempt}`);
       // Start stale-connection checker
       if (staleTimerRef.current) clearInterval(staleTimerRef.current);
       staleTimerRef.current = setInterval(() => {
@@ -169,7 +217,11 @@ export function useWebSocket() {
 
     ws.onclose = (event) => {
       if (wsRef.current !== ws) return;
+      clearHandshakeTimer();
       if (staleTimerRef.current) clearInterval(staleTimerRef.current);
+      console.info(
+        `${WS_LOG_PREFIX} closed (attempt ${attempt}, code=${event.code}, clean=${event.wasClean})`,
+      );
 
       // Server rejected us as unauthorized — redirect to login
       if (event.code === 4001) {
@@ -195,43 +247,23 @@ export function useWebSocket() {
       if (wsRef.current !== ws) return;
       if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) return;
       if (hasConnectedRef.current) {
-        console.error("WebSocket error:", err);
+        console.error(`${WS_LOG_PREFIX} socket error after connect:`, err);
       } else {
-        console.debug("WebSocket connect failed; waiting to retry");
+        console.warn(
+          `${WS_LOG_PREFIX} connect attempt ${attempt} errored before open; waiting for close/timeout`,
+        );
       }
     };
-  }, [setProviderGlobalStateList, updateProviderGlobalState]);
+  }, [clearHandshakeTimer, replaceSocket, setProviderGlobalStateList, updateProviderGlobalState]);
 
   // Force an immediate reconnect regardless of current socket state.
   // Covers all four readyState cases so a manual retry or visibility-restore
   // is never a silent no-op (e.g. socket stuck in CONNECTING on a wedged
   // Tailscale handshake).
   const reconnectNow = useCallback(() => {
-    const ws = wsRef.current;
-
-    if (!ws || ws.readyState === WebSocket.CLOSED) {
-      // Nothing open — reconnect immediately with reset backoff.
-      if (reconnectRef.current) clearTimeout(reconnectRef.current);
-      backoffRef.current = RECONNECT_BASE;
-      connect();
-      return;
-    }
-
-    if (ws.readyState === WebSocket.CLOSING) {
-      // Already tearing down — just reset backoff so onclose reconnects fast.
-      backoffRef.current = RECONNECT_BASE;
-      return;
-    }
-
-    // CONNECTING or OPEN: detach the old socket so its onclose doesn't interfere,
-    // then start a fresh connection immediately. The old socket is closed in the
-    // background but we don't wait for it.
-    wsRef.current = null;
-    ws.close();
-    backoffRef.current = RECONNECT_BASE;
-    if (reconnectRef.current) clearTimeout(reconnectRef.current);
+    replaceSocket("manual retry");
     connect();
-  }, [connect]);
+  }, [connect, replaceSocket]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -249,11 +281,12 @@ export function useWebSocket() {
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
       if (staleTimerRef.current) clearInterval(staleTimerRef.current);
       if (graceRef.current) clearTimeout(graceRef.current);
+      clearHandshakeTimer();
       const ws = wsRef.current;
       wsRef.current = null;
       ws?.close();
     };
-  }, [connect]);
+  }, [clearHandshakeTimer, connect]);
 
   return {
     isConnected,
