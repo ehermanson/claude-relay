@@ -3,40 +3,17 @@ import { create } from "zustand";
 
 // ── Server sync ───────────────────────────────────────────────────────────────
 
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
-
-function scheduleServerSync(order: string[]): void {
-  if (syncTimer) clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => {
-    fetch("/api/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectOrder: order }),
-    }).catch(() => {});
-  }, 800);
+function syncOrderToServer(order: string[]): void {
+  fetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectOrder: order }),
+  }).catch(() => {});
 }
 
 // ── Store ────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "relay:project-order";
 const COLLAPSED_KEY = "relay:project-collapsed";
-
-function loadOrder(): string[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveOrder(order: string[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(order));
-  } catch {
-    // quota exceeded — silently ignore
-  }
-}
 
 function loadCollapsed(): string[] {
   try {
@@ -55,8 +32,9 @@ function saveCollapsed(dirs: string[]): void {
 
 interface ProjectOrderState {
   order: string[];
+  hydrated: boolean;
   setOrder: (next: string[] | ((prev: string[]) => string[])) => void;
-  initFromServer: (order: string[]) => void;
+  hydrateFromServer: (order: string[]) => void;
   moveToTop: (dir: string) => void;
   moveUp: (dir: string) => void;
   moveDown: (dir: string) => void;
@@ -71,33 +49,28 @@ function persistSet(
   set: (fn: (s: ProjectOrderState) => Partial<ProjectOrderState>) => void,
   fn: (s: ProjectOrderState) => Partial<ProjectOrderState>,
 ) {
-  set((state) => {
-    const patch = fn(state);
-    if (patch.order) saveOrder(patch.order);
-    return patch;
-  });
+  set((state) => fn(state));
 }
 
 const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
-  order: loadOrder(),
+  order: [],
+  hydrated: false,
 
   setOrder: (next) => {
     const order = typeof next === "function" ? next(get().order) : next;
-    saveOrder(order);
-    scheduleServerSync(order);
+    syncOrderToServer(order);
     set({ order });
   },
 
-  /** Seed the order from the server on first load — does not echo back to server. */
-  initFromServer: (order) => {
-    saveOrder(order);
-    set({ order });
+  /** Apply the server-backed canonical order without echoing it back. */
+  hydrateFromServer: (order) => {
+    set({ order, hydrated: true });
   },
 
   moveToTop: (dir) =>
     persistSet(set, ({ order }) => {
       const next = [dir, ...order.filter((d) => d !== dir)];
-      scheduleServerSync(next);
+      syncOrderToServer(next);
       return { order: next };
     }),
 
@@ -107,7 +80,7 @@ const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
       if (idx <= 0) return { order };
       const next = [...order];
       [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-      scheduleServerSync(next);
+      syncOrderToServer(next);
       return { order: next };
     }),
 
@@ -117,14 +90,14 @@ const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
       if (idx === -1 || idx >= order.length - 1) return { order };
       const next = [...order];
       [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-      scheduleServerSync(next);
+      syncOrderToServer(next);
       return { order: next };
     }),
 
   moveToBottom: (dir) =>
     persistSet(set, ({ order }) => {
       const next = [...order.filter((d) => d !== dir), dir];
-      scheduleServerSync(next);
+      syncOrderToServer(next);
       return { order: next };
     }),
 
@@ -152,7 +125,7 @@ const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 /**
- * Persists a custom ordering of project directories via zustand + localStorage.
+ * Persists a shared project ordering via the server-backed global settings row.
  *
  * Every component that calls this hook shares the same store, so Sidebar,
  * MiniSidebar, and Dashboard always agree on project order.
@@ -163,8 +136,9 @@ const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
 export function useProjectOrder() {
   const {
     order,
+    hydrated,
     setOrder,
-    initFromServer,
+    hydrateFromServer,
     moveToTop,
     moveUp,
     moveDown,
@@ -199,6 +173,7 @@ export function useProjectOrder() {
 
   const syncVisibleDirs = useCallback(
     (dirs: string[]) => {
+      if (!hydrated) return;
       const storedSet = new Set(order);
       const unknown = dirs
         .filter((d) => !storedSet.has(d))
@@ -210,7 +185,7 @@ export function useProjectOrder() {
         setOrder([...order, ...unknown]);
       }
     },
-    [order, setOrder],
+    [hydrated, order, setOrder],
   );
 
   /** Sort a `[dir, T][]` entries array according to the stored project order. */
@@ -226,8 +201,9 @@ export function useProjectOrder() {
 
   return {
     order,
+    hydrated,
     sortEntries,
-    initFromServer,
+    hydrateFromServer,
     moveToTop,
     moveUp,
     moveDown,
@@ -237,4 +213,12 @@ export function useProjectOrder() {
     toggleCollapsed,
     setCollapsed,
   };
+}
+
+export function resetProjectOrderStoreForTests(): void {
+  useProjectOrderStore.setState({
+    order: [],
+    hydrated: false,
+    collapsed: new Set(),
+  });
 }

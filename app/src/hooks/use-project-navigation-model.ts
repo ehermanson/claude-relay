@@ -16,20 +16,22 @@ export function useProjectNavigationModel() {
   const { spacesByDir: projectSpaces, spacesLoadingByDir } = useProjectSpaces(projects);
   const { chatsByProjectId, chatsLoadingByProjectId } = useProjectChatSummaries(projects);
   const projectOrder = useProjectOrder();
+  const { hydrateFromServer, syncVisibleDirs } = projectOrder;
 
-  // Seed order from server on first load so all devices stay in sync.
-  const serverInitialized = useRef(false);
   const { data: globalSettings } = useQuery({
     queryKey: ["global-settings"],
     queryFn: fetchGlobalSettings,
     staleTime: 60_000,
   });
+  const lastServerOrderJson = useRef<string | null>(null);
   useEffect(() => {
-    if (!serverInitialized.current && globalSettings?.projectOrder) {
-      serverInitialized.current = true;
-      projectOrder.initFromServer(globalSettings.projectOrder);
-    }
-  }, [globalSettings?.projectOrder]);
+    if (!globalSettings) return;
+    const nextOrder = globalSettings.projectOrder ?? [];
+    const nextOrderJson = JSON.stringify(nextOrder);
+    if (lastServerOrderJson.current === nextOrderJson) return;
+    lastServerOrderJson.current = nextOrderJson;
+    hydrateFromServer(nextOrder);
+  }, [globalSettings, hydrateFromServer]);
 
   const mergedInstances = new Map<string, InstanceInfo>();
   for (const project of projects) {
@@ -45,6 +47,8 @@ export function useProjectNavigationModel() {
   const groups = projectOrder.sortEntries(
     groupInstancesByProject(Array.from(mergedInstances.values()), projects),
   );
+  const groupDirs = groups.map(([dir]) => dir);
+  const groupDirsKey = groupDirs.join("\0");
 
   const latestChatIdBySpace: Record<string, string> = {};
   const latestActivityBySpace = new Map<string, number>();
@@ -59,10 +63,8 @@ export function useProjectNavigationModel() {
   }
 
   useEffect(() => {
-    projectOrder.syncVisibleDirs(groups.map(([dir]) => dir));
-    // deps: instances/projects drive the group list; avoid `groups` (new ref every render)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instances, projects]);
+    syncVisibleDirs(groupDirs);
+  }, [groupDirs, groupDirsKey, syncVisibleDirs]);
 
   const projectByDir = new Map<string, Project>();
   for (const project of projects) {
