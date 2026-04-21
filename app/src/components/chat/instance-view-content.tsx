@@ -578,7 +578,21 @@ export function InstanceViewContent() {
       {shared.isLoadingSession || (!shared.hasLoadedHistory && shared.items.length === 0) ? (
         loadingContent
       ) : !hasMessagesSent && !shared.isActive && !shared.showThinkingIndicator ? (
-        <EmptyChatState projectName={getProjectName(shared.instance.workingDirectory)} />
+        // Empty state + suggestions share one scrollable region so the composer
+        // (shrink-0, below) always stays on screen even on short viewports.
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <EmptyChatState projectName={getProjectName(shared.instance.workingDirectory)} />
+          {!shared.instance.external && filteredSuggestions && filteredSuggestions.length > 0 && (
+            <div className="mx-auto w-full max-w-3xl shrink-0 px-6 pb-2 max-[768px]:px-3">
+              <SuggestionCards
+                suggestions={filteredSuggestions}
+                onSelect={setPendingDraft}
+                settingsHref="/settings/suggestions"
+                dimmed={composerHasContent}
+              />
+            </div>
+          )}
+        </div>
       ) : (
         <ErrorBoundary name="Message list">
           <MaybeRelayProvider value={relayValue}>
@@ -692,19 +706,6 @@ export function InstanceViewContent() {
           />
         ) : (
           <ErrorBoundary name="Input area" inline>
-            {!hasMessagesSent &&
-              !shared.isActive &&
-              filteredSuggestions &&
-              filteredSuggestions.length > 0 && (
-                <div className="mx-auto w-full max-w-3xl px-6 max-[768px]:px-3">
-                  <SuggestionCards
-                    suggestions={filteredSuggestions}
-                    onSelect={setPendingDraft}
-                    settingsHref="/settings/suggestions"
-                    dimmed={composerHasContent}
-                  />
-                </div>
-              )}
             <InputArea
               onSend={handleSendWithContext}
               onAnswerUserInput={actions.handleAnswerUserInput}
