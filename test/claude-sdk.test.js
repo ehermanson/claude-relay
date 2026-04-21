@@ -264,6 +264,30 @@ describe("ClaudeSdkSession", () => {
       assert.deepEqual(capturedOptions.allowedTools, ["Bash", "Edit"]);
       session.close();
     });
+
+    it("passes bootstrap context through the Claude system prompt", async () => {
+      let capturedOptions;
+      const fakeQuery = new FakeQuery();
+      const session = await createSdkSession({
+        cwd: "/test",
+        logger: noopLogger,
+        bootstrapContext: {
+          blocks: [],
+          baseInstructions: "Base relay policy",
+          developerInstructions: "Developer relay policy",
+        },
+        queryFn: ({ _prompt, options }) => {
+          capturedOptions = options;
+          return fakeQuery;
+        },
+      });
+      assert.deepEqual(capturedOptions.systemPrompt, {
+        type: "preset",
+        preset: "claude_code",
+        append: "Base relay policy\n\nDeveloper relay policy",
+      });
+      session.close();
+    });
   });
 
   describe("send()", () => {

@@ -189,6 +189,17 @@ describe("extractSearchableText", () => {
     assert.ok(!result.includes("space-context"));
   });
 
+  it("strips fallback runtime context wrapper and indexes only the real user text", () => {
+    const wrapped =
+      "Runtime context for this turn:\n\n" +
+      "## Space: test (.relay/space-context.md)\n" +
+      "Use the shared worktree and coordinate with sibling chats first.\n\n" +
+      "User request:\nRefactor the provider registry so runtime context is handled consistently and stays separate from visible user-authored chat messages";
+    const result = extractSearchableText([userEntry(wrapped)]);
+    assert.ok(result.includes("Refactor the provider registry"));
+    assert.ok(!result.includes("Runtime context for this turn"));
+  });
+
   it("excludes tool_use and thinking activity messages", () => {
     const result = extractSearchableText([
       activityEntry("tool_use", "Reading file server/core/db.ts"),

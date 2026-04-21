@@ -127,7 +127,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 ### Project Settings
 
 - Per-project settings stored in `projects` table: `custom_instructions`, `default_space_branch`, `default_provider`, `default_model`
-- Custom instructions are injected as an internal user message on the first turn of managed sessions
+- Custom instructions and task guidance should be delivered as structured session bootstrap context when the provider supports it; avoid rewriting the first user message unless falling back for compatibility
 - Default provider/model are used when creating new sessions within the project
 - Default space branch determines the base branch when creating new spaces (worktrees)
 - Settings page: `/projects/:id/settings` with textarea for instructions, branch picker, provider/model selectors

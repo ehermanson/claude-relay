@@ -1,7 +1,7 @@
 /**
  * Shared debug tab bar + data panes for both chat and space debug drawers.
  *
- * Renders: Provider | Session | Raw | Processed | Instance
+ * Renders: Provider | Session | Context | Raw | Processed | Instance
  * with a tree/raw toggle and per-tab descriptions.
  *
  * Accepts optional extra tabs (e.g. "Space") via the `extraTabs` prop.
@@ -57,6 +57,8 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     "Current provider config and live status — which provider, model, and any runtime state like rate limits or reroutes.",
   session:
     "Lifecycle events for this session — init, provider status changes, notices, and model reroutes.",
+  context:
+    "Structured Relay-injected context for this session — bootstrap policy and any provider-visible runtime context Relay has stored.",
   raw: "The unprocessed message history from the server, exactly as received over the wire.",
   processed:
     "Messages after Relay transforms them into renderable items — grouped activities, merged tool results, thinking blocks, etc.",
@@ -64,7 +66,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     "The full InstanceInfo object — status, git state, permissions, plan mode, stats, and everything the UI derives state from.",
 };
 
-const DATA_TAB_KEYS = ["provider", "session", "raw", "processed", "instance"] as const;
+const DATA_TAB_KEYS = ["provider", "session", "context", "raw", "processed", "instance"] as const;
 
 // ── Component ────────────────────────────────────────────────────────
 
@@ -104,6 +106,7 @@ export function DebugTabs({
         providerInstanceState: instance.providerStatus ?? null,
       },
       session: sessionEvents,
+      context: instance.sessionContext ?? null,
       raw: rawHistory ?? [],
       processed: { items, isProcessing },
       instance: instance,
@@ -140,6 +143,9 @@ export function DebugTabs({
           </Tabs.Tab>
           <Tabs.Tab value="session" disabled={chatTabsDisabled}>
             Session
+          </Tabs.Tab>
+          <Tabs.Tab value="context" disabled={chatTabsDisabled}>
+            Context
           </Tabs.Tab>
           <Tabs.Tab value="raw" disabled={chatTabsDisabled}>
             Raw{rawHistory && instance ? ` (${rawHistory.length})` : ""}

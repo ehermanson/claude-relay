@@ -24,6 +24,7 @@ import type {
   SessionStats,
   ProviderRequest,
   ProviderRuntimeBinding,
+  ProviderSessionBootstrap,
   UserInputQuestion,
   SystemEventMessage,
 } from "#core/types.js";
@@ -159,6 +160,14 @@ interface SDKOptions {
   allowedTools?: string[];
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   settings?: Record<string, unknown>;
+  systemPrompt?:
+    | string
+    | {
+        type: "preset";
+        preset: "claude_code";
+        append?: string;
+        excludeDynamicSections?: boolean;
+      };
   pathToClaudeCodeExecutable?: string;
 }
 
@@ -282,6 +291,8 @@ export interface ClaudeSdkSessionOptions {
   allowedTools?: string[];
   /** Injected query function (for testing) */
   queryFn?: QueryFn;
+  /** Structured bootstrap context delivered once when the session is created */
+  bootstrapContext?: ProviderSessionBootstrap;
 }
 
 export interface ClaudeSdkSession extends ProviderSession {
@@ -482,12 +493,14 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private cwd: string;
   private currentModel: string | null;
+  readonly bootstrapContext?: ProviderSessionBootstrap;
 
   constructor(options: ClaudeSdkSessionOptions, queryFn: QueryFn) {
     super();
     this.logger = options.logger;
     this.cwd = options.cwd;
     this.currentModel = options.model ?? null;
+    this.bootstrapContext = options.bootstrapContext;
     this._planMode = options.planMode ?? false;
     this.allowedToolSet = new Set(options.allowedTools || []);
     this.promptQueue = new PromptQueue();
@@ -502,6 +515,19 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     };
     if (options.fastMode) {
       sdkOptions.settings = { fastMode: true };
+    }
+    const appendedBootstrap = [
+      options.bootstrapContext?.baseInstructions,
+      options.bootstrapContext?.developerInstructions,
+    ]
+      .filter((value): value is string => !!value?.trim())
+      .join("\n\n");
+    if (appendedBootstrap) {
+      sdkOptions.systemPrompt = {
+        type: "preset",
+        preset: "claude_code",
+        append: appendedBootstrap,
+      };
     }
 
     if (options.resumeSessionId) {
@@ -584,6 +610,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       runtimePayload: {
         cwd: this.cwd,
         model: this.currentModel ?? undefined,
+        sessionContext: this.bootstrapContext ? { bootstrap: this.bootstrapContext } : undefined,
       },
       runtimeMode: this._planMode
         ? "plan"

@@ -15,6 +15,7 @@ import type {
   SessionStats,
   SystemEventMessage,
   ProviderKind,
+  ProviderSessionBootstrap,
   ProviderModelOptions,
   ProviderRequest,
   ProviderRequestResponse,
@@ -54,7 +55,7 @@ export interface ProviderSession extends EventEmitter {
     listener: (...args: ProviderSessionEvents[E]) => void,
   ): this;
 
-  /** Send a user message. For SDK providers this pushes to the prompt queue; for CLI it spawns a process. */
+  /** Send a user message. */
   send(message: string): void;
 
   /** Interrupt the current turn (SIGINT for CLI, query.interrupt() for SDK). */
@@ -74,6 +75,9 @@ export interface ProviderSession extends EventEmitter {
 
   /** Change the model for subsequent turns. Pass null to clear. */
   setModel(model: string | null): void;
+
+  /** Structured bootstrap context delivered once when the session is created. */
+  readonly bootstrapContext?: ProviderSessionBootstrap;
 
   /** Toggle provider plan mode for subsequent turns when supported. */
   setPlanMode?(planMode: boolean): void;

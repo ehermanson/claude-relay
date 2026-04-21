@@ -313,6 +313,59 @@ describe("InstanceManager", () => {
       assert.equal(instance.originalDirectory, manager.baseConfig.workingDirectory);
       assert.equal(instance.info.originalDirectory, manager.baseConfig.workingDirectory);
     });
+
+    it("keeps space bootstrap guidance when creating a resumed space session", () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Resume Space",
+      });
+      const fakeProc = new FakeProviderSession("codex");
+      manager.createProviderSession = (_config, options) => {
+        fakeProc.bootstrapContext = options?.bootstrapContext;
+        return fakeProc;
+      };
+
+      const info = manager.createInstance({
+        provider: "codex",
+        resumeSessionId: "resume-space-session",
+        spaceId: space.id,
+      });
+
+      assert.equal(info.spaceId, space.id);
+      assert.ok(fakeProc.bootstrapContext);
+      assert.equal(
+        fakeProc.bootstrapContext.blocks.some((b) => b.kind === "space_context"),
+        true,
+      );
+      assert.equal(
+        fakeProc.bootstrapContext.blocks.some((b) => b.kind === "custom_instructions"),
+        false,
+      );
+      assert.equal(
+        fakeProc.bootstrapContext.blocks.some((b) => b.kind === "task_guidance"),
+        false,
+      );
+    });
+
+    it("persists bootstrap context even when the provider does not echo it back", () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Bootstrap Contract",
+      });
+      const fakeProc = new FakeProviderSession("codex");
+      manager.createProviderSession = () => fakeProc;
+
+      const info = manager.createInstance({
+        provider: "codex",
+        spaceId: space.id,
+      });
+      const instance = manager.instances.get(info.id);
+
+      assert.ok(instance);
+      assert.ok(instance.info.sessionContext?.bootstrap);
+      assert.equal(
+        instance.info.sessionContext.bootstrap.blocks.some((b) => b.kind === "space_context"),
+        true,
+      );
+    });
   });
 
   describe("listInstances / getInstance", () => {
@@ -1035,9 +1088,11 @@ describe("InstanceManager", () => {
       await manager.sendMessage(info.id, "tell me how to run this locally");
 
       assert.equal(sentMessages.length, 1);
-      assert.match(sentMessages[0], /This project tracks tasks in \.relay\/tasks\.jsonl/);
-      assert.match(sentMessages[0], /Do not mention, restate, or acknowledge/);
-      assert.match(sentMessages[0], /User request:\ntell me how to run this locally/);
+      assert.equal(sentMessages[0], "tell me how to run this locally");
+      assert.equal(
+        instance.info.sessionContext?.bootstrap?.blocks.some((b) => b.kind === "task_guidance"),
+        true,
+      );
 
       const history = manager.getHistory(info.id).filter((entry) => entry.message.type === "user");
       assert.equal(history.length, 1);
@@ -1125,6 +1180,48 @@ describe("InstanceManager", () => {
       });
       assert.equal(instance.info.gitInfo?.branch, "feature-branch");
       assert.deepEqual(sentMessages, ["hello on the new branch"]);
+    });
+
+    it("stores space guidance in bootstrap context and keeps normal turns unwrapped", async () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Shared Bootstrap Context",
+      });
+      assert.ok(space.worktreePath);
+      writeFileSync(
+        join(space.worktreePath, ".relay", "space-context.md"),
+        "## Status\nSibling chat is updating the API contract.\n",
+      );
+
+      const fakeProc = new FakeProviderSession("codex");
+      manager.createProviderSession = (_config, options) => {
+        fakeProc.bootstrapContext = options?.bootstrapContext;
+        return fakeProc;
+      };
+
+      const info = manager.createInstance({ provider: "codex", spaceId: space.id });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+      assert.equal(
+        fakeProc.bootstrapContext.blocks.some((b) => b.kind === "space_context"),
+        true,
+      );
+      const spaceBlock = fakeProc.bootstrapContext.blocks.find((b) => b.kind === "space_context");
+      assert.match(spaceBlock.text, /shared Space/);
+      assert.match(spaceBlock.text, /re-read it as you work/);
+      assert.ok(!spaceBlock.text.includes("Sibling chat is updating the API contract"));
+
+      await manager.sendMessage(info.id, "continue with the backend changes");
+
+      assert.equal(fakeProc.sent.length, 1);
+      assert.equal(fakeProc.sent[0], "continue with the backend changes");
+      assert.equal(
+        instance.info.sessionContext.bootstrap.blocks.some((b) => b.kind === "space_context"),
+        true,
+      );
+
+      const history = manager.getHistory(info.id).filter((entry) => entry.message.type === "user");
+      assert.equal(history.length, 1);
+      assert.equal(history[0].message.text, "continue with the backend changes");
     });
   });
 

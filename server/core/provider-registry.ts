@@ -19,6 +19,7 @@ import type {
   ProviderKind,
   ProviderModelOption,
   ProviderModelOptions,
+  ProviderSessionBootstrap,
   ProviderRuntimeBinding,
   SessionStats,
   TaskItem,
@@ -61,6 +62,7 @@ interface ProviderSessionOptions {
   planMode?: boolean;
   allowedTools?: string[];
   modelOptions?: ProviderModelOptions;
+  bootstrapContext?: ProviderSessionBootstrap;
 }
 
 interface ProviderCaptureContext {
@@ -435,6 +437,7 @@ function createClaudeSession(
         logger: config.logger,
         processTimeout: config.processTimeout,
         allowedTools: options?.allowedTools,
+        bootstrapContext: options?.bootstrapContext,
       },
       context.sdkQueryFn as Parameters<typeof createSdkSessionSync>[1],
     );
@@ -698,6 +701,7 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
         logger: config.logger,
         processTimeout: config.processTimeout,
         modelOptions: options?.modelOptions,
+        bootstrapContext: options?.bootstrapContext,
       });
     },
     async getModels(context) {

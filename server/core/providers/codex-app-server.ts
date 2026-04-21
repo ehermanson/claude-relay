@@ -28,6 +28,7 @@ import type {
   ProviderNotice,
   ProviderRateLimitStatus,
   ProviderSkill,
+  ProviderSessionBootstrap,
   SessionStats,
   SystemEventMessage,
   ProviderModelOptions,
@@ -199,6 +200,7 @@ export interface CodexAppServerSessionOptions {
   spawnProcess?: SpawnFn;
   codexPath?: string;
   modelOptions?: ProviderModelOptions;
+  bootstrapContext?: ProviderSessionBootstrap;
 }
 
 export interface CodexProviderGlobalStateSnapshotOptions {
@@ -656,6 +658,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private _planMode: boolean;
   private _bypassPermissions: boolean;
   private _modelOptions: ProviderModelOptions;
+  readonly bootstrapContext?: ProviderSessionBootstrap;
   private _stats: SessionStats = {
     inputTokens: 0,
     outputTokens: 0,
@@ -712,6 +715,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this._planMode = options.planMode ?? false;
     this._bypassPermissions = options.dangerouslySkipPermissions ?? false;
     this._modelOptions = options.modelOptions ?? {};
+    this.bootstrapContext = options.bootstrapContext;
     if (this._preferredModel) {
       this._stats.model = this._preferredModel;
     }
@@ -746,6 +750,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       runtimePayload: {
         cwd: this.cwd,
         model: this._preferredModel ?? undefined,
+        sessionContext: this.bootstrapContext ? { bootstrap: this.bootstrapContext } : undefined,
       },
       runtimeMode: this._planMode
         ? "plan"
@@ -1020,6 +1025,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       const result = (await this.sendRpc("thread/start", {
         model: this._preferredModel ?? undefined,
         cwd: this.cwd,
+        baseInstructions: this.bootstrapContext?.baseInstructions ?? undefined,
+        developerInstructions: this.bootstrapContext?.developerInstructions ?? undefined,
         approvalPolicy: this.resolveApprovalPolicy(),
         sandbox: this.resolveSandboxMode(),
         experimentalRawEvents: false,

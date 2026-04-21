@@ -77,9 +77,11 @@ import type {
   ProviderModelOptions,
   ProviderSkill,
   ProviderSlashCommand,
+  ProviderContextBlock,
   ProviderRequest,
   ProviderRuntimeBinding,
   ProviderRuntimeMode,
+  ProviderSessionBootstrap,
   SpaceInfo,
   ReasoningEffort,
   ProviderModelOption,
@@ -107,11 +109,17 @@ import {
   buildCustomInstructionsPrompt,
   buildFirstTurnTaskContextPrompt,
   buildPermissionGrantedRetryMessage,
-  buildSpaceContextPrompt,
   isInternalInjectedUserText,
   stripInjectedWrapper,
-  type SpaceContextInfo,
 } from "#core/internal-user-messages.js";
+import {
+  buildSessionBootstrapContext,
+  CUSTOM_INSTRUCTIONS_BLOCK_KIND,
+  getSessionContextFromRuntimePayload,
+  hasSessionBootstrapBlock,
+  SPACE_CONTEXT_BLOCK_KIND,
+  TASK_CONTEXT_BLOCK_KIND,
+} from "#core/session-context.js";
 import {
   describeToolUse,
   describeToolDetail,
@@ -1699,10 +1707,111 @@ export class InstanceManager extends EventEmitter {
       planMode?: boolean;
       allowedTools?: string[];
       modelOptions?: ProviderModelOptions;
+      bootstrapContext?: ProviderSessionBootstrap;
     },
   ): ProviderSession {
     const provider = options?.provider ?? "claude";
     return createManagedProviderSession(provider, config, options, this.getProviderContext());
+  }
+
+  private buildBootstrapContext(
+    project: Project | undefined,
+    options?: {
+      spaceId?: string;
+      workingDirectory?: string;
+      includeProjectInstructions?: boolean;
+      includeTaskContext?: boolean;
+    },
+  ): ProviderSessionBootstrap | undefined {
+    const customInstructionBlocks = this.getProjectCustomInstructionBlocks(
+      project,
+      options?.includeProjectInstructions ?? true,
+    );
+    const relayInstructionBlocks: ProviderContextBlock[] = [];
+    const includeTaskContext = options?.includeTaskContext ?? true;
+
+    const spaceBlock = this.buildSpaceBootstrapContextBlock(
+      options?.spaceId,
+      options?.workingDirectory,
+    );
+    if (spaceBlock) relayInstructionBlocks.push(spaceBlock);
+
+    return buildSessionBootstrapContext({
+      customInstructionBlocks,
+      relayInstructionBlocks,
+      includeTaskContext: project && includeTaskContext ? hasTasks(project.directory) : false,
+    });
+  }
+
+  private getProjectCustomInstructionBlocks(
+    project: Project | undefined,
+    includeProjectInstructions = true,
+  ): ProviderContextBlock[] {
+    if (!project || !includeProjectInstructions) return [];
+
+    const blocks: ProviderContextBlock[] = [];
+    const globalCustomInstructions = this.db.getGlobalSettings().custom_instructions?.trim();
+    if (globalCustomInstructions) {
+      blocks.push({
+        key: "global-custom-instructions",
+        kind: CUSTOM_INSTRUCTIONS_BLOCK_KIND,
+        title: "Global custom instructions",
+        source: "Global settings",
+        text: globalCustomInstructions,
+      });
+    }
+
+    if (project.customInstructions?.trim()) {
+      blocks.push({
+        key: "project-custom-instructions",
+        kind: CUSTOM_INSTRUCTIONS_BLOCK_KIND,
+        title: "Project custom instructions",
+        source: "Project settings",
+        text: project.customInstructions.trim(),
+      });
+    }
+
+    const instructionsPath = join(project.directory, ".relay", "instructions.md");
+    try {
+      if (existsSync(instructionsPath)) {
+        const fileInstructions = readFileSync(instructionsPath, "utf8").trim();
+        if (fileInstructions) {
+          blocks.push({
+            key: "relay-instructions-md",
+            kind: CUSTOM_INSTRUCTIONS_BLOCK_KIND,
+            title: "Project instructions file",
+            source: ".relay/instructions.md",
+            text: fileInstructions,
+          });
+        }
+      }
+    } catch {
+      // Non-critical — skip if file can't be read.
+    }
+
+    return blocks;
+  }
+
+  private buildSpaceBootstrapContextBlock(
+    spaceId: string | undefined,
+    workingDirectory: string | undefined,
+  ): ProviderContextBlock | undefined {
+    if (!spaceId) return undefined;
+    const space = this.getSpaceManager().getSpace(spaceId);
+    if (!space) return undefined;
+    return {
+      key: `space:${spaceId}`,
+      kind: SPACE_CONTEXT_BLOCK_KIND,
+      title: `Space: ${space.name}`,
+      source: ".relay/space-context.md",
+      text:
+        `You are working in a shared Space.\n\n` +
+        `Worktree: \`${space.worktreePath || workingDirectory || space.projectDirectory}\`\n` +
+        `Original project: \`${space.projectDirectory}\`\n\n` +
+        `IMPORTANT: All file reads, writes, and searches must use paths under the worktree, not the original project directory. The worktree is an isolated copy.\n\n` +
+        `The file \`.relay/space-context.md\` is the shared coordination source of truth for this Space. Read it before making decisions that may depend on sibling chats, and re-read it as you work whenever you need the latest shared status, interfaces, decisions, or blockers.\n\n` +
+        `When you complete significant work, update \`.relay/space-context.md\` with decisions, interfaces other chats may depend on, current status, and blockers/questions.`,
+    };
   }
 
   /**
@@ -1918,6 +2027,14 @@ export class InstanceManager extends EventEmitter {
     // so the UI renders the "Default" label and the user can always override.
     const effectiveSessionModel =
       model ?? BUILTIN_PROVIDER_MODELS[provider].find((m) => m.isDefault)?.id;
+    const bootstrapContext = resumeId
+      ? this.buildBootstrapContext(project, {
+          spaceId,
+          workingDirectory,
+          includeProjectInstructions: false,
+          includeTaskContext: false,
+        })
+      : this.buildBootstrapContext(project, { spaceId, workingDirectory });
 
     const proc = this.createProviderSession(instanceConfig, {
       provider,
@@ -1925,7 +2042,19 @@ export class InstanceManager extends EventEmitter {
       model: effectiveSessionModel,
       planMode: options?.planMode,
       modelOptions,
+      bootstrapContext,
     });
+    const deliveredBootstrap = bootstrapContext ?? proc.bootstrapContext;
+    const initialBinding = proc.getRuntimeBinding();
+    const providerBinding: ProviderRuntimeBinding = deliveredBootstrap
+      ? {
+          ...initialBinding,
+          runtimePayload: {
+            ...(initialBinding.runtimePayload ?? {}),
+            sessionContext: { bootstrap: deliveredBootstrap },
+          },
+        }
+      : initialBinding;
 
     // Resolve name: explicit > session summary > auto-title from first message
     let name = options?.name || "";
@@ -1953,6 +2082,7 @@ export class InstanceManager extends EventEmitter {
       originalDirectory: spaceOriginalDirectory,
       projectId: project?.id,
       spaceId,
+      sessionContext: deliveredBootstrap ? { bootstrap: deliveredBootstrap } : undefined,
     };
 
     const dirBasename = workingDirectory.split("/").pop() || "";
@@ -1960,7 +2090,7 @@ export class InstanceManager extends EventEmitter {
     const instance: Instance = {
       info,
       process: proc,
-      providerBinding: proc.getRuntimeBinding(),
+      providerBinding,
       history: [],
       fileStateRevision: 0,
       autoTitle: !hasCustomName && !resumeId,
@@ -1969,6 +2099,12 @@ export class InstanceManager extends EventEmitter {
       originalDirectory: spaceOriginalDirectory,
       actualCwd: spaceWorktreePath ? workingDirectory : undefined,
       hydrated: true,
+      taskContextInjected: !!deliveredBootstrap?.blocks.some(
+        (b) => b.kind === TASK_CONTEXT_BLOCK_KIND,
+      ),
+      customInstructionsInjected: !!deliveredBootstrap?.blocks.some(
+        (b) => b.kind === CUSTOM_INSTRUCTIONS_BLOCK_KIND,
+      ),
     };
     this.instances.set(id, instance);
 
@@ -2253,6 +2389,16 @@ export class InstanceManager extends EventEmitter {
       gitInfo: info.gitInfo ? { ...info.gitInfo } : undefined,
       branchChanged: info.branchChanged ? { ...info.branchChanged } : undefined,
       modelOptions: info.modelOptions ? { ...info.modelOptions } : undefined,
+      sessionContext: info.sessionContext
+        ? {
+            bootstrap: info.sessionContext.bootstrap
+              ? {
+                  ...info.sessionContext.bootstrap,
+                  blocks: info.sessionContext.bootstrap.blocks.map((block) => ({ ...block })),
+                }
+              : undefined,
+          }
+        : undefined,
     };
   }
 
@@ -2644,43 +2790,24 @@ export class InstanceManager extends EventEmitter {
 
     if (!instance.customInstructionsInjected && !internal) {
       instance.customInstructionsInjected = true;
-      const parts: string[] = [];
-
-      // Global custom instructions (apply to all projects)
-      const globalCustomInstructions = this.db.getGlobalSettings().custom_instructions;
-      if (globalCustomInstructions?.trim()) {
-        parts.push(globalCustomInstructions.trim());
-      }
-
-      // Project-level custom instructions
-      if (instance.info.projectId) {
-        const project = this._projectManager.getProject(instance.info.projectId);
-        if (project) {
-          if (project.customInstructions?.trim()) {
-            parts.push(project.customInstructions.trim());
-          }
-          const instructionsPath = join(project.directory, ".relay", "instructions.md");
-          try {
-            if (existsSync(instructionsPath)) {
-              const fileInstructions = readFileSync(instructionsPath, "utf8").trim();
-              if (fileInstructions) {
-                parts.push(fileInstructions);
-              }
-            }
-          } catch {
-            // Non-critical — skip if file can't be read
-          }
-        }
-      }
-
-      if (parts.length > 0) {
-        customInstructions = parts.join("\n\n");
+      const project = instance.info.projectId
+        ? this._projectManager.getProject(instance.info.projectId)
+        : undefined;
+      const blocks = this.getProjectCustomInstructionBlocks(project);
+      if (blocks.length > 0) {
+        customInstructions = blocks.map((block) => block.text.trim()).join("\n\n");
       }
     }
 
     if (instance.autoTitle) {
       instance.info.name = generateTitle(text);
       instance.autoTitle = false;
+    }
+
+    let messageText = text;
+    if (images && images.length > 0) {
+      const markers = images.map((p) => `[Image: source: ${p}]`).join("\n");
+      messageText = messageText ? `${messageText}\n${markers}` : markers;
     }
 
     const isCompactCommand = !internal && !images?.length && COMPACT_COMMAND_RE.test(text);
@@ -2695,26 +2822,12 @@ export class InstanceManager extends EventEmitter {
         instance.process.getRuntimeBinding().providerSessionId
       );
 
-    let messageText = text;
-    if (images && images.length > 0) {
-      const markers = images.map((p) => `[Image: source: ${p}]`).join("\n");
-      messageText = messageText ? `${messageText}\n${markers}` : markers;
-    }
-
     let outboundMessage = messageText;
     if (shouldInjectTaskContext) {
       outboundMessage = buildFirstTurnTaskContextPrompt(outboundMessage);
     }
     if (customInstructions) {
       outboundMessage = buildCustomInstructionsPrompt(outboundMessage, customInstructions);
-    }
-
-    // Inject shared space context on every turn for space-bound instances
-    if (instance.info.spaceId && !internal) {
-      const spaceContext = this.buildSpaceContext(instance);
-      if (spaceContext) {
-        outboundMessage = buildSpaceContextPrompt(outboundMessage, spaceContext);
-      }
     }
 
     const userMessage: UserMessage = {
@@ -2749,41 +2862,6 @@ export class InstanceManager extends EventEmitter {
       instance.process.send(outboundMessage);
     }
     return resumed ? this.cloneInstanceInfo(resumed) : undefined;
-  }
-
-  /**
-   * Build the shared space context info for injection into a space-bound instance's messages.
-   */
-  private buildSpaceContext(instance: Instance): SpaceContextInfo | null {
-    const spaceId = instance.info.spaceId;
-    if (!spaceId) return null;
-
-    const spaceManager = this.getSpaceManager();
-    const space = spaceManager.getSpace(spaceId);
-    if (!space) return null;
-
-    const spaceContext = spaceManager.readSpaceContext(spaceId);
-    if (!spaceContext) return null;
-
-    // Gather sibling chats (exclude the current instance)
-    const siblingChats: SpaceContextInfo["siblingChats"] = [];
-    for (const [sibId, sib] of this.instances) {
-      if (sibId !== instance.info.id && sib.info.spaceId === spaceId) {
-        siblingChats.push({
-          id: sibId,
-          name: sib.info.name,
-          status: sib.info.status,
-        });
-      }
-    }
-
-    return {
-      spaceName: space.name,
-      spaceContext,
-      worktreePath: space.worktreePath || instance.info.workingDirectory,
-      originalDirectory: space.projectDirectory,
-      siblingChats,
-    };
   }
 
   private async resolveRequestLocked(
@@ -3607,6 +3685,16 @@ export class InstanceManager extends EventEmitter {
       dangerouslySkipPermissions:
         instance.info.skipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
     };
+    const existingSessionContext = getSessionContextFromRuntimePayload(binding?.runtimePayload);
+    if (existingSessionContext && !instance.info.sessionContext) {
+      instance.info.sessionContext = existingSessionContext;
+    }
+    if (hasSessionBootstrapBlock(instance.info.sessionContext, TASK_CONTEXT_BLOCK_KIND)) {
+      instance.taskContextInjected = true;
+    }
+    if (hasSessionBootstrapBlock(instance.info.sessionContext, CUSTOM_INSTRUCTIONS_BLOCK_KIND)) {
+      instance.customInstructionsInjected = true;
+    }
 
     const proc = this.createProviderSession(instanceConfig, {
       provider: instance.info.provider,
@@ -3618,12 +3706,17 @@ export class InstanceManager extends EventEmitter {
     });
 
     instance.process = proc;
+    const procBinding = proc.getRuntimeBinding();
     instance.providerBinding = {
       ...binding,
-      ...proc.getRuntimeBinding(),
+      ...procBinding,
       provider: instance.info.provider,
       providerSessionId: resumeSessionId,
       transcriptPath: binding?.transcriptPath ?? instance.jsonlPath,
+      runtimePayload: {
+        ...(binding?.runtimePayload ?? {}),
+        ...(procBinding.runtimePayload ?? {}),
+      },
     };
     instance.sessionId = resumeSessionId;
     instance.info.sessionId = resumeSessionId;
@@ -7004,6 +7097,7 @@ export class InstanceManager extends EventEmitter {
       skipPermissions: entry.skip_permissions === 1 ? true : undefined,
       spaceId: inferredSpaceId ?? undefined,
       projectId: entry.project_id ?? undefined,
+      sessionContext: getSessionContextFromRuntimePayload(runtimePayload),
     };
 
     const instance: Instance = {
@@ -7027,6 +7121,11 @@ export class InstanceManager extends EventEmitter {
       originalDirectory: restoreOriginalDirectory,
       actualCwd: restoreWorktreePath ? restoreActualCwd : undefined,
       hydrated: false,
+      taskContextInjected: hasSessionBootstrapBlock(info.sessionContext, TASK_CONTEXT_BLOCK_KIND),
+      customInstructionsInjected: hasSessionBootstrapBlock(
+        info.sessionContext,
+        CUSTOM_INSTRUCTIONS_BLOCK_KIND,
+      ),
     };
 
     this.instances.set(entry.instance_id, instance);
@@ -7875,6 +7974,10 @@ export class InstanceManager extends EventEmitter {
       providerSessionId: sessionId,
       resumeCursor: { sessionId },
       transcriptPath: jsonlPath,
+      runtimePayload: {
+        ...((instance.providerBinding ?? proc.getRuntimeBinding()).runtimePayload ?? {}),
+        sessionContext: instance.info.sessionContext,
+      },
       runtimeMode: normalizeRuntimeMode(instance.info.skipPermissions, instance.info.planMode),
     };
 

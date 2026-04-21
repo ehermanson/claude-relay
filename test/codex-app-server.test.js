@@ -233,6 +233,35 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
+  it("passes bootstrap instructions on thread start", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      model: "gpt-5.4",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+      bootstrapContext: {
+        blocks: [],
+        baseInstructions: "Base relay policy",
+        developerInstructions: "Developer relay policy",
+      },
+    });
+
+    session.send("hello");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    const msgs = child.getStdinMessages();
+    const threadStart = msgs.find((m) => m.method === "thread/start");
+    assert.equal(threadStart.params.baseInstructions, "Base relay policy");
+    assert.equal(threadStart.params.developerInstructions, "Developer relay policy");
+
+    session.close();
+  });
+
   it("normalizes startup skills from skills/list", () => {
     assert.deepEqual(
       JSON.parse(
@@ -1037,6 +1066,7 @@ describe("CodexAppServerSession", () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
       cwd: "/tmp/project",
+      model: "gpt-5.4",
       logger: noopLogger,
       spawnProcess: harness.spawnProcess,
       codexPath: "codex",
@@ -1833,9 +1863,11 @@ describe("CodexAppServerSession", () => {
     const child = harness.children[0];
     autoRespond(child);
 
-    await tick(80);
+    await tick(140);
 
     assert.equal(child.killed, true, "Expected idle turn to be closed after the timeout");
+    child.emit("close", 137, "SIGKILL");
+    await tick(10);
     assert.equal(session.isProcessing, false);
   });
 

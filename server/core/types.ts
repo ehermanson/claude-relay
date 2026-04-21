@@ -305,6 +305,24 @@ export interface ProviderRequestResponse {
   text?: string;
 }
 
+export interface ProviderContextBlock {
+  key: string;
+  kind: string;
+  title: string;
+  text: string;
+  source?: string;
+}
+
+export interface ProviderSessionBootstrap {
+  blocks: ProviderContextBlock[];
+  baseInstructions?: string;
+  developerInstructions?: string;
+}
+
+export interface ProviderSessionContext {
+  bootstrap?: ProviderSessionBootstrap;
+}
+
 export interface ProviderRuntimeBinding {
   provider: ProviderKind;
   providerSessionId?: string;
@@ -481,6 +499,8 @@ export interface InstanceInfo {
   spaceId?: string;
   /** Number of user messages queued while the agent is processing */
   queuedMessageCount?: number;
+  /** Internal bootstrap/runtime context Relay supplied to the provider. */
+  sessionContext?: ProviderSessionContext;
 }
 
 export interface HistoryEntry {
