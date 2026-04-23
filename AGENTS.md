@@ -6,6 +6,19 @@
 - **Plan mode**: Make the plan extremely concise. Sacrifice grammar for the sake of concision. At the end of each plan, give a list of unresolved questions to answer, if any.
 - **Workflow**: For anything beyond a trivial fix, create tasks in `.relay/tasks.jsonl` before starting work. Append a JSON line with `{id, title, status: "open", ...}` to create, append a line with the same `id` and changed fields to update. Set `status: "in_progress"` when starting, `status: "done"` when complete.
 
+## Ubiquitous Language
+
+Use `UBIQUITOUS_LANGUAGE.md` as the canonical glossary for domain terminology in user-facing language, docs, UI copy, issue discussion, and agent responses.
+
+High-risk distinctions:
+
+- **Project** = top-level codebase
+- **Space** = branch-scoped collaboration area within a project
+- **Chat** = user-facing conversation
+- **Managed session** / **External session** = runtime behind a chat
+- **Complete** = merge and close a space
+- **Archive** = close a space without merging
+
 ## Project Overview
 
 Relay is a bridge between remote devices and local AI coding agents. It manages multiple agent processes, discovers external sessions, and serves a React web UI.
