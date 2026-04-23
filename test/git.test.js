@@ -1,8 +1,16 @@
 import "./test-env.js";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import {
+  cpSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+  realpathSync,
+  existsSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import {
@@ -280,6 +288,40 @@ describe("worktree lifecycle", () => {
     });
 
     assert.equal(hasWorktreeChanges(worktreeResult.worktreePath, repoDir), true);
+  });
+
+  it("does not execute shell syntax embedded in worktree paths", () => {
+    const previousBase = process.env.RELAY_WORKTREE_BASE;
+    const markerFile = join(repoDir, "pwned");
+    const maliciousBase = join(dirname(repoDir), "wt-$(touch pwned)");
+    mkdirSync(maliciousBase, { recursive: true });
+
+    try {
+      process.env.RELAY_WORKTREE_BASE = maliciousBase;
+
+      worktreeResult = createWorktree(repoDir, "safe1234");
+      assert.ok(worktreeResult);
+      assert.equal(existsSync(markerFile), false);
+
+      writeFileSync(join(worktreeResult.worktreePath, "new.txt"), "content");
+      execSync("git add -A && git commit -m 'worktree change'", {
+        cwd: worktreeResult.worktreePath,
+        stdio: "pipe",
+      });
+
+      assert.equal(hasWorktreeChanges(worktreeResult.worktreePath, repoDir), true);
+      assert.equal(existsSync(markerFile), false);
+
+      removeWorktree(repoDir, worktreeResult.worktreePath, worktreeResult.branchName);
+      assert.equal(existsSync(markerFile), false);
+      worktreeResult = null;
+    } finally {
+      if (previousBase === undefined) {
+        delete process.env.RELAY_WORKTREE_BASE;
+      } else {
+        process.env.RELAY_WORKTREE_BASE = previousBase;
+      }
+    }
   });
 
   it("commitAll stages and commits all changes", () => {

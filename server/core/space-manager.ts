@@ -299,7 +299,7 @@ export class SpaceManager extends EventEmitter {
     try {
       const baseBranch =
         opts?.baseBranch || getDefaultBranch(repoRoot) || getCurrentBranch(repoRoot) || "HEAD";
-      execSync(`git worktree add -b "${branchName}" "${worktreePath}" "${baseBranch}"`, {
+      execFileSync("git", ["worktree", "add", "-b", branchName, worktreePath, baseBranch], {
         cwd: repoRoot,
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 30000,
@@ -309,12 +309,6 @@ export class SpaceManager extends EventEmitter {
         `Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-
-    // Seed the shared space context file
-    this.seedSpaceContext(worktreePath, opts?.name || branchName, opts?.description);
-
-    // Exclude .relay/ from git in the worktree
-    this.excludeRelayDir(worktreePath);
 
     const spaceName = opts?.name || branchName;
     const now = Date.now();
@@ -335,7 +329,27 @@ export class SpaceManager extends EventEmitter {
       remote_status: null,
       pr_url: null,
     };
-    this.db.upsertSpace(row);
+
+    try {
+      // Seed the shared space context file
+      this.seedSpaceContext(worktreePath, spaceName, opts?.description);
+
+      // Exclude .relay/ from git in the worktree
+      this.excludeRelayDir(worktreePath);
+
+      this.db.upsertSpace(row);
+    } catch (err) {
+      try {
+        removeWorktree(repoRoot, worktreePath, branchName);
+      } catch (cleanupErr) {
+        this.logger.warn(
+          `[SpaceManager] Failed to clean up worktree after createSpace error: ${
+            cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)
+          }`,
+        );
+      }
+      throw err;
+    }
     this.logger.info(
       `[SpaceManager] Created space "${spaceName}" (${id}) with worktree at ${worktreePath}`,
     );

@@ -89,6 +89,24 @@ describe("SessionDB", () => {
       assert.ok(Array.isArray(rows));
       assert.equal(rows.length, 0);
     });
+
+    it("resets transaction depth after nested success and rollback", () => {
+      assert.equal(db.transactionDepth, 0);
+
+      db.withTransaction(() => {
+        db.withTransaction(() => {});
+      });
+      assert.equal(db.transactionDepth, 0);
+
+      assert.throws(() => {
+        db.withTransaction(() => {
+          db.withTransaction(() => {
+            throw new Error("nested boom");
+          });
+        });
+      }, /nested boom/);
+      assert.equal(db.transactionDepth, 0);
+    });
   });
 
   describe("upsert", () => {

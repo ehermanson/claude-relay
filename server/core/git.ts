@@ -441,7 +441,7 @@ export function createWorktree(
   const branchName = `relay/${shortId}`;
 
   try {
-    execSync(`git worktree add -b "${branchName}" "${worktreePath}" HEAD`, {
+    execFileSync("git", ["worktree", "add", "-b", branchName, worktreePath, "HEAD"], {
       cwd: repoRoot,
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 30000,
@@ -468,13 +468,12 @@ export function hasWorktreeChanges(worktreePath: string, originalDirectory: stri
     const originalBranch = getCurrentBranch(originalDirectory);
     if (!originalBranch) return true; // can't determine, assume changes
 
-    const count = execSync(`git rev-list --count "${originalBranch}..HEAD"`, {
+    const count = execFileSync("git", ["rev-list", "--count", `${originalBranch}..HEAD`], {
       cwd: worktreePath,
+      encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
-    })
-      .toString()
-      .trim();
+    }).trim();
 
     return parseInt(count, 10) > 0;
   } catch {
@@ -744,7 +743,7 @@ export function removeWorktree(
 ): void {
   // Remove the worktree
   try {
-    execSync(`git worktree remove --force "${worktreePath}"`, {
+    execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
       cwd: repoRoot,
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 10000,
@@ -752,7 +751,7 @@ export function removeWorktree(
   } catch {
     // Worktree may already be gone — prune stale refs
     try {
-      execSync("git worktree prune", {
+      execFileSync("git", ["worktree", "prune"], {
         cwd: repoRoot,
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 10000,
@@ -765,7 +764,7 @@ export function removeWorktree(
   // Delete the branch unless caller wants to keep it
   if (!opts?.keepBranch) {
     try {
-      execSync(`git branch -D "${branchName}"`, {
+      execFileSync("git", ["branch", "-D", branchName], {
         cwd: repoRoot,
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 5000,

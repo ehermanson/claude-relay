@@ -524,6 +524,8 @@ export class SessionDB {
         // Ignore cleanup failures so the original error wins.
       }
       throw error;
+    } finally {
+      this.transactionDepth = Math.max(0, this.transactionDepth - 1);
     }
   }
 

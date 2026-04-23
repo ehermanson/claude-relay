@@ -1,6 +1,14 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
@@ -366,6 +374,45 @@ describe("InstanceManager", () => {
         true,
       );
     });
+
+    it("cleans up a just-created worktree when createSpace fails after git worktree add", () => {
+      const previousBase = process.env.RELAY_WORKTREE_BASE;
+      const worktreeBase = mkdtempSync(join(tmpdir(), "relay-space-fail-"));
+      const markerFile = join(manager.baseConfig.workingDirectory, "pwned");
+      const spaceManager = manager.getSpaceManager();
+      const originalExcludeRelayDir = spaceManager.excludeRelayDir;
+
+      try {
+        process.env.RELAY_WORKTREE_BASE = worktreeBase;
+        spaceManager.excludeRelayDir = () => {
+          throw new Error("exclude failed");
+        };
+
+        assert.throws(
+          () =>
+            spaceManager.createSpace(manager.baseConfig.workingDirectory, {
+              name: "Broken Space",
+            }),
+          /exclude failed/,
+        );
+
+        assert.equal(existsSync(markerFile), false);
+        assert.deepEqual(readdirSync(worktreeBase), []);
+        assert.equal(
+          spaceManager
+            .listSpaces(manager.baseConfig.workingDirectory)
+            .filter((space) => !space.isDefault).length,
+          0,
+        );
+      } finally {
+        spaceManager.excludeRelayDir = originalExcludeRelayDir;
+        if (previousBase === undefined) {
+          delete process.env.RELAY_WORKTREE_BASE;
+        } else {
+          process.env.RELAY_WORKTREE_BASE = previousBase;
+        }
+      }
+    });
   });
 
   describe("listInstances / getInstance", () => {
@@ -662,6 +709,86 @@ describe("InstanceManager", () => {
       assert.equal(instance.externalState?.jsonlPath, transcriptPath);
       assert.equal(instance.externalState?.pid, 1234);
       assert.ok(instance.watchState);
+    });
+
+    it("waits for the external pid to exit before spawning the takeover session", async () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const transcriptPath = join(projectDir, "external-takeover.jsonl");
+      writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: "init",
+          cwd: projectDir,
+          sessionId: "external-1",
+          timestamp: new Date().toISOString(),
+        })}\n`,
+      );
+
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsert(
+          makeExternalRow({
+            working_directory: projectDir,
+            jsonl_path: transcriptPath,
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
+      restored.projectManager.addProject(projectDir);
+      restored.restoreInstances();
+      restored.discoverExternalSessions = async () => [
+        {
+          provider: "claude",
+          cwd: projectDir,
+          transcriptPath,
+          sessionId: "external-1",
+          pid: 4321,
+        },
+      ];
+      await restored.discoverExistingInner();
+
+      const order = [];
+      const fakeProc = new FakeProviderSession("claude");
+      const originalKill = process.kill;
+      let waitCalls = 0;
+
+      restored.waitForPidExit = (_pid, timeoutMs = 5000) => {
+        order.push(`wait:${timeoutMs}`);
+        waitCalls += 1;
+        return waitCalls > 1;
+      };
+      restored.createProviderSession = () => {
+        order.push("create");
+        return fakeProc;
+      };
+      process.kill = (pid, signal) => {
+        order.push(`kill:${pid}:${String(signal)}`);
+        return true;
+      };
+
+      try {
+        const info = await restored.takeoverInstance("external-instance-1");
+        assert.ok(info);
+      } finally {
+        process.kill = originalKill;
+      }
+
+      assert.deepEqual(order, [
+        "kill:4321:SIGINT",
+        "wait:5000",
+        "kill:4321:9",
+        "wait:2000",
+        "create",
+      ]);
+
+      const instance = restored.instances.get("external-instance-1");
+      assert.ok(instance);
+      assert.equal(instance.info.external, false);
+      assert.equal(instance.externalState, undefined);
+      assert.equal(instance.process, fakeProc);
     });
 
     it("refreshes the live git branch without waiting for a new message", async () => {

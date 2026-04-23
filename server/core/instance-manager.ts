@@ -10,6 +10,7 @@
 
 import { EventEmitter } from "events";
 import { randomUUID } from "crypto";
+import { constants as osConstants } from "os";
 import {
   readdirSync,
   readFileSync,
@@ -3111,6 +3112,33 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
+  private sleepMs(ms: number): void {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  }
+
+  private waitForPidExit(pid: number, timeoutMs = 5000): boolean {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        process.kill(pid, 0);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ESRCH") {
+          return true;
+        }
+        if (code === "EPERM") {
+          this.baseConfig.logger.warn(
+            `[InstanceManager] Lost permission to inspect external PID ${pid}; assuming it is still running`,
+          );
+          return false;
+        }
+        return true;
+      }
+      this.sleepMs(100);
+    }
+    return false;
+  }
+
   /**
    * Resume an external session — converts it from read-only monitoring
    * to an interactive managed instance.
@@ -3129,10 +3157,29 @@ export class InstanceManager extends EventEmitter {
         this.baseConfig.logger.info(
           `[InstanceManager] Sent SIGINT to external CLI process (PID ${instance.externalState.pid})`,
         );
+        if (!this.waitForPidExit(instance.externalState.pid)) {
+          try {
+            process.kill(instance.externalState.pid, osConstants.signals.SIGKILL);
+            this.baseConfig.logger.warn(
+              `[InstanceManager] External PID ${instance.externalState.pid} did not exit after SIGINT; sent SIGKILL before resuming`,
+            );
+          } catch (err) {
+            const code = (err as NodeJS.ErrnoException).code;
+            if (code !== "ESRCH") {
+              throw err;
+            }
+          }
+          if (!this.waitForPidExit(instance.externalState.pid, 2000)) {
+            throw new Error(
+              `External CLI process (PID ${instance.externalState.pid}) did not exit after shutdown signals`,
+            );
+          }
+        }
       } catch (err) {
         this.baseConfig.logger.warn(
-          `[InstanceManager] Failed to SIGINT external PID ${instance.externalState.pid}: ${err}`,
+          `[InstanceManager] Failed to stop external PID ${instance.externalState.pid} before resume: ${err}`,
         );
+        throw err;
       }
     } else {
       this.baseConfig.logger.warn(
