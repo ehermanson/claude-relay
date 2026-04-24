@@ -25,7 +25,7 @@ Thumbs.db
 # a directory-level ignore shadows any child negations, so `git add` would
 # refuse the tracked files below even though they're whitelisted.
 .relay/*
-!.relay/tasks.jsonl
+!.relay/tasks.json
 !.relay/instructions.md
 
 # Logs

@@ -85,7 +85,7 @@ export const BUILT_IN_SUGGESTIONS: BuiltInSuggestion[] = [
     description: "Grab the highest-priority open task and start working on it.",
     icon: "ListChecks",
     prompt:
-      'Read `.relay/tasks.jsonl` and pick the highest-priority open task that isn\'t blocked (i.e. `status: "open"` with no unresolved `blockedBy` refs, highest `priority`). Before coding, understand the task: read its description carefully, follow any `parent` link for broader context, and look at the code or files it references. Mark the task `in_progress` before starting, do the work, and mark it `done` when finished — both as append-only JSON lines in `.relay/tasks.jsonl`. If the requirements are unclear or the task spans more than the description implies, ask me before writing code.',
+      'Read `.relay/tasks.json` and pick the highest-priority open task that isn\'t blocked (i.e. `status: "open"` with no unresolved `blockedBy` refs, highest `priority`). Before coding, understand the task: read its description carefully, follow any `parent` link for broader context, and look at the code or files it references. Mark the task `in_progress` before starting, do the work, and mark it `done` when finished by updating `.relay/tasks.json`. If the requirements are unclear or the task spans more than the description implies, ask me before writing code.',
     conditions: ["has-tasks"],
   },
 ];

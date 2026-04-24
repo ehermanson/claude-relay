@@ -15,8 +15,7 @@ const GENERATED_PATTERNS = [
   /yarn\.lock$/,
   /pnpm-lock\.yaml$/,
   /\.lock$/,
-  /tasks\.jsonl$/,
-  /\.relay\//,
+  /\.relay\/space-context\.md$/,
 ];
 
 function isGenerated(path: string): boolean {

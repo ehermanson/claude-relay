@@ -481,8 +481,8 @@ export function hasWorktreeChanges(worktreePath: string, originalDirectory: stri
   }
 }
 
-function getStatusLinesExcludingRelay(dir: string): string[] {
-  const output = execFileSync("git", ["status", "--porcelain", "--", ".", ":(exclude).relay/"], {
+function getStatusLines(dir: string): string[] {
+  const output = execFileSync("git", ["status", "--porcelain", "--", "."], {
     cwd: dir,
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
@@ -494,11 +494,12 @@ function getStatusLinesExcludingRelay(dir: string): string[] {
 
 /**
  * Check if a worktree has uncommitted changes that are commitable by Relay.
- * Relay metadata under `.relay/` is intentionally excluded.
+ * Ephemeral Relay metadata should be ignored by git itself; durable files like
+ * `.relay/tasks.json` are treated as normal repo state.
  */
 export function isWorktreeDirty(worktreePath: string): boolean {
   try {
-    return getStatusLinesExcludingRelay(worktreePath).length > 0;
+    return getStatusLines(worktreePath).length > 0;
   } catch {
     return true; // Assume dirty if we can't check
   }
@@ -535,7 +536,7 @@ export function getCommitsAhead(worktreePath: string, baseRef: string): number {
 export function getWorktreeStatus(worktreePath: string): GitWorktreeStatus {
   let changeCount = 0;
   try {
-    changeCount = getStatusLinesExcludingRelay(worktreePath).length;
+    changeCount = getStatusLines(worktreePath).length;
   } catch {
     changeCount = 1;
   }
@@ -698,8 +699,7 @@ export function commitAll(
 ): { success: true } | { success: false; error: string } {
   try {
     const opts = { cwd: worktreePath, stdio: "pipe" as const, timeout: 30000 };
-    // Exclude .relay/ so space-context.md and other relay metadata don't get committed
-    execFileSync("git", ["add", "-A", "--", ".", ":!.relay/"], opts);
+    execFileSync("git", ["add", "-A", "--", "."], opts);
     try {
       execFileSync("git", ["commit", "--no-verify", "-m", message], opts);
     } catch (error) {

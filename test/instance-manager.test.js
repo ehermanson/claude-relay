@@ -1180,8 +1180,8 @@ describe("InstanceManager", () => {
       const relayDir = join(manager.baseConfig.workingDirectory, ".relay");
       mkdirSync(relayDir, { recursive: true });
       writeFileSync(
-        join(relayDir, "tasks.jsonl"),
-        '{"id":"task1234","title":"Test","status":"open"}\n',
+        join(relayDir, "tasks.json"),
+        '{"version":1,"tasks":[{"id":"task1234","title":"Test","status":"open"}]}\n',
       );
 
       const info = manager.createInstance();

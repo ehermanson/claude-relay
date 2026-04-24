@@ -1,10 +1,4 @@
 export PATH="/usr/local/bin:$PATH"
 
-# Compact tasks.jsonl if it's staged (dedup to one line per task)
-if git diff --cached --name-only | grep -q '\.relay/tasks\.jsonl'; then
-  node scripts/compact-tasks.js
-  git add .relay/tasks.jsonl
-fi
-
 npx lint-staged
 pnpm knip --no-exit-code

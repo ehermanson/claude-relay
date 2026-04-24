@@ -624,7 +624,7 @@ describe("HTTP Routes — Additional Coverage", () => {
   });
 
   describe("Task routes", () => {
-    it("deletes tasks with legacy non-hex ids", async () => {
+    it("deletes tasks from the canonical tasks snapshot", async () => {
       const session = auth.createSession();
       const projectDir = join(tempDir, "task-project");
       mkdirSync(projectDir, { recursive: true });
@@ -636,27 +636,31 @@ describe("HTTP Routes — Additional Coverage", () => {
       execSync("git commit -m initial", { cwd: projectDir, stdio: "pipe" });
       mkdirSync(join(projectDir, ".relay"), { recursive: true });
       writeFileSync(
-        join(projectDir, ".relay", "tasks.jsonl"),
-        `${JSON.stringify({
-          id: "relayul2",
-          title: "Legacy task",
-          description: "",
-          status: "open",
-          priority: 2,
-          type: "task",
-          tags: [],
-          parent: null,
-          blockedBy: [],
-          createdAt: "2026-03-08T15:17:47.774793-04:00",
-          updatedAt: "2026-03-08T15:17:47.774793-04:00",
-        })}\n`,
+        join(projectDir, ".relay", "tasks.json"),
+        JSON.stringify({
+          version: 1,
+          tasks: [
+            {
+              id: "517e8e5b",
+              title: "Task",
+              description: "",
+              status: "open",
+              priority: 2,
+              type: "task",
+              tags: [],
+              parent: null,
+              blockedBy: [],
+              createdAt: "2026-03-08T15:17:47.774793-04:00",
+              updatedAt: "2026-03-08T15:17:47.774793-04:00",
+            },
+          ],
+        }) + "\n",
       );
       const project = manager.projectManager.addProject(projectDir);
 
-      const res = await request(server, "DELETE", `/api/projects/${project.id}/tasks/relayul2`, {
+      const res = await request(server, "DELETE", `/api/projects/${project.id}/tasks/517e8e5b`, {
         headers: { Cookie: `session=${session.id}` },
       });
-
       assert.equal(res.status, 204);
 
       const listRes = await request(server, "GET", `/api/projects/${project.id}/tasks`, {

@@ -161,14 +161,13 @@ describe("extractSearchableText", () => {
   it("strips task context wrapper and indexes only the real user text", () => {
     // buildFirstTurnTaskContextPrompt wraps user text with task tracking preamble
     const wrapped =
-      "This project tracks tasks in .relay/tasks.jsonl (append-only JSONL, one JSON object per line). " +
+      "This project tracks tasks in .relay/tasks.json (Relay-managed snapshot JSON). " +
       "Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. Ask if unsure whether a request should map to a task. " +
       "Fields: id (8-char hex), title, description (markdown), status (open|in_progress|done), " +
       "priority (0-4), type (epic|task|bug), tags (string[]), parent (nullable task ID), " +
       "blockedBy (task ID[]), createdAt, updatedAt (ISO timestamps). " +
       "Blocked status is auto-derived from unresolved blockedBy refs. " +
-      "To create: append a new JSON line. To update: append a line with same id and changed fields. " +
-      "When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.jsonl to find it." +
+      "When asked to pick up a task (e.g. 'pick up task a1b2c3d4'), read .relay/tasks.json to find it." +
       "\n\n" +
       "Do not mention, restate, or acknowledge the task-tracking guidance unless the user directly asks about tasks. " +
       "Focus only on the user's request below.\n\n" +
@@ -177,7 +176,7 @@ describe("extractSearchableText", () => {
     const result = extractSearchableText([userEntry(wrapped)]);
     // Should contain the real user request, not the task tracking boilerplate
     assert.ok(result.includes("refactor the authentication middleware"));
-    assert.ok(!result.includes("append-only JSONL"));
+    assert.ok(!result.includes("Relay-managed snapshot JSON"));
   });
 
   it("strips space context wrapper and indexes only the real user text", () => {

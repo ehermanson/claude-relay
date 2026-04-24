@@ -4,7 +4,7 @@
 
 - **Self-maintenance**: After any codebase change, check whether AGENTS.md and/or README.md need updating. Stale docs are worse than no docs.
 - **Plan mode**: Make the plan extremely concise. Sacrifice grammar for the sake of concision. At the end of each plan, give a list of unresolved questions to answer, if any.
-- **Workflow**: For anything beyond a trivial fix, create tasks in `.relay/tasks.jsonl` before starting work. Append a JSON line with `{id, title, status: "open", ...}` to create, append a line with the same `id` and changed fields to update. Set `status: "in_progress"` when starting, `status: "done"` when complete.
+- **Workflow**: For anything beyond a trivial fix, create tasks in `.relay/tasks.json` before starting work. Relay manages this snapshot file atomically; update the canonical task object and persist the full snapshot. Set `status: "in_progress"` when starting, `status: "done"` when complete.
 
 ## Ubiquitous Language
 
@@ -163,12 +163,12 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 
 ### Task Tracking
 
-- Tasks stored in `.relay/tasks.jsonl` (append-only JSONL, one JSON object per line)
+- Tasks stored in `.relay/tasks.json` (Relay-managed snapshot JSON)
 - Not every request needs a task. Create a task only when the user asks to create one, pick up a task only when the user asks or the request clearly matches an existing task, and otherwise just do the work without creating a new task. Ask the user if it's unclear whether a request should map to a task.
 - Fields: `id` (8-char hex), `title`, `description` (markdown), `status` (open|in_progress|done), `priority` (0-4), `type` (epic|task|bug), `tags` (string[]), `parent` (nullable task ID), `blockedBy` (task ID[]), `createdAt`, `updatedAt` (ISO timestamps)
 - `blocked` status auto-derived from unresolved `blockedBy` refs — never set manually
-- Create: append new JSON line. Update: append line with same `id` + changed fields (sparse merge). Delete: append `{id, deleted: true}`
-- Relay compacts (dedupes, strips tombstones) on every write through the API
+- Create/update/delete: rewrite `.relay/tasks.json` atomically with the new canonical snapshot
+- Relay rewrites the canonical snapshot atomically on every write through the API
 - Core module: `server/core/task-manager.ts` (pure functions, no server deps)
 - API: `GET|POST /api/projects/:id/tasks`, `PATCH|DELETE /api/projects/:id/tasks/:taskId`
 - On managed session start, Relay injects an internal message telling the model about the task format

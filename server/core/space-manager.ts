@@ -1000,7 +1000,8 @@ export class SpaceManager extends EventEmitter {
   }
 
   /**
-   * Add `.relay/` to `.git/info/exclude` in the worktree so it never gets committed.
+   * Ignore ephemeral Relay metadata in the worktree without hiding durable
+   * repo-local files like `.relay/tasks.json` from git.
    */
   private excludeRelayDir(worktreePath: string): void {
     try {
@@ -1023,13 +1024,15 @@ export class SpaceManager extends EventEmitter {
         /* no existing exclude file */
       }
 
-      if (!content.includes(".relay/")) {
+      const patterns = [".relay/space-context.md"];
+      const missing = patterns.filter((pattern) => !content.includes(pattern));
+      if (missing.length > 0) {
         const newLine = content.endsWith("\n") || content === "" ? "" : "\n";
-        writeFileSync(excludePath, `${content}${newLine}.relay/\n`, "utf-8");
+        writeFileSync(excludePath, `${content}${newLine}${missing.join("\n")}\n`, "utf-8");
       }
     } catch (err) {
       this.logger.warn(
-        `[SpaceManager] Failed to exclude .relay/ from git: ${err instanceof Error ? err.message : String(err)}`,
+        `[SpaceManager] Failed to exclude Relay metadata from git: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

@@ -260,17 +260,20 @@ describe("worktree lifecycle", () => {
     assert.equal(isWorktreeDirty(worktreeResult.worktreePath), true);
   });
 
-  it("ignores relay metadata when checking dirty state", () => {
+  it("treats tracked relay task metadata as normal worktree changes", () => {
     worktreeResult = createWorktree(repoDir, "relaymd1");
     assert.ok(worktreeResult);
 
     mkdirSync(join(worktreeResult.worktreePath, ".relay"), { recursive: true });
-    writeFileSync(join(worktreeResult.worktreePath, ".relay", "tasks.jsonl"), '{"id":"1"}\n');
+    writeFileSync(
+      join(worktreeResult.worktreePath, ".relay", "tasks.json"),
+      '{"version":1,"tasks":[{"id":"1","title":"Test","status":"open"}]}\n',
+    );
 
     const status = getWorktreeStatus(worktreeResult.worktreePath);
-    assert.equal(isWorktreeDirty(worktreeResult.worktreePath), false);
-    assert.equal(status.dirty, false);
-    assert.equal(status.changeCount, 0);
+    assert.equal(isWorktreeDirty(worktreeResult.worktreePath), true);
+    assert.equal(status.dirty, true);
+    assert.equal(status.changeCount, 1);
   });
 
   it("hasWorktreeChanges detects committed changes", () => {

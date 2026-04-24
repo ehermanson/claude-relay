@@ -1254,7 +1254,7 @@ export interface ProjectArtifacts {
   stats: ProjectStats;
   /** GitHub/GitLab repository URL for this project (from git remote) */
   githubUrl: string | null;
-  /** Tasks from .relay/tasks.jsonl, if present in the project */
+  /** Tasks from .relay/tasks.json, if present in the project */
   tasks: Task[] | null;
   /** Installed skills discovered from .claude/skills/, ~/.claude/skills/, etc. */
   skills: SkillInfo[];

@@ -1,138 +1,166 @@
 /**
- * Task Manager — JSONL-based task tracking for Relay projects.
+ * Task Manager — snapshot-based task tracking for Relay projects.
  *
- * Tasks are stored in `.relay/tasks.jsonl` within a project directory.
- * The file is append-only: creates append new lines, updates append sparse
- * patches with the same ID, deletes append tombstones. Relay compacts
- * (deduplicates, strips tombstones) on every write.
+ * Canonical task state lives in `.relay/tasks.json` within a project directory.
+ * Relay writes the full snapshot atomically via temp file + rename.
  */
 
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import type { Task, TaskStatus, TaskType } from "#core/types.js";
 
 const RELAY_DIR = ".relay";
-const TASKS_FILE = "tasks.jsonl";
+const TASKS_FILE = "tasks.json";
+const TASKS_SCHEMA_VERSION = 1;
+
+interface TaskSnapshot {
+  version: number;
+  tasks: Task[];
+}
 
 function tasksPath(dir: string): string {
   return join(dir, RELAY_DIR, TASKS_FILE);
+}
+
+function ensureRelayDir(dir: string): string {
+  const relayDir = join(dir, RELAY_DIR);
+  if (!existsSync(relayDir)) mkdirSync(relayDir, { recursive: true });
+  return relayDir;
 }
 
 function generateId(): string {
   return randomBytes(4).toString("hex");
 }
 
-// ---------------------------------------------------------------------------
-// Read / materialize
-// ---------------------------------------------------------------------------
+function isTaskType(value: unknown): value is TaskType {
+  return value === "epic" || value === "task" || value === "bug";
+}
 
-/**
- * Parse the append-only JSONL file and materialize the current task state.
- * Deduplicates by ID (last-write-wins with sparse merge), strips tombstones,
- * and derives `blocked` status from unresolved `blockedBy` references.
- */
-export function loadTasks(dir: string): Task[] {
-  const fp = tasksPath(dir);
-  if (!existsSync(fp)) return [];
+function isStoredTaskStatus(value: unknown): value is Exclude<TaskStatus, "blocked"> {
+  return value === "open" || value === "in_progress" || value === "done";
+}
 
-  const raw = readFileSync(fp, "utf-8").trim();
-  if (!raw) return [];
-
-  // Sparse merge: accumulate fields per ID, last write wins per field
-  const entries = new Map<string, Record<string, unknown>>();
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const obj = JSON.parse(line) as Record<string, unknown>;
-      const id = obj.id as string;
-      if (!id) continue;
-      const existing = entries.get(id);
-      if (existing) {
-        // Merge: new fields override old, but keep unset fields from previous
-        for (const [k, v] of Object.entries(obj)) {
-          existing[k] = v;
-        }
-      } else {
-        entries.set(id, { ...obj });
-      }
-    } catch {
-      // Skip malformed lines
-    }
+function normalizeTask(raw: Record<string, unknown>): Task {
+  const fallbackCreatedAt = new Date(0).toISOString();
+  const createdAt =
+    typeof raw.createdAt === "string" && raw.createdAt.trim() ? raw.createdAt : fallbackCreatedAt;
+  const updatedAt =
+    typeof raw.updatedAt === "string" && raw.updatedAt.trim() ? raw.updatedAt : createdAt;
+  if (typeof raw.id !== "string" || !/^[a-f0-9]{8}$/.test(raw.id)) {
+    throw new Error("Invalid task id in .relay/tasks.json");
   }
 
-  // Strip tombstones
-  const live: Task[] = [];
-  for (const obj of entries.values()) {
-    if (obj.deleted) continue;
-    live.push(obj as unknown as Task);
-  }
+  return {
+    id: raw.id,
+    title: typeof raw.title === "string" ? raw.title : "",
+    description: typeof raw.description === "string" ? raw.description : "",
+    status: isStoredTaskStatus(raw.status) ? raw.status : "open",
+    priority: typeof raw.priority === "number" ? raw.priority : 2,
+    type: isTaskType(raw.type) ? raw.type : "task",
+    tags: Array.isArray(raw.tags)
+      ? raw.tags.filter((tag): tag is string => typeof tag === "string")
+      : [],
+    parent: typeof raw.parent === "string" && /^[a-f0-9]{8}$/.test(raw.parent) ? raw.parent : null,
+    blockedBy: Array.isArray(raw.blockedBy)
+      ? raw.blockedBy.filter(
+          (id): id is string => typeof id === "string" && /^[a-f0-9]{8}$/.test(id),
+        )
+      : [],
+    createdAt,
+    updatedAt,
+  };
+}
 
-  // Derive blocked status: if any blockedBy ID references a non-done task,
-  // override status to "blocked"
-  const taskMap = new Map(live.map((t) => [t.id, t]));
+function cloneTask(task: Task): Task {
+  return {
+    ...task,
+    tags: [...task.tags],
+    blockedBy: [...task.blockedBy],
+  };
+}
+
+function deriveBlockedStatus(tasks: Task[]): Task[] {
+  const live = tasks.map(cloneTask);
+  const taskMap = new Map(live.map((task) => [task.id, task]));
+
   for (const task of live) {
     if (task.status === "done") continue;
-    if (task.blockedBy && task.blockedBy.length > 0) {
-      const hasUnresolvedBlocker = task.blockedBy.some((bid) => {
-        const blocker = taskMap.get(bid);
-        return blocker && blocker.status !== "done";
-      });
-      if (hasUnresolvedBlocker) {
-        task.status = "blocked";
-      } else if (task.status === "blocked") {
-        // All blockers resolved — revert to open
-        task.status = "open";
-      }
+    if (task.blockedBy.length === 0) {
+      if (task.status === "blocked") task.status = "open";
+      continue;
+    }
+    const hasUnresolvedBlocker = task.blockedBy.some((blockerId) => {
+      const blocker = taskMap.get(blockerId);
+      return blocker && blocker.status !== "done";
+    });
+    if (hasUnresolvedBlocker) {
+      task.status = "blocked";
+    } else if (task.status === "blocked") {
+      task.status = "open";
     }
   }
 
   return live;
 }
 
-// ---------------------------------------------------------------------------
-// Write / compact
-// ---------------------------------------------------------------------------
-
-/** Write compacted tasks to disk (temp file + rename for atomicity). */
-function saveTasks(dir: string, tasks: Task[]): void {
-  const fp = tasksPath(dir);
-  const relayDir = join(dir, RELAY_DIR);
-  if (!existsSync(relayDir)) mkdirSync(relayDir, { recursive: true });
-
-  const lines = tasks.map((t) => {
-    // Strip the derived blocked status — store the "real" status
-    // so blocked can be re-derived on next load
-    const stored = { ...t };
-    if (stored.deleted) return JSON.stringify(stored);
-    return JSON.stringify(stored);
-  });
-  const content = lines.join("\n") + "\n";
-
-  const tmp = fp + ".tmp." + process.pid;
-  writeFileSync(tmp, content, "utf-8");
-  renameSync(tmp, fp);
+function toStoredTask(task: Task): Task {
+  const stored = cloneTask(task);
+  if (stored.status === "blocked") stored.status = "open";
+  return stored;
 }
 
-/** Append a single JSON line to the tasks file. */
-function appendLine(dir: string, obj: Record<string, unknown>): void {
-  const fp = tasksPath(dir);
-  const relayDir = join(dir, RELAY_DIR);
-  if (!existsSync(relayDir)) mkdirSync(relayDir, { recursive: true });
+function loadStoredTasks(dir: string): Task[] {
+  const filePath = tasksPath(dir);
+  if (!existsSync(filePath)) return [];
 
-  appendFileSync(fp, JSON.stringify(obj) + "\n", "utf-8");
+  const raw = readFileSync(filePath, "utf8").trim();
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((value): value is Record<string, unknown> => !!value && typeof value === "object")
+        .map((task) => normalizeTask(task));
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const snapshot = parsed as Partial<TaskSnapshot> & { tasks?: unknown };
+      if (Array.isArray(snapshot.tasks)) {
+        const rawTasks = snapshot.tasks as unknown[];
+        return rawTasks
+          .filter((value): value is Record<string, unknown> => !!value && typeof value === "object")
+          .map((task) => normalizeTask(task));
+      }
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
 }
 
-// ---------------------------------------------------------------------------
-// CRUD
-// ---------------------------------------------------------------------------
+function writeTaskSnapshot(dir: string, tasks: Task[]): void {
+  ensureRelayDir(dir);
+  const filePath = tasksPath(dir);
+  const snapshot: TaskSnapshot = {
+    version: TASKS_SCHEMA_VERSION,
+    tasks: tasks.map(toStoredTask),
+  };
+  const content = JSON.stringify(snapshot) + "\n";
+  const tmpPath = `${filePath}.tmp.${process.pid}`;
+  writeFileSync(tmpPath, content, "utf8");
+  renameSync(tmpPath, filePath);
+}
+
+function currentTasks(dir: string): Task[] {
+  return deriveBlockedStatus(loadStoredTasks(dir));
+}
+
+export function loadTasks(dir: string): Task[] {
+  return currentTasks(dir);
+}
 
 export interface CreateTaskInput {
   title: string;
@@ -144,8 +172,8 @@ export interface CreateTaskInput {
   blockedBy?: string[];
 }
 
-/** Create a new task. Appends to the file, compacts, returns the created task. */
 export function createTask(dir: string, input: CreateTaskInput): Task {
+  const tasks = loadStoredTasks(dir);
   const now = new Date().toISOString();
   const task: Task = {
     id: generateId(),
@@ -161,12 +189,9 @@ export function createTask(dir: string, input: CreateTaskInput): Task {
     updatedAt: now,
   };
 
-  appendLine(dir, task as unknown as Record<string, unknown>);
-
-  // Compact to materialize and validate
-  const tasks = loadTasks(dir);
-  saveTasks(dir, tasks);
-  return tasks.find((t) => t.id === task.id)!;
+  tasks.push(task);
+  writeTaskSnapshot(dir, tasks);
+  return loadTasks(dir).find((existing) => existing.id === task.id)!;
 }
 
 export interface UpdateTaskInput {
@@ -180,89 +205,84 @@ export interface UpdateTaskInput {
   blockedBy?: string[];
 }
 
-/** Update an existing task. Validates constraints, appends sparse patch, compacts. */
 export function updateTask(dir: string, taskId: string, patch: UpdateTaskInput): Task {
-  const tasks = loadTasks(dir);
-  const existing = tasks.find((t) => t.id === taskId);
+  const tasks = loadStoredTasks(dir);
+  const current = deriveBlockedStatus(tasks);
+  const existing = current.find((task) => task.id === taskId);
   if (!existing) throw new Error(`Task ${taskId} not found`);
 
-  // Validate: can't complete a parent with open children
   if (patch.status === "done") {
-    const openChildren = tasks.filter((t) => t.parent === taskId && t.status !== "done");
+    const openChildren = current.filter((task) => task.parent === taskId && task.status !== "done");
     if (openChildren.length > 0) {
-      const childList = openChildren.map((c) => `${c.id} ("${c.title}")`).join(", ");
+      const childList = openChildren.map((child) => `${child.id} ("${child.title}")`).join(", ");
       throw new Error(
         `Cannot complete task ${taskId}: open children must be addressed first: ${childList}`,
       );
     }
   }
 
-  // Append sparse update
-  const update: Record<string, unknown> = { id: taskId, updatedAt: new Date().toISOString() };
-  for (const [k, v] of Object.entries(patch)) {
-    if (v !== undefined) update[k] = v;
-  }
-  appendLine(dir, update);
+  const index = tasks.findIndex((task) => task.id === taskId);
+  const base = tasks[index];
+  if (!base) throw new Error(`Task ${taskId} not found`);
 
-  // Compact and return
-  const updated = loadTasks(dir);
-  saveTasks(dir, updated);
-  return updated.find((t) => t.id === taskId)!;
+  tasks[index] = {
+    ...base,
+    ...(patch.title !== undefined ? { title: patch.title } : {}),
+    ...(patch.description !== undefined ? { description: patch.description } : {}),
+    ...(patch.status !== undefined ? { status: patch.status } : {}),
+    ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
+    ...(patch.type !== undefined ? { type: patch.type } : {}),
+    ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
+    ...(patch.parent !== undefined ? { parent: patch.parent } : {}),
+    ...(patch.blockedBy !== undefined ? { blockedBy: patch.blockedBy } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+
+  writeTaskSnapshot(dir, tasks);
+  return loadTasks(dir).find((task) => task.id === taskId)!;
 }
 
-/** Delete a task. Orphans children, cleans blockedBy refs, appends tombstone, compacts. */
 export function deleteTask(dir: string, taskId: string): void {
-  const tasks = loadTasks(dir);
-  const existing = tasks.find((t) => t.id === taskId);
+  const tasks = loadStoredTasks(dir);
+  const existing = tasks.find((task) => task.id === taskId);
   if (!existing) throw new Error(`Task ${taskId} not found`);
 
-  // Orphan children and clean blockedBy references
-  const patches: Record<string, unknown>[] = [];
   const now = new Date().toISOString();
+  const nextTasks = tasks
+    .filter((task) => task.id !== taskId)
+    .map((task) => {
+      let changed = false;
+      const next = cloneTask(task);
 
-  for (const task of tasks) {
-    if (task.parent === taskId) {
-      patches.push({ id: task.id, parent: null, updatedAt: now });
-    }
-    if (task.blockedBy?.includes(taskId)) {
-      patches.push({
-        id: task.id,
-        blockedBy: task.blockedBy.filter((b) => b !== taskId),
-        updatedAt: now,
-      });
-    }
-  }
+      if (next.parent === taskId) {
+        next.parent = null;
+        changed = true;
+      }
 
-  // Append all patches + tombstone
-  for (const p of patches) appendLine(dir, p);
-  appendLine(dir, { id: taskId, deleted: true, updatedAt: now });
+      if (next.blockedBy.includes(taskId)) {
+        next.blockedBy = next.blockedBy.filter((blockerId) => blockerId !== taskId);
+        changed = true;
+      }
 
-  // Compact
-  const updated = loadTasks(dir);
-  saveTasks(dir, updated);
+      if (changed) next.updatedAt = now;
+      return next;
+    });
+
+  writeTaskSnapshot(dir, nextTasks);
 }
 
-// ---------------------------------------------------------------------------
-// Init / query
-// ---------------------------------------------------------------------------
-
-/** Check if a project has a tasks file. */
 export function hasTasks(dir: string): boolean {
   return existsSync(tasksPath(dir));
 }
 
-/** Initialize the .relay directory and empty tasks file. */
 export function initTasks(dir: string): void {
-  const relayDir = join(dir, RELAY_DIR);
-  if (!existsSync(relayDir)) mkdirSync(relayDir, { recursive: true });
-  const fp = tasksPath(dir);
-  if (!existsSync(fp)) writeFileSync(fp, "", "utf-8");
+  ensureRelayDir(dir);
+  if (!existsSync(tasksPath(dir))) writeTaskSnapshot(dir, []);
 }
 
-/** CLAUDE.md snippet describing the task format for models. */
 export const TASKS_CLAUDE_MD_SNIPPET = `## Tasks
 
-Tasks tracked in \`.relay/tasks.jsonl\` (append-only JSONL). Read this file for open tasks.
+Tasks tracked in \`.relay/tasks.json\` as Relay-managed snapshot state. Read this file for open tasks.
 Do not create a task for every request. Create a task only when explicitly asked, pick up an existing task when explicitly asked or when the request clearly matches one, and otherwise just do the work without creating a new task. If unsure whether a request should map to a task, ask.
-Update by appending a JSON line with the task \`id\` and changed fields.
-Fields: id, title, description, status (open|in_progress|done), priority (0-4), type (epic|task|bug), tags, parent, blockedBy, createdAt, updatedAt.`;
+Update the snapshot in place when task state changes.
+Fields: id (8-char hex), title, description, status (open|in_progress|done; blocked is derived from blockedBy), priority (0-4), type (epic|task|bug), tags, parent, blockedBy, createdAt, updatedAt.`;
