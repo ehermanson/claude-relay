@@ -73,7 +73,6 @@ interface TreeNode {
   /** Aggregate stats */
   additions: number;
   deletions: number;
-  totalEdits: number;
   hasDiffStats: boolean;
 }
 
@@ -86,7 +85,6 @@ function buildTree(files: FileChange[], cwd: string): TreeNode {
     files: [],
     additions: 0,
     deletions: 0,
-    totalEdits: 0,
     hasDiffStats: false,
   };
 
@@ -108,7 +106,6 @@ function buildTree(files: FileChange[], cwd: string): TreeNode {
           files: [],
           additions: 0,
           deletions: 0,
-          totalEdits: 0,
           hasDiffStats: false,
         };
         node.children.push(child);
@@ -152,7 +149,6 @@ function compressTree(node: TreeNode): void {
 function rollUpStats(node: TreeNode): void {
   let additions = 0;
   let deletions = 0;
-  let totalEdits = 0;
   let hasDiffStats = false;
 
   for (const { file } of node.files) {
@@ -161,20 +157,17 @@ function rollUpStats(node: TreeNode): void {
       additions += file.additions ?? 0;
       deletions += file.deletions ?? 0;
     }
-    totalEdits += file.editCount;
   }
 
   for (const child of node.children) {
     rollUpStats(child);
     additions += child.additions;
     deletions += child.deletions;
-    totalEdits += child.totalEdits;
     if (child.hasDiffStats) hasDiffStats = true;
   }
 
   node.additions = additions;
   node.deletions = deletions;
-  node.totalEdits = totalEdits;
   node.hasDiffStats = hasDiffStats;
 }
 
@@ -214,15 +207,7 @@ function TreeNodeView({
           <span className="min-w-0 flex-1 truncate text-left font-medium text-text-bright">
             {node.label}
           </span>
-          {node.hasDiffStats ? (
-            <DiffStats additions={node.additions} deletions={node.deletions} />
-          ) : (
-            <span className="sidecar-file-stats shrink-0 text-[0.6875rem] font-medium text-muted/60">
-              {node.totalEdits > node.files.length
-                ? `${node.files.length} · ×${node.totalEdits}`
-                : `${node.files.length}`}
-            </span>
-          )}
+          {node.hasDiffStats && <DiffStats additions={node.additions} deletions={node.deletions} />}
         </button>
       )}
 
@@ -241,13 +226,9 @@ function TreeNodeView({
               >
                 <FileIcon path={file.path} size={15} />
                 <span className="min-w-0 flex-1 truncate text-text">{basename}</span>
-                {file.additions != null || file.deletions != null ? (
+                {(file.additions != null || file.deletions != null) && (
                   <DiffStats additions={file.additions} deletions={file.deletions} />
-                ) : file.editCount > 1 ? (
-                  <span className="sidecar-file-stats shrink-0 text-[0.6875rem] font-medium text-muted/60">
-                    ×{file.editCount}
-                  </span>
-                ) : null}
+                )}
               </div>
             </Tooltip>
           ))}
@@ -283,7 +264,15 @@ export const FilesPanel = memo(function FilesPanel({
   onViewChanges?: () => void;
   onFileClick?: (filePath: string) => void;
 }) {
-  const tree = useMemo(() => buildTree(files, cwd), [files, cwd]);
+  // When diff stats are available, filter out files with no net change (touched but reverted).
+  // For non-git projects (no diff stats at all), show everything.
+  const filteredFiles = useMemo(() => {
+    const anyHasDiffStats = files.some((f) => f.additions != null || f.deletions != null);
+    return anyHasDiffStats
+      ? files.filter((f) => f.additions != null || f.deletions != null)
+      : files;
+  }, [files]);
+  const tree = useMemo(() => buildTree(filteredFiles, cwd), [filteredFiles, cwd]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleDir = (dir: string) => {
     setCollapsed((prev) => {
@@ -302,7 +291,7 @@ export const FilesPanel = memo(function FilesPanel({
       <div className="shrink-0 px-3.5 py-2.5">
         <div className="flex items-center gap-2">
           <span className="text-[0.75rem] font-medium text-muted">
-            {files.length} file{files.length !== 1 ? "s" : ""} changed
+            {filteredFiles.length} file{filteredFiles.length !== 1 ? "s" : ""} changed
           </span>
           {hasDiffStats && (
             <span className="sidecar-header-stats text-[0.6875rem] font-medium tabular-nums">

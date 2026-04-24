@@ -146,7 +146,7 @@ export function AppLayout() {
             {/* Persistent logo – never unmounts, sits above both sidebars */}
             <Link
               to="/"
-              className="absolute left-1 top-1 z-20 flex w-12 items-center justify-center pt-2.5 transition-opacity hover:opacity-80"
+              className="absolute left-0.5 top-1 z-20 flex w-12 items-center justify-center pt-2.5 transition-opacity hover:opacity-80"
             >
               <RelayLogo size={28} connected={isConnected} />
             </Link>

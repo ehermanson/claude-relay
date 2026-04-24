@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PatchDiff } from "@pierre/diffs/react";
-import { ChevronRight, X } from "lucide-react";
+import { ChevronRight, WrapText, X } from "lucide-react";
 import type { FileChange } from "@shared/types";
 import { useTheme } from "@/stores/theme-store";
 import { fetchInstanceDiff } from "../../lib/api";
@@ -9,6 +9,7 @@ import { Button } from "../ui/button";
 import { FileIcon } from "../ui/file-icon";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { Spinner } from "../ui/spinner";
+import { Tooltip } from "../ui/tooltip";
 
 const GENERATED_PATTERNS = [
   /package-lock\.json$/,
@@ -88,6 +89,8 @@ export function DiffDrawer({
   const diff = rawDiff ?? queriedDiff;
   const error = queryError ? (queryError as Error).message : null;
   const [diffStyle, setDiffStyle] = useState<"unified" | "split">("unified");
+  const [wordWrap, setWordWrap] = useState(false);
+  const [diffScope, setDiffScope] = useState<"chat" | "all">("chat");
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
   const [otherExpanded, setOtherExpanded] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -127,6 +130,12 @@ export function DiffDrawer({
     }
     return { tracked: trackedFiles, other: otherFiles };
   }, [allFileDiffs, knownRelPaths]);
+
+  // When scoped to "all", show tracked + other; when "chat", tracked only.
+  // If knownFiles isn't available (e.g. space diff), "chat" scope has no meaning — show all.
+  const hasScope = !!knownRelPaths;
+  const visibleFiles = diffScope === "all" || !hasScope ? [...tracked, ...other] : tracked;
+  const showOtherSection = diffScope === "all" && other.length > 0 && hasScope;
 
   useEffect(() => {
     if (allFileDiffs.length === 0) return;
@@ -177,11 +186,12 @@ export function DiffDrawer({
   const diffOptions = useMemo(
     () => ({
       diffStyle: diffStyle as "unified" | "split",
+      overflow: wordWrap ? ("wrap" as const) : ("scroll" as const),
       theme: theme === "dark" ? ("github-dark" as const) : ("github-light" as const),
       themeType: theme as "dark" | "light",
       disableFileHeader: true,
     }),
-    [diffStyle, theme],
+    [diffStyle, wordWrap, theme],
   );
 
   const scrollToPath = useCallback(
@@ -226,13 +236,40 @@ export function DiffDrawer({
         <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
           <div className="flex items-center gap-3">
             <h2 className="text-[0.9375rem] font-semibold text-text-bright">Changes</h2>
-            {allFileDiffs.length > 0 && (
+            {visibleFiles.length > 0 && (
               <span className="text-[0.75rem] text-muted">
-                {allFileDiffs.length} file{allFileDiffs.length !== 1 ? "s" : ""}
+                {visibleFiles.length} file{visibleFiles.length !== 1 ? "s" : ""}
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
+            {hasScope && (
+              <div className="flex overflow-hidden rounded-md border border-border/60 text-[0.75rem]">
+                <button
+                  type="button"
+                  onClick={() => setDiffScope("chat")}
+                  className={`px-2.5 py-1 font-medium transition-colors ${
+                    diffScope === "chat"
+                      ? "bg-surface-hover text-text-bright"
+                      : "text-muted hover:text-text"
+                  }`}
+                >
+                  This chat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiffScope("all")}
+                  className={`border-l border-border/60 px-2.5 py-1 font-medium transition-colors ${
+                    diffScope === "all"
+                      ? "bg-surface-hover text-text-bright"
+                      : "text-muted hover:text-text"
+                  }`}
+                >
+                  All changes
+                </button>
+              </div>
+            )}
+
             <div className="flex overflow-hidden rounded-md border border-border/60 text-[0.75rem]">
               <button
                 type="button"
@@ -258,6 +295,18 @@ export function DiffDrawer({
               </button>
             </div>
 
+            <Tooltip content="Word wrap">
+              <button
+                type="button"
+                onClick={() => setWordWrap((prev) => !prev)}
+                className={`rounded-md border border-border/60 p-1.5 transition-colors ${
+                  wordWrap ? "bg-surface-hover text-text-bright" : "text-muted hover:text-text"
+                }`}
+              >
+                <WrapText size={14} />
+              </button>
+            </Tooltip>
+
             <Button variant="icon" size="icon-sm" onClick={onClose}>
               <X size={16} />
             </Button>
@@ -265,9 +314,9 @@ export function DiffDrawer({
         </div>
 
         <div className="flex min-h-0 flex-1">
-          {allFileDiffs.length > 1 && (
+          {visibleFiles.length > 1 && (
             <div className="hidden md:block w-56 shrink-0 overflow-y-auto border-r border-border/40 bg-panel-header/30 py-1">
-              {tracked.map((file) => (
+              {(showOtherSection ? tracked : visibleFiles).map((file) => (
                 <button
                   key={file.path}
                   type="button"
@@ -283,7 +332,7 @@ export function DiffDrawer({
                   </span>
                 </button>
               ))}
-              {other.length > 0 && (
+              {showOtherSection && (
                 <>
                   <div className="mx-3 my-1 border-t border-border/30" />
                   <div className="px-3 py-1 text-[0.625rem] font-medium text-muted/50">
@@ -318,14 +367,14 @@ export function DiffDrawer({
 
             {!loading && !error && diff !== null && (
               <>
-                {allFileDiffs.length === 0 ? (
+                {visibleFiles.length === 0 ? (
                   <div className="px-6 py-10 text-center text-[0.875rem] text-muted">
                     No changes detected.
                   </div>
                 ) : (
                   <div className="flex flex-col">
-                    {tracked.map(renderFileSection)}
-                    {other.length > 0 && (
+                    {(showOtherSection ? tracked : visibleFiles).map(renderFileSection)}
+                    {showOtherSection && (
                       <>
                         <button
                           type="button"
