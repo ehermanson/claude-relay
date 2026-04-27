@@ -344,7 +344,6 @@ export interface ProviderCapabilities {
   supportsUserInputRequests: boolean;
   supportsReasoningEffort: boolean;
   supportsFastMode: boolean;
-  supportsPlanMode: boolean;
   supportsModelSelection: boolean;
   supportsTitleUpdates: boolean;
   /** Labels/descriptions for reasoning effort levels, rendered by the UI as-is */
@@ -354,10 +353,12 @@ export interface ProviderCapabilities {
     description: string;
     isDefault?: boolean;
   }[];
-  /** Labels/descriptions for the permission mode toggle */
-  permissionModes?: { restricted: ControlOption; fullAccess: ControlOption };
-  /** Labels/descriptions for the plan mode toggle */
-  planModes?: { off: ControlOption; on: ControlOption };
+  /**
+   * Runtime modes this provider exposes, with labels/descriptions for the UI.
+   * Omitted modes are not selectable. Providers that omit this field render no
+   * runtime-mode picker. The default mode is `"approval-required"`.
+   */
+  runtimeModes?: Partial<Record<ProviderRuntimeMode, ControlOption>>;
   /** Labels/descriptions for the fast mode toggle */
   fastModes?: { off: ControlOption; on: ControlOption };
 }
@@ -485,10 +486,8 @@ export interface InstanceInfo {
   preferredModel?: string;
   /** Canonical provider-agnostic model options */
   modelOptions?: ProviderModelOptions;
-  /** Whether provider plan mode is active for this instance */
-  planMode?: boolean;
-  /** Whether this instance bypasses permission prompts (full access mode) */
-  skipPermissions?: boolean;
+  /** Active provider runtime mode for this instance (defaults to "approval-required") */
+  runtimeMode?: ProviderRuntimeMode;
   /** Pending plan markdown from ExitPlanMode, awaiting user approval/feedback */
   pendingPlan?: string;
   /** Latest plan document content for sidecar display (persists after approval) */
@@ -532,7 +531,6 @@ export interface CreateInstancePayload {
   provider?: ProviderKind;
   name?: string;
   workingDirectory?: string;
-  dangerouslySkipPermissions?: boolean;
   /** Resume an existing Claude Code session by ID */
   resumeSessionId?: string;
   /** Model ID to use (e.g. "claude-opus-4-6") */
@@ -541,8 +539,8 @@ export interface CreateInstancePayload {
   spaceId?: string;
   /** Canonical model options (reasoning budget, effort, fast mode) */
   modelOptions?: ProviderModelOptions;
-  /** Whether to start in plan mode */
-  planMode?: boolean;
+  /** Initial runtime mode (defaults to "approval-required") */
+  runtimeMode?: ProviderRuntimeMode;
 }
 
 export interface RemoveInstancePayload {
@@ -623,18 +621,10 @@ export interface SetModelPayload {
   model: string | null;
 }
 
-export interface SetPermissionsPayload {
-  type: "set_permissions";
+export interface SetRuntimeModePayload {
+  type: "set_runtime_mode";
   instanceId: string;
-  /** Whether to skip all permission prompts (full access mode) */
-  skipPermissions: boolean;
-}
-
-export interface SetPlanModePayload {
-  type: "set_plan_mode";
-  instanceId: string;
-  /** Whether provider plan mode should be active */
-  planMode: boolean;
+  mode: ProviderRuntimeMode;
 }
 
 export interface SetModelOptionsPayload {
@@ -741,8 +731,7 @@ export type ClientMessage =
   | RenameSpacePayload
   | MergeInstancePayload
   | SetModelPayload
-  | SetPermissionsPayload
-  | SetPlanModePayload
+  | SetRuntimeModePayload
   | SetModelOptionsPayload
   | SetProviderPayload
   | CreateSpacePayload

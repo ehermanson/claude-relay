@@ -12,7 +12,7 @@ const noopLogger = {
 function makeConfig(overrides = {}) {
   return {
     workingDirectory: "/tmp",
-    dangerouslySkipPermissions: false,
+    defaultRuntimeMode: "approval-required",
     processTimeout: 0,
     maxProcesses: 5,
     logger: noopLogger,
@@ -201,46 +201,29 @@ describe("ClaudeProcess model and reasoning", () => {
   });
 });
 
-describe("ClaudeProcess permissions and plan mode", () => {
-  it("setBypassPermissions changes runtime mode", () => {
+describe("ClaudeProcess runtime mode", () => {
+  it("setRuntimeMode swaps between approval-required and full-access", () => {
     const proc = new ClaudeProcess(makeConfig());
     assert.equal(proc.getRuntimeBinding().runtimeMode, "approval-required");
 
-    proc.setBypassPermissions(true);
+    proc.setRuntimeMode("full-access");
     assert.equal(proc.getRuntimeBinding().runtimeMode, "full-access");
 
-    proc.setBypassPermissions(false);
+    proc.setRuntimeMode("approval-required");
     assert.equal(proc.getRuntimeBinding().runtimeMode, "approval-required");
   });
 
-  it("setPlanMode enables plan mode and disables bypass", () => {
-    const proc = new ClaudeProcess(makeConfig({ dangerouslySkipPermissions: true }));
-    assert.equal(proc.getRuntimeBinding().runtimeMode, "full-access");
-
-    proc.setPlanMode(true);
-    assert.equal(proc.getRuntimeBinding().runtimeMode, "plan");
-  });
-
-  it("restores bypass after plan mode exits", () => {
-    const proc = new ClaudeProcess(makeConfig({ dangerouslySkipPermissions: true }));
-    assert.equal(proc.getRuntimeBinding().runtimeMode, "full-access");
-
-    proc.setPlanMode(true);
-    assert.equal(proc.getRuntimeBinding().runtimeMode, "plan");
-
-    proc.setPlanMode(false);
+  it("constructor honors runtimeMode option over config default", () => {
+    const proc = new ClaudeProcess(makeConfig(), { runtimeMode: "full-access" });
     assert.equal(proc.getRuntimeBinding().runtimeMode, "full-access");
   });
 
-  it("setBypassPermissions(true) preserves the saved bypass preference while plan mode is active", () => {
-    const proc = new ClaudeProcess(makeConfig());
-    proc.setPlanMode(true);
+  it("setRuntimeMode('plan') enters plan mode", () => {
+    const proc = new ClaudeProcess(makeConfig(), { runtimeMode: "full-access" });
+    proc.setRuntimeMode("plan");
     assert.equal(proc.getRuntimeBinding().runtimeMode, "plan");
 
-    proc.setBypassPermissions(true);
-    assert.equal(proc.getRuntimeBinding().runtimeMode, "plan");
-
-    proc.setPlanMode(false);
+    proc.setRuntimeMode("full-access");
     assert.equal(proc.getRuntimeBinding().runtimeMode, "full-access");
   });
 

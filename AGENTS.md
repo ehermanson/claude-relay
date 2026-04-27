@@ -158,7 +158,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - `InstanceInfo.modelOptions` is canonical
 - `model_options_json` column on `managed_sessions` is the canonical storage for provider-agnostic model tuning
 - `set_model_options` WS message does sparse merge (omitted = untouched, `null` = clear)
-- `ProviderCapabilities` includes control metadata (`reasoningEffortLevels`, `permissionModes`, `planModes`, `fastModes`) — UI renders labels/descriptions from these, never hardcodes provider-specific text
+- `ProviderCapabilities` includes control metadata (`reasoningEffortLevels`, `runtimeModes`, `fastModes`) — UI renders labels/descriptions from these, never hardcodes provider-specific text
 - `ReasoningEffort` uses `"max"` as the Relay-canonical highest effort; provider drivers map to native values (e.g. Codex `"xhigh"`); unknown strings pass through
 
 ### Task Tracking

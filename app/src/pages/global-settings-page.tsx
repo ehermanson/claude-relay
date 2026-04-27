@@ -739,12 +739,12 @@ function ProviderDefaultsRow({
   // so the controls reflect what that model actually supports.
   const selectedModel = defaults.model ? models.find((m) => m.id === defaults.model) : defaultModel;
   const modelCaps = selectedModel?.resolvedCapabilities ?? caps;
-  const defaultPermLabel = caps.permissionModes?.restricted.label; // restricted is always the default
+  const defaultRuntimeLabel = caps.runtimeModes?.["approval-required"]?.label;
 
   const hasAnyControls =
     caps.supportsModelSelection ||
     (caps.supportsReasoningEffort && caps.reasoningEffortLevels) ||
-    caps.permissionModes ||
+    !!caps.runtimeModes ||
     (caps.supportsFastMode && caps.fastModes);
 
   const hasRuntime = runtimeState != null;
@@ -808,19 +808,24 @@ function ProviderDefaultsRow({
               </Select>
             </div>
           )}
-          {caps.permissionModes && (
+          {caps.runtimeModes && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-[0.6875rem] font-medium text-muted">Permissions</label>
+              <label className="text-[0.6875rem] font-medium text-muted">Mode</label>
               <Select
                 inputSize="md"
                 value={defaults.runtimeMode ?? ""}
                 onChange={(e) => onChange("runtimeMode", e.target.value)}
               >
                 <option value="">
-                  {defaultPermLabel ? `${defaultPermLabel} (default)` : "Default"}
+                  {defaultRuntimeLabel ? `${defaultRuntimeLabel} (default)` : "Default"}
                 </option>
-                <option value="approval-required">{caps.permissionModes.restricted.label}</option>
-                <option value="full-access">{caps.permissionModes.fullAccess.label}</option>
+                {(["approval-required", "full-access", "plan"] as const)
+                  .filter((mode) => caps.runtimeModes?.[mode])
+                  .map((mode) => (
+                    <option key={mode} value={mode}>
+                      {caps.runtimeModes![mode]!.label}
+                    </option>
+                  ))}
               </Select>
             </div>
           )}

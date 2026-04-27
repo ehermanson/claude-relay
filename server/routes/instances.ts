@@ -7,7 +7,7 @@ import {
   gitPush,
   isWorktreeDirty,
 } from "#core/git.js";
-import type { ProviderKind, ProviderModelOptions } from "#core/types.js";
+import type { ProviderKind, ProviderModelOptions, ProviderRuntimeMode } from "#core/types.js";
 import { readJsonBody } from "#server/hono-utils.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
 
@@ -24,23 +24,21 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
         provider?: ProviderKind;
         name?: string;
         workingDirectory?: string;
-        dangerouslySkipPermissions?: boolean;
+        runtimeMode?: ProviderRuntimeMode;
         resumeSessionId?: string;
         model?: string;
         spaceId?: string;
         modelOptions?: ProviderModelOptions;
-        planMode?: boolean;
       }>(c);
       const info = instanceManager.createInstance({
         provider: body.provider,
         name: body.name,
         workingDirectory: body.workingDirectory,
-        dangerouslySkipPermissions: body.dangerouslySkipPermissions,
+        runtimeMode: body.runtimeMode,
         resumeSessionId: body.resumeSessionId,
         model: body.model,
         spaceId: body.spaceId,
         modelOptions: body.modelOptions,
-        planMode: body.planMode,
       });
       return c.json(info, 201);
     } catch (err) {

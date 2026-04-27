@@ -9,7 +9,7 @@ import { cpSync, existsSync, renameSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import { defaultLogger, type Logger } from "#core/logger.js";
-import type { ProviderKind } from "#core/types.js";
+import type { ProviderKind, ProviderRuntimeMode } from "#core/types.js";
 
 /**
  * Core configuration — the subset needed by ClaudeProcess and InstanceManager.
@@ -18,8 +18,8 @@ import type { ProviderKind } from "#core/types.js";
 export interface CoreConfig {
   /** Working directory for Claude processes */
   workingDirectory: string;
-  /** Whether to pass --dangerously-skip-permissions to Claude */
-  dangerouslySkipPermissions: boolean;
+  /** Default runtime mode for new sessions when one isn't specified */
+  defaultRuntimeMode: ProviderRuntimeMode;
   /** Process timeout in milliseconds (0 = no timeout) */
   processTimeout: number;
   /** Maximum number of concurrent managed Claude processes */
@@ -79,7 +79,7 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
   const home = homedir();
   return {
     workingDirectory: options.workingDirectory ?? process.cwd(),
-    dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? true,
+    defaultRuntimeMode: options.defaultRuntimeMode ?? "full-access",
     processTimeout: options.processTimeout ?? 30 * 60 * 1000,
     maxProcesses: options.maxProcesses ?? 15,
     logger: options.logger ?? defaultLogger,

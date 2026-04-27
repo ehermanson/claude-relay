@@ -19,6 +19,7 @@ import type {
   ProviderKind,
   ProviderModelOption,
   ProviderModelOptions,
+  ProviderRuntimeMode,
   ProviderSessionBootstrap,
   ProviderRuntimeBinding,
   SessionStats,
@@ -59,7 +60,7 @@ interface ProviderDriverContext {
 interface ProviderSessionOptions {
   resumeSessionId?: string;
   model?: string;
-  planMode?: boolean;
+  runtimeMode?: ProviderRuntimeMode;
   allowedTools?: string[];
   modelOptions?: ProviderModelOptions;
   bootstrapContext?: ProviderSessionBootstrap;
@@ -431,9 +432,8 @@ function createClaudeSession(
         model: options?.model,
         reasoningEffort: options?.modelOptions?.reasoningEffort,
         fastMode: options?.modelOptions?.fastMode,
-        planMode: options?.planMode,
+        runtimeMode: options?.runtimeMode ?? config.defaultRuntimeMode,
         resumeSessionId: options?.resumeSessionId,
-        dangerouslySkipPermissions: config.dangerouslySkipPermissions,
         logger: config.logger,
         processTimeout: config.processTimeout,
         allowedTools: options?.allowedTools,
@@ -447,11 +447,11 @@ function createClaudeSession(
     ? new ClaudeProcess(config, {
         resumeSessionId: options.resumeSessionId,
         model: options?.model,
-        planMode: options?.planMode,
+        runtimeMode: options?.runtimeMode,
       })
     : new ClaudeProcess(config, {
         model: options?.model,
-        planMode: options?.planMode,
+        runtimeMode: options?.runtimeMode,
       });
 
   if (options?.allowedTools) {
@@ -491,11 +491,9 @@ class UnsupportedGeminiSession extends EventEmitter implements ProviderSession {
 
   setModel(_model: string | null): void {}
 
-  setPlanMode(_planMode: boolean): void {}
+  setRuntimeMode(_mode: ProviderRuntimeMode): void {}
 
   addAllowedTool(_tool: string): void {}
-
-  setBypassPermissions(_bypass: boolean): void {}
 
   getRuntimeBinding(): ProviderRuntimeBinding {
     return { provider: "gemini" };
@@ -695,9 +693,8 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       return new CodexAppServerSession({
         cwd: config.workingDirectory,
         model: options?.model,
-        planMode: options?.planMode,
+        runtimeMode: options?.runtimeMode ?? config.defaultRuntimeMode,
         resumeSessionId: options?.resumeSessionId,
-        dangerouslySkipPermissions: config.dangerouslySkipPermissions,
         logger: config.logger,
         processTimeout: config.processTimeout,
         modelOptions: options?.modelOptions,

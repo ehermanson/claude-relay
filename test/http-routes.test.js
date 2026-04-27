@@ -225,7 +225,6 @@ describe("HTTP Routes — Additional Coverage", () => {
         supportsUserInputRequests: true,
         supportsReasoningEffort: true,
         supportsFastMode: true,
-        supportsPlanMode: true,
         supportsModelSelection: true,
         supportsTitleUpdates: true,
       });
@@ -277,7 +276,6 @@ describe("HTTP Routes — Additional Coverage", () => {
             supportsUserInputRequests: true,
             supportsReasoningEffort: false,
             supportsFastMode: false,
-            supportsPlanMode: true,
             supportsModelSelection: true,
             supportsTitleUpdates: false,
           },

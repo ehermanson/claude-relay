@@ -11,7 +11,7 @@
  * const relay = createRelay({
  *   password: process.env.PASSWORD!,
  *   port: 8080,
- *   dangerouslySkipPermissions: true,
+ *   defaultRuntimeMode: "full-access",
  *   workingDirectory: "/path/to/project",
  * });
  *

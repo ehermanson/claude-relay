@@ -338,7 +338,6 @@ describe("Scan deduplication — managed sessions stay authoritative", () => {
       parent_session_id: null,
       preferred_model: null,
       reasoning_budget: null,
-      skip_permissions: 0,
       last_message_text: null,
       last_message_from: null,
       last_message_at: null,

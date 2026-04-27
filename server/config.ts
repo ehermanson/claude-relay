@@ -51,7 +51,7 @@ export function resolveConfig(options: RelayOptions): RelayConfig {
     port: options.port ?? 7777,
     password: options.password,
     sessionMaxAge: options.sessionMaxAge ?? 7 * 24 * 60 * 60 * 1000,
-    dangerouslySkipPermissions: options.dangerouslySkipPermissions ?? true,
+    defaultRuntimeMode: options.defaultRuntimeMode ?? "full-access",
     processTimeout: options.processTimeout ?? 30 * 60 * 1000,
     workingDirectory: options.workingDirectory ?? options.defaultWorkingDirectory ?? process.cwd(),
     serveUI: options.serveUI ?? true,

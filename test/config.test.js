@@ -14,7 +14,7 @@ describe("resolveConfig", () => {
     const config = resolveConfig({ password: "s" });
     assert.equal(config.port, 7777);
     assert.equal(config.sessionMaxAge, 7 * 24 * 60 * 60 * 1000);
-    assert.equal(config.dangerouslySkipPermissions, true);
+    assert.equal(config.defaultRuntimeMode, "full-access");
     assert.equal(config.processTimeout, 30 * 60 * 1000);
     assert.equal(config.serveUI, true);
     assert.equal(config.rateLimitMax, 5);
@@ -29,12 +29,12 @@ describe("resolveConfig", () => {
       password: "p",
       port: 9999,
       maxProcesses: 3,
-      dangerouslySkipPermissions: true,
+      defaultRuntimeMode: "approval-required",
       serveUI: false,
     });
     assert.equal(config.port, 9999);
     assert.equal(config.maxProcesses, 3);
-    assert.equal(config.dangerouslySkipPermissions, true);
+    assert.equal(config.defaultRuntimeMode, "approval-required");
     assert.equal(config.serveUI, false);
   });
 

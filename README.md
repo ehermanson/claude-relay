@@ -194,14 +194,14 @@ Relay's backend is organized around a **provider-driver registry**. Each provide
   │  ┌──────────────────────────────────────────────────────────┐       │
   │  │              ProviderSession contract                    │       │
   │  │  send() · interrupt() · close() · setModel()            │       │
-  │  │  setReasoningBudget() · setPlanMode()                    │       │
+  │  │  setReasoningBudget() · setRuntimeMode()                 │       │
   │  │  getRuntimeBinding() · respondToRequest()                │       │
   │  └──────────────────────────────────────────────────────────┘       │
   │         │                                                           │
   │         ▼                                                           │
   │  ┌──────────────────────────────────────────────────────────┐       │
   │  │              ProviderCapabilities                        │       │
-  │  │  supportsResume · supportsApprovals · supportsPlanMode   │       │
+  │  │  supportsResume · supportsApprovals · runtimeModes       │       │
   │  │  supportsReasoningEffort · supportsModelSelection · ...   │       │
   │  └──────────────────────────────────────────────────────────┘       │
   └─────────────────────────────────────────────────────────────────────┘

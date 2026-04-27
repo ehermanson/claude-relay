@@ -477,12 +477,11 @@ export function createWebSocketServer(
                 provider: message.provider,
                 name: message.name,
                 workingDirectory: message.workingDirectory,
-                dangerouslySkipPermissions: message.dangerouslySkipPermissions,
+                runtimeMode: message.runtimeMode,
                 resumeSessionId: message.resumeSessionId,
                 model: message.model,
                 spaceId: message.spaceId,
                 modelOptions: message.modelOptions,
-                planMode: message.planMode,
               });
             } catch (err) {
               sendMessage(ws, {
@@ -720,13 +719,8 @@ export function createWebSocketServer(
             break;
           }
 
-          case "set_permissions": {
-            await instanceManager.setPermissions(message.instanceId, message.skipPermissions);
-            break;
-          }
-
-          case "set_plan_mode": {
-            await instanceManager.setPlanMode(message.instanceId, message.planMode);
+          case "set_runtime_mode": {
+            await instanceManager.setRuntimeMode(message.instanceId, message.mode);
             break;
           }
 

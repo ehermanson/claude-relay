@@ -15,6 +15,7 @@ import type {
   SessionStats,
   SystemEventMessage,
   ProviderKind,
+  ProviderRuntimeMode,
   ProviderSessionBootstrap,
   ProviderModelOptions,
   ProviderRequest,
@@ -79,17 +80,18 @@ export interface ProviderSession extends EventEmitter {
   /** Structured bootstrap context delivered once when the session is created. */
   readonly bootstrapContext?: ProviderSessionBootstrap;
 
-  /** Toggle provider plan mode for subsequent turns when supported. */
-  setPlanMode?(planMode: boolean): void;
+  /**
+   * Set the runtime mode for subsequent turns. Providers should treat unknown
+   * modes (e.g. one not declared in their capabilities.runtimeModes) as a
+   * no-op rather than throwing.
+   */
+  setRuntimeMode(mode: ProviderRuntimeMode): void;
 
   /** Add a tool to the auto-allowed list (CLI: --allowedTools, SDK: updatedPermissions). */
   addAllowedTool(tool: string): void;
 
   /** Update canonical model options (effort, fast mode, etc.) at runtime. */
   setModelOptions?(modelOptions: ProviderModelOptions): void;
-
-  /** Toggle bypass-all-permissions mode at runtime. */
-  setBypassPermissions(bypass: boolean): void;
 
   /** Trigger provider-native compaction when supported. */
   compactThread?(): void;

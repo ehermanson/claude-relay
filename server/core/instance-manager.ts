@@ -1066,14 +1066,6 @@ function createWatchState(
   };
 }
 
-function normalizeRuntimeMode(
-  skipPermissions: boolean | undefined,
-  planMode: boolean | undefined,
-): ProviderRuntimeMode {
-  if (planMode) return "plan";
-  return skipPermissions ? "full-access" : "approval-required";
-}
-
 function extractResumeSessionId(resumeCursor: unknown): string | undefined {
   if (!resumeCursor || typeof resumeCursor !== "object") return undefined;
   const value = (resumeCursor as Record<string, unknown>).sessionId;
@@ -1166,8 +1158,7 @@ function summaryFromSessionRow(entry: SessionRow): InstanceInfo {
     gitInfo: gitInfoFromDb(entry),
     parentSessionId: entry.parent_session_id ?? undefined,
     preferredModel: entry.preferred_model ?? undefined,
-    planMode: false,
-    skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+    runtimeMode: (entry.runtime_mode as ProviderRuntimeMode | null) ?? undefined,
     spaceId: entry.space_id ?? undefined,
     projectId: entry.project_id ?? undefined,
   };
@@ -1192,8 +1183,7 @@ function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
       entry.original_git_branch ?? entry.git_branch ?? entry.git_info_branch ?? undefined,
     parentSessionId: entry.parent_session_id ?? undefined,
     preferredModel: entry.preferred_model ?? undefined,
-    planMode: entry.runtime_mode === "plan" ? true : undefined,
-    skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+    runtimeMode: (entry.runtime_mode as ProviderRuntimeMode | null) ?? undefined,
     spaceId: entry.space_id ?? undefined,
     projectId: entry.project_id ?? undefined,
   };
@@ -1705,7 +1695,7 @@ export class InstanceManager extends EventEmitter {
       provider?: ProviderKind;
       resumeSessionId?: string;
       model?: string;
-      planMode?: boolean;
+      runtimeMode?: ProviderRuntimeMode;
       allowedTools?: string[];
       modelOptions?: ProviderModelOptions;
       bootstrapContext?: ProviderSessionBootstrap;
@@ -1889,10 +1879,9 @@ export class InstanceManager extends EventEmitter {
     provider?: ProviderKind;
     name?: string;
     workingDirectory?: string;
-    dangerouslySkipPermissions?: boolean;
+    runtimeMode?: ProviderRuntimeMode;
     resumeSessionId?: string;
     model?: string;
-    planMode?: boolean;
     spaceId?: string;
     modelOptions?: ProviderModelOptions;
   }): InstanceInfo {
@@ -1995,17 +1984,16 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    // Resolve permissions: explicit options > per-provider global default > base config
-    const resolvedSkipPermissions =
-      options?.dangerouslySkipPermissions ??
-      (perProvider?.runtimeMode
-        ? perProvider.runtimeMode === "full-access"
-        : this.baseConfig.dangerouslySkipPermissions);
+    // Resolve runtime mode: explicit options > per-provider global default > base config
+    const resolvedRuntimeMode: ProviderRuntimeMode =
+      options?.runtimeMode ??
+      (perProvider?.runtimeMode as ProviderRuntimeMode | undefined) ??
+      this.baseConfig.defaultRuntimeMode;
 
     const instanceConfig: CoreConfig = {
       ...this.baseConfig,
       workingDirectory,
-      dangerouslySkipPermissions: resolvedSkipPermissions,
+      defaultRuntimeMode: resolvedRuntimeMode,
     };
 
     // Build canonical modelOptions: explicit modelOptions wins, then per-provider defaults
@@ -2041,7 +2029,7 @@ export class InstanceManager extends EventEmitter {
       provider,
       resumeSessionId: resumeId,
       model: effectiveSessionModel,
-      planMode: options?.planMode,
+      runtimeMode: resolvedRuntimeMode,
       modelOptions,
       bootstrapContext,
     });
@@ -2078,8 +2066,7 @@ export class InstanceManager extends EventEmitter {
       originalGitBranch: initialGitInfo?.branch ?? getCurrentBranch(workingDirectory) ?? undefined,
       preferredModel: isExplicitModel ? model : undefined,
       modelOptions,
-      planMode: options?.planMode,
-      skipPermissions: resolvedSkipPermissions,
+      runtimeMode: resolvedRuntimeMode,
       originalDirectory: spaceOriginalDirectory,
       projectId: project?.id,
       spaceId,
@@ -2126,7 +2113,7 @@ export class InstanceManager extends EventEmitter {
         providerSessionId: resumeId,
         resumeCursor: { sessionId: resumeId },
         transcriptPath,
-        runtimeMode: normalizeRuntimeMode(resolvedSkipPermissions, info.planMode),
+        runtimeMode: resolvedRuntimeMode,
       };
       proc.setSessionId?.(resumeId);
 
@@ -2846,9 +2833,9 @@ export class InstanceManager extends EventEmitter {
     instance.info.pendingTool = undefined;
     instance.info.pendingPermission = undefined;
 
-    if (instance.info.pendingPlan && instance.info.planMode) {
-      instance.info.planMode = false;
-      instance.process?.setPlanMode?.(false);
+    if (instance.info.pendingPlan && instance.info.runtimeMode === "plan") {
+      instance.info.runtimeMode = "approval-required";
+      instance.process?.setRuntimeMode("approval-required");
       this.baseConfig.logger.info(
         "[InstanceManager] Plan approved — exiting plan mode for execution",
       );
@@ -3204,7 +3191,7 @@ export class InstanceManager extends EventEmitter {
         provider: instance.info.provider,
         resumeSessionId: sessionId,
         model: instance.info.preferredModel,
-        planMode: instance.info.planMode,
+        runtimeMode: instance.info.runtimeMode,
         modelOptions: instance.info.modelOptions,
       });
     } catch (err) {
@@ -3274,7 +3261,7 @@ export class InstanceManager extends EventEmitter {
         provider: instance.info.provider,
         resumeSessionId: sessionId,
         model: instance.info.preferredModel,
-        planMode: instance.info.planMode,
+        runtimeMode: instance.info.runtimeMode,
         modelOptions: instance.info.modelOptions,
       });
     } catch (err) {
@@ -3498,7 +3485,7 @@ export class InstanceManager extends EventEmitter {
         if (content.trim()) {
           instance.info.planContent = content;
           // Only set pendingPlan (composer review) if still in plan mode and not already set
-          if (instance.info.planMode && !instance.info.pendingPlan) {
+          if (instance.info.runtimeMode === "plan" && !instance.info.pendingPlan) {
             this.baseConfig.logger.info(
               `[InstanceManager] refreshPendingPlan: setting pendingPlan from file (${instance.planFilePath})`,
             );
@@ -3729,8 +3716,7 @@ export class InstanceManager extends EventEmitter {
     const instanceConfig: CoreConfig = {
       ...this.baseConfig,
       workingDirectory: cwd,
-      dangerouslySkipPermissions:
-        instance.info.skipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
+      defaultRuntimeMode: instance.info.runtimeMode ?? this.baseConfig.defaultRuntimeMode,
     };
     const existingSessionContext = getSessionContextFromRuntimePayload(binding?.runtimePayload);
     if (existingSessionContext && !instance.info.sessionContext) {
@@ -3747,7 +3733,7 @@ export class InstanceManager extends EventEmitter {
       provider: instance.info.provider,
       resumeSessionId,
       model: instance.info.preferredModel,
-      planMode: instance.info.planMode,
+      runtimeMode: instance.info.runtimeMode,
       allowedTools: this.getPersistedAllowedTools(resumeSessionId),
       modelOptions: instance.info.modelOptions,
     });
@@ -6107,7 +6093,7 @@ export class InstanceManager extends EventEmitter {
       parent_session_id: instance.info.parentSessionId ?? null,
       preferred_model: instance.info.preferredModel ?? null,
       reasoning_budget: null,
-      skip_permissions: instance.info.skipPermissions ? 1 : 0,
+      runtime_mode: instance.info.runtimeMode ?? null,
       last_message_text: instance.info.lastMessage?.text ?? null,
       last_message_from: instance.info.lastMessage?.from ?? null,
       last_message_at: instance.info.lastMessage?.timestamp ?? null,
@@ -6149,8 +6135,7 @@ export class InstanceManager extends EventEmitter {
       parent_session_id: instance.info.parentSessionId ?? null,
       preferred_model: instance.info.preferredModel ?? null,
       reasoning_budget: null,
-      skip_permissions: instance.info.skipPermissions ? 1 : 0,
-      runtime_mode: normalizeRuntimeMode(instance.info.skipPermissions, instance.info.planMode),
+      runtime_mode: instance.info.runtimeMode ?? this.baseConfig.defaultRuntimeMode,
       resume_cursor_json: binding?.resumeCursor ? JSON.stringify(binding.resumeCursor) : null,
       runtime_payload_json: binding?.runtimePayload ? JSON.stringify(binding.runtimePayload) : null,
       transcript_path: binding?.transcriptPath ?? instance.jsonlPath ?? null,
@@ -6635,7 +6620,7 @@ export class InstanceManager extends EventEmitter {
             parent_session_id: null,
             preferred_model: null,
             reasoning_budget: null,
-            skip_permissions: 0,
+            runtime_mode: null,
             last_message_text: lastMsg?.text ?? null,
             last_message_from: lastMsg?.from ?? null,
             last_message_at: lastMsg?.timestamp ?? null,
@@ -6818,7 +6803,7 @@ export class InstanceManager extends EventEmitter {
               parent_session_id: null,
               preferred_model: null,
               reasoning_budget: null,
-              skip_permissions: 0,
+              runtime_mode: null,
               last_message_text: lastMsg?.text ?? null,
               last_message_from: lastMsg?.from ?? null,
               last_message_at: lastMsg?.timestamp ?? null,
@@ -6989,8 +6974,7 @@ export class InstanceManager extends EventEmitter {
       gitInfo: gitInfoFromDb(entry),
       parentSessionId: entry.parent_session_id ?? undefined,
       preferredModel: entry.preferred_model ?? undefined,
-      planMode: false,
-      skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      runtimeMode: (entry.runtime_mode as ProviderRuntimeMode | null) ?? undefined,
       spaceId: inferredSpaceId ?? undefined,
       projectId: entry.project_id ?? undefined,
     };
@@ -7004,7 +6988,8 @@ export class InstanceManager extends EventEmitter {
         resumeCursor: { sessionId: entry.session_id },
         runtimePayload: { cwd: restoreWorkingDirectory },
         transcriptPath: entry.jsonl_path,
-        runtimeMode: normalizeRuntimeMode(entry.skip_permissions === 1, false),
+        runtimeMode:
+          (entry.runtime_mode as ProviderRuntimeMode | null) ?? this.baseConfig.defaultRuntimeMode,
       },
       history: [], // deferred until hydration
       sessionId: entry.session_id,
@@ -7140,8 +7125,7 @@ export class InstanceManager extends EventEmitter {
       parentSessionId: entry.parent_session_id ?? undefined,
       preferredModel: entry.preferred_model ?? undefined,
       modelOptions: restoredModelOptions,
-      planMode: entry.runtime_mode === "plan" ? true : undefined,
-      skipPermissions: entry.skip_permissions === 1 ? true : undefined,
+      runtimeMode: entry.runtime_mode as ProviderRuntimeMode,
       spaceId: inferredSpaceId ?? undefined,
       projectId: entry.project_id ?? undefined,
       sessionContext: getSessionContextFromRuntimePayload(runtimePayload),
@@ -7565,7 +7549,7 @@ export class InstanceManager extends EventEmitter {
           message.files = Array.from(live.files.values()).map((file) => ({ ...file }));
         }
         if (
-          live.info.planMode &&
+          live.info.runtimeMode === "plan" &&
           message.activity === "tool_use" &&
           (message.tool === "Edit" || message.tool === "Write") &&
           message.input
@@ -8025,7 +8009,7 @@ export class InstanceManager extends EventEmitter {
         ...((instance.providerBinding ?? proc.getRuntimeBinding()).runtimePayload ?? {}),
         sessionContext: instance.info.sessionContext,
       },
-      runtimeMode: normalizeRuntimeMode(instance.info.skipPermissions, instance.info.planMode),
+      runtimeMode: instance.info.runtimeMode ?? this.baseConfig.defaultRuntimeMode,
     };
 
     // Feed session ID back to the CLI process so subsequent sends use
@@ -8246,34 +8230,18 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
-  async setPermissions(id: string, skipPermissions: boolean): Promise<boolean> {
+  async setRuntimeMode(id: string, mode: ProviderRuntimeMode): Promise<boolean> {
     return this.enqueueInstanceMutation(id, async (instance) => {
-      if (instance.info.external) return false;
+      if (instance.info.external || !instance.process) return false;
 
-      instance.info.skipPermissions = skipPermissions;
-      instance.process?.setBypassPermissions(skipPermissions);
+      instance.info.runtimeMode = mode;
+      instance.process.setRuntimeMode(mode);
 
-      if (skipPermissions && !instance.info.planMode && instance.info.pendingPermission) {
+      // When switching to full-access while a permission prompt is pending,
+      // the prompt becomes irrelevant — the provider auto-approves now.
+      if (mode === "full-access" && instance.info.pendingPermission) {
         instance.info.pendingPermission = undefined;
       }
-
-      this.emitInstanceStatus(instance);
-      this.dbSave(instance);
-      const sid = instance.sessionId || instance.info.sessionId;
-      if (sid) this.db.updateSkipPermissions(sid, skipPermissions);
-      return true;
-    }).catch((err) => {
-      if (this.isInstanceNotFoundError(err)) return false;
-      throw err;
-    });
-  }
-
-  async setPlanMode(id: string, planMode: boolean): Promise<boolean> {
-    return this.enqueueInstanceMutation(id, async (instance) => {
-      if (instance.info.external || !instance.process?.setPlanMode) return false;
-
-      instance.info.planMode = planMode ? true : undefined;
-      instance.process.setPlanMode(planMode);
 
       this.emitInstanceStatus(instance);
       this.dbSave(instance);
@@ -8304,19 +8272,17 @@ export class InstanceManager extends EventEmitter {
 
       instance.info.preferredModel = undefined;
       instance.info.modelOptions = undefined;
-      instance.info.planMode = undefined;
       instance.info.provider = provider;
 
       const instanceConfig: CoreConfig = {
         ...this.baseConfig,
         workingDirectory: instance.actualCwd || instance.info.workingDirectory,
-        dangerouslySkipPermissions:
-          instance.info.skipPermissions ?? this.baseConfig.dangerouslySkipPermissions,
+        defaultRuntimeMode: instance.info.runtimeMode ?? this.baseConfig.defaultRuntimeMode,
       };
 
       const proc = this.createProviderSession(instanceConfig, {
         provider,
-        planMode: instance.info.planMode,
+        runtimeMode: instance.info.runtimeMode,
         model: BUILTIN_PROVIDER_MODELS[provider].find((m) => m.isDefault)?.id,
       });
       instance.process = proc;

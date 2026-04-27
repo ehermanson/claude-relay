@@ -188,7 +188,7 @@ describe("ClaudeSdkSession", () => {
       const fakeQuery = new FakeQuery();
       const session = await createSdkSession({
         cwd: "/test",
-        dangerouslySkipPermissions: true,
+        runtimeMode: "full-access",
         logger: noopLogger,
         queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
@@ -201,12 +201,12 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
-    it("passes plan permission mode when requested", async () => {
+    it("passes plan permission mode when runtimeMode is 'plan'", async () => {
       let capturedOptions;
       const fakeQuery = new FakeQuery();
       const session = await createSdkSession({
         cwd: "/test",
-        planMode: true,
+        runtimeMode: "plan",
         logger: noopLogger,
         queryFn: ({ _prompt, options }) => {
           capturedOptions = options;
@@ -217,24 +217,7 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
-    it("prefers plan permission mode when bypass is also configured", async () => {
-      let capturedOptions;
-      const fakeQuery = new FakeQuery();
-      const session = await createSdkSession({
-        cwd: "/test",
-        dangerouslySkipPermissions: true,
-        planMode: true,
-        logger: noopLogger,
-        queryFn: ({ _prompt, options }) => {
-          capturedOptions = options;
-          return fakeQuery;
-        },
-      });
-      assert.equal(capturedOptions.permissionMode, "plan");
-      session.close();
-    });
-
-    it("sets canUseTool when dangerouslySkipPermissions is false", async () => {
+    it("sets canUseTool when runtimeMode defaults to approval-required", async () => {
       let capturedOptions;
       const fakeQuery = new FakeQuery();
       const session = await createSdkSession({
@@ -714,14 +697,14 @@ describe("ClaudeSdkSession", () => {
   });
 
   describe("permissions", () => {
-    it("restores bypass mode after plan mode is turned off", async () => {
+    it("setRuntimeMode forwards plan + bypassPermissions modes to the SDK", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness, {
-        dangerouslySkipPermissions: true,
+        runtimeMode: "full-access",
       });
 
-      session.setPlanMode(true);
-      session.setPlanMode(false);
+      session.setRuntimeMode("plan");
+      session.setRuntimeMode("full-access");
 
       assert.deepEqual(harness.fakeQuery.setPermissionModeCalls, ["plan", "bypassPermissions"]);
       session.close();
@@ -825,7 +808,7 @@ describe("ClaudeSdkSession", () => {
 
       await tick();
 
-      session.setBypassPermissions(true);
+      session.setRuntimeMode("full-access");
       const result = await resultPromise;
       assert.equal(result.behavior, "allow");
 
@@ -950,13 +933,13 @@ describe("ClaudeSdkSession", () => {
     });
   });
 
-  describe("plan mode", () => {
-    it("setPlanMode() calls query.setPermissionMode()", async () => {
+  describe("runtime mode", () => {
+    it("setRuntimeMode() forwards plan/default permission modes to the SDK", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);
 
-      session.setPlanMode(true);
-      session.setPlanMode(false);
+      session.setRuntimeMode("plan");
+      session.setRuntimeMode("approval-required");
 
       await tick();
 

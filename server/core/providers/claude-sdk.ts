@@ -24,6 +24,7 @@ import type {
   SessionStats,
   ProviderRequest,
   ProviderRuntimeBinding,
+  ProviderRuntimeMode,
   ProviderSessionBootstrap,
   UserInputQuestion,
   SystemEventMessage,
@@ -277,12 +278,10 @@ export interface ClaudeSdkSessionOptions {
   reasoningEffort?: string;
   /** Enable fast mode */
   fastMode?: boolean;
-  /** Whether Claude should run in plan mode */
-  planMode?: boolean;
+  /** Initial runtime mode (defaults to "approval-required") */
+  runtimeMode?: ProviderRuntimeMode;
   /** Session ID to resume */
   resumeSessionId?: string;
-  /** Whether to bypass all permissions */
-  dangerouslySkipPermissions?: boolean;
   /** Logger from CoreConfig */
   logger: CoreConfig["logger"];
   /** Process timeout in ms (0 = no timeout) */
@@ -473,8 +472,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private query: QueryHandle;
   private pendingPermission: PendingPermission | null = null;
   private allowedToolSet: Set<string>;
-  private _bypassPermissions = false;
-  private _planMode = false;
+  private _runtimeMode: ProviderRuntimeMode = "approval-required";
   private pendingStreamMessage: PendingStreamMessage | null = null;
   private _autoContinueCount = 0;
   /** Late SDK tool_result errors for permission streams we already auto-approved. */
@@ -501,7 +499,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this.cwd = options.cwd;
     this.currentModel = options.model ?? null;
     this.bootstrapContext = options.bootstrapContext;
-    this._planMode = options.planMode ?? false;
+    this._runtimeMode = options.runtimeMode ?? "approval-required";
     this.allowedToolSet = new Set(options.allowedTools || []);
     this.promptQueue = new PromptQueue();
 
@@ -535,13 +533,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       this._isResumeReplay = true;
     }
 
-    if (options.dangerouslySkipPermissions) {
-      this._bypassPermissions = true;
-    }
-
-    if (this._planMode) {
+    if (this._runtimeMode === "plan") {
       sdkOptions.permissionMode = "plan";
-    } else if (this._bypassPermissions) {
+    } else if (this._runtimeMode === "full-access") {
       sdkOptions.permissionMode = "bypassPermissions";
     }
 
@@ -612,11 +606,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         model: this.currentModel ?? undefined,
         sessionContext: this.bootstrapContext ? { bootstrap: this.bootstrapContext } : undefined,
       },
-      runtimeMode: this._planMode
-        ? "plan"
-        : this._bypassPermissions
-          ? "full-access"
-          : "approval-required",
+      runtimeMode: this._runtimeMode,
     };
   }
 
@@ -720,17 +710,23 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // Note: SDK manages allowed tools via canUseTool callback + updatedPermissions.
   }
 
-  setBypassPermissions(bypass: boolean): void {
-    this._bypassPermissions = bypass;
-    this.logger.info(`[SdkSession] Bypass permissions: ${bypass}`);
-    this.query
-      .setPermissionMode(this._planMode ? "plan" : bypass ? "bypassPermissions" : "default")
-      .catch((err) => {
-        this.logger.warn(`[SdkSession] setPermissionMode error: ${err}`);
-      });
-    // If the active mode becomes bypass and there's a pending permission,
-    // auto-approve it so the session doesn't stay blocked.
-    if (bypass && !this._planMode && this.pendingPermission) {
+  setRuntimeMode(mode: ProviderRuntimeMode): void {
+    if (this._stopped) return;
+    if (mode !== "approval-required" && mode !== "full-access" && mode !== "plan") {
+      this.logger.warn(`[SdkSession] Unknown runtime mode: ${mode}`);
+      return;
+    }
+    this._runtimeMode = mode;
+    this.logger.info(`[SdkSession] Runtime mode: ${mode}`);
+    const permissionMode =
+      mode === "plan" ? "plan" : mode === "full-access" ? "bypassPermissions" : "default";
+    this.query.setPermissionMode(permissionMode).catch((err) => {
+      this.logger.warn(`[SdkSession] setPermissionMode error: ${err}`);
+    });
+    // When switching to full-access, auto-approve any pending permission so the
+    // session doesn't stay blocked waiting on a prompt the user already
+    // resolved by escalating.
+    if (mode === "full-access" && this.pendingPermission) {
       this.logger.info(
         `[SdkSession] Auto-approving pending permission for ${this.pendingPermission.toolName}`,
       );
@@ -742,18 +738,6 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       });
       this.pendingPermission = null;
     }
-  }
-
-  setPlanMode(planMode: boolean): void {
-    if (this._stopped) return;
-    this._planMode = planMode;
-    this.query
-      .setPermissionMode(
-        planMode ? "plan" : this._bypassPermissions ? "bypassPermissions" : "default",
-      )
-      .catch((err) => {
-        this.logger.warn(`[SdkSession] setPermissionMode(plan) error: ${err}`);
-      });
   }
 
   respondToRequest(
@@ -878,8 +862,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       });
     }
 
-    // If bypass mode is on, allow everything
-    if (this._bypassPermissions) {
+    // If full-access mode is on, allow everything
+    if (this._runtimeMode === "full-access") {
       return Promise.resolve({ behavior: "allow" as const, updatedInput: input });
     }
 

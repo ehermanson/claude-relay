@@ -122,7 +122,7 @@ const PRESETS: Preset[] = [
     description: "Plan review waiting for approval",
     overrides: {
       pendingPlan: PLAN_SAMPLE,
-      planMode: true,
+      runtimeMode: "plan" as const,
     },
   },
   {

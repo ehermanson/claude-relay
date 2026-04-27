@@ -35,6 +35,7 @@ import type {
   ProviderRequest,
   ProviderRequestResponse,
   ProviderRuntimeBinding,
+  ProviderRuntimeMode,
   UserInputQuestion,
 } from "#core/types.js";
 import type { CoreConfig } from "#core/config.js";
@@ -192,9 +193,9 @@ type ThreadItem =
 export interface CodexAppServerSessionOptions {
   cwd: string;
   model?: string;
-  planMode?: boolean;
+  /** Initial runtime mode (defaults to "approval-required") */
+  runtimeMode?: ProviderRuntimeMode;
   resumeSessionId?: string;
-  dangerouslySkipPermissions?: boolean;
   logger: CoreConfig["logger"];
   processTimeout?: number;
   spawnProcess?: SpawnFn;
@@ -655,8 +656,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private _sessionId: string | undefined;
   private _transcriptPath: string | undefined;
   private _preferredModel: string | null;
-  private _planMode: boolean;
-  private _bypassPermissions: boolean;
+  private _runtimeMode: ProviderRuntimeMode;
   private _modelOptions: ProviderModelOptions;
   readonly bootstrapContext?: ProviderSessionBootstrap;
   private _stats: SessionStats = {
@@ -712,8 +712,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
     this._sessionId = options.resumeSessionId;
     this._preferredModel = options.model ?? null;
-    this._planMode = options.planMode ?? false;
-    this._bypassPermissions = options.dangerouslySkipPermissions ?? false;
+    this._runtimeMode = options.runtimeMode ?? "approval-required";
     this._modelOptions = options.modelOptions ?? {};
     this.bootstrapContext = options.bootstrapContext;
     if (this._preferredModel) {
@@ -752,11 +751,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         model: this._preferredModel ?? undefined,
         sessionContext: this.bootstrapContext ? { bootstrap: this.bootstrapContext } : undefined,
       },
-      runtimeMode: this._planMode
-        ? "plan"
-        : this._bypassPermissions
-          ? "full-access"
-          : "approval-required",
+      runtimeMode: this._runtimeMode,
     };
   }
 
@@ -871,21 +866,23 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this._modelOptions = { ...this._modelOptions, ...modelOptions };
   }
 
-  setBypassPermissions(bypass: boolean): void {
-    this._bypassPermissions = bypass;
-    if (!bypass || this._planMode) return;
-
-    for (const [requestId, pending] of this.pendingRequests) {
-      if (pending.kind !== "approval") continue;
-      this.pendingRequests.delete(requestId);
-      if (pending.rpcId !== undefined) {
-        this.sendRpcResponse(pending.rpcId, { decision: "accept" });
+  setRuntimeMode(mode: ProviderRuntimeMode): void {
+    if (mode !== "approval-required" && mode !== "full-access" && mode !== "plan") {
+      this.logger.warn(`[CodexAppServer] Unknown runtime mode: ${mode}`);
+      return;
+    }
+    this._runtimeMode = mode;
+    // When switching to full-access, auto-accept any pending approval prompts
+    // so the session doesn't stay blocked. Plan mode is handled at turn boundaries.
+    if (mode === "full-access") {
+      for (const [requestId, pending] of this.pendingRequests) {
+        if (pending.kind !== "approval") continue;
+        this.pendingRequests.delete(requestId);
+        if (pending.rpcId !== undefined) {
+          this.sendRpcResponse(pending.rpcId, { decision: "accept" });
+        }
       }
     }
-  }
-
-  setPlanMode(planMode: boolean): void {
-    this._planMode = planMode;
   }
 
   respondToRequest(
@@ -1173,7 +1170,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       model: this._preferredModel ?? undefined,
       approvalPolicy: this.resolveApprovalPolicy(),
       collaborationMode: {
-        mode: this._planMode ? "plan" : "default",
+        mode: this._runtimeMode === "plan" ? "plan" : "default",
         settings: {
           model: this.resolveCollaborationModel(),
         },
@@ -1404,7 +1401,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
         });
 
         // If bypass mode, auto-approve
-        if (this._bypassPermissions) {
+        if (this._runtimeMode === "full-access") {
           this.respondToRequest(requestId, "accept");
           return;
         }
@@ -1445,7 +1442,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           rpcId: msg.id,
         });
 
-        if (this._bypassPermissions) {
+        if (this._runtimeMode === "full-access") {
           this.respondToRequest(requestId, "accept");
           return;
         }
@@ -1475,7 +1472,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           rpcId: msg.id,
         });
 
-        if (this._bypassPermissions) {
+        if (this._runtimeMode === "full-access") {
           this.respondToRequest(requestId, "accept");
           return;
         }
@@ -1506,7 +1503,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           rpcId: msg.id,
         });
 
-        if (this._bypassPermissions) {
+        if (this._runtimeMode === "full-access") {
           this.respondToRequest(requestId, "accept");
           return;
         }
@@ -1533,7 +1530,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           rpcId: msg.id,
         });
 
-        if (this._bypassPermissions) {
+        if (this._runtimeMode === "full-access") {
           this.respondToRequest(requestId, "accept");
           return;
         }
@@ -2355,16 +2352,15 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   // ===========================================================================
 
   private resolveApprovalPolicy(): string {
-    if (this._planMode) return "on-failure";
-    if (this._bypassPermissions) return "never";
-    // "on-failure" is the default — approve commands, ask on failure
-    // "untrusted" means ask for everything
+    if (this._runtimeMode === "full-access") return "never";
+    // Plan and approval-required both use the same approval policy: approve
+    // commands, ask on failure. ("untrusted" would ask for everything; "never"
+    // is reserved for full-access.)
     return "on-failure";
   }
 
   private resolveSandboxMode(): string {
-    if (this._planMode) return "workspace-write";
-    if (this._bypassPermissions) return "danger-full-access";
+    if (this._runtimeMode === "full-access") return "danger-full-access";
     return "workspace-write";
   }
 

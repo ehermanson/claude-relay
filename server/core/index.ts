@@ -146,7 +146,7 @@ export type {
   Session,
   TaskItem,
   FileChange,
-  SetPlanModePayload,
+  SetRuntimeModePayload,
   CreateSpacePayload,
   CompleteSpacePayload,
   DeleteSpacePayload,

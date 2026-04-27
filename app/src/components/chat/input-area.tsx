@@ -5,6 +5,7 @@ import type {
   ProviderKind,
   ProviderModelOption,
   ProviderModelOptions,
+  ProviderRuntimeMode,
   ProviderStatusSummary,
   ProviderRequest,
   ReasoningEffort,
@@ -36,10 +37,9 @@ import { AnimatePresence, motion } from "motion/react";
 import { MessageSquareReply, X } from "lucide-react";
 import {
   FastModeToggle,
-  PlanModePicker,
-  PermissionsToggle,
   ProviderModelPicker,
   ReasoningEffortPicker,
+  RuntimeModePicker,
 } from "@/components/chat/input-area/provider-model-picker";
 
 interface InputAreaProps {
@@ -59,8 +59,7 @@ interface InputAreaProps {
   provider: ProviderKind;
   preferredModel?: string;
   modelOptions?: ProviderModelOptions;
-  planMode?: boolean;
-  skipPermissions?: boolean;
+  runtimeMode?: ProviderRuntimeMode;
   hasMessages?: boolean;
   pendingUserInput?: ProviderRequest | null;
   pendingPlan?: string;
@@ -182,8 +181,7 @@ export function InputArea({
   provider,
   preferredModel,
   modelOptions,
-  planMode,
-  skipPermissions,
+  runtimeMode,
   hasMessages,
   pendingUserInput,
   pendingPlan,
@@ -365,7 +363,8 @@ export function InputArea({
   const supportsModelSelection = effectiveCapabilities.supportsModelSelection;
   const supportsReasoningEffort = effectiveCapabilities.supportsReasoningEffort;
   const supportsFastMode = effectiveCapabilities.supportsFastMode;
-  const supportsPlanMode = effectiveCapabilities.supportsPlanMode;
+  const runtimeModes = effectiveCapabilities.runtimeModes;
+  const effectiveRuntimeMode: ProviderRuntimeMode = runtimeMode ?? "approval-required";
   const visibleProviders =
     availableProviders.length > 0
       ? availableProviders.some((entry) => entry.provider === displayedProvider)
@@ -402,8 +401,8 @@ export function InputArea({
     send({ type: "set_model", instanceId, model });
   };
 
-  const setPlanMode = (nextPlanMode: boolean) => {
-    send({ type: "set_plan_mode", instanceId, planMode: nextPlanMode });
+  const setRuntimeMode = (mode: ProviderRuntimeMode) => {
+    send({ type: "set_runtime_mode", instanceId, mode });
   };
 
   const setReasoningEffort = (effort: ReasoningEffort | null) => {
@@ -412,14 +411,6 @@ export function InputArea({
 
   const setFastMode = (enabled: boolean) => {
     send({ type: "set_model_options", instanceId, modelOptions: { fastMode: enabled || null } });
-  };
-
-  const togglePermissions = () => {
-    send({
-      type: "set_permissions",
-      instanceId,
-      skipPermissions: !skipPermissions,
-    });
   };
 
   const handleSend = async () => {
@@ -708,22 +699,13 @@ export function InputArea({
         onToggle={setFastMode}
       />
     ) : null,
-    supportsPlanMode && effectiveCapabilities.planModes ? (
-      <PlanModePicker
-        key="plan-mode-toggle"
+    runtimeModes ? (
+      <RuntimeModePicker
+        key="runtime-mode-picker"
         isProcessing={isProcessing}
-        planMode={planMode}
-        modes={effectiveCapabilities.planModes}
-        onTogglePlanMode={setPlanMode}
-      />
-    ) : null,
-    effectiveCapabilities.permissionModes ? (
-      <PermissionsToggle
-        key="permissions-toggle"
-        isProcessing={isProcessing}
-        skipPermissions={skipPermissions}
-        modes={effectiveCapabilities.permissionModes}
-        onToggle={togglePermissions}
+        runtimeMode={effectiveRuntimeMode}
+        modes={runtimeModes}
+        onSetRuntimeMode={setRuntimeMode}
       />
     ) : null,
   ];
@@ -767,45 +749,22 @@ export function InputArea({
           },
         ]
       : []),
-    ...(supportsPlanMode && effectiveCapabilities.planModes
+    ...(runtimeModes
       ? [
           {
             label: "Mode",
-            options: [
-              {
-                label: effectiveCapabilities.planModes.off.label,
-                selected: !planMode,
-                onSelect: () => setPlanMode(false),
-              },
-              {
-                label: effectiveCapabilities.planModes.on.label,
-                selected: !!planMode,
-                onSelect: () => setPlanMode(true),
-              },
-            ],
-          },
-        ]
-      : []),
-    ...(effectiveCapabilities.permissionModes
-      ? [
-          {
-            label: "Access",
-            options: [
-              {
-                label: effectiveCapabilities.permissionModes.restricted.label,
-                selected: !skipPermissions,
-                onSelect: () => {
-                  if (skipPermissions) togglePermissions();
-                },
-              },
-              {
-                label: effectiveCapabilities.permissionModes.fullAccess.label,
-                selected: !!skipPermissions,
-                onSelect: () => {
-                  if (!skipPermissions) togglePermissions();
-                },
-              },
-            ],
+            options: (["approval-required", "full-access", "plan"] as ProviderRuntimeMode[])
+              .filter((mode) => runtimeModes[mode])
+              .map((mode) => {
+                const option = runtimeModes[mode]!;
+                return {
+                  label: option.label,
+                  selected: effectiveRuntimeMode === mode,
+                  onSelect: () => {
+                    if (effectiveRuntimeMode !== mode) setRuntimeMode(mode);
+                  },
+                };
+              }),
           },
         ]
       : []),

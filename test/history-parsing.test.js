@@ -68,7 +68,6 @@ function seedDB(tempDir, entries) {
       parent_session_id: null,
       preferred_model: null,
       reasoning_budget: null,
-      skip_permissions: 0,
       last_message_text: entry.lastMessageText || null,
       last_message_from: entry.lastMessageFrom || null,
       last_message_at: entry.lastMessageAt || null,
@@ -119,7 +118,6 @@ function seedManagedDB(tempDir, entries) {
       parent_session_id: null,
       preferred_model: entry.preferredModel || null,
       reasoning_budget: null,
-      skip_permissions: 0,
       runtime_mode: "approval-required",
       resume_cursor_json: entry.resumeCursorJson || null,
       runtime_payload_json:
@@ -489,7 +487,6 @@ describe("History Parsing via DB Restore", () => {
           workingDirectory: "/Users/test/projects/my-app",
           transcriptPath,
           resumeCursorJson: JSON.stringify({ sessionId: "codex-proposed-plan-session" }),
-          planMode: true,
         },
       ]);
 

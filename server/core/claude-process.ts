@@ -17,6 +17,7 @@ import type {
   SessionStats,
   ProviderRequest,
   ProviderRuntimeBinding,
+  ProviderRuntimeMode,
   SystemEventMessage,
   UserInputQuestion,
 } from "#core/types.js";
@@ -91,8 +92,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
   private _cancelledByUser = false;
   private _processTimeout: ReturnType<typeof setTimeout> | null = null;
   private _preferredModel: string | null = null;
-  private _planMode = false;
-  private _bypassPermissions: boolean;
+  private _runtimeMode: ProviderRuntimeMode;
   private _stats: SessionStats = {
     inputTokens: 0,
     outputTokens: 0,
@@ -113,15 +113,14 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     options?: {
       resumeSessionId?: string;
       model?: string;
-      planMode?: boolean;
+      runtimeMode?: ProviderRuntimeMode;
     },
   ) {
     super();
     this.config = config;
     this.resumeSessionId = options?.resumeSessionId ?? null;
     this._preferredModel = options?.model ?? null;
-    this._planMode = options?.planMode ?? false;
-    this._bypassPermissions = config.dangerouslySkipPermissions;
+    this._runtimeMode = options?.runtimeMode ?? config.defaultRuntimeMode;
     this.claudePath = this.findClaudeBinary();
     this.cwd = config.workingDirectory;
     config.logger.debug(`[Claude] Binary: ${this.claudePath}`);
@@ -149,11 +148,7 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
         cwd: this.cwd,
         model: this._preferredModel ?? undefined,
       },
-      runtimeMode: this._planMode
-        ? "plan"
-        : this._bypassPermissions
-          ? "full-access"
-          : "approval-required",
+      runtimeMode: this._runtimeMode,
     };
   }
 
@@ -176,8 +171,12 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
     }
   }
 
-  setBypassPermissions(bypass: boolean): void {
-    this._bypassPermissions = bypass;
+  setRuntimeMode(mode: ProviderRuntimeMode): void {
+    if (mode !== "approval-required" && mode !== "full-access" && mode !== "plan") {
+      this.config.logger.warn(`[Claude] Unknown runtime mode: ${mode}`);
+      return;
+    }
+    this._runtimeMode = mode;
   }
 
   /**
@@ -185,10 +184,6 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
    */
   setModel(model: string | null): void {
     this._preferredModel = model;
-  }
-
-  setPlanMode(planMode: boolean): void {
-    this._planMode = planMode;
   }
 
   /**
@@ -441,9 +436,9 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
     const args = ["-p", "--output-format", "stream-json", "--verbose"];
 
-    if (this._planMode) {
+    if (this._runtimeMode === "plan") {
       args.push("--permission-mode", "plan");
-    } else if (this._bypassPermissions) {
+    } else if (this._runtimeMode === "full-access") {
       args.push("--dangerously-skip-permissions");
     }
 

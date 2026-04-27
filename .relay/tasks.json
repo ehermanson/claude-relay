@@ -16,16 +16,16 @@
     },
     {
       "id": "cb9777dc",
-      "title": "Generalize provider runtime modes and interactive request payloads",
-      "description": "Replace Relay's skipPermissions/planMode booleans and accept-or-decline request model with provider-defined runtime options and structured interactive request/response payloads that work across Claude, Codex, and Gemini.",
-      "status": "open",
+      "title": "Generalize provider runtime modes",
+      "description": "Collapsed Relay's `skipPermissions`/`planMode` booleans into a single `ProviderRuntimeMode` enum (`approval-required` | `full-access` | `plan`) across server, UI, DB, and tests. Provider drivers translate the canonical mode to their native semantics (Claude SDK `permissionMode`, Codex `approvalPolicy`+`sandbox`+`collaborationMode.mode`). UI renders a single runtime-mode picker driven by `capabilities.runtimeModes`. SQLite migration v24 backfills `runtime_mode` and drops `skip_permissions` on both `sessions` and `managed_sessions`. Richer Codex options and richer interactive request payloads were deferred — left for a follow-up.",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": [],
       "parent": "3ad012d4",
       "blockedBy": [],
       "createdAt": "2026-03-15T16:12:51.176586-04:00",
-      "updatedAt": "2026-03-19T02:15:05.161Z"
+      "updatedAt": "2026-04-27T00:00:00.000Z"
     },
     {
       "id": "001a0dc6",

@@ -53,7 +53,7 @@ class FakeProviderSession extends EventEmitter {
 
   addAllowedTool() {}
 
-  setBypassPermissions() {}
+  setRuntimeMode() {}
 
   setSessionId() {}
 
@@ -146,7 +146,6 @@ function makeManagedRow(overrides = {}) {
     parent_session_id: null,
     preferred_model: null,
     reasoning_budget: null,
-    skip_permissions: 0,
     runtime_mode: "approval-required",
     resume_cursor_json: null,
     runtime_payload_json: "{}",
@@ -192,7 +191,7 @@ function makeExternalRow(overrides = {}) {
     parent_session_id: null,
     preferred_model: null,
     reasoning_budget: null,
-    skip_permissions: 0,
+    runtime_mode: null,
     last_message_text: null,
     last_message_from: null,
     last_message_at: null,
@@ -1203,7 +1202,7 @@ describe("InstanceManager", () => {
         setModel() {},
 
         addAllowedTool() {},
-        setBypassPermissions() {},
+        setRuntimeMode() {},
         getRuntimeBinding() {
           return { provider: "codex" };
         },
@@ -1287,7 +1286,7 @@ describe("InstanceManager", () => {
         setModel() {},
 
         addAllowedTool() {},
-        setBypassPermissions() {},
+        setRuntimeMode() {},
         getRuntimeBinding() {
           return { provider: "codex" };
         },
@@ -1424,7 +1423,7 @@ describe("InstanceManager", () => {
         setModel() {},
 
         addAllowedTool() {},
-        setBypassPermissions() {},
+        setRuntimeMode() {},
         getRuntimeBinding() {
           return { provider: "claude" };
         },
@@ -1491,7 +1490,7 @@ describe("InstanceManager", () => {
         setModel() {},
 
         addAllowedTool() {},
-        setBypassPermissions() {},
+        setRuntimeMode() {},
         getRuntimeBinding() {
           return { provider: "claude" };
         },
@@ -1866,7 +1865,7 @@ describe("InstanceManager", () => {
         setModel() {},
 
         addAllowedTool() {},
-        setBypassPermissions() {},
+        setRuntimeMode() {},
         setModelOptions(opts) {
           captured.push(opts);
         },
@@ -1898,7 +1897,7 @@ describe("InstanceManager", () => {
       const instance = manager.instances.get(info.id);
       assert.ok(instance);
 
-      let planModeSet = undefined;
+      const runtimeModeSet = [];
       const sentMessages = [];
       instance.process = {
         ...instance.process,
@@ -1914,9 +1913,8 @@ describe("InstanceManager", () => {
         setModel() {},
 
         addAllowedTool() {},
-        setBypassPermissions() {},
-        setPlanMode(mode) {
-          planModeSet = mode;
+        setRuntimeMode(mode) {
+          runtimeModeSet.push(mode);
         },
         getRuntimeBinding() {
           return { provider: "codex" };
@@ -1927,16 +1925,16 @@ describe("InstanceManager", () => {
       };
 
       // Simulate plan mode active with a pending plan
-      instance.info.planMode = true;
+      instance.info.runtimeMode = "plan";
       instance.info.pendingPlan = "# The Plan\nDo things";
       instance.info.status = "idle";
 
       // Send approval message
       await manager.sendMessage(info.id, "Yes, go ahead with this plan.");
 
-      // Should have exited plan mode
-      assert.equal(planModeSet, false, "setPlanMode(false) should be called");
-      assert.equal(instance.info.planMode, false, "planMode should be false");
+      // Should have exited plan mode (set to approval-required, not plan)
+      assert.deepEqual(runtimeModeSet, ["approval-required"]);
+      assert.equal(instance.info.runtimeMode, "approval-required");
       assert.equal(instance.info.pendingPlan, undefined, "pendingPlan should be cleared");
       assert.equal(sentMessages.length, 1);
       assert.equal(sentMessages[0], "Yes, go ahead with this plan.");
@@ -1947,7 +1945,7 @@ describe("InstanceManager", () => {
       const instance = manager.instances.get(info.id);
       assert.ok(instance);
 
-      let planModeSet = undefined;
+      const runtimeModeSet = [];
       instance.process = {
         ...instance.process,
         isProcessing: false,
@@ -1960,9 +1958,8 @@ describe("InstanceManager", () => {
         setModel() {},
 
         addAllowedTool() {},
-        setBypassPermissions() {},
-        setPlanMode(mode) {
-          planModeSet = mode;
+        setRuntimeMode(mode) {
+          runtimeModeSet.push(mode);
         },
         getRuntimeBinding() {
           return { provider: "codex" };
@@ -1973,15 +1970,15 @@ describe("InstanceManager", () => {
       };
 
       // Plan mode active but no pending plan (normal message during plan mode)
-      instance.info.planMode = true;
+      instance.info.runtimeMode = "plan";
       instance.info.pendingPlan = undefined;
       instance.info.status = "idle";
 
       await manager.sendMessage(info.id, "plan this feature");
 
       // Should stay in plan mode
-      assert.equal(planModeSet, undefined, "setPlanMode should not be called");
-      assert.equal(instance.info.planMode, true, "planMode should remain true");
+      assert.deepEqual(runtimeModeSet, []);
+      assert.equal(instance.info.runtimeMode, "plan");
     });
   });
 });

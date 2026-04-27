@@ -554,12 +554,12 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
-  it("passes collaborationMode=plan when plan mode is enabled", async () => {
+  it("passes collaborationMode=plan when runtimeMode='plan'", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
       cwd: "/tmp/project",
       model: "gpt-5.4",
-      planMode: true,
+      runtimeMode: "plan",
       logger: noopLogger,
       spawnProcess: harness.spawnProcess,
       codexPath: "codex",
@@ -579,13 +579,12 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
-  it("keeps plan mode active at startup even when full access is the saved preference", async () => {
+  it("plan runtime mode produces sandboxed approvals + plan collaborationMode", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
       cwd: "/tmp/project",
       model: "gpt-5.4",
-      planMode: true,
-      dangerouslySkipPermissions: true,
+      runtimeMode: "plan",
       logger: noopLogger,
       spawnProcess: harness.spawnProcess,
       codexPath: "codex",
@@ -1664,11 +1663,11 @@ describe("CodexAppServerSession", () => {
     assert.equal(notice.payload.scope, "global");
   });
 
-  it("auto-approves when bypass permissions is enabled", async () => {
+  it("auto-approves when runtimeMode is full-access", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
       cwd: "/tmp/project",
-      dangerouslySkipPermissions: true,
+      runtimeMode: "full-access",
       logger: noopLogger,
       spawnProcess: harness.spawnProcess,
       codexPath: "codex",
@@ -1746,7 +1745,7 @@ describe("CodexAppServerSession", () => {
 
     assert.equal(permRequests.length, 1);
 
-    session.setBypassPermissions(true);
+    session.setRuntimeMode("full-access");
 
     await tick();
 
@@ -1876,7 +1875,7 @@ describe("CodexAppServerSession", () => {
     const session = new CodexAppServerSession({
       cwd: "/tmp/project",
       model: "gpt-5.4",
-      planMode: true,
+      runtimeMode: "plan",
       logger: noopLogger,
       spawnProcess: harness.spawnProcess,
       codexPath: "codex",
@@ -1941,7 +1940,7 @@ describe("CodexAppServerSession", () => {
     const session = new CodexAppServerSession({
       cwd: "/tmp/project",
       model: "gpt-5.4",
-      planMode: true,
+      runtimeMode: "plan",
       logger: noopLogger,
       spawnProcess: harness.spawnProcess,
       codexPath: "codex",
@@ -2044,7 +2043,7 @@ describe("CodexAppServerSession", () => {
     const session = new CodexAppServerSession({
       cwd: "/tmp/project",
       model: "gpt-5.4",
-      planMode: true,
+      runtimeMode: "plan",
       logger: noopLogger,
       spawnProcess: harness.spawnProcess,
       codexPath: "codex",

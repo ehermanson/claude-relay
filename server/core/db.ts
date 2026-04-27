@@ -10,7 +10,7 @@ import { dirname } from "path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Logger } from "#core/logger.js";
 
-const CURRENT_SCHEMA_VERSION = 23;
+const CURRENT_SCHEMA_VERSION = 24;
 type SQLiteBindValue = string | number | bigint | null | NodeJS.ArrayBufferView;
 type SQLiteBindParams = Record<string, SQLiteBindValue>;
 
@@ -101,7 +101,7 @@ export interface SessionRow {
   parent_session_id: string | null;
   preferred_model: string | null;
   reasoning_budget: number | null;
-  skip_permissions: number;
+  runtime_mode: string | null;
   last_message_text: string | null;
   last_message_from: string | null;
   last_message_at: number | null;
@@ -132,7 +132,6 @@ export interface ManagedInstanceRow {
   parent_session_id: string | null;
   preferred_model: string | null;
   reasoning_budget: number | null;
-  skip_permissions: number;
   runtime_mode: string;
   resume_cursor_json: string | null;
   runtime_payload_json: string | null;
@@ -173,7 +172,7 @@ function normalizeSessionRow(row: SessionRow): SessionRow {
   normalized.parent_session_id ??= null;
   normalized.preferred_model ??= null;
   normalized.reasoning_budget ??= null;
-  normalized.skip_permissions ??= 0;
+  normalized.runtime_mode ??= null;
   normalized.last_message_text ??= null;
   normalized.last_message_from ??= null;
   normalized.last_message_at ??= null;
@@ -193,7 +192,6 @@ function normalizeManagedInstanceRow(row: ManagedInstanceRow): ManagedInstanceRo
   normalized.parent_session_id ??= null;
   normalized.preferred_model ??= null;
   normalized.reasoning_budget ??= null;
-  normalized.skip_permissions ??= 0;
   normalized.resume_cursor_json ??= null;
   normalized.runtime_payload_json ??= null;
   normalized.transcript_path ??= null;
@@ -415,7 +413,6 @@ export class SessionDB {
   private stmtUpdateWorkingDirectory!: StatementSync;
   private stmtUpdateSessionModel!: StatementSync;
   private stmtUpdatePreferredModel!: StatementSync;
-  private stmtUpdateSkipPermissions!: StatementSync;
   private stmtGetProjectStats!: StatementSync;
   private stmtGetGlobalStats!: StatementSync;
   private stmtUpsertProject!: StatementSync;
@@ -610,6 +607,7 @@ ${buildSearchIndexSchemaSql()},
       this.createSchema();
       this.ensureGlobalSettingsColumns();
       this.ensureSuggestionsColumns();
+      this.ensureRuntimeModeColumns();
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
       return;
     }
@@ -621,6 +619,7 @@ ${buildSearchIndexSchemaSql()},
       this.createSchema();
       this.ensureGlobalSettingsColumns();
       this.ensureSuggestionsColumns();
+      this.ensureRuntimeModeColumns();
       return;
     }
 
@@ -629,6 +628,7 @@ ${buildSearchIndexSchemaSql()},
     this.createSchema();
     this.ensureGlobalSettingsColumns();
     this.ensureSuggestionsColumns();
+    this.ensureRuntimeModeColumns();
     this.db.exec(`UPDATE schema_version SET version = ${CURRENT_SCHEMA_VERSION}`);
   }
 
@@ -660,7 +660,7 @@ ${buildSearchIndexSchemaSql()},
         parent_session_id TEXT,
         preferred_model TEXT,
         reasoning_budget INTEGER,
-        skip_permissions INTEGER NOT NULL DEFAULT 0,
+        runtime_mode TEXT,
         last_message_text TEXT,
         last_message_from TEXT,
         last_message_at INTEGER,
@@ -697,7 +697,6 @@ ${buildSearchIndexSchemaSql()},
         parent_session_id TEXT,
         preferred_model TEXT,
         reasoning_budget INTEGER,
-        skip_permissions INTEGER NOT NULL DEFAULT 0,
         runtime_mode TEXT NOT NULL DEFAULT 'approval-required',
         resume_cursor_json TEXT,
         runtime_payload_json TEXT,
@@ -790,6 +789,50 @@ ${buildSearchIndexSchemaSql()},
     }
   }
 
+  /**
+   * Migration for schema v24: collapse `skip_permissions` (and any legacy plan-mode
+   * signal stored on managed_sessions.runtime_mode) into a single `runtime_mode`
+   * column on both sessions and managed_sessions. Idempotent — safe to run on
+   * fresh and migrated databases alike.
+   */
+  private ensureRuntimeModeColumns(): void {
+    const tableHasColumn = (table: string, column: string): boolean => {
+      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+        name?: string;
+      }>;
+      return columns.some((c) => c.name === column);
+    };
+
+    // sessions: add runtime_mode if missing, backfill from skip_permissions, drop skip_permissions
+    if (!tableHasColumn("sessions", "runtime_mode")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN runtime_mode TEXT");
+    }
+    if (tableHasColumn("sessions", "skip_permissions")) {
+      this.db.exec(
+        "UPDATE sessions SET runtime_mode = 'full-access' WHERE runtime_mode IS NULL AND skip_permissions = 1",
+      );
+      this.db.exec("ALTER TABLE sessions DROP COLUMN skip_permissions");
+    }
+
+    // managed_sessions: runtime_mode already exists from v23, but the column was
+    // populated alongside skip_permissions. Backfill any rows where runtime_mode
+    // is empty/default but skip_permissions indicates full-access, then drop the
+    // legacy column.
+    if (!tableHasColumn("managed_sessions", "runtime_mode")) {
+      this.db.exec(
+        "ALTER TABLE managed_sessions ADD COLUMN runtime_mode TEXT NOT NULL DEFAULT 'approval-required'",
+      );
+    }
+    if (tableHasColumn("managed_sessions", "skip_permissions")) {
+      // Where runtime_mode wasn't explicitly set (still at default) but
+      // skip_permissions was on, prefer the user-meaningful full-access value.
+      this.db.exec(
+        "UPDATE managed_sessions SET runtime_mode = 'full-access' WHERE runtime_mode = 'approval-required' AND skip_permissions = 1",
+      );
+      this.db.exec("ALTER TABLE managed_sessions DROP COLUMN skip_permissions");
+    }
+  }
+
   private ensureSuggestionsColumns(): void {
     const ensureFor = (table: "global_settings" | "projects") => {
       const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
@@ -821,7 +864,7 @@ ${buildSearchIndexSchemaSql()},
         created_at, last_activity_at, type, archived, custom_title,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         summary, first_prompt, git_branch, message_count, allowed_tools,
-        worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, skip_permissions,
+        worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, runtime_mode,
         last_message_text, last_message_from, last_message_at,
         git_info_branch, git_info_is_worktree, space_id, project_id, model
       ) VALUES (
@@ -829,7 +872,7 @@ ${buildSearchIndexSchemaSql()},
         @created_at, @last_activity_at, @type, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
-        @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @skip_permissions,
+        @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @runtime_mode,
         @last_message_text, @last_message_from, @last_message_at,
         @git_info_branch, @git_info_is_worktree, @space_id, @project_id, @model
       )
@@ -857,7 +900,7 @@ ${buildSearchIndexSchemaSql()},
         parent_session_id = excluded.parent_session_id,
         preferred_model = excluded.preferred_model,
         reasoning_budget = excluded.reasoning_budget,
-        skip_permissions = excluded.skip_permissions,
+        runtime_mode = excluded.runtime_mode,
         last_message_text = excluded.last_message_text,
         last_message_from = excluded.last_message_from,
         last_message_at = excluded.last_message_at,
@@ -876,7 +919,7 @@ ${buildSearchIndexSchemaSql()},
         created_at, last_activity_at, archived, custom_title,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         git_branch, worktree_path, original_directory, parent_session_id,
-        preferred_model, reasoning_budget, skip_permissions, runtime_mode,
+        preferred_model, reasoning_budget, runtime_mode,
         resume_cursor_json, runtime_payload_json, transcript_path,
         last_message_text, last_message_from, last_message_at,
         git_info_branch, git_info_is_worktree, space_id, project_id, model,
@@ -886,7 +929,7 @@ ${buildSearchIndexSchemaSql()},
         @created_at, @last_activity_at, @archived, @custom_title,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @git_branch, @worktree_path, @original_directory, @parent_session_id,
-        @preferred_model, @reasoning_budget, @skip_permissions, @runtime_mode,
+        @preferred_model, @reasoning_budget, @runtime_mode,
         @resume_cursor_json, @runtime_payload_json, @transcript_path,
         @last_message_text, @last_message_from, @last_message_at,
         @git_info_branch, @git_info_is_worktree, @space_id, @project_id, @model,
@@ -910,7 +953,6 @@ ${buildSearchIndexSchemaSql()},
         parent_session_id = excluded.parent_session_id,
         preferred_model = excluded.preferred_model,
         reasoning_budget = excluded.reasoning_budget,
-        skip_permissions = excluded.skip_permissions,
         runtime_mode = excluded.runtime_mode,
         resume_cursor_json = excluded.resume_cursor_json,
         runtime_payload_json = excluded.runtime_payload_json,
@@ -1043,10 +1085,6 @@ ${buildSearchIndexSchemaSql()},
 
     this.stmtUpdatePreferredModel = this.db.prepare(
       "UPDATE sessions SET preferred_model = ? WHERE session_id = ?",
-    );
-
-    this.stmtUpdateSkipPermissions = this.db.prepare(
-      "UPDATE sessions SET skip_permissions = ? WHERE session_id = ?",
     );
 
     this.stmtGetProjectStats = this.db.prepare(`
@@ -1478,10 +1516,6 @@ ${buildSearchIndexSchemaSql()},
 
   updatePreferredModel(sessionId: string, model: string | null): void {
     this.stmtUpdatePreferredModel.run(model, sessionId);
-  }
-
-  updateSkipPermissions(sessionId: string, skip: boolean): void {
-    this.stmtUpdateSkipPermissions.run(skip ? 1 : 0, sessionId);
   }
 
   getProjectStats(workingDirectory: string): {

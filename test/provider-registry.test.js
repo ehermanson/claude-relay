@@ -43,7 +43,6 @@ describe("provider registry", () => {
       assert.equal(typeof capabilities.supportsTranscriptReplay, "boolean");
       assert.equal(typeof capabilities.supportsApprovals, "boolean");
       assert.equal(typeof capabilities.supportsUserInputRequests, "boolean");
-      assert.equal(typeof capabilities.supportsPlanMode, "boolean");
       assert.equal(typeof capabilities.supportsModelSelection, "boolean");
       assert.equal(typeof capabilities.supportsTitleUpdates, "boolean");
     }

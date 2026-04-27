@@ -2,7 +2,6 @@ import {
   BrainIcon,
   Check,
   ChevronRight,
-  HammerIcon,
   LockIcon,
   LockOpenIcon,
   MapIcon,
@@ -13,6 +12,7 @@ import type {
   ProviderDescriptor,
   ProviderKind,
   ProviderModelOption,
+  ProviderRuntimeMode,
   ReasoningEffort,
 } from "@shared/types";
 import { BUILTIN_PROVIDER_MODELS, getProviderDisplayName } from "@shared/provider-catalog";
@@ -140,63 +140,79 @@ export function ProviderModelPicker({
   );
 }
 
-interface PermissionsToggleProps {
+const RUNTIME_MODE_ORDER: ProviderRuntimeMode[] = ["approval-required", "full-access", "plan"];
+
+const RUNTIME_MODE_ICON: Record<ProviderRuntimeMode, typeof LockIcon> = {
+  "approval-required": LockIcon,
+  "full-access": LockOpenIcon,
+  plan: MapIcon,
+};
+
+interface RuntimeModePickerProps {
   isProcessing: boolean;
-  skipPermissions?: boolean;
-  modes: { restricted: ControlOption; fullAccess: ControlOption };
-  onToggle: () => void;
+  runtimeMode: ProviderRuntimeMode;
+  modes: Partial<Record<ProviderRuntimeMode, ControlOption>>;
+  onSetRuntimeMode: (mode: ProviderRuntimeMode) => void;
 }
 
-export function PermissionsToggle({
+export function RuntimeModePicker({
   isProcessing,
-  skipPermissions,
+  runtimeMode,
   modes,
-  onToggle,
-}: PermissionsToggleProps) {
-  const label = skipPermissions ? modes.fullAccess.label : modes.restricted.label;
+  onSetRuntimeMode,
+}: RuntimeModePickerProps) {
+  const orderedModes = RUNTIME_MODE_ORDER.filter((mode) => modes[mode]);
+  const currentOption = modes[runtimeMode];
+  const triggerIcon = RUNTIME_MODE_ICON[runtimeMode] ?? LockIcon;
+  const TriggerIcon = triggerIcon;
+  const label = currentOption?.label ?? runtimeMode;
+  const triggerColor =
+    runtimeMode === "plan"
+      ? "text-warning"
+      : runtimeMode === "full-access"
+        ? "text-accent"
+        : "text-muted";
 
   return (
     <Menu.Root>
-      <Tooltip content="Set permission mode">
+      <Tooltip
+        content={
+          runtimeMode === "plan"
+            ? "Plan mode is active for this chat"
+            : "Set runtime mode (permissions / planning)"
+        }
+      >
         <Menu.Trigger
           disabled={isProcessing}
           className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
             isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
-          } ${skipPermissions ? "text-accent" : "text-muted"}`}
+          } ${triggerColor}`}
         >
-          {skipPermissions ? (
-            <LockOpenIcon size={11} strokeWidth={2} />
-          ) : (
-            <LockIcon size={11} strokeWidth={2} />
-          )}
+          <TriggerIcon size={11} strokeWidth={2} />
           <span className="toolbar-control-label">{label}</span>
         </Menu.Trigger>
       </Tooltip>
       <Menu.Content side="top" align="start">
-        <Menu.Item
-          onClick={() => {
-            if (skipPermissions) onToggle();
-          }}
-        >
-          <LockIcon size={13} strokeWidth={2} className="shrink-0" />
-          <span className="flex flex-1 flex-col">
-            <span>{modes.restricted.label}</span>
-            <span className="text-[0.6875rem] text-muted">{modes.restricted.description}</span>
-          </span>
-          {!skipPermissions && <Check size={13} strokeWidth={2.5} />}
-        </Menu.Item>
-        <Menu.Item
-          onClick={() => {
-            if (!skipPermissions) onToggle();
-          }}
-        >
-          <LockOpenIcon size={13} strokeWidth={2} className="shrink-0" />
-          <span className="flex flex-1 flex-col">
-            <span>{modes.fullAccess.label}</span>
-            <span className="text-[0.6875rem] text-muted">{modes.fullAccess.description}</span>
-          </span>
-          {skipPermissions && <Check size={13} strokeWidth={2.5} />}
-        </Menu.Item>
+        {orderedModes.map((mode) => {
+          const option = modes[mode]!;
+          const Icon = RUNTIME_MODE_ICON[mode];
+          const selected = runtimeMode === mode;
+          return (
+            <Menu.Item
+              key={mode}
+              onClick={() => {
+                if (!selected) onSetRuntimeMode(mode);
+              }}
+            >
+              <Icon size={13} strokeWidth={2} className="shrink-0" />
+              <span className="flex flex-1 flex-col">
+                <span>{option.label}</span>
+                <span className="text-[0.6875rem] text-muted">{option.description}</span>
+              </span>
+              {selected && <Check size={13} strokeWidth={2.5} />}
+            </Menu.Item>
+          );
+        })}
       </Menu.Content>
     </Menu.Root>
   );
@@ -292,64 +308,6 @@ export function FastModeToggle({ isProcessing, fastMode, modes, onToggle }: Fast
             <span className="text-[0.6875rem] text-muted">{modes.on.description}</span>
           </span>
           {fastMode && <Check size={13} strokeWidth={2.5} />}
-        </Menu.Item>
-      </Menu.Content>
-    </Menu.Root>
-  );
-}
-
-interface PlanModePickerProps {
-  isProcessing: boolean;
-  planMode?: boolean;
-  modes: { off: ControlOption; on: ControlOption };
-  onTogglePlanMode: (planMode: boolean) => void;
-}
-
-export function PlanModePicker({
-  isProcessing,
-  planMode,
-  modes,
-  onTogglePlanMode,
-}: PlanModePickerProps) {
-  const label = planMode ? modes.on.label : modes.off.label;
-
-  return (
-    <Menu.Root>
-      <Tooltip
-        content={
-          planMode ? "Plan mode is active for this chat" : "Switch between build and planning mode"
-        }
-      >
-        <Menu.Trigger
-          disabled={isProcessing}
-          className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
-            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
-          } ${planMode ? "text-warning" : "text-muted"}`}
-        >
-          {planMode ? (
-            <MapIcon size={11} strokeWidth={2} />
-          ) : (
-            <HammerIcon size={11} strokeWidth={2} />
-          )}
-          <span className="toolbar-control-label">{label}</span>
-        </Menu.Trigger>
-      </Tooltip>
-      <Menu.Content side="top" align="start">
-        <Menu.Item onClick={() => onTogglePlanMode(false)}>
-          <HammerIcon size={13} strokeWidth={2} className="shrink-0" />
-          <span className="flex flex-1 flex-col">
-            <span>{modes.off.label}</span>
-            <span className="text-[0.6875rem] text-muted">{modes.off.description}</span>
-          </span>
-          {!planMode && <Check size={13} strokeWidth={2.5} />}
-        </Menu.Item>
-        <Menu.Item onClick={() => onTogglePlanMode(true)}>
-          <MapIcon size={13} strokeWidth={2} className="shrink-0" />
-          <span className="flex flex-1 flex-col">
-            <span>{modes.on.label}</span>
-            <span className="text-[0.6875rem] text-muted">{modes.on.description}</span>
-          </span>
-          {planMode && <Check size={13} strokeWidth={2.5} />}
         </Menu.Item>
       </Menu.Content>
     </Menu.Root>
