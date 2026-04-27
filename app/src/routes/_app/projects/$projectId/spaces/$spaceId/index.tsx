@@ -265,10 +265,13 @@ export function SpaceView() {
     !!aggregatedStats && (aggregatedStats.inputTokens > 0 || aggregatedStats.outputTokens > 0);
   const hasFilesContent = fileChanges.length > 0;
   const {
-    activePanels,
+    activeTab: sidecarTab,
+    isOpen: isSidecarOpen,
+    effectiveTab: effectiveSidecarTab,
     mobileOpen: sidecarMobileOpen,
     setMobileOpen: setSidecarMobileOpen,
-    togglePanel,
+    selectTab: selectSidecarTab,
+    closeSidecar,
     sidecarContentCount,
     allContentPanels,
     showDesktopSidecar: showSidebar,
@@ -280,6 +283,7 @@ export function SpaceView() {
     hasPlanContent: false,
     hasStats,
     hasBriefContent: !space?.isDefault,
+    contentLoading: chatSummariesLoading || spaceDiff === null,
   });
 
   // Once chatSummaries includes the pending new chat, sync the URL so the route
@@ -609,7 +613,9 @@ export function SpaceView() {
       pendingNewChatActive,
       chatSummariesLoading,
       showSidebar,
-      activePanels,
+      sidecarTab,
+      isSidecarOpen,
+      effectiveSidecarTab,
       allContentPanels,
       sidecarMobileOpen,
       sidecarContentCount,
@@ -646,7 +652,8 @@ export function SpaceView() {
       handleCommit,
       handlePush,
       handleToggleTerminal,
-      togglePanel,
+      selectSidecarTab,
+      closeSidecar,
       setSidecarMobileOpen,
       handleNewChat,
       navigateToChat,

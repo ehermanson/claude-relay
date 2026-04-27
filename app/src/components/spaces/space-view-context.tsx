@@ -31,7 +31,9 @@ type SpaceViewContextValue = {
     pendingNewChatActive: boolean;
     chatSummariesLoading: boolean;
     showSidebar: boolean;
-    activePanels: ReadonlySet<SidecarTab>;
+    sidecarTab: SidecarTab;
+    isSidecarOpen: boolean;
+    effectiveSidecarTab: SidecarTab | null;
     allContentPanels: ReadonlySet<SidecarTab>;
     sidecarMobileOpen: boolean;
     sidecarContentCount: number;
@@ -68,7 +70,8 @@ type SpaceViewContextValue = {
     handleCommit: (message: string) => Promise<void>;
     handlePush: (createPR?: boolean) => Promise<void>;
     handleToggleTerminal: () => void;
-    togglePanel: (panel: SidecarTab) => void;
+    selectSidecarTab: (panel: SidecarTab) => void;
+    closeSidecar: () => void;
     setSidecarMobileOpen: (open: boolean) => void;
     handleNewChat: () => void;
     navigateToChat: (id: string) => void;

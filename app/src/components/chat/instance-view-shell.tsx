@@ -102,7 +102,10 @@ export function InstanceViewShell() {
                   createdAt={shared.instance.createdAt}
                   lastActivityAt={shared.instance.lastActivityAt}
                   workingDirectory={shared.instance.workingDirectory}
-                  activePanels={shared.activePanels}
+                  tabs={shared.effectiveTab ? [shared.effectiveTab] : []}
+                  activeTab={shared.activeTab}
+                  onSelectTab={actions.selectTab}
+                  onClose={actions.closeSidecar}
                 />
               </ErrorBoundary>
             </div>
@@ -124,7 +127,9 @@ export function InstanceViewShell() {
             createdAt={shared.instance.createdAt}
             lastActivityAt={shared.instance.lastActivityAt}
             workingDirectory={shared.instance.workingDirectory}
-            activePanels={shared.allContentPanels}
+            tabs={Array.from(shared.allContentPanels)}
+            activeTab={shared.activeTab}
+            onSelectTab={actions.selectTab}
             onClose={() => actions.setSidecarMobileOpen(false)}
             isMobileOverlay
           />

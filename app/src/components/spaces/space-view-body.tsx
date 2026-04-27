@@ -139,7 +139,10 @@ export function SpaceViewBody() {
                     <SpaceSidebar
                       space={shared.space}
                       instances={shared.spaceInstances}
-                      activePanels={shared.activePanels}
+                      tabs={shared.effectiveSidecarTab ? [shared.effectiveSidecarTab] : []}
+                      activeTab={shared.sidecarTab}
+                      onSelectTab={actions.selectSidecarTab}
+                      onClose={actions.closeSidecar}
                       stats={shared.aggregatedStats}
                       fileChanges={shared.fileChanges}
                       onOpenDiff={actions.openDiff}
@@ -235,7 +238,9 @@ export function SpaceViewBody() {
           <SpaceSidebar
             space={shared.space}
             instances={shared.spaceInstances}
-            activePanels={shared.allContentPanels}
+            tabs={Array.from(shared.allContentPanels)}
+            activeTab={shared.sidecarTab}
+            onSelectTab={actions.selectSidecarTab}
             stats={shared.aggregatedStats}
             fileChanges={shared.fileChanges}
             onOpenDiff={openDiffAndCloseMobile}

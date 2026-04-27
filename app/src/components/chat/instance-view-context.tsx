@@ -47,7 +47,12 @@ export type InstanceViewContextValue = {
     filesCount: number;
     hasPlanContent: boolean;
     showDesktopSidecar: boolean;
-    activePanels: ReadonlySet<SidecarTab>;
+    /** The user's currently selected sidecar tab (preserved even when closed). */
+    activeTab: SidecarTab;
+    /** Whether the sidecar is currently open. */
+    isSidecarOpen: boolean;
+    /** Effective tab: activeTab if it has content, else first content-bearing tab, else null. */
+    effectiveTab: SidecarTab | null;
     allContentPanels: ReadonlySet<SidecarTab>;
     sidecarMobileOpen: boolean;
     sidecarContentCount: number;
@@ -102,7 +107,8 @@ export type InstanceViewContextValue = {
     ) => void;
     handleApproveTool: (tool: string) => void;
     dismissBranchChangeBanner: () => void;
-    togglePanel: (panel: SidecarTab) => void;
+    selectTab: (panel: SidecarTab) => void;
+    closeSidecar: () => void;
     setSidecarMobileOpen: (open: boolean) => void;
     handleToggleTerminal: () => void;
     expandTerminalPanel: () => void;

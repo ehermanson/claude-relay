@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface SidecarTabDef {
   key: string;
@@ -72,14 +73,18 @@ export function SidecarShell({
             );
           })}
         </div>
-        {isMobileOverlay && onClose && (
+        {onClose && (
           <Button variant="icon" size="icon-sm" onClick={onClose} className="mr-2 shrink-0">
             <X size={14} />
           </Button>
         )}
       </div>
 
-      {renderTabContent(effectiveTab)}
+      {renderTabContent(effectiveTab) ?? (
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner size={16} />
+        </div>
+      )}
     </div>
   );
 }

@@ -4,8 +4,10 @@ import { useSidecarStore, useSidecarPanels } from "./sidecar-store";
 
 function reset() {
   useSidecarStore.setState({
-    chatPanels: new Set(),
-    spacePanels: new Set(),
+    chatTab: "tasks",
+    chatOpen: true,
+    spaceTab: "brief",
+    spaceOpen: true,
     sidebarWidth: null,
     mobileOpen: false,
   });
@@ -14,28 +16,50 @@ function reset() {
 describe("useSidecarStore", () => {
   beforeEach(reset);
 
-  describe("togglePanel", () => {
-    it("activates a panel in the chat scope", () => {
-      useSidecarStore.getState().togglePanel("chat", "tasks");
-      expect(useSidecarStore.getState().chatPanels.has("tasks")).toBe(true);
+  describe("selectTab", () => {
+    it("switches the active tab and opens the sidecar", () => {
+      useSidecarStore.setState({ chatTab: "tasks", chatOpen: false });
+      useSidecarStore.getState().selectTab("chat", "files");
+      const s = useSidecarStore.getState();
+      expect(s.chatTab).toBe("files");
+      expect(s.chatOpen).toBe(true);
     });
 
-    it("deactivates a panel on second toggle", () => {
-      const { togglePanel } = useSidecarStore.getState();
-      togglePanel("chat", "tasks");
-      togglePanel("chat", "tasks");
-      expect(useSidecarStore.getState().chatPanels.has("tasks")).toBe(false);
+    it("closes the sidecar when clicking the active tab while open", () => {
+      useSidecarStore.setState({ chatTab: "tasks", chatOpen: true });
+      useSidecarStore.getState().selectTab("chat", "tasks");
+      const s = useSidecarStore.getState();
+      expect(s.chatTab).toBe("tasks"); // preserved
+      expect(s.chatOpen).toBe(false);
+    });
+
+    it("reopens to the same tab when clicked again after close", () => {
+      const { selectTab } = useSidecarStore.getState();
+      useSidecarStore.setState({ chatTab: "tasks", chatOpen: true });
+      selectTab("chat", "tasks"); // close
+      selectTab("chat", "tasks"); // reopen
+      const s = useSidecarStore.getState();
+      expect(s.chatTab).toBe("tasks");
+      expect(s.chatOpen).toBe(true);
     });
 
     it("keeps chat and space scopes isolated", () => {
-      const { togglePanel } = useSidecarStore.getState();
-      togglePanel("chat", "tasks");
-      togglePanel("space", "files");
+      const { selectTab } = useSidecarStore.getState();
+      selectTab("chat", "tasks");
+      selectTab("space", "files");
+      const s = useSidecarStore.getState();
+      expect(s.chatTab).toBe("tasks");
+      expect(s.spaceTab).toBe("files");
+    });
+  });
 
-      expect(useSidecarStore.getState().chatPanels.has("tasks")).toBe(true);
-      expect(useSidecarStore.getState().chatPanels.has("files")).toBe(false);
-      expect(useSidecarStore.getState().spacePanels.has("files")).toBe(true);
-      expect(useSidecarStore.getState().spacePanels.has("tasks")).toBe(false);
+  describe("closeSidecar", () => {
+    it("closes the sidecar without changing the remembered tab", () => {
+      useSidecarStore.setState({ chatTab: "files", chatOpen: true });
+      useSidecarStore.getState().closeSidecar("chat");
+      const s = useSidecarStore.getState();
+      expect(s.chatOpen).toBe(false);
+      expect(s.chatTab).toBe("files");
     });
   });
 
@@ -57,7 +81,7 @@ describe("useSidecarStore", () => {
 describe("useSidecarPanels hook", () => {
   beforeEach(reset);
 
-  it("returns correct sidecarContentCount", () => {
+  it("returns sidecarContentCount based on content flags", () => {
     const { result } = renderHook(() =>
       useSidecarPanels({
         scope: "chat",
@@ -88,26 +112,45 @@ describe("useSidecarPanels hook", () => {
     expect(result.current.allContentPanels.has("context")).toBe(false);
   });
 
-  it("shows desktop sidecar when an active panel has content", () => {
-    // Seed the chat preference with tasks on
-    act(() => useSidecarStore.getState().togglePanel("chat", "tasks"));
+  it("uses the active tab as the effective tab when it has content", () => {
+    act(() => useSidecarStore.setState({ chatTab: "tasks", chatOpen: true }));
 
     const { result } = renderHook(() =>
       useSidecarPanels({
         scope: "chat",
         isMobile: false,
         hasTasksContent: true,
-        hasFilesContent: false,
+        hasFilesContent: true,
         hasPlanContent: false,
         hasStats: false,
       }),
     );
 
+    expect(result.current.effectiveTab).toBe("tasks");
     expect(result.current.showDesktopSidecar).toBe(true);
   });
 
-  it("hides desktop sidecar when the active panel has no content", () => {
-    act(() => useSidecarStore.getState().togglePanel("chat", "tasks"));
+  it("falls back to the first content-bearing tab when active has no content", () => {
+    act(() => useSidecarStore.setState({ chatTab: "tasks", chatOpen: true }));
+
+    const { result } = renderHook(() =>
+      useSidecarPanels({
+        scope: "chat",
+        isMobile: false,
+        hasTasksContent: false,
+        hasFilesContent: true,
+        hasPlanContent: false,
+        hasStats: false,
+      }),
+    );
+
+    expect(result.current.activeTab).toBe("tasks"); // user intent preserved
+    expect(result.current.effectiveTab).toBe("files");
+    expect(result.current.showDesktopSidecar).toBe(true);
+  });
+
+  it("hides desktop sidecar when nothing has content", () => {
+    act(() => useSidecarStore.setState({ chatTab: "tasks", chatOpen: true }));
 
     const { result } = renderHook(() =>
       useSidecarPanels({
@@ -120,11 +163,30 @@ describe("useSidecarPanels hook", () => {
       }),
     );
 
+    expect(result.current.effectiveTab).toBeNull();
+    expect(result.current.showDesktopSidecar).toBe(false);
+  });
+
+  it("hides desktop sidecar when explicitly closed", () => {
+    act(() => useSidecarStore.setState({ chatTab: "tasks", chatOpen: false }));
+
+    const { result } = renderHook(() =>
+      useSidecarPanels({
+        scope: "chat",
+        isMobile: false,
+        hasTasksContent: true,
+        hasFilesContent: false,
+        hasPlanContent: false,
+        hasStats: false,
+      }),
+    );
+
+    expect(result.current.isOpen).toBe(false);
     expect(result.current.showDesktopSidecar).toBe(false);
   });
 
   it("hides desktop sidecar on mobile", () => {
-    act(() => useSidecarStore.getState().togglePanel("chat", "tasks"));
+    act(() => useSidecarStore.setState({ chatTab: "tasks", chatOpen: true }));
 
     const { result } = renderHook(() =>
       useSidecarPanels({
@@ -140,8 +202,8 @@ describe("useSidecarPanels hook", () => {
     expect(result.current.showDesktopSidecar).toBe(false);
   });
 
-  it("togglePanel toggles and updates showDesktopSidecar", () => {
-    act(() => useSidecarStore.getState().togglePanel("chat", "tasks"));
+  it("selectTab toggles open/closed when re-clicking the active tab", () => {
+    act(() => useSidecarStore.setState({ chatTab: "tasks", chatOpen: true }));
 
     const { result } = renderHook(() =>
       useSidecarPanels({
@@ -156,12 +218,13 @@ describe("useSidecarPanels hook", () => {
 
     expect(result.current.showDesktopSidecar).toBe(true);
 
-    act(() => result.current.togglePanel("tasks"));
+    act(() => result.current.selectTab("tasks"));
+    expect(result.current.isOpen).toBe(false);
     expect(result.current.showDesktopSidecar).toBe(false);
   });
 
-  it("chat and space scopes do not share panel state", () => {
-    act(() => useSidecarStore.getState().togglePanel("chat", "tasks"));
+  it("chat and space scopes do not share tab state", () => {
+    act(() => useSidecarStore.setState({ chatTab: "tasks", spaceTab: "brief" }));
 
     const { result: chat } = renderHook(() =>
       useSidecarPanels({
@@ -178,14 +241,15 @@ describe("useSidecarPanels hook", () => {
       useSidecarPanels({
         scope: "space",
         isMobile: false,
-        hasTasksContent: true,
+        hasTasksContent: false,
         hasFilesContent: false,
         hasPlanContent: false,
         hasStats: false,
+        hasBriefContent: true,
       }),
     );
 
-    expect(chat.current.activePanels.has("tasks")).toBe(true);
-    expect(space.current.activePanels.has("tasks")).toBe(false);
+    expect(chat.current.activeTab).toBe("tasks");
+    expect(space.current.activeTab).toBe("brief");
   });
 });

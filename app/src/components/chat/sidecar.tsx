@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useMemo, useState } from "react";
 import { Check } from "lucide-react";
 import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
@@ -130,12 +130,6 @@ const TasksPanel = memo(function TasksPanel({ tasks }: { tasks: TaskItem[] }) {
   );
 });
 
-/** Chevron icon that rotates when open. */
-// ChevronIcon, DiffStats, DirGroup, groupFilesByDir, FilesPanel
-// moved to ./files-panel.tsx for reuse in space sidebar
-
-// (FilesPanel implementation in ./files-panel.tsx)
-
 // =============================================================================
 // Tab system
 // =============================================================================
@@ -144,11 +138,13 @@ import type { SidecarTab } from "@/stores/sidecar-store";
 export type { SidecarTab } from "@/stores/sidecar-store";
 import type { ProviderGlobalState, ProviderKind } from "@shared/types";
 
-function samePanelSets(a: ReadonlySet<SidecarTab>, b: ReadonlySet<SidecarTab>): boolean {
-  if (a.size !== b.size) return false;
-  for (const item of a) if (!b.has(item)) return false;
-  return true;
-}
+const TAB_LABELS: Record<SidecarTab, string> = {
+  tasks: "Tasks",
+  files: "Files",
+  plan: "Plan",
+  context: "Context",
+  brief: "Brief",
+};
 
 interface SidecarProps {
   tasks: TaskItem[] | null;
@@ -163,11 +159,23 @@ interface SidecarProps {
   createdAt?: number;
   lastActivityAt?: number;
   workingDirectory: string;
-  /** Which panels are toggled on from the header. */
-  activePanels: ReadonlySet<SidecarTab>;
-  /** Called when mobile overlay should close. */
+  /** Tab keys to render in the strip. On desktop pass a single-element list; on mobile pass all content panels. */
+  tabs: ReadonlyArray<SidecarTab>;
+  /** The tab whose content is currently shown. */
+  activeTab: SidecarTab;
+  /** Called when a tab is clicked (only relevant when tabs.length > 1). */
+  onSelectTab?: (tab: SidecarTab) => void;
+  /** Called when the close (X) button is clicked. */
   onClose?: () => void;
   isMobileOverlay?: boolean;
+}
+
+function sameTabs(a: ReadonlyArray<SidecarTab>, b: ReadonlyArray<SidecarTab>): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 export const Sidecar = memo(
@@ -184,7 +192,9 @@ export const Sidecar = memo(
     createdAt,
     lastActivityAt,
     workingDirectory,
-    activePanels,
+    tabs,
+    activeTab,
+    onSelectTab,
     onClose,
     isMobileOverlay,
   }: SidecarProps) {
@@ -211,37 +221,14 @@ export const Sidecar = memo(
       setDiffDrawerOpen(true);
     };
 
-    // Build available tabs: must have content AND be in activePanels
-    const availableTabs = useMemo<(SidecarTabDef & { key: SidecarTab })[]>(() => {
-      const tabs: (SidecarTabDef & { key: SidecarTab })[] = [];
-      if (hasTasks && activePanels.has("tasks"))
-        tabs.push({ key: "tasks", label: "Tasks", count: tasks.length });
-      if (hasFiles && activePanels.has("files"))
-        tabs.push({ key: "files", label: "Files", count: files.length });
-      if (hasPlan && activePanels.has("plan")) tabs.push({ key: "plan", label: "Plan" });
-      if ((hasStats || hasProviderContext) && activePanels.has("context"))
-        tabs.push({ key: "context", label: "Context" });
-      return tabs;
-    }, [activePanels, files, hasFiles, hasTasks, hasStats, hasProviderContext, tasks]);
-
-    const [activeTab, setActiveTab] = useState<SidecarTab>("tasks");
-
-    // Auto-switch to newly added panel when toggled on from the header
-    const prevActivePanelsRef = useRef(activePanels);
-    useEffect(() => {
-      const prev = prevActivePanelsRef.current;
-      prevActivePanelsRef.current = activePanels;
-      for (const panel of activePanels) {
-        if (!prev.has(panel)) {
-          setActiveTab(panel);
-          return;
-        }
-      }
-    }, [activePanels]);
-
-    // Resolve effective tab: if activeTab isn't available, fall back to first available
-    const effectiveTab =
-      availableTabs.find((t) => t.key === activeTab)?.key ?? availableTabs[0]?.key ?? "tasks";
+    const tabDefs = useMemo<(SidecarTabDef & { key: SidecarTab })[]>(() => {
+      return tabs.map((tab) => {
+        const def: SidecarTabDef & { key: SidecarTab } = { key: tab, label: TAB_LABELS[tab] };
+        if (tab === "tasks" && tasks) def.count = tasks.length;
+        if (tab === "files" && files) def.count = files.length;
+        return def;
+      });
+    }, [tabs, tasks, files]);
 
     const renderTabContent = (key: string) => {
       if (key === "tasks" && hasTasks) return <TasksPanel tasks={tasks} />;
@@ -273,9 +260,9 @@ export const Sidecar = memo(
 
     const panel = (
       <SidecarShell
-        tabs={availableTabs}
-        activeTab={effectiveTab}
-        onActiveTabChange={(key) => setActiveTab(key as SidecarTab)}
+        tabs={tabDefs}
+        activeTab={activeTab}
+        onActiveTabChange={(key) => onSelectTab?.(key as SidecarTab)}
         renderTabContent={renderTabContent}
         isMobileOverlay={isMobileOverlay}
         onClose={onClose}
@@ -312,7 +299,8 @@ export const Sidecar = memo(
   },
   (prev, next) => {
     return (
-      samePanelSets(prev.activePanels, next.activePanels) &&
+      prev.activeTab === next.activeTab &&
+      sameTabs(prev.tabs, next.tabs) &&
       prev.workingDirectory === next.workingDirectory &&
       prev.isMobileOverlay === next.isMobileOverlay &&
       prev.instanceId === next.instanceId &&
@@ -324,6 +312,8 @@ export const Sidecar = memo(
       prev.providerStatus === next.providerStatus &&
       prev.providerGlobalState === next.providerGlobalState &&
       prev.planContent === next.planContent &&
+      prev.onSelectTab === next.onSelectTab &&
+      prev.onClose === next.onClose &&
       sameTasks(prev.tasks, next.tasks) &&
       sameFiles(prev.files, next.files)
     );

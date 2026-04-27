@@ -322,10 +322,13 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   }, [branchChangeKey]);
 
   const {
-    activePanels,
+    activeTab,
+    isOpen: isSidecarOpen,
+    effectiveTab,
+    selectTab,
+    closeSidecar,
     mobileOpen: sidecarMobileOpen,
     setMobileOpen: setSidecarMobileOpen,
-    togglePanel,
     sidecarContentCount,
     allContentPanels,
     showDesktopSidecar,
@@ -336,6 +339,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     hasFilesContent,
     hasPlanContent,
     hasStats,
+    contentLoading: connectionId > 0 && !hasLoadedHistory,
   });
 
   const storedSidebarWidth = useSidecarStore((s) => s.sidebarWidth);
@@ -498,7 +502,9 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       filesCount,
       hasPlanContent,
       showDesktopSidecar,
-      activePanels,
+      activeTab,
+      isSidecarOpen,
+      effectiveTab,
       allContentPanels,
       sidecarMobileOpen,
       sidecarContentCount,
@@ -549,7 +555,8 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       handleRespondToRequest,
       handleApproveTool,
       dismissBranchChangeBanner: () => setDismissedBranchChangeKey(branchChangeKey),
-      togglePanel,
+      selectTab,
+      closeSidecar,
       setSidecarMobileOpen,
       handleToggleTerminal,
       expandTerminalPanel: () => expandTerminalPanel(),

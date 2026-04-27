@@ -1277,13 +1277,14 @@ export function ChatSandbox() {
           <InstanceHeader
             instance={instance}
             isMobile={false}
-            activePanels={new Set()}
+            activeTab="tasks"
+            isOpen={false}
             tasksCount={0}
             filesCount={0}
             hasPlanContent={!!instance.planContent}
             hasStats={!!instance.stats}
             sidecarContentCount={0}
-            onTogglePanel={() => {}}
+            onSelectTab={() => {}}
             onOpenDebug={() => {}}
             onOpenMobileSidecar={() => {}}
           />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useMemo } from "react";
 import { ContextPanel } from "@/components/chat/context-panel";
 import { FilesPanel } from "@/components/chat/files-panel";
 import { SidecarShell, type SidecarTabDef } from "@/components/chat/sidecar-shell";
@@ -6,56 +6,58 @@ import { SpaceContextPanel } from "@/components/spaces/space-context-panel";
 import type { SidecarTab } from "@/stores/sidecar-store";
 import type { FileChange, InstanceInfo, SessionStats, SpaceInfo } from "@shared/types";
 
+const TAB_LABELS: Record<SidecarTab, string> = {
+  tasks: "Tasks",
+  files: "Files",
+  plan: "Plan",
+  context: "Context",
+  brief: "Brief",
+};
+
 export function SpaceSidebar({
   space,
   instances,
-  activePanels,
+  tabs,
+  activeTab,
+  onSelectTab,
+  onClose,
   stats,
   fileChanges,
   onOpenDiff,
   isMobileOverlay,
-  onClose,
 }: {
   space: SpaceInfo;
   instances: InstanceInfo[];
-  activePanels: ReadonlySet<SidecarTab>;
+  /** Tab keys to render in the strip. */
+  tabs: ReadonlyArray<SidecarTab>;
+  /** The tab whose content is currently shown. */
+  activeTab: SidecarTab;
+  onSelectTab?: (tab: SidecarTab) => void;
+  onClose?: () => void;
   stats: SessionStats | null;
   fileChanges: FileChange[];
   onOpenDiff: (scrollToFile?: string) => void;
   isMobileOverlay?: boolean;
-  onClose?: () => void;
 }) {
   const activeCount = instances.filter(
     (instance) => instance.status === "idle" || instance.status === "processing",
   ).length;
   const stoppedCount = instances.filter((instance) => instance.status === "stopped").length;
 
-  const hasFiles = activePanels.has("files");
-  const hasStats =
-    activePanels.has("context") && !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
+  const tabDefs = useMemo<SidecarTabDef[]>(() => {
+    return tabs.map((tab) => {
+      const def: SidecarTabDef = { key: tab, label: TAB_LABELS[tab] };
+      if (tab === "files") def.count = fileChanges.length;
+      return def;
+    });
+  }, [tabs, fileChanges.length]);
 
-  const availableTabs: SidecarTabDef[] = [];
-  if (activePanels.has("brief") && !space.isDefault)
-    availableTabs.push({ key: "space-context", label: "Brief" });
-  if (hasFiles) availableTabs.push({ key: "files", label: "Files", count: fileChanges.length });
-  if (hasStats) availableTabs.push({ key: "context", label: "Context" });
-
-  const [activeTab, setActiveTab] = useState(availableTabs[0]?.key ?? "space-context");
-
-  const prevPanelsRef = useRef(activePanels);
-  useEffect(() => {
-    const prev = prevPanelsRef.current;
-    prevPanelsRef.current = activePanels;
-    for (const panel of activePanels) {
-      if (!prev.has(panel)) {
-        setActiveTab(panel);
-        return;
-      }
-    }
-  }, [activePanels]);
+  const hasFiles = tabs.includes("files");
+  const hasStatsTab = tabs.includes("context");
+  const hasStats = hasStatsTab && !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
 
   const renderTabContent = (key: string) => {
-    if (key === "space-context" && !space.isDefault) {
+    if (key === "brief" && !space.isDefault) {
       return (
         <div className="flex-1 overflow-y-auto">
           <SpaceContextPanel spaceId={space.id} />
@@ -98,9 +100,9 @@ export function SpaceSidebar({
 
   return (
     <SidecarShell
-      tabs={availableTabs}
+      tabs={tabDefs}
       activeTab={activeTab}
-      onActiveTabChange={setActiveTab}
+      onActiveTabChange={(key) => onSelectTab?.(key as SidecarTab)}
       renderTabContent={renderTabContent}
       isMobileOverlay={isMobileOverlay}
       onClose={onClose}

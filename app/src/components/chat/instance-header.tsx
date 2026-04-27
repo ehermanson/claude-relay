@@ -45,14 +45,17 @@ import type { SidecarTab } from "./sidecar";
 interface SidecarTogglesProps {
   loading?: boolean;
   isMobile: boolean;
-  activePanels: Set<SidecarTab>;
+  /** The user's currently selected tab (preserved even when closed). */
+  activeTab: SidecarTab;
+  /** Whether the sidecar is currently open. */
+  isOpen: boolean;
   tasksCount: number;
   filesCount: number;
   hasPlanContent: boolean;
   hasStats: boolean;
   stats?: SessionStats;
   sidecarContentCount: number;
-  onTogglePanel: (panel: SidecarTab) => void;
+  onSelectTab: (panel: SidecarTab) => void;
   onOpenMobileSidecar: () => void;
 }
 
@@ -67,14 +70,15 @@ function CountBadge({ count }: { count: number }) {
 function SidecarToggles({
   loading = false,
   isMobile,
-  activePanels,
+  activeTab,
+  isOpen,
   tasksCount,
   filesCount,
   hasPlanContent,
   hasStats,
   stats,
   sidecarContentCount,
-  onTogglePanel,
+  onSelectTab,
   onOpenMobileSidecar,
 }: SidecarTogglesProps) {
   const hasTasksContent = tasksCount > 0;
@@ -82,9 +86,12 @@ function SidecarToggles({
   const hasAny = hasTasksContent || hasFilesContent || hasPlanContent || hasStats;
   if (!loading && !hasAny) return null;
 
+  // A tab button is "toggled on" when it's the showing tab (active + open).
+  const isShowing = (panel: SidecarTab) => isOpen && activeTab === panel;
+
   return (
     <>
-      {/* Desktop: per-panel toggle buttons */}
+      {/* Desktop: header tab strip — clicking switches; clicking active closes */}
       {!isMobile &&
         (loading ? (
           <>
@@ -94,11 +101,11 @@ function SidecarToggles({
         ) : (
           <>
             {hasTasksContent && (
-              <Tooltip content={activePanels.has("tasks") ? "Hide tasks" : "Show tasks"}>
+              <Tooltip content={isShowing("tasks") ? "Hide tasks" : "Show tasks"}>
                 <Button
                   variant="icon"
-                  toggled={activePanels.has("tasks")}
-                  onClick={() => onTogglePanel("tasks")}
+                  toggled={isShowing("tasks")}
+                  onClick={() => onSelectTab("tasks")}
                   className="relative shrink-0"
                 >
                   <ListChecks size={15} strokeWidth={2} />
@@ -107,11 +114,11 @@ function SidecarToggles({
               </Tooltip>
             )}
             {hasFilesContent && (
-              <Tooltip content={activePanels.has("files") ? "Hide files" : "Show files"}>
+              <Tooltip content={isShowing("files") ? "Hide files" : "Show files"}>
                 <Button
                   variant="icon"
-                  toggled={activePanels.has("files")}
-                  onClick={() => onTogglePanel("files")}
+                  toggled={isShowing("files")}
+                  onClick={() => onSelectTab("files")}
                   className="relative shrink-0"
                 >
                   <FileText size={15} strokeWidth={2} />
@@ -120,11 +127,11 @@ function SidecarToggles({
               </Tooltip>
             )}
             {hasPlanContent && (
-              <Tooltip content={activePanels.has("plan") ? "Hide plan" : "Show plan"}>
+              <Tooltip content={isShowing("plan") ? "Hide plan" : "Show plan"}>
                 <Button
                   variant="icon"
-                  toggled={activePanels.has("plan")}
-                  onClick={() => onTogglePanel("plan")}
+                  toggled={isShowing("plan")}
+                  onClick={() => onSelectTab("plan")}
                   className="shrink-0"
                 >
                   <ScrollText size={15} strokeWidth={2} />
@@ -134,9 +141,9 @@ function SidecarToggles({
             {hasStats && (
               <HeaderContextToggle
                 stats={stats}
-                active={activePanels.has("context")}
-                tooltip={activePanels.has("context") ? "Hide context" : "Show context"}
-                onClick={() => onTogglePanel("context")}
+                active={isShowing("context")}
+                tooltip={isShowing("context") ? "Hide context" : "Show context"}
+                onClick={() => onSelectTab("context")}
               />
             )}
           </>
@@ -170,14 +177,17 @@ function SidecarToggles({
 interface InstanceHeaderProps {
   instance: InstanceInfo;
   isMobile: boolean;
-  activePanels: Set<SidecarTab>;
+  /** The user's currently selected sidecar tab. */
+  activeTab: SidecarTab;
+  /** Whether the sidecar is currently open. */
+  isOpen: boolean;
   tasksCount: number;
   filesCount: number;
   hasPlanContent: boolean;
   hasStats: boolean;
   sidecarContentCount: number;
   loadingSidecarActions?: boolean;
-  onTogglePanel: (panel: SidecarTab) => void;
+  onSelectTab: (panel: SidecarTab) => void;
   onOpenDebug: () => void;
   onDelete?: () => void;
   onOpenMobileSidecar: () => void;
@@ -295,14 +305,15 @@ function PushBranchDialog({
 export function InstanceHeader({
   instance,
   isMobile,
-  activePanels,
+  activeTab,
+  isOpen,
   tasksCount,
   filesCount,
   hasPlanContent,
   hasStats,
   sidecarContentCount,
   loadingSidecarActions = false,
-  onTogglePanel,
+  onSelectTab,
   onOpenDebug,
   onDelete,
   onOpenMobileSidecar,
@@ -465,14 +476,15 @@ export function InstanceHeader({
           <SidecarToggles
             loading={loadingSidecarActions}
             isMobile={isMobile}
-            activePanels={activePanels}
+            activeTab={activeTab}
+            isOpen={isOpen}
             tasksCount={tasksCount}
             filesCount={filesCount}
             hasPlanContent={hasPlanContent}
             hasStats={hasStats}
             stats={instance.stats}
             sidecarContentCount={sidecarContentCount}
-            onTogglePanel={onTogglePanel}
+            onSelectTab={onSelectTab}
             onOpenMobileSidecar={onOpenMobileSidecar}
           />
         }
@@ -584,14 +596,15 @@ export function InstanceHeader({
         <SidecarToggles
           loading={loadingSidecarActions}
           isMobile={isMobile}
-          activePanels={activePanels}
+          activeTab={activeTab}
+          isOpen={isOpen}
           tasksCount={tasksCount}
           filesCount={filesCount}
           hasPlanContent={hasPlanContent}
           hasStats={hasStats}
           stats={instance.stats}
           sidecarContentCount={sidecarContentCount}
-          onTogglePanel={onTogglePanel}
+          onSelectTab={onSelectTab}
           onOpenMobileSidecar={onOpenMobileSidecar}
         />
       </div>

@@ -34,6 +34,8 @@ import {
 
 export function SpaceViewHeader() {
   const { shared, actions } = useSpaceViewContext();
+  const isShowing = (panel: "brief" | "files" | "context") =>
+    shared.isSidecarOpen && shared.sidecarTab === panel;
 
   // ── Mobile layout ──────────────────────────────────────────────────
   if (shared.isMobile) {
@@ -202,11 +204,11 @@ export function SpaceViewHeader() {
         />
 
         {!shared.space.isDefault && (
-          <Tooltip content={shared.activePanels.has("brief") ? "Hide brief" : "Show brief"}>
+          <Tooltip content={isShowing("brief") ? "Hide brief" : "Show brief"}>
             <Button
               variant="icon"
-              toggled={shared.activePanels.has("brief")}
-              onClick={() => actions.togglePanel("brief")}
+              toggled={isShowing("brief")}
+              onClick={() => actions.selectSidecarTab("brief")}
               className="shrink-0"
             >
               <BookOpen size={15} strokeWidth={2} />
@@ -224,11 +226,11 @@ export function SpaceViewHeader() {
             ) : (
               <>
                 {shared.fileChanges.length > 0 && (
-                  <Tooltip content={shared.activePanels.has("files") ? "Hide files" : "Show files"}>
+                  <Tooltip content={isShowing("files") ? "Hide files" : "Show files"}>
                     <Button
                       variant="icon"
-                      toggled={shared.activePanels.has("files")}
-                      onClick={() => actions.togglePanel("files")}
+                      toggled={isShowing("files")}
+                      onClick={() => actions.selectSidecarTab("files")}
                       className="relative shrink-0"
                     >
                       <FileText size={15} strokeWidth={2} />
@@ -240,9 +242,9 @@ export function SpaceViewHeader() {
                 )}
                 <HeaderContextToggle
                   stats={shared.activeLiveInstance?.stats}
-                  active={shared.activePanels.has("context")}
-                  tooltip={shared.activePanels.has("context") ? "Hide context" : "Show context"}
-                  onClick={() => actions.togglePanel("context")}
+                  active={isShowing("context")}
+                  tooltip={isShowing("context") ? "Hide context" : "Show context"}
+                  onClick={() => actions.selectSidecarTab("context")}
                 />
               </>
             )}

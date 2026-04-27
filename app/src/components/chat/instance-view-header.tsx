@@ -12,14 +12,15 @@ export function InstanceViewHeader() {
     <InstanceHeader
       instance={shared.instance}
       isMobile={shared.isMobile}
-      activePanels={new Set(shared.activePanels)}
+      activeTab={shared.activeTab}
+      isOpen={shared.isSidecarOpen}
       tasksCount={shared.tasksCount}
       filesCount={shared.filesCount}
       hasPlanContent={shared.hasPlanContent}
       hasStats={shared.hasStats}
       sidecarContentCount={shared.sidecarContentCount}
       loadingSidecarActions={shared.isLoadingSession}
-      onTogglePanel={actions.togglePanel}
+      onSelectTab={actions.selectTab}
       onOpenDebug={() => actions.setShowDebugPaste(true)}
       onDelete={() => actions.setConfirmDelete(true)}
       onOpenMobileSidecar={() => actions.setSidecarMobileOpen(true)}
