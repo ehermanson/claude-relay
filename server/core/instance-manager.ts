@@ -116,6 +116,8 @@ import {
 import {
   buildSessionBootstrapContext,
   CUSTOM_INSTRUCTIONS_BLOCK_KIND,
+  getReviewInstanceIdFromRuntimePayload,
+  getReviewSessionFromRuntimePayload,
   getSessionContextFromRuntimePayload,
   hasSessionBootstrapBlock,
   SPACE_CONTEXT_BLOCK_KIND,
@@ -1140,6 +1142,110 @@ function toChatSummaryInfo(info: InstanceInfo): InstanceInfo {
   return { ...summary };
 }
 
+function inferLegacyReviewSessionInfo(options: {
+  name: string;
+  parentSessionId?: string;
+}): import("#core/types.js").ReviewSessionInfo | undefined {
+  if (!options.parentSessionId) return undefined;
+  const match = options.name.match(/^Review the recent changes from "(.+)"(?:\.|$)/);
+  if (!match) return undefined;
+  return {
+    sourceSessionId: options.parentSessionId,
+    sourceName: match[1] || "source chat",
+    scope: "branch",
+  };
+}
+
+function mergeProviderBinding(
+  existing: ProviderRuntimeBinding | undefined,
+  next: ProviderRuntimeBinding | undefined,
+): ProviderRuntimeBinding | undefined {
+  if (!existing) return next;
+  if (!next) return existing;
+  return {
+    ...existing,
+    ...next,
+    runtimePayload: {
+      ...(existing.runtimePayload ?? {}),
+      ...(next.runtimePayload ?? {}),
+    },
+  };
+}
+
+function buildPersistedRuntimePayload(
+  runtimePayload: Record<string, unknown> | undefined,
+  info: InstanceInfo,
+): Record<string, unknown> | undefined {
+  const next = { ...(runtimePayload ?? {}) };
+
+  if (info.sessionContext) {
+    next.sessionContext = info.sessionContext;
+  } else {
+    delete next.sessionContext;
+  }
+
+  if (info.review) {
+    next.review = info.review;
+  } else {
+    delete next.review;
+  }
+
+  if (info.reviewInstanceId) {
+    next.reviewInstanceId = info.reviewInstanceId;
+  } else {
+    delete next.reviewInstanceId;
+  }
+
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function reviewBelongsToSource(source: InstanceInfo, candidate: InstanceInfo): boolean {
+  const review = candidate.review;
+  if (!review) return false;
+  if (review.sourceInstanceId === source.id) return true;
+  return (
+    !!review.sourceSessionId &&
+    !!source.sessionId &&
+    review.sourceSessionId === source.sessionId &&
+    candidate.workingDirectory === source.workingDirectory
+  );
+}
+
+function compareReviewRecency(a: InstanceInfo, b: InstanceInfo): number {
+  if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+  return b.lastActivityAt - a.lastActivityAt;
+}
+
+function pickPreferredAttachedReview(
+  source: InstanceInfo,
+  candidates: InstanceInfo[],
+  preferredId?: string,
+): InstanceInfo | undefined {
+  const matches = candidates
+    .filter((candidate) => reviewBelongsToSource(source, candidate))
+    .sort(compareReviewRecency);
+  if (matches.length === 0) return undefined;
+  if (preferredId) {
+    const preferred = matches.find((candidate) => candidate.id === preferredId);
+    if (preferred) return preferred;
+  }
+  return matches[0];
+}
+
+function attachReviewLinks(infos: InstanceInfo[]): InstanceInfo[] {
+  const preferredSelections = new Map(infos.map((info) => [info.id, info.reviewInstanceId]));
+  for (const info of infos) {
+    info.reviewInstanceId = undefined;
+  }
+  for (const info of infos) {
+    const preferred = pickPreferredAttachedReview(info, infos, preferredSelections.get(info.id));
+    if (preferred) {
+      info.reviewInstanceId = preferred.id;
+    }
+  }
+  return infos;
+}
+
 function summaryFromSessionRow(entry: SessionRow): InstanceInfo {
   return {
     id: entry.instance_id,
@@ -1165,6 +1271,20 @@ function summaryFromSessionRow(entry: SessionRow): InstanceInfo {
 }
 
 function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
+  let runtimePayload: Record<string, unknown> | undefined;
+  try {
+    runtimePayload = entry.runtime_payload_json
+      ? (JSON.parse(entry.runtime_payload_json) as Record<string, unknown>)
+      : undefined;
+  } catch {
+    runtimePayload = undefined;
+  }
+  const review =
+    getReviewSessionFromRuntimePayload(runtimePayload) ??
+    inferLegacyReviewSessionInfo({
+      name: entry.name,
+      parentSessionId: entry.parent_session_id ?? undefined,
+    });
   return {
     id: entry.instance_id,
     provider: entry.provider_name as ProviderKind,
@@ -1186,6 +1306,8 @@ function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
     runtimeMode: (entry.runtime_mode as ProviderRuntimeMode | null) ?? undefined,
     spaceId: entry.space_id ?? undefined,
     projectId: entry.project_id ?? undefined,
+    review,
+    reviewInstanceId: getReviewInstanceIdFromRuntimePayload(runtimePayload),
   };
 }
 
@@ -1531,6 +1653,48 @@ export class InstanceManager extends EventEmitter {
       managedKeys.providerSessionIds.has(row.session_id) ||
       managedKeys.transcriptPaths.has(row.jsonl_path)
     );
+  }
+
+  private isManagedShadowInstance(
+    instance: Instance,
+    managedKeys: { providerSessionIds: Set<string>; transcriptPaths: Set<string> },
+  ): boolean {
+    if (!instance.info.external) return false;
+    const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
+    const providerSessionId =
+      binding?.providerSessionId ?? instance.sessionId ?? instance.info.sessionId;
+    const transcriptPath =
+      binding?.transcriptPath ?? instance.externalState?.jsonlPath ?? instance.jsonlPath;
+    return Boolean(
+      (providerSessionId && managedKeys.providerSessionIds.has(providerSessionId)) ||
+      (transcriptPath && managedKeys.transcriptPaths.has(transcriptPath)),
+    );
+  }
+
+  private pruneLiveManagedShadows(managedKeys: {
+    providerSessionIds: Set<string>;
+    transcriptPaths: Set<string>;
+  }): void {
+    for (const [instanceId, instance] of this.instances) {
+      if (!this.isManagedShadowInstance(instance, managedKeys)) continue;
+
+      const watchInterval = this.watchIntervals.get(instanceId);
+      if (watchInterval) {
+        clearInterval(watchInterval);
+        this.watchIntervals.delete(instanceId);
+      }
+      this.staleCounts.delete(instanceId);
+      this.instances.delete(instanceId);
+
+      if (instance.sessionId) {
+        this.db.archive(instance.sessionId);
+      }
+
+      this.emit("instance:removed", instanceId);
+      this.baseConfig.logger.info(
+        `[InstanceManager] Pruned live external shadow ${instanceId} for managed session`,
+      );
+    }
   }
 
   private logSpaceOwnershipRepair(
@@ -1884,6 +2048,8 @@ export class InstanceManager extends EventEmitter {
     model?: string;
     spaceId?: string;
     modelOptions?: ProviderModelOptions;
+    parentSessionId?: string;
+    review?: import("#core/types.js").ReviewSessionInfo;
   }): InstanceInfo {
     const activeCount = [...this.instances.values()].filter(
       (i) => i.process && !i.info.external,
@@ -2044,6 +2210,12 @@ export class InstanceManager extends EventEmitter {
           },
         }
       : initialBinding;
+    if (options?.review) {
+      providerBinding.runtimePayload = {
+        ...(providerBinding.runtimePayload ?? {}),
+        review: options.review,
+      };
+    }
 
     // Resolve name: explicit > session summary > auto-title from first message
     let name = options?.name || "";
@@ -2064,6 +2236,7 @@ export class InstanceManager extends EventEmitter {
       gitInfo: initialGitInfo,
       gitBranch: spaceGitBranch,
       originalGitBranch: initialGitInfo?.branch ?? getCurrentBranch(workingDirectory) ?? undefined,
+      parentSessionId: options?.parentSessionId,
       preferredModel: isExplicitModel ? model : undefined,
       modelOptions,
       runtimeMode: resolvedRuntimeMode,
@@ -2071,6 +2244,7 @@ export class InstanceManager extends EventEmitter {
       projectId: project?.id,
       spaceId,
       sessionContext: deliveredBootstrap ? { bootstrap: deliveredBootstrap } : undefined,
+      review: options?.review,
     };
 
     const dirBasename = workingDirectory.split("/").pop() || "";
@@ -2095,6 +2269,15 @@ export class InstanceManager extends EventEmitter {
       ),
     };
     this.instances.set(id, instance);
+
+    if (options?.review?.sourceInstanceId) {
+      const source = this.instances.get(options.review.sourceInstanceId);
+      if (source) {
+        source.info.reviewInstanceId = id;
+        this.dbSave(source);
+        this.emit("instance:status", source.info.id, this.deriveInstanceView(source));
+      }
+    }
 
     this.wireProcessEvents(id, proc);
 
@@ -2212,6 +2395,33 @@ export class InstanceManager extends EventEmitter {
     const instance = this.instances.get(id);
     if (!instance) return false;
     const purge = options?.purge === true;
+    const reviewSourceId = instance.info.review?.sourceInstanceId;
+
+    const attachedReviewIds = Array.from(this.instances.values())
+      .map((candidate) => candidate.info)
+      .filter((candidate) => candidate.id !== id && reviewBelongsToSource(instance.info, candidate))
+      .sort(compareReviewRecency)
+      .map((candidate) => candidate.id);
+    for (const attachedReviewId of attachedReviewIds) {
+      if (this.instances.has(attachedReviewId)) {
+        this.removeInstance(attachedReviewId, { purge: true });
+      }
+    }
+
+    if (reviewSourceId) {
+      const source = this.instances.get(reviewSourceId);
+      if (source?.info.reviewInstanceId === id) {
+        const nextReview = pickPreferredAttachedReview(
+          source.info,
+          Array.from(this.instances.values())
+            .filter((candidate) => candidate.info.id !== id)
+            .map((candidate) => candidate.info),
+        );
+        source.info.reviewInstanceId = nextReview?.id;
+        this.dbSave(source);
+        this.emit("instance:status", source.info.id, this.deriveInstanceView(source));
+      }
+    }
 
     if (instance.process) {
       instance.process.close();
@@ -2387,11 +2597,30 @@ export class InstanceManager extends EventEmitter {
               : undefined,
           }
         : undefined,
+      review: info.review
+        ? {
+            ...info.review,
+            filePaths: info.review.filePaths ? [...info.review.filePaths] : undefined,
+          }
+        : undefined,
+      reviewInstanceId: info.reviewInstanceId,
     };
   }
 
   private deriveInstanceView(instance: Instance): InstanceInfo {
-    return this.cloneInstanceInfo(instance.info);
+    const info = this.cloneInstanceInfo(instance.info);
+    if (!info.reviewInstanceId) {
+      const preferred = pickPreferredAttachedReview(
+        info,
+        Array.from(this.instances.values())
+          .filter((candidate) => candidate.info.id !== instance.info.id)
+          .map((candidate) => candidate.info),
+      );
+      if (preferred) {
+        info.reviewInstanceId = preferred.id;
+      }
+    }
+    return info;
   }
 
   private cloneProviderGlobalState(
@@ -2587,9 +2816,12 @@ export class InstanceManager extends EventEmitter {
   }
 
   listInstances(): InstanceInfo[] {
-    return Array.from(this.instances.values())
-      .filter((i) => !!i.info.projectId)
-      .map((i) => this.deriveInstanceView(i));
+    const managedKeys = this.collectManagedSessionKeys();
+    return attachReviewLinks(
+      Array.from(this.instances.values())
+        .filter((i) => !!i.info.projectId && !this.isManagedShadowInstance(i, managedKeys))
+        .map((i) => this.deriveInstanceView(i)),
+    );
   }
 
   getInstance(id: string): InstanceInfo | undefined {
@@ -2620,6 +2852,10 @@ export class InstanceManager extends EventEmitter {
     const chats = new Map<string, InstanceInfo>();
     const managedProviderSessionIds = new Set<string>();
     const managedTranscriptPaths = new Set<string>();
+    const managedKeys = {
+      providerSessionIds: managedProviderSessionIds,
+      transcriptPaths: managedTranscriptPaths,
+    };
 
     for (const instance of this.instances.values()) {
       if (instance.info.projectId !== projectId) {
@@ -2633,12 +2869,24 @@ export class InstanceManager extends EventEmitter {
         if (providerSessionId) managedProviderSessionIds.add(providerSessionId);
         if (transcriptPath) managedTranscriptPaths.add(transcriptPath);
       }
-      chats.set(instance.info.id, toChatSummaryInfo(this.deriveInstanceView(instance)));
     }
 
     for (const row of this.db.getManagedByProjectId(projectId)) {
       if (row.provider_session_id) managedProviderSessionIds.add(row.provider_session_id);
       if (row.transcript_path) managedTranscriptPaths.add(row.transcript_path);
+    }
+
+    for (const instance of this.instances.values()) {
+      if (instance.info.projectId !== projectId) {
+        continue;
+      }
+      if (this.isManagedShadowInstance(instance, managedKeys)) {
+        continue;
+      }
+      chats.set(instance.info.id, toChatSummaryInfo(this.deriveInstanceView(instance)));
+    }
+
+    for (const row of this.db.getManagedByProjectId(projectId)) {
       if (!chats.has(row.instance_id)) {
         chats.set(row.instance_id, summaryFromManagedRow(row));
       }
@@ -2656,13 +2904,19 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    return Array.from(chats.values()).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+    return attachReviewLinks(Array.from(chats.values())).sort(
+      (a, b) => b.lastActivityAt - a.lastActivityAt,
+    );
   }
 
   listSpaceChats(spaceId: string): InstanceInfo[] {
     const chats = new Map<string, InstanceInfo>();
     const managedProviderSessionIds = new Set<string>();
     const managedTranscriptPaths = new Set<string>();
+    const managedKeys = {
+      providerSessionIds: managedProviderSessionIds,
+      transcriptPaths: managedTranscriptPaths,
+    };
 
     for (const instance of this.instances.values()) {
       if (instance.info.spaceId !== spaceId) {
@@ -2676,12 +2930,24 @@ export class InstanceManager extends EventEmitter {
         if (providerSessionId) managedProviderSessionIds.add(providerSessionId);
         if (transcriptPath) managedTranscriptPaths.add(transcriptPath);
       }
-      chats.set(instance.info.id, toChatSummaryInfo(this.deriveInstanceView(instance)));
     }
 
     for (const row of this.db.getManagedBySpaceId(spaceId)) {
       if (row.provider_session_id) managedProviderSessionIds.add(row.provider_session_id);
       if (row.transcript_path) managedTranscriptPaths.add(row.transcript_path);
+    }
+
+    for (const instance of this.instances.values()) {
+      if (instance.info.spaceId !== spaceId) {
+        continue;
+      }
+      if (this.isManagedShadowInstance(instance, managedKeys)) {
+        continue;
+      }
+      chats.set(instance.info.id, toChatSummaryInfo(this.deriveInstanceView(instance)));
+    }
+
+    for (const row of this.db.getManagedBySpaceId(spaceId)) {
       if (!chats.has(row.instance_id)) {
         chats.set(row.instance_id, summaryFromManagedRow(row));
       }
@@ -2699,7 +2965,9 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    return Array.from(chats.values()).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+    return attachReviewLinks(Array.from(chats.values())).sort(
+      (a, b) => b.lastActivityAt - a.lastActivityAt,
+    );
   }
 
   getWorkspaceEntries(id: string, query: string): WorkspaceEntry[] | null {
@@ -3210,7 +3478,10 @@ export class InstanceManager extends EventEmitter {
     const prevProcess = instance.process;
 
     instance.process = proc;
-    instance.providerBinding = proc.getRuntimeBinding();
+    instance.providerBinding = mergeProviderBinding(
+      instance.providerBinding,
+      proc.getRuntimeBinding(),
+    );
     instance.info.external = false;
     delete instance.externalState;
 
@@ -3271,7 +3542,10 @@ export class InstanceManager extends EventEmitter {
 
     const prevProcess = instance.process;
     instance.process = proc;
-    instance.providerBinding = proc.getRuntimeBinding();
+    instance.providerBinding = mergeProviderBinding(
+      instance.providerBinding,
+      proc.getRuntimeBinding(),
+    );
 
     try {
       this.wireProcessEvents(id, proc);
@@ -6113,6 +6387,7 @@ export class InstanceManager extends EventEmitter {
   private toManagedInstanceRow(instance: Instance): ManagedInstanceRow {
     const stats = instance.info.stats;
     const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
+    const runtimePayload = buildPersistedRuntimePayload(binding?.runtimePayload, instance.info);
     return {
       instance_id: instance.info.id,
       provider_name: instance.info.provider,
@@ -6137,7 +6412,7 @@ export class InstanceManager extends EventEmitter {
       reasoning_budget: null,
       runtime_mode: instance.info.runtimeMode ?? this.baseConfig.defaultRuntimeMode,
       resume_cursor_json: binding?.resumeCursor ? JSON.stringify(binding.resumeCursor) : null,
-      runtime_payload_json: binding?.runtimePayload ? JSON.stringify(binding.runtimePayload) : null,
+      runtime_payload_json: runtimePayload ? JSON.stringify(runtimePayload) : null,
       transcript_path: binding?.transcriptPath ?? instance.jsonlPath ?? null,
       last_message_text: instance.info.lastMessage?.text ?? null,
       last_message_from: instance.info.lastMessage?.from ?? null,
@@ -6239,8 +6514,10 @@ export class InstanceManager extends EventEmitter {
       this.reconcileInstancePersistenceIdentity(instance);
       const isManaged = !instance.info.external && this.shouldPersistManagedInstance(instance);
       if (isManaged) {
-        instance.providerBinding =
-          instance.process?.getRuntimeBinding() ?? instance.providerBinding;
+        instance.providerBinding = mergeProviderBinding(
+          instance.providerBinding,
+          instance.process?.getRuntimeBinding(),
+        );
         this.db.upsertManaged(this.toManagedInstanceRow(instance));
         this.collapseManagedDuplicates(instance.info.id);
       }
@@ -7077,6 +7354,13 @@ export class InstanceManager extends EventEmitter {
     } catch {
       runtimePayload = undefined;
     }
+    const explicitReview = getReviewSessionFromRuntimePayload(runtimePayload);
+    const inferredReview =
+      explicitReview ??
+      inferLegacyReviewSessionInfo({
+        name: entry.name,
+        parentSessionId: entry.parent_session_id ?? undefined,
+      });
     if (restoredPaths.repairedStaleWorktree) {
       runtimePayload = { ...runtimePayload, cwd: restoreActualCwd };
     }
@@ -7129,6 +7413,8 @@ export class InstanceManager extends EventEmitter {
       spaceId: inferredSpaceId ?? undefined,
       projectId: entry.project_id ?? undefined,
       sessionContext: getSessionContextFromRuntimePayload(runtimePayload),
+      review: inferredReview,
+      reviewInstanceId: getReviewInstanceIdFromRuntimePayload(runtimePayload),
     };
 
     const instance: Instance = {
@@ -7170,8 +7456,19 @@ export class InstanceManager extends EventEmitter {
     }
     if (
       transcriptPath !== (entry.transcript_path ?? undefined) ||
-      restoredPaths.repairedStaleWorktree
+      restoredPaths.repairedStaleWorktree ||
+      (!!inferredReview && !explicitReview)
     ) {
+      if (inferredReview && !explicitReview) {
+        instance.providerBinding = {
+          ...instance.providerBinding,
+          provider,
+          runtimePayload: {
+            ...(instance.providerBinding?.runtimePayload ?? {}),
+            review: inferredReview,
+          },
+        };
+      }
       this.dbSave(instance);
     }
     this.removeLiveExternalShadow(entry.instance_id, resumeSessionId ?? undefined, transcriptPath);
@@ -7231,6 +7528,8 @@ export class InstanceManager extends EventEmitter {
     for (const entry of this.db.getAllManagedActive()) {
       if (this.restoreManagedFromRow(entry)) restored++;
     }
+
+    this.pruneLiveManagedShadows(this.collectManagedSessionKeys());
 
     if (restored > 0) {
       this.baseConfig.logger.info(
@@ -7304,6 +7603,8 @@ export class InstanceManager extends EventEmitter {
     for (const entry of this.db.getAllManagedActive()) {
       if (this.restoreManagedFromRow(entry)) discovered++;
     }
+
+    this.pruneLiveManagedShadows(this.collectManagedSessionKeys());
 
     if (discovered > 0) {
       this.baseConfig.logger.info(
@@ -7462,7 +7763,7 @@ export class InstanceManager extends EventEmitter {
       void this.enqueueInstanceMutation(id, (live) => {
         if (this.shuttingDown || live.process !== proc) return;
         this.noteManagedProcessActivity(live);
-        live.providerBinding = proc.getRuntimeBinding();
+        live.providerBinding = mergeProviderBinding(live.providerBinding, proc.getRuntimeBinding());
         this.pushHistory(live, message);
         live.info.lastActivityAt = Date.now();
 
@@ -7522,7 +7823,7 @@ export class InstanceManager extends EventEmitter {
       void this.enqueueInstanceMutation(id, (live) => {
         if (this.shuttingDown || live.process !== proc) return;
         this.noteManagedProcessActivity(live);
-        live.providerBinding = proc.getRuntimeBinding();
+        live.providerBinding = mergeProviderBinding(live.providerBinding, proc.getRuntimeBinding());
         const pendingStateBefore = this.pendingStateSignature(live);
         if (message.activity === "task_list" && message.tasks) {
           if (!live.tasks) live.tasks = new Map();
@@ -7848,7 +8149,7 @@ export class InstanceManager extends EventEmitter {
           contextWindow: stats.contextWindow ?? live.info.stats?.contextWindow,
           contextCategories: stats.contextCategories ?? live.info.stats?.contextCategories,
         };
-        live.providerBinding = proc.getRuntimeBinding();
+        live.providerBinding = mergeProviderBinding(live.providerBinding, proc.getRuntimeBinding());
         this.dbSave(live);
         this.emitInstanceStatus(live);
       }).catch((err) => this.logQueuedMutationError("stats handler", id, err));
@@ -7857,7 +8158,7 @@ export class InstanceManager extends EventEmitter {
     proc.on("exit", (message) => {
       void this.enqueueInstanceMutation(id, (live) => {
         if (this.shuttingDown || live.process !== proc) return;
-        live.providerBinding = proc.getRuntimeBinding();
+        live.providerBinding = mergeProviderBinding(live.providerBinding, proc.getRuntimeBinding());
         const wasCancelledByUser = live.cancelledByUser;
         const wasInterruptedToSend = live.interruptedToSend;
         live.cancelledByUser = false;
@@ -8252,6 +8553,22 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
+  async setReviewInstance(id: string, reviewInstanceId: string): Promise<boolean> {
+    return this.enqueueInstanceMutation(id, async (instance) => {
+      const reviewInstance = this.instances.get(reviewInstanceId);
+      if (!reviewInstance) return false;
+      if (!reviewBelongsToSource(instance.info, reviewInstance.info)) return false;
+
+      instance.info.reviewInstanceId = reviewInstanceId;
+      this.emitInstanceStatus(instance);
+      this.dbSave(instance);
+      return true;
+    }).catch((err) => {
+      if (this.isInstanceNotFoundError(err)) return false;
+      throw err;
+    });
+  }
+
   /**
    * Switch the provider on an instance that has not yet sent a message.
    * Tears down the current process and creates a new one for the target provider.
@@ -8286,7 +8603,10 @@ export class InstanceManager extends EventEmitter {
         model: BUILTIN_PROVIDER_MODELS[provider].find((m) => m.isDefault)?.id,
       });
       instance.process = proc;
-      instance.providerBinding = proc.getRuntimeBinding();
+      instance.providerBinding = mergeProviderBinding(
+        instance.providerBinding,
+        proc.getRuntimeBinding(),
+      );
 
       this.wireProcessEvents(id, proc);
       this.captureSessionId(id, instance, proc);

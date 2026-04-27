@@ -13,13 +13,27 @@
 import { useCallback, useMemo } from "react";
 import { create } from "zustand";
 
-export type SidecarTab = "tasks" | "files" | "plan" | "context" | "brief";
+export type SidecarTab = "tasks" | "files" | "plan" | "context" | "brief" | "review";
 export type SidecarScope = "chat" | "space";
 
-const VALID_TABS: ReadonlySet<SidecarTab> = new Set(["tasks", "files", "plan", "context", "brief"]);
+const VALID_TABS: ReadonlySet<SidecarTab> = new Set([
+  "tasks",
+  "files",
+  "plan",
+  "context",
+  "brief",
+  "review",
+]);
 
 // Priority for fallback when the selected tab has no content.
-const FALLBACK_ORDER: readonly SidecarTab[] = ["tasks", "files", "plan", "context", "brief"];
+const FALLBACK_ORDER: readonly SidecarTab[] = [
+  "tasks",
+  "files",
+  "plan",
+  "context",
+  "brief",
+  "review",
+];
 
 // ── Persistence ─────────────────────────────────────────────────────────────
 
@@ -177,6 +191,7 @@ interface UseSidecarPanelsOptions {
    * user's remembered tab finishes lazy-loading its content.
    */
   contentLoading?: boolean;
+  hasReviewContent?: boolean;
 }
 
 export interface UseSidecarPanelsResult {
@@ -212,6 +227,7 @@ export function useSidecarPanels({
   hasStats,
   hasBriefContent = false,
   contentLoading = false,
+  hasReviewContent = false,
 }: UseSidecarPanelsOptions): UseSidecarPanelsResult {
   const activeTab = useSidecarStore((s) => (scope === "chat" ? s.chatTab : s.spaceTab));
   const isOpen = useSidecarStore((s) => (scope === "chat" ? s.chatOpen : s.spaceOpen));
@@ -243,9 +259,11 @@ export function useSidecarPanels({
           return hasStats;
         case "brief":
           return hasBriefContent;
+        case "review":
+          return hasReviewContent;
       }
     },
-    [hasTasksContent, hasFilesContent, hasPlanContent, hasStats, hasBriefContent],
+    [hasTasksContent, hasFilesContent, hasPlanContent, hasStats, hasBriefContent, hasReviewContent],
   );
 
   const allContentPanels = useMemo(() => {

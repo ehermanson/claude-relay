@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
+import { isAttachedReviewInstance } from "@/lib/review-session";
 import { isSpaceOwnedInstance } from "../../lib/space-membership";
 import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { EmptyProjectActions } from "../empty-project-actions";
@@ -103,7 +104,7 @@ export function SidebarProjectGroup({
     directory: dir,
   };
   const mainInstances = groupInstances.filter(
-    (instance) => !isSpaceOwnedInstance(instance, spaces),
+    (instance) => !isSpaceOwnedInstance(instance, spaces) && !isAttachedReviewInstance(instance),
   );
 
   const childIds = new Set<string>();
@@ -129,7 +130,10 @@ export function SidebarProjectGroup({
     const children = parentChildren.get(inst.id);
     if (children) {
       for (const child of children) {
-        ordered.push({ inst: child, isChild: true, parentInst: inst });
+        const shouldShowChild = !child.review || currentId === inst.id || currentId === child.id;
+        if (shouldShowChild) {
+          ordered.push({ inst: child, isChild: true, parentInst: inst });
+        }
       }
     }
   }

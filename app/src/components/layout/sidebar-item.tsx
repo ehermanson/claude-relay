@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Columns2, GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { Menu } from "@/components/ui/menu";
+import { Badge } from "@/components/ui/badge";
 import { SessionIndicator } from "@/components/ui/session-indicator";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useSidebarActions } from "../../context/sidebar-actions-context";
@@ -125,10 +126,17 @@ export function SidebarItem({
             className="w-full rounded border border-border bg-surface px-1.5 py-1 text-[0.8125rem] font-medium leading-snug text-text-bright outline-none focus:border-accent"
           />
         ) : (
-          <div
-            className={`min-w-0 truncate text-[0.8125rem] leading-snug ${isActive ? "font-semibold text-accent" : "font-medium text-text"}`}
-          >
-            {instance.name}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div
+              className={`min-w-0 truncate text-[0.8125rem] leading-snug ${isActive ? "font-semibold text-accent" : "font-medium text-text"}`}
+            >
+              {instance.name}
+            </div>
+            {instance.review ? (
+              <Badge size="xs" variant={isActive ? "accent" : "default"}>
+                Review
+              </Badge>
+            ) : null}
           </div>
         )}
         {!editing && instance.gitBranch && (

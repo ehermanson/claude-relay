@@ -17,6 +17,7 @@ export function InstanceViewHeader() {
       tasksCount={shared.tasksCount}
       filesCount={shared.filesCount}
       hasPlanContent={shared.hasPlanContent}
+      hasReviewContent={!!shared.instance.reviewInstanceId || shared.hasFilesContent}
       hasStats={shared.hasStats}
       sidecarContentCount={shared.sidecarContentCount}
       loadingSidecarActions={shared.isLoadingSession}

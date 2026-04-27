@@ -1,4 +1,5 @@
 import { getDisplaySessionStats } from "@/lib/utils";
+import { isAttachedReviewInstance } from "@/lib/review-session";
 import { getResolvedSpaceId } from "@/lib/space-membership";
 import type { FileChange, InstanceInfo, SessionStats } from "@shared/types";
 
@@ -18,7 +19,9 @@ export function buildSpaceInstances(
       spaceChatMap.set(instance.id, instance);
     }
   }
-  return Array.from(spaceChatMap.values()).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  return Array.from(spaceChatMap.values())
+    .filter((instance) => !isAttachedReviewInstance(instance))
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 }
 
 export function aggregateSpaceStats(instances: InstanceInfo[]): SessionStats | null {

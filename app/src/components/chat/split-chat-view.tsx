@@ -10,6 +10,7 @@ import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useWSState } from "@/context/websocket-context";
 import { createInstance } from "@/lib/api";
+import { isAttachedReviewInstance } from "@/lib/review-session";
 import { deriveInstanceStatusPresentation, formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
 
@@ -65,6 +66,7 @@ function SessionPicker({
   const [filter, setFilter] = useState("");
   const filtered = instances
     .filter((i) => i.id !== excludeId)
+    .filter((i) => !isAttachedReviewInstance(i))
     .filter(
       (i) =>
         !filter ||

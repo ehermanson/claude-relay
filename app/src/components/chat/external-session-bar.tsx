@@ -58,23 +58,24 @@ export function ExternalSessionBar({
   return (
     <div className="shrink-0 safe-area-bottom">
       <div className="mx-auto max-w-3xl px-6 pb-4 max-md:px-2 max-md:pb-1.5">
-        <div className="flex items-center justify-between rounded-2xl border border-border bg-surface px-4 py-3">
-          <div className="flex items-center gap-2.5">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface px-4 py-3 max-md:flex-col max-md:items-stretch max-md:gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
             <Eye size={16} className="shrink-0 text-muted" />
-            <div className="flex items-center gap-2">
-              <p className="text-[0.8125rem] text-muted">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-[0.8125rem] text-muted">
                 {isStopped ? "Terminal session ended" : "Observing terminal session"}
               </p>
               <span className="text-border">·</span>
-              <span className="flex items-center gap-1.5">
+              <span className="flex shrink-0 items-center gap-1.5">
                 <ProviderLogo provider={provider} className="h-3 w-3" muted />
-                <span className="text-[0.8125rem] text-muted">{modelLabel}</span>
+                <span className="whitespace-nowrap text-[0.8125rem] text-muted">{modelLabel}</span>
               </span>
             </div>
           </div>
           <Button
             variant="primary"
             size="sm"
+            className="max-md:w-full"
             disabled={!isConnected}
             onClick={() => (isStopped ? onTakeover() : setShowConfirm(true))}
           >

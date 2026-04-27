@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { motion } from "motion/react";
 import { CollapsedTerminalBar } from "@/components/terminal/terminal-collapsed-bar";
 import { LazyTerminalPanel } from "@/components/terminal/lazy-terminal-panel";
 import { Sidecar } from "@/components/chat/sidecar";
+import { ReviewSidecarPanel } from "@/components/chat/review-sidecar-panel";
+import { ReviewSetupPanel } from "@/components/chat/review-setup-panel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { InstanceViewContent } from "@/components/chat/instance-view-content";
 import { InstanceViewHeader } from "@/components/chat/instance-view-header";
@@ -18,6 +21,46 @@ export function InstanceViewShell() {
   const firstPaint = useFirstPaint();
   const mountTerminalPanel =
     (shared.showTerminalPanel || shared.isTerminalCollapsed) && !shared.isMobile;
+
+  const [showingSetup, setShowingSetup] = useState(false);
+  const hasFiles = shared.currentFiles && shared.currentFiles.length > 0;
+
+  const hasExistingReview = !!shared.instance.reviewInstanceId;
+
+  const setupPanel = hasFiles ? (
+    <ReviewSetupPanel
+      initialProvider={shared.instance.provider}
+      initialModel={shared.instance.preferredModel}
+      initialModelOptions={shared.instance.modelOptions}
+      initialRuntimeMode={shared.instance.runtimeMode}
+      sourceFileCount={shared.currentFiles!.length}
+      onStartReview={async (selection) => {
+        await actions.handleCreateReview(selection);
+        setShowingSetup(false);
+      }}
+      isSubmitting={actions.isCreatingReview}
+      onCancel={hasExistingReview ? () => setShowingSetup(false) : undefined}
+    />
+  ) : undefined;
+
+  const reviewContent =
+    showingSetup && setupPanel ? (
+      setupPanel
+    ) : hasExistingReview ? (
+      <ReviewSidecarPanel
+        key={shared.instance.reviewInstanceId}
+        reviewInstanceId={shared.instance.reviewInstanceId}
+        reviews={shared.attachedReviews}
+        sourceChat={{ id: shared.instance.id, name: shared.instance.name }}
+        onSelectReview={actions.handleSelectReview}
+        onSendToChat={actions.handleSendReviewToChat}
+        onReReview={actions.handleReReview}
+        showReReview={actions.showReReview}
+        onNewReview={() => setShowingSetup(true)}
+      />
+    ) : (
+      setupPanel
+    );
 
   if (shared.compact) {
     return (
@@ -93,6 +136,7 @@ export function InstanceViewShell() {
                   tasks={shared.currentTasks}
                   files={shared.currentFiles}
                   planContent={shared.instance.planContent}
+                  reviewContent={reviewContent}
                   stats={shared.instance.stats}
                   items={shared.items}
                   provider={shared.instance.provider}
@@ -118,6 +162,7 @@ export function InstanceViewShell() {
             tasks={shared.currentTasks}
             files={shared.currentFiles}
             planContent={shared.instance.planContent}
+            reviewContent={reviewContent}
             stats={shared.instance.stats}
             items={shared.items}
             provider={shared.instance.provider}

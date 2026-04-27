@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  FileText,
   Forward,
   ArrowRightFromLine,
   Zap,
@@ -11,6 +12,7 @@ import {
   MessageSquareReply,
 } from "lucide-react";
 import { formatTimestamp } from "../../lib/utils";
+import { Popover } from "../ui/popover";
 import { MarkdownContent, ImageThumbnail, IMAGE_PATTERN } from "./markdown-content";
 
 interface UserMessageProps {
@@ -31,6 +33,8 @@ const TASK_REFERENCE_PATTERN =
 
 const INLINE_REPLY_PATTERN =
   /<inline_reply>\s*<quote>\n?([\s\S]*?)\n?<\/quote>\n?([\s\S]*?)\n?<\/inline_reply>/g;
+
+const SOURCE_FILES_PATTERN = /\n*<source_files>\n?([\s\S]*?)\n?<\/source_files>\n*/g;
 
 interface TerminalBlock {
   source: string;
@@ -56,10 +60,12 @@ function splitContent(text: string): {
   images: string[];
   terminalBlocks: TerminalBlock[];
   inlineReplies: InlineReplyBlock[];
+  sourceFiles: string[];
 } {
   const images: string[] = [];
   const terminalBlocks: TerminalBlock[] = [];
   const inlineReplies: InlineReplyBlock[] = [];
+  const sourceFiles: string[] = [];
 
   let cleaned = text
     .replace(INLINE_REPLY_PATTERN, (_match, quote: string, reply: string) => {
@@ -70,6 +76,13 @@ function splitContent(text: string): {
       terminalBlocks.push({ source: source || "Terminal", text: content });
       return "";
     })
+    .replace(SOURCE_FILES_PATTERN, (_match, body: string) => {
+      for (const line of body.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed) sourceFiles.push(trimmed);
+      }
+      return "\n\n";
+    })
     .replace(TASK_REFERENCE_PATTERN, (_match, id: string, title: string) => {
       return `@task:${id}:${encodeURIComponent(unescapeXml(title))}`;
     })
@@ -79,7 +92,7 @@ function splitContent(text: string): {
     })
     .trim();
 
-  return { textPart: cleaned, images, terminalBlocks, inlineReplies };
+  return { textPart: cleaned, images, terminalBlocks, inlineReplies, sourceFiles };
 }
 
 // ── Slash command detection ──────────────────────────────────────────
@@ -129,6 +142,34 @@ function InlineReplyQuote({ text }: { text: string }) {
   );
 }
 
+function SourceFilesAttachment({ files }: { files: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger className="flex items-center gap-1.5 self-end rounded-full border border-border/50 bg-surface-inset/60 px-2.5 py-1 text-[0.6875rem] text-muted transition-colors hover:bg-surface-hover hover:text-text">
+        <FileText size={11} className="shrink-0" />
+        <span className="tabular-nums">
+          {files.length} source file{files.length === 1 ? "" : "s"}
+        </span>
+      </Popover.Trigger>
+      <Popover.Content side="top" align="end" className="max-w-[28rem] p-0">
+        <div className="max-h-72 overflow-auto py-1.5">
+          <ul className="flex flex-col">
+            {files.map((path) => (
+              <li
+                key={path}
+                className="px-3 py-1 font-mono text-[0.6875rem] leading-snug text-text/80"
+              >
+                {path}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </Popover.Content>
+    </Popover.Root>
+  );
+}
+
 function TerminalAttachment({ block }: { block: TerminalBlock }) {
   const [expanded, setExpanded] = useState(false);
   const lineCount = block.text.split("\n").length;
@@ -169,11 +210,12 @@ export function UserMessage({
   queued,
   onInterruptAndSend,
 }: UserMessageProps) {
-  const { textPart, images, terminalBlocks, inlineReplies } = splitContent(text);
+  const { textPart, images, terminalBlocks, inlineReplies, sourceFiles } = splitContent(text);
   const hasText = textPart.length > 0;
   const hasImages = images.length > 0;
   const hasTerminal = terminalBlocks.length > 0;
   const hasInlineReplies = inlineReplies.length > 0;
+  const hasSourceFiles = sourceFiles.length > 0;
 
   // Detect spin-off messages, including the legacy handoff prefix for compatibility.
   const spinOffMatch = textPart.match(/^\[(?:Handoff|Spun off) from:\s+(.+?)\]\s*/);
@@ -222,6 +264,7 @@ export function UserMessage({
           ))}
         </div>
       )}
+      {hasSourceFiles && <SourceFilesAttachment files={sourceFiles} />}
       {relaySource && (
         <div className="flex items-center gap-1 px-1 text-[0.6875rem] text-accent">
           <Forward size={11} />

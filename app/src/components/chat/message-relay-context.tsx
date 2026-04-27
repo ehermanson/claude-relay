@@ -7,6 +7,11 @@ export interface RelaySibling {
   status: string;
 }
 
+export interface RelaySourceChat {
+  id: string;
+  name: string;
+}
+
 export interface SpinOffRequest {
   anchorIndex?: number;
   selectedText?: string;
@@ -29,6 +34,9 @@ interface MessageRelayContextValue {
   siblings: RelaySibling[];
   onSendToChat: (targetInstanceId: string, messageText: string) => void;
   onSendToNewChat: (messageText: string) => void;
+  sourceChat?: RelaySourceChat;
+  onSendToSourceChat?: (messageText: string) => void;
+  allowSpinOff?: boolean;
   /** Trigger a spin-off from this chat, optionally anchored to a message or excerpt */
   onSpinOff: (request?: SpinOffRequest) => void;
   /** Append a quoted inline reply into the current chat composer draft. */

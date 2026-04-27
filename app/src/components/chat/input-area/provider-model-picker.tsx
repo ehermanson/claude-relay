@@ -7,6 +7,7 @@ import {
   MapIcon,
   ZapIcon,
 } from "lucide-react";
+import { Fragment } from "react";
 import type {
   ControlOption,
   ProviderDescriptor,
@@ -49,6 +50,63 @@ export function ProviderModelPicker({
   onSelectProviderModel,
 }: ProviderModelPickerProps) {
   const toolbarProviderLabel = provider === "claude" ? "Claude" : getProviderDisplayName(provider);
+  const singleProvider = availableProviders.length <= 1;
+
+  const renderModelItems = (
+    optionProvider: ProviderKind,
+    models: ProviderModelOption[],
+    isCurrent: boolean,
+  ) => {
+    const defaultModel = isCurrent
+      ? (models.find((model) => model.id === currentDefaultModelId) ??
+        models.find((model) => model.isDefault) ??
+        models[0])
+      : (models.find((model) => model.isDefault) ?? models[0]);
+
+    return (
+      <>
+        {isCurrent && (
+          <Menu.Item
+            onClick={() => {
+              onSelectModel(null, defaultModel?.label ?? "Default");
+              onOpenChange(false);
+            }}
+          >
+            <span className="min-w-0 flex-1 truncate">
+              Default{defaultModel ? ` (${defaultModel.label})` : ""}
+            </span>
+            {!preferredModel && <Check size={14} strokeWidth={2.5} className="shrink-0" />}
+          </Menu.Item>
+        )}
+        {models.map((model) => {
+          const isDefault = model.id === defaultModel?.id;
+          const isSelected = isCurrent ? preferredModel === model.id : false;
+
+          return (
+            <Menu.Item
+              key={model.id}
+              onClick={() => {
+                if (isCurrent) {
+                  onSelectModel(model.id, model.label);
+                } else if (onSelectProviderModel) {
+                  onSelectProviderModel(optionProvider, model.id, model.label);
+                }
+                onOpenChange(false);
+              }}
+            >
+              <span className="min-w-0 flex-1 truncate">{model.label}</span>
+              {isDefault && (
+                <span className="rounded-sm bg-surface-hover px-1 py-px text-[0.625rem] text-muted">
+                  default
+                </span>
+              )}
+              {isSelected && <Check size={14} strokeWidth={2.5} className="shrink-0" />}
+            </Menu.Item>
+          );
+        })}
+      </>
+    );
+  };
 
   return (
     <Menu.Root open={open} onOpenChange={onOpenChange}>
@@ -71,11 +129,13 @@ export function ProviderModelPicker({
           const models = isCurrent
             ? currentProviderModels
             : (BUILTIN_PROVIDER_MODELS[option.provider] as ProviderModelOption[]);
-          const defaultModel = isCurrent
-            ? (models.find((model) => model.id === currentDefaultModelId) ??
-              models.find((model) => model.isDefault) ??
-              models[0])
-            : (models.find((model) => model.isDefault) ?? models[0]);
+          if (singleProvider) {
+            return (
+              <Fragment key={option.provider}>
+                {renderModelItems(option.provider, models, isCurrent)}
+              </Fragment>
+            );
+          }
 
           return (
             <Menu.Sub key={option.provider}>
@@ -86,51 +146,7 @@ export function ProviderModelPicker({
                 <ChevronRight size={14} strokeWidth={2} className="shrink-0 opacity-50" />
               </Menu.SubTrigger>
               <Menu.SubContent className="min-w-44">
-                {isCurrent && (
-                  <Menu.Item
-                    onClick={() => {
-                      onSelectModel(null, defaultModel?.label ?? "Default");
-                      onOpenChange(false);
-                    }}
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      Default{defaultModel ? ` (${defaultModel.label})` : ""}
-                    </span>
-                    {!preferredModel && <Check size={14} strokeWidth={2.5} className="shrink-0" />}
-                  </Menu.Item>
-                )}
-                {models.map((model) => {
-                  const isDefault = model.id === defaultModel?.id;
-                  // Picker reflects the user's *choice*: "Default" is checked
-                  // when no explicit model is selected; per-model items only
-                  // check when the user explicitly picked that model. The
-                  // toolbar and context panel show the actual running model
-                  // (which the "default" tag next to the catalog default
-                  // already communicates as "Default resolves to …").
-                  const isSelected = isCurrent ? preferredModel === model.id : false;
-
-                  return (
-                    <Menu.Item
-                      key={model.id}
-                      onClick={() => {
-                        if (isCurrent) {
-                          onSelectModel(model.id, model.label);
-                        } else if (onSelectProviderModel) {
-                          onSelectProviderModel(option.provider, model.id, model.label);
-                        }
-                        onOpenChange(false);
-                      }}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{model.label}</span>
-                      {isDefault && (
-                        <span className="rounded-sm bg-surface-hover px-1 py-px text-[0.625rem] text-muted">
-                          default
-                        </span>
-                      )}
-                      {isSelected && <Check size={14} strokeWidth={2.5} className="shrink-0" />}
-                    </Menu.Item>
-                  );
-                })}
+                {renderModelItems(option.provider, models, isCurrent)}
               </Menu.SubContent>
             </Menu.Sub>
           );

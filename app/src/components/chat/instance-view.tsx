@@ -16,17 +16,47 @@ import { useTerminalShortcut } from "@/hooks/use-terminal-shortcut";
 import { useVerticalResize } from "@/hooks/use-vertical-resize";
 import { createInstance, fetchInstanceHistory, fetchInstanceSummary } from "@/lib/api";
 import { getInstanceChatRoute, getInstanceProjectRouteId } from "@/lib/project-route";
+import {
+  buildReviewDraft,
+  buildReviewSendBackMessage,
+  getAttachedReviewInstance,
+  getAttachedReviewInstances,
+} from "@/lib/review-session";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
-import type { ServerMessage, ProviderKind, TerminalScope, UserInputAnswer } from "@shared/types";
+import { toast } from "sonner";
+import type {
+  FileChange,
+  ProviderModelOptions,
+  ProviderRuntimeMode,
+  ReviewSessionInfo,
+  ServerMessage,
+  ProviderKind,
+  TerminalScope,
+  UserInputAnswer,
+} from "@shared/types";
+
+function filesFingerprint(files: FileChange[] | null | undefined): string {
+  if (!files?.length) return "";
+  return files
+    .map((f) => `${f.path}:${f.type}:${f.editCount}`)
+    .sort()
+    .join("\n");
+}
 
 interface InstanceViewProps {
   /** Override the instance ID instead of reading from URL params. */
   instanceId?: string;
   /** Compact mode: hide header and sidecar (used in split view). */
   compact?: boolean;
+  /** Parent/source chat when rendering a review inside its sidecar. */
+  embeddedSourceChat?: { id: string; name: string };
 }
 
-export function InstanceView({ instanceId: propId, compact }: InstanceViewProps = {}) {
+export function InstanceView({
+  instanceId: propId,
+  compact,
+  embeddedSourceChat,
+}: InstanceViewProps = {}) {
   const { chatId: paramId } = useParams({ strict: false }) as {
     chatId?: string;
   };
@@ -73,13 +103,33 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     retry: 1,
   });
   const instance = liveInstance ?? summaryInstance ?? undefined;
-  const planChild = instance?.sessionId
-    ? instances.find((i) => i.parentSessionId === instance.sessionId)
+  const attachedReviews = instance ? getAttachedReviewInstances(instance, instances) : [];
+  const attachedReview = instance ? getAttachedReviewInstance(instance, instances) : null;
+  const [selectedReviewInstanceId, setSelectedReviewInstanceId] = useState<string | null>(null);
+  const activeReviewInstanceId = (() => {
+    if (
+      selectedReviewInstanceId &&
+      attachedReviews.some((review) => review.id === selectedReviewInstanceId)
+    ) {
+      return selectedReviewInstanceId;
+    }
+    return instance?.reviewInstanceId ?? attachedReview?.id ?? null;
+  })();
+  const resolvedInstance =
+    instance && activeReviewInstanceId && instance.reviewInstanceId !== activeReviewInstanceId
+      ? { ...instance, reviewInstanceId: activeReviewInstanceId }
+      : instance;
+  const planChild = resolvedInstance?.sessionId
+    ? instances.find((i) => i.parentSessionId === resolvedInstance.sessionId)
     : undefined;
+  const [creatingReview, setCreatingReview] = useState(false);
+  // Track file state at last send, keyed by review instance ID.
+  // "Re-review" shows only when source files have changed since the last send.
+  const [sentReviewSnapshots, setSentReviewSnapshots] = useState<Map<string, string>>(new Map());
 
   // Combine local message-driven state with server-side status so the cancel
   // button shows even on fresh navigation or WS reconnect to an active instance.
-  const isActive = isProcessing || instance?.status === "processing";
+  const isActive = isProcessing || resolvedInstance?.status === "processing";
 
   const markRead = useUnreadStore((s) => s.markRead);
 
@@ -100,6 +150,19 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     const timer = setTimeout(() => markRead(id), 1500);
     return () => clearTimeout(timer);
   }, [id, markRead]);
+
+  useEffect(() => {
+    setSelectedReviewInstanceId(null);
+  }, [id]);
+
+  useEffect(() => {
+    if (
+      selectedReviewInstanceId &&
+      !attachedReviews.some((review) => review.id === selectedReviewInstanceId)
+    ) {
+      setSelectedReviewInstanceId(null);
+    }
+  }, [attachedReviews, selectedReviewInstanceId]);
 
   // Subscribe/unsubscribe — re-runs on each new WS connection (connectionId)
   useEffect(() => {
@@ -126,7 +189,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       !isSyncing &&
       instances.length > 0 &&
       id &&
-      !instance &&
+      !resolvedInstance &&
       !isFetchingSummary &&
       hasFetchedSummary &&
       summaryInstance === null
@@ -137,7 +200,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     compact,
     hasFetchedSummary,
     id,
-    instance,
+    resolvedInstance,
     instances,
     isConnected,
     isFetchingSummary,
@@ -149,7 +212,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   // Slow links can take a while to finish the WS replay handshake. Fall back to
   // the passive REST history endpoint so the chat can render before WS catches up.
   useEffect(() => {
-    if (!id || !instance || hasLoadedHistory) return;
+    if (!id || !resolvedInstance || hasLoadedHistory) return;
     const timer = setTimeout(() => {
       void fetchInstanceHistory(id)
         .then((history) => {
@@ -160,7 +223,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
         });
     }, 1200);
     return () => clearTimeout(timer);
-  }, [hasLoadedHistory, hydrateFromHistorySnapshot, id, instance]);
+  }, [hasLoadedHistory, hydrateFromHistorySnapshot, id, resolvedInstance]);
 
   const handleSend = (text: string, images?: string[], internal?: boolean) => {
     if (!id) return;
@@ -197,24 +260,24 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     carryContext: boolean,
     model?: string | null,
   ): Promise<void> => {
-    if (!id || !instance || targetProvider === instance.provider) return;
+    if (!id || !resolvedInstance || targetProvider === resolvedInstance.provider) return;
 
     const nextInstance = await createInstance({
       provider: targetProvider,
-      name: instance.customTitle ? instance.name : undefined,
-      workingDirectory: instance.workingDirectory,
-      spaceId: instance.spaceId,
-      runtimeMode: instance.runtimeMode,
+      name: resolvedInstance.customTitle ? resolvedInstance.name : undefined,
+      workingDirectory: resolvedInstance.workingDirectory,
+      spaceId: resolvedInstance.spaceId,
+      runtimeMode: resolvedInstance.runtimeMode,
       model: model ?? undefined,
     });
 
     if (carryContext) {
       const history = await fetchInstanceHistory(id);
       const handoffPrompt = buildProviderSwitchHandoffPrompt({
-        sourceProvider: instance.provider,
+        sourceProvider: resolvedInstance.provider,
         targetProvider,
-        sourceName: instance.name,
-        workingDirectory: instance.workingDirectory,
+        sourceName: resolvedInstance.name,
+        workingDirectory: resolvedInstance.workingDirectory,
         history: history as Parameters<typeof buildProviderSwitchHandoffPrompt>[0]["history"],
         changedFiles: currentFiles,
       });
@@ -227,14 +290,64 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
 
     const nextRoute = getInstanceChatRoute({
       ...nextInstance,
-      projectId: nextInstance.projectId ?? instance.projectId,
-      originalDirectory: nextInstance.originalDirectory ?? instance.originalDirectory,
-      spaceId: nextInstance.spaceId ?? instance.spaceId,
+      projectId: nextInstance.projectId ?? resolvedInstance.projectId,
+      originalDirectory: nextInstance.originalDirectory ?? resolvedInstance.originalDirectory,
+      spaceId: nextInstance.spaceId ?? resolvedInstance.spaceId,
     });
 
     await navigate({
       ...nextRoute,
     });
+  };
+
+  const handleCreateReview = async (selection: {
+    scope: ReviewSessionInfo["scope"];
+    provider: ProviderKind;
+    model?: string;
+    modelOptions?: ProviderModelOptions;
+    runtimeMode?: ProviderRuntimeMode;
+  }): Promise<void> => {
+    if (!id || !instance) return;
+    setCreatingReview(true);
+    try {
+      const review: ReviewSessionInfo = {
+        sourceInstanceId: instance.id,
+        sourceSessionId: instance.sessionId,
+        sourceName: instance.name,
+        scope: selection.scope,
+        filePaths:
+          selection.scope === "session-files"
+            ? (currentFiles?.map((file) => file.path) ?? [])
+            : undefined,
+      };
+      const created = await createInstance({
+        provider: selection.provider,
+        name: `Review: ${instance.name}`,
+        workingDirectory: instance.workingDirectory,
+        spaceId: instance.spaceId,
+        runtimeMode: selection.runtimeMode,
+        model: selection.model,
+        modelOptions: selection.modelOptions,
+        parentSessionId: instance.sessionId,
+        review,
+      });
+      const draft = buildReviewDraft({
+        sourceName: instance.name,
+        review,
+        touchedFiles: currentFiles,
+      });
+      send({ type: "instance_message", instanceId: created.id, text: draft });
+      if (!isSidecarOpen || activeTab !== "review") {
+        selectTab("review");
+      }
+      if (isMobile) {
+        setSidecarMobileOpen(true);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create review");
+    } finally {
+      setCreatingReview(false);
+    }
   };
 
   // ── Terminal panel state ──────────────────────────────────────────
@@ -296,22 +409,24 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     connectionId,
     isActive,
     isSyncing,
-    isExternal: !!instance?.external,
-    isStopped: instance?.status === "stopped",
+    isExternal: !!resolvedInstance?.external,
+    isStopped: resolvedInstance?.status === "stopped",
     isLoadingSession: connectionId > 0 && !hasLoadedHistory,
     onContinue: handleTakeover,
     onRetry: reconnectNow,
   });
 
   const hasStats =
-    !!instance?.stats && (instance.stats.inputTokens > 0 || instance.stats.outputTokens > 0);
+    !!resolvedInstance?.stats &&
+    (resolvedInstance.stats.inputTokens > 0 || resolvedInstance.stats.outputTokens > 0);
   const tasksCount = currentTasks?.length ?? 0;
   const filesCount = currentFiles?.length ?? 0;
   const hasTasksContent = tasksCount > 0;
   const hasFilesContent = filesCount > 0;
-  const hasPlanContent = !!instance?.planContent;
-  const branchChangeKey = instance?.branchChanged
-    ? `${instance.branchChanged.originalBranch}->${instance.branchChanged.currentBranch}`
+  const hasPlanContent = !!resolvedInstance?.planContent;
+  const hasReviewContent = !!resolvedInstance?.reviewInstanceId || hasFilesContent;
+  const branchChangeKey = resolvedInstance?.branchChanged
+    ? `${resolvedInstance.branchChanged.originalBranch}->${resolvedInstance.branchChanged.currentBranch}`
     : null;
   const showBranchChangeBanner = !!branchChangeKey && dismissedBranchChangeKey !== branchChangeKey;
 
@@ -338,6 +453,7 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     hasTasksContent,
     hasFilesContent,
     hasPlanContent,
+    hasReviewContent,
     hasStats,
     contentLoading: connectionId > 0 && !hasLoadedHistory,
   });
@@ -397,13 +513,13 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   const handleApproveTool = (tool: string) => {
     if (!id) return;
     const pendingRequest =
-      instance?.pendingPermission && instance.pendingPermission.tool === tool
-        ? instance.pendingPermission
+      resolvedInstance?.pendingPermission && resolvedInstance.pendingPermission.tool === tool
+        ? resolvedInstance.pendingPermission
         : null;
     handleRespondToRequest(pendingRequest?.requestId ?? tool, tool);
   };
 
-  if (!instance) {
+  if (!resolvedInstance) {
     const showLoadingState =
       !id || connectionId === 0 || isSyncing || isFetchingSummary || !isConnected;
     if (showLoadingState) {
@@ -444,9 +560,9 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
   }
   const instanceId = id!;
 
-  const isStopped = instance.status === "stopped";
-  const pendingTerminalTool = instance.pendingTool ?? null;
-  const rawPermission = instance.pendingPermission ?? null;
+  const isStopped = resolvedInstance.status === "stopped";
+  const pendingTerminalTool = resolvedInstance.pendingTool ?? null;
+  const rawPermission = resolvedInstance.pendingPermission ?? null;
   const pendingPermissionTool = rawPermission
     ? typeof rawPermission === "string"
       ? rawPermission
@@ -470,16 +586,58 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
     rawPermission &&
     typeof rawPermission === "object" &&
     rawPermission.kind === "terminal_input" &&
-    (instance.status === "processing" || instance.providerStatus?.turnStatus === "inProgress")
+    (resolvedInstance.status === "processing" ||
+      resolvedInstance.providerStatus?.turnStatus === "inProgress")
       ? rawPermission
       : null;
   const isLoadingSession = connectionId > 0 && !hasLoadedHistory;
+  const handleSelectReview = (reviewInstanceId: string) => {
+    if (!resolvedInstance || resolvedInstance.reviewInstanceId === reviewInstanceId) return;
+    setSelectedReviewInstanceId(reviewInstanceId);
+    send({ type: "set_review_instance", instanceId: resolvedInstance.id, reviewInstanceId });
+  };
+  const handleSendReviewToChat = (reviewInstanceId: string) => {
+    if (!resolvedInstance) return;
+    const reviewInstance = instances.find((i) => i.id === reviewInstanceId);
+    if (
+      !reviewInstance?.lastMessage?.text?.trim() ||
+      reviewInstance.lastMessage.from !== "assistant"
+    ) {
+      toast.error("No review findings to send");
+      return;
+    }
+    const attributed = buildReviewSendBackMessage({
+      reviewName: reviewInstance.name,
+      sourceName: resolvedInstance.name,
+      message: reviewInstance.lastMessage.text,
+    });
+    send({ type: "instance_message", instanceId: resolvedInstance.id, text: attributed });
+    setSentReviewSnapshots((prev) =>
+      new Map(prev).set(reviewInstanceId, filesFingerprint(currentFiles)),
+    );
+    toast.success("Review findings sent to chat");
+  };
+
+  const handleReReview = (reviewInstanceId: string) => {
+    setSentReviewSnapshots((prev) => {
+      const next = new Map(prev);
+      next.delete(reviewInstanceId);
+      return next;
+    });
+    send({
+      type: "instance_message",
+      instanceId: reviewInstanceId,
+      text: "Run another review pass. Re-examine the current state of all files for new issues, resolved issues, and any regressions.",
+    });
+  };
 
   const contextValue = {
     shared: {
       id: instanceId,
       compact: !!compact,
-      instance,
+      instance: resolvedInstance,
+      embeddedSourceChat,
+      attachedReviews,
       planChild,
       items,
       rawHistory,
@@ -539,11 +697,11 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       navigateAfterDelete: () =>
         navigate({
           to: "/projects/$projectId/chats",
-          params: { projectId: getInstanceProjectRouteId(instance) },
+          params: { projectId: getInstanceProjectRouteId(resolvedInstance) },
         }),
-      sendRemoveInstance: () => send({ type: "remove_instance", instanceId: instance.id }),
+      sendRemoveInstance: () => send({ type: "remove_instance", instanceId: resolvedInstance.id }),
       handleRename: (name: string) =>
-        send({ type: "rename_instance", instanceId: instance.id, name }),
+        send({ type: "rename_instance", instanceId: resolvedInstance.id, name }),
       handleSend,
       handleAnswerUserInput,
       handleTakeover,
@@ -559,6 +717,16 @@ export function InstanceView({ instanceId: propId, compact }: InstanceViewProps 
       closeSidecar,
       setSidecarMobileOpen,
       handleToggleTerminal,
+      handleCreateReview,
+      isCreatingReview: creatingReview,
+      handleSelectReview,
+      handleSendReviewToChat,
+      handleReReview,
+      showReReview: !!(
+        activeReviewInstanceId &&
+        sentReviewSnapshots.has(activeReviewInstanceId) &&
+        sentReviewSnapshots.get(activeReviewInstanceId) !== filesFingerprint(currentFiles)
+      ),
       expandTerminalPanel: () => expandTerminalPanel(),
       handleTerminalResizeStart,
       handleResizeStart,

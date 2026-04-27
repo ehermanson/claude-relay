@@ -444,19 +444,6 @@
       "updatedAt": "2026-03-09T19:39:20.725417-04:00"
     },
     {
-      "id": "bfea4e35",
-      "title": "Show open/closed PRs for a project",
-      "description": "Add a Pull Requests view for repos with a GitHub link. Fetch PRs via gh pr list --json (open + recently merged/closed). Display as a new sub-nav tab or section on the project overview. Show PR status (open/merged/closed), title, author, review state, CI status. Link each PR to its GitHub URL. Only show for projects with a GitHub repo link in ~/.claude.json.",
-      "status": "open",
-      "priority": 2,
-      "type": "task",
-      "tags": [],
-      "parent": null,
-      "blockedBy": [],
-      "createdAt": "2026-02-19T22:23:27.61661-05:00",
-      "updatedAt": "2026-02-19T22:23:27.61661-05:00"
-    },
-    {
       "id": "d7604e4e",
       "title": "Interactive plan document review UI",
       "description": "Add an interactive review UI for **proposed plans** from the model — not finalized plans in the /plans route. When a model proposes a plan (e.g. via EnterPlanMode or a plan-formatted response), the plan should render as a rich in-chat UI (similar to how AskUserQuestion renders a custom card) with inline review capabilities.\n\n## UX Flow\n\n1. Model proposes a plan → renders as a custom card/component in the chat message flow (not a plain markdown block)\n2. User can select text passages within the rendered plan and add inline comments — each comment is anchored to a specific selection\n3. Comments accumulate visually (inline highlights + a comment list), each showing the quoted text + the user's note\n4. User can edit/delete comments before submitting\n5. On submit, all comments are combined into a single structured message (quoted selections + comments) and sent back to the model\n6. Model responds with an updated plan and/or answers to questions\n7. Could also support simple approve/reject without comments (like the existing permission banner pattern)\n\n## Display Options\n\n- **In-chat card**: Rich plan component inline in the message flow, similar to the AskUserQuestion UI or agent transcript cards. Comments appear as annotations on the card itself.\n- **Wide drawer**: If the plan is long, could open in a side drawer (like the diff drawer pattern) for more reading room. Comments in a margin or overlay.\n- Either way, this is part of the chat experience, not the /plans route.\n\n## Implementation Considerations\n\n- Proposed plans come through as assistant messages — need to detect plan-formatted content (ExitPlanMode tool use, or plan file content in the message)\n- Text selection + anchoring: need to track selection ranges within rendered markdown\n- Comment format sent to model: something like `> [quoted text]\\n\\nComment: [user note]` repeated for each comment\n- Look at existing custom in-chat UIs for patterns: `AgentTranscript`, `AskUserQuestion` rendering in `claude-message.tsx`, permission banner\n- The plan file at `~/.claude/plans/{slug}.md` is the source of truth — model updates it, we re-read\n- Mobile: text selection is harder on touch, may need a simpler comment-only mode without selection anchoring",
@@ -1367,19 +1354,6 @@
       "updatedAt": "2026-03-20T13:23:10Z"
     },
     {
-      "id": "81c0fb78",
-      "title": "Investigate provider-agnostic session instructions in Relay",
-      "description": "Explore a Relay-level session-instructions mechanism that can carry hidden, durable guidance separately from user chat turns. The design should stay provider/model agnostic across Claude, Codex, and future providers, define how instructions flow through the provider runtime contract, and identify fallback behavior for providers that do not expose a true hidden-instructions channel. Include tradeoffs, transcript/replay implications, and migration ideas from the current first-turn prompt-prepend approach.",
-      "status": "open",
-      "priority": 2,
-      "type": "task",
-      "tags": ["architecture", "providers", "prompting"],
-      "parent": null,
-      "blockedBy": [],
-      "createdAt": "2026-03-20T13:26:00Z",
-      "updatedAt": "2026-03-20T13:26:00Z"
-    },
-    {
       "id": "4116e4de",
       "title": "Harden project init against missing git identity",
       "description": "Add regression coverage for project initialization in core/http flows and make repo creation succeed even when global git user.name/user.email are unavailable. Verify builds/tests and update docs if needed.",
@@ -1461,14 +1435,14 @@
       "id": "d35e610e",
       "title": "Smart Spaces — shared context, cross-chat coordination, and handoff",
       "description": "Evolve Spaces from isolated worktree containers into collaborative workspaces where chats share context, can be launched from contextual actions, and can pass information between each other. The goal is to make a Space feel like a coordinated team rather than a collection of independent chats that happen to share a branch.",
-      "status": "open",
+      "status": "done",
       "priority": 1,
       "type": "epic",
       "tags": ["spaces", "ux"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-03-27T12:00:00.000Z",
-      "updatedAt": "2026-03-27T12:00:00.000Z"
+      "updatedAt": "2026-04-27T12:00:00Z"
     },
     {
       "id": "810e24c6",
@@ -1495,19 +1469,6 @@
       "blockedBy": [],
       "createdAt": "2026-03-27T12:00:00.000Z",
       "updatedAt": "2026-04-02T20:43:00.614Z"
-    },
-    {
-      "id": "7bc8ea70",
-      "title": "Plan-to-parallel-chats orchestration",
-      "description": "Allow a user to take an implementation plan and fan it out into multiple parallel chats within a space, each working on a portion of the plan. The user creates a plan (or has an agent create one), then says something like \"execute this in parallel\" and Relay spawns N chats, each seeded with its slice of the work.\n\n**Proposed design:**\n- After a plan is created/accepted in a chat, surface an \"Execute in parallel\" action\n- Relay (or the originating agent) decomposes the plan into independent work items — each becomes the seed prompt for a new chat\n- New chats are created in the same space (same worktree/branch), each receiving: the full space brief for context + their specific work item as the primary instruction\n- The UI shows all spawned chats as tabs in the space view, running simultaneously\n- Optionally: a coordination view that shows progress across all spawned chats\n\n**File conflicts:** Trust the plan decomposition — if the plan is split into genuinely independent units, agents should be touching different files. This is an acceptable tradeoff for v1; structured file locking or sub-worktrees can come later if real-world usage shows conflicts are common.\n\n**Simpler v0 path:** User manually picks which plan items to fan out, rather than automatic decomposition. Ship lay4sc.1 and lay4sc.2 first to learn from real usage patterns before building full orchestration.",
-      "status": "open",
-      "priority": 3,
-      "type": "task",
-      "tags": ["spaces", "orchestration"],
-      "parent": "d35e610e",
-      "blockedBy": ["810e24c6"],
-      "createdAt": "2026-03-27T12:00:00.000Z",
-      "updatedAt": "2026-03-27T16:00:00.000Z"
     },
     {
       "id": "95da848f",
@@ -1708,14 +1669,14 @@
       "id": "8092b659",
       "title": "Add branching flows from an active chat",
       "description": "Add UI actions that let the user branch from the current chat into a new work stream without manual copy-paste. Examples include spinning up a new chat from an idea discussed in the current thread, creating a review/test/follow-up chat from the current context, or creating a new space seeded with context from the current chat. Scope should define the user-facing entry points, what context gets carried forward, how much is auto-injected vs editable, and how these branch actions relate to existing spaces and provider handoff behavior.",
-      "status": "in_progress",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["ux", "chats", "spaces", "workflow"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-04-11T16:37:00-04:00",
-      "updatedAt": "2026-04-14T19:45:38.291Z"
+      "updatedAt": "2026-04-27T12:00:00Z"
     },
     {
       "id": "1f5b0cd2",
@@ -1844,14 +1805,14 @@
       "id": "c3a7e910",
       "title": "Customizable suggestion actions",
       "description": "Phase 1 (core behavior) and Phase 2 (settings MVP) implemented. Follow-up review fixes landed for project/global layering in settings UI and immediate suggestion-card refresh after settings saves. Phase 3 (prompt editing) deferred.",
-      "status": "in_progress",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["ux", "spaces", "settings", "actions", "composer"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-04-13T18:30:00Z",
-      "updatedAt": "2026-04-14T22:30:38Z"
+      "updatedAt": "2026-04-27T12:00:00Z"
     },
     {
       "id": "2f6a8c1b",

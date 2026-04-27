@@ -7,7 +7,10 @@ import type {
   HistoryEntry,
   InstanceInfo,
   ProviderKind,
+  ProviderModelOptions,
   ProviderRequest,
+  ProviderRuntimeMode,
+  ReviewSessionInfo,
   TaskItem,
   TerminalScope,
   UserInputAnswer,
@@ -25,6 +28,8 @@ export type InstanceViewContextValue = {
     id: string;
     compact: boolean;
     instance: InstanceInfo;
+    embeddedSourceChat?: { id: string; name: string };
+    attachedReviews: InstanceInfo[];
     planChild?: InstanceInfo;
     items: ChatItem[];
     rawHistory: HistoryEntry[] | null;
@@ -111,6 +116,18 @@ export type InstanceViewContextValue = {
     closeSidecar: () => void;
     setSidecarMobileOpen: (open: boolean) => void;
     handleToggleTerminal: () => void;
+    handleCreateReview: (selection: {
+      scope: ReviewSessionInfo["scope"];
+      provider: ProviderKind;
+      model?: string;
+      modelOptions?: ProviderModelOptions;
+      runtimeMode?: ProviderRuntimeMode;
+    }) => Promise<void>;
+    isCreatingReview: boolean;
+    handleSelectReview: (reviewInstanceId: string) => void;
+    handleSendReviewToChat: (reviewInstanceId: string) => void;
+    handleReReview: (reviewInstanceId: string) => void;
+    showReReview: boolean;
     expandTerminalPanel: () => void;
     handleTerminalResizeStart: (e: MouseEvent) => void;
     handleResizeStart: (e: MouseEvent) => void;

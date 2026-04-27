@@ -12,6 +12,7 @@ const TAB_LABELS: Record<SidecarTab, string> = {
   plan: "Plan",
   context: "Context",
   brief: "Brief",
+  review: "Review",
 };
 
 export function SpaceSidebar({

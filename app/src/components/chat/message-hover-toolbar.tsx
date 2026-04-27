@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Copy, Check, Send, GitBranchPlus } from "lucide-react";
+import { Copy, Check, Send, GitBranchPlus, Reply } from "lucide-react";
 import { Menu } from "@/components/ui/menu";
 import { useMessageRelay } from "@/components/chat/message-relay-context";
 import { toast } from "sonner";
 
 type ToolbarPosition = "top" | "bottom";
+type TooltipAlign = "start" | "center" | "end";
 
 interface MessageHoverToolbarProps {
   text: string;
@@ -13,11 +14,28 @@ interface MessageHoverToolbarProps {
   anchorIndex?: number;
 }
 
-function ToolbarIconTooltip({ content, visible }: { content: string; visible: boolean }) {
+function ToolbarIconTooltip({
+  content,
+  visible,
+  align = "center",
+}: {
+  content: string;
+  visible: boolean;
+  align?: TooltipAlign;
+}) {
   if (!visible) return null;
 
+  const alignClasses =
+    align === "start"
+      ? "left-0 translate-x-0"
+      : align === "end"
+        ? "right-0 translate-x-0"
+        : "left-1/2 -translate-x-1/2";
+
   return (
-    <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-surface px-2 py-1 text-[0.6875rem] leading-none text-text shadow-sm">
+    <div
+      className={`pointer-events-none absolute bottom-full z-20 mb-2 max-w-[min(18rem,calc(100vw-1rem))] whitespace-nowrap rounded-md border border-border bg-surface px-2 py-1 text-[0.6875rem] leading-none text-text shadow-sm ${alignClasses}`}
+    >
       {content}
     </div>
   );
@@ -31,7 +49,9 @@ export function MessageHoverToolbar({
 }: MessageHoverToolbarProps) {
   const relay = useMessageRelay();
   const [copied, setCopied] = useState(false);
-  const [hoveredIcon, setHoveredIcon] = useState<"copy" | "spin-off" | "send" | null>(null);
+  const [hoveredIcon, setHoveredIcon] = useState<"copy" | "spin-off" | "send" | "source" | null>(
+    null,
+  );
 
   if (!visible) return null;
 
@@ -58,7 +78,11 @@ export function MessageHoverToolbar({
       className={`${positionClasses} flex items-center gap-0.5 rounded-md border border-border bg-surface px-0.5 py-0.5 shadow-sm`}
     >
       <div className="relative">
-        <ToolbarIconTooltip content={copied ? "Copied" : "Copy"} visible={hoveredIcon === "copy"} />
+        <ToolbarIconTooltip
+          content={copied ? "Copied" : "Copy"}
+          visible={hoveredIcon === "copy"}
+          align="start"
+        />
         <button
           onClick={handleCopy}
           onMouseEnter={() => setHoveredIcon("copy")}
@@ -74,28 +98,59 @@ export function MessageHoverToolbar({
 
       {relay && (
         <>
-          <div className="relative">
-            <ToolbarIconTooltip
-              content="Spin off to new chat"
-              visible={hoveredIcon === "spin-off"}
-            />
-            <button
-              onClick={() => relay.onSpinOff({ anchorIndex })}
-              onMouseEnter={() => setHoveredIcon("spin-off")}
-              onMouseLeave={() => setHoveredIcon(null)}
-              onFocus={() => setHoveredIcon("spin-off")}
-              onBlur={() => setHoveredIcon(null)}
-              className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text"
-              aria-label="Spin off to new chat"
-            >
-              <GitBranchPlus size={12} />
-            </button>
-          </div>
+          {relay.allowSpinOff !== false && (
+            <div className="relative">
+              <ToolbarIconTooltip
+                content="Spin off to new chat"
+                visible={hoveredIcon === "spin-off"}
+                align="center"
+              />
+              <button
+                onClick={() => relay.onSpinOff({ anchorIndex })}
+                onMouseEnter={() => setHoveredIcon("spin-off")}
+                onMouseLeave={() => setHoveredIcon(null)}
+                onFocus={() => setHoveredIcon("spin-off")}
+                onBlur={() => setHoveredIcon(null)}
+                className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                aria-label="Spin off to new chat"
+              >
+                <GitBranchPlus size={12} />
+              </button>
+            </div>
+          )}
+
+          {relay.sourceChat && relay.onSendToSourceChat && (
+            <div className="relative">
+              <ToolbarIconTooltip
+                content={`Send to ${relay.sourceChat.name}`}
+                visible={hoveredIcon === "source"}
+                align="end"
+              />
+              <button
+                onClick={() => {
+                  relay.onSendToSourceChat?.(text);
+                  toast.success(`Sent to "${relay.sourceChat?.name}"`);
+                }}
+                onMouseEnter={() => setHoveredIcon("source")}
+                onMouseLeave={() => setHoveredIcon(null)}
+                onFocus={() => setHoveredIcon("source")}
+                onBlur={() => setHoveredIcon(null)}
+                className="rounded p-1 text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                aria-label={`Send to ${relay.sourceChat.name}`}
+              >
+                <Reply size={12} />
+              </button>
+            </div>
+          )}
 
           {showSendMenu && (
             <Menu.Root>
               <div className="relative">
-                <ToolbarIconTooltip content="Send to chat" visible={hoveredIcon === "send"} />
+                <ToolbarIconTooltip
+                  content="Send to chat"
+                  visible={hoveredIcon === "send"}
+                  align="end"
+                />
                 <Menu.Trigger
                   onMouseEnter={() => setHoveredIcon("send")}
                   onMouseLeave={() => setHoveredIcon(null)}

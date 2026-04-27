@@ -1,4 +1,5 @@
 import type { InstanceInfo, Project } from "@shared/types";
+import { isAttachedReviewInstance } from "@/lib/review-session";
 import { getChatRecencyTimestamp } from "@/lib/utils";
 
 function getInstanceProjectDirectory(
@@ -21,6 +22,7 @@ export function groupInstancesByProject(
   const groupMap = new Map<string, InstanceInfo[]>();
 
   for (const instance of instances) {
+    if (isAttachedReviewInstance(instance)) continue;
     const dir = getInstanceProjectDirectory(instance, projectById);
     if (registeredDirs.size > 0 && !registeredDirs.has(dir)) {
       continue;

@@ -14,6 +14,7 @@ import { useActionToasts } from "@/context/action-toast-context";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { fetchProjectChats, fetchAllSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
+import { isAttachedReviewInstance } from "@/lib/review-session";
 import { isSpaceOwnedInstance } from "@/lib/space-membership";
 import {
   deriveInstanceStatusPresentation,
@@ -114,9 +115,7 @@ function SessionCard({
       {/* Timestamps column */}
       <div className="hidden shrink-0 text-right sm:block">
         {recencyAt > 0 && (
-          <div className="text-[0.6875rem] text-muted">
-            {formatTimeAgo(recencyAt)}
-          </div>
+          <div className="text-[0.6875rem] text-muted">{formatTimeAgo(recencyAt)}</div>
         )}
         {instance.createdAt > 0 && (
           <div className="text-[0.625rem] text-muted opacity-60">
@@ -181,7 +180,7 @@ export function ChatsPage() {
     (a, b) => getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a),
   );
   const standaloneInstances = projectInstances.filter(
-    (inst) => !isSpaceOwnedInstance(inst, spaces),
+    (inst) => !isSpaceOwnedInstance(inst, spaces) && !isAttachedReviewInstance(inst),
   );
 
   // Build a lookup for parent session names

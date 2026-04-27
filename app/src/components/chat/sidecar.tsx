@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useMemo, useState, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { Progress } from "../ui/progress";
 import { Spinner } from "../ui/spinner";
@@ -144,6 +144,7 @@ const TAB_LABELS: Record<SidecarTab, string> = {
   plan: "Plan",
   context: "Context",
   brief: "Brief",
+  review: "Review",
 };
 
 interface SidecarProps {
@@ -166,6 +167,7 @@ interface SidecarProps {
   /** Called when a tab is clicked (only relevant when tabs.length > 1). */
   onSelectTab?: (tab: SidecarTab) => void;
   /** Called when the close (X) button is clicked. */
+  reviewContent?: ReactNode;
   onClose?: () => void;
   isMobileOverlay?: boolean;
 }
@@ -195,6 +197,7 @@ export const Sidecar = memo(
     tabs,
     activeTab,
     onSelectTab,
+    reviewContent,
     onClose,
     isMobileOverlay,
   }: SidecarProps) {
@@ -202,6 +205,7 @@ export const Sidecar = memo(
     const hasFiles = files && files.length > 0;
     const hasPlan = !!planContent;
     const hasStats = !!stats && (stats.inputTokens > 0 || stats.outputTokens > 0);
+    const hasReview = !!reviewContent;
     const hasProviderContext = Boolean(
       providerStatus?.threadStatus ||
       providerStatus?.turnStatus ||
@@ -255,6 +259,9 @@ export const Sidecar = memo(
             lastActivityAt={lastActivityAt ?? Date.now()}
           />
         );
+      if (key === "review" && hasReview) {
+        return <div className="min-h-0 flex-1 overflow-hidden">{reviewContent}</div>;
+      }
       return null;
     };
 
@@ -312,6 +319,7 @@ export const Sidecar = memo(
       prev.providerStatus === next.providerStatus &&
       prev.providerGlobalState === next.providerGlobalState &&
       prev.planContent === next.planContent &&
+      prev.reviewContent === next.reviewContent &&
       prev.onSelectTab === next.onSelectTab &&
       prev.onClose === next.onClose &&
       sameTasks(prev.tasks, next.tasks) &&

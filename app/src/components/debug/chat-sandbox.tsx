@@ -1282,6 +1282,7 @@ export function ChatSandbox() {
             tasksCount={0}
             filesCount={0}
             hasPlanContent={!!instance.planContent}
+            hasReviewContent={!!instance.reviewInstanceId}
             hasStats={!!instance.stats}
             sidecarContentCount={0}
             onSelectTab={() => {}}

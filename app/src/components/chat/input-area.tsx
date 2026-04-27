@@ -74,6 +74,8 @@ interface InputAreaProps {
   onPendingDraftApplied?: () => void;
   /** Notifies the parent when the composer transitions between empty and non-empty. */
   onDraftChange?: (hasContent: boolean) => void;
+  /** Render a narrower review-focused composer with fewer general-purpose controls. */
+  mode?: "default" | "review";
 }
 
 interface OptimisticProviderSelection {
@@ -193,6 +195,7 @@ export function InputArea({
   pendingDraft,
   onPendingDraftApplied,
   onDraftChange,
+  mode = "default",
 }: InputAreaProps) {
   const composerRef = useRef<ComposerEditorHandle>(null);
   const composerContainerRef = useRef<HTMLDivElement>(null);
@@ -521,6 +524,8 @@ export function InputArea({
   };
 
   const isInSpecialMode = hasPendingPrompt || hasPendingPlan;
+  const isReviewMode = mode === "review";
+  const composerSupportsModelSelection = supportsModelSelection && !isReviewMode;
 
   const applySlashAction = (action: () => void) => {
     action();
@@ -542,7 +547,7 @@ export function InputArea({
     preferredModel: displayedPreferredModel,
     modelLabel,
     reasoningEffortLevels: effectiveCapabilities.reasoningEffortLevels,
-    supportsModelSelection,
+    supportsModelSelection: composerSupportsModelSelection,
     supportsReasoningEffort,
     currentReasoningEffort: modelOptions?.reasoningEffort,
     modelOptions: currentModelOptions,
@@ -650,6 +655,9 @@ export function InputArea({
         ? "Send feedback (Enter)"
         : "Approve plan (Enter)"
       : undefined;
+  const providerPickerProviders = isReviewMode
+    ? visibleProviders.filter((entry) => entry.provider === displayedProvider)
+    : visibleProviders;
 
   const toolbarControls = [
     supportsModelSelection ? (
@@ -660,7 +668,7 @@ export function InputArea({
         isProcessing={isProcessing}
         provider={displayedProvider}
         preferredModel={displayedPreferredModel}
-        availableProviders={visibleProviders}
+        availableProviders={providerPickerProviders}
         currentProviderModels={currentProviderModels}
         currentDefaultModelId={defaultModel?.id}
         modelLabel={modelLabel}
@@ -709,6 +717,26 @@ export function InputArea({
       />
     ) : null,
   ];
+  const reviewToolbarControls = [
+    supportsReasoningEffort && effectiveCapabilities.reasoningEffortLevels ? (
+      <ReasoningEffortPicker
+        key="effort-picker"
+        isProcessing={isProcessing}
+        reasoningEffort={modelOptions?.reasoningEffort}
+        levels={effectiveCapabilities.reasoningEffortLevels}
+        onSelectEffort={setReasoningEffort}
+      />
+    ) : null,
+    supportsFastMode && effectiveCapabilities.fastModes ? (
+      <FastModeToggle
+        key="fast-mode-toggle"
+        isProcessing={isProcessing}
+        fastMode={modelOptions?.fastMode}
+        modes={effectiveCapabilities.fastModes}
+        onToggle={setFastMode}
+      />
+    ) : null,
+  ].filter(Boolean);
 
   const overflowSections: OverflowSection[] = [
     ...(supportsReasoningEffort && effectiveCapabilities.reasoningEffortLevels
@@ -765,6 +793,46 @@ export function InputArea({
                   },
                 };
               }),
+          },
+        ]
+      : []),
+  ];
+  const reviewOverflowSections: OverflowSection[] = [
+    ...(supportsReasoningEffort && effectiveCapabilities.reasoningEffortLevels
+      ? [
+          {
+            label: "Effort",
+            options: [
+              {
+                label: "Default",
+                selected: !modelOptions?.reasoningEffort,
+                onSelect: () => setReasoningEffort(null),
+              },
+              ...effectiveCapabilities.reasoningEffortLevels.map((level) => ({
+                label: level.label,
+                selected: modelOptions?.reasoningEffort === level.effort,
+                onSelect: () => setReasoningEffort(level.effort),
+              })),
+            ],
+          },
+        ]
+      : []),
+    ...(supportsFastMode && effectiveCapabilities.fastModes
+      ? [
+          {
+            label: "Fast Mode",
+            options: [
+              {
+                label: effectiveCapabilities.fastModes.off.label,
+                selected: !modelOptions?.fastMode,
+                onSelect: () => setFastMode(false),
+              },
+              {
+                label: effectiveCapabilities.fastModes.on.label,
+                selected: !!modelOptions?.fastMode,
+                onSelect: () => setFastMode(true),
+              },
+            ],
           },
         ]
       : []),
@@ -870,8 +938,12 @@ export function InputArea({
                   isMobile={isMobile}
                   disabled={disabled}
                   showAttachButton={!isInSpecialMode}
-                  controls={isInSpecialMode ? [] : toolbarControls}
-                  overflowSections={isInSpecialMode ? [] : overflowSections}
+                  controls={
+                    isInSpecialMode ? [] : isReviewMode ? reviewToolbarControls : toolbarControls
+                  }
+                  overflowSections={
+                    isInSpecialMode ? [] : isReviewMode ? reviewOverflowSections : overflowSections
+                  }
                   isProcessing={isInSpecialMode ? false : isProcessing}
                   onCancel={onCancel}
                   onAttachImage={() => fileInputRef.current?.click()}

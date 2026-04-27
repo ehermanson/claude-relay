@@ -1,5 +1,6 @@
 import type {
   ProviderContextBlock,
+  ReviewSessionInfo,
   ProviderSessionBootstrap,
   ProviderSessionContext,
 } from "#core/types.js";
@@ -73,6 +74,30 @@ export function getSessionContextFromRuntimePayload(
   const value = runtimePayload?.sessionContext;
   if (!value || typeof value !== "object") return undefined;
   return value as ProviderSessionContext;
+}
+
+export function getReviewSessionFromRuntimePayload(
+  runtimePayload: Record<string, unknown> | undefined,
+): ReviewSessionInfo | undefined {
+  const value = runtimePayload?.review;
+  if (!value || typeof value !== "object") return undefined;
+  const review = value as ReviewSessionInfo;
+  if (!review.sourceName || (review.scope !== "session-files" && review.scope !== "branch")) {
+    return undefined;
+  }
+  return {
+    ...review,
+    filePaths: Array.isArray(review.filePaths)
+      ? review.filePaths.filter((path): path is string => typeof path === "string")
+      : undefined,
+  };
+}
+
+export function getReviewInstanceIdFromRuntimePayload(
+  runtimePayload: Record<string, unknown> | undefined,
+): string | undefined {
+  const value = runtimePayload?.reviewInstanceId;
+  return typeof value === "string" && value ? value : undefined;
 }
 
 export function hasSessionBootstrapBlock(

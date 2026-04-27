@@ -482,6 +482,8 @@ export function createWebSocketServer(
                 model: message.model,
                 spaceId: message.spaceId,
                 modelOptions: message.modelOptions,
+                parentSessionId: message.parentSessionId,
+                review: message.review,
               });
             } catch (err) {
               sendMessage(ws, {
@@ -726,6 +728,11 @@ export function createWebSocketServer(
 
           case "set_provider": {
             await instanceManager.setProvider(message.instanceId, message.provider);
+            break;
+          }
+
+          case "set_review_instance": {
+            await instanceManager.setReviewInstance(message.instanceId, message.reviewInstanceId);
             break;
           }
 

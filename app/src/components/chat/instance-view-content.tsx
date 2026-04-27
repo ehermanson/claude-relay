@@ -30,6 +30,7 @@ import { createSpinOff, createInstance, markSpinOffSent } from "@/lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
 import { getProjectName } from "@/lib/project-route";
+import { buildReviewSendBackMessage, getReviewSourceInstance } from "@/lib/review-session";
 import { ArrowRightFromLine, X } from "lucide-react";
 import type { SpinOffPacket } from "@shared/types";
 import { fetchProjectSuggestions, fetchInstanceGitStatus } from "@/lib/api";
@@ -193,6 +194,29 @@ function SpinOffSourceBar({ meta, onClear }: { meta: SpinOffMeta | null; onClear
   );
 }
 
+function ReviewSourceBar({
+  sourceName,
+  scope,
+  fileCount,
+}: {
+  sourceName: string;
+  scope: "session-files" | "branch";
+  fileCount: number;
+}) {
+  return (
+    <div className="flex items-center gap-2 border-b border-warning/20 bg-warning/5 px-3 py-1.5">
+      <ArrowRightFromLine size={12} className="shrink-0 text-warning" />
+      <span className="flex-1 truncate text-[0.75rem] text-warning">
+        Reviewing{" "}
+        {scope === "session-files"
+          ? `${fileCount} touched file${fileCount === 1 ? "" : "s"}`
+          : "whole branch/worktree"}{" "}
+        from {sourceName}
+      </span>
+    </div>
+  );
+}
+
 function EmptyChatState({ projectName }: { projectName: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 max-[768px]:py-6">
@@ -331,6 +355,10 @@ export function InstanceViewContent() {
   const [inlineReplyFragments, setInlineReplyFragments] = useState<InlineReplyFragment[]>(() =>
     loadInlineReplyFragments(shared.id),
   );
+  const reviewSource = shared.instance.review
+    ? getReviewSourceInstance(shared.instance, allInstances)
+    : null;
+  const isReviewMode = !!shared.instance.review || !!shared.embeddedSourceChat;
 
   useEffect(() => {
     setSpinOffMeta(loadSpinOffMeta(shared.id));
@@ -507,11 +535,18 @@ export function InstanceViewContent() {
   const clearPendingDraft = useCallback(() => setPendingDraft(null), []);
 
   const relayValue = useMemo(() => {
-    const siblings = spaceId
-      ? allInstances
-          .filter((inst) => inst.spaceId === spaceId && inst.id !== instanceId)
-          .map((inst) => ({ id: inst.id, name: inst.name, status: inst.status }))
-      : [];
+    const embeddedSourceChat = shared.embeddedSourceChat;
+    const relaySource =
+      embeddedSourceChat ??
+      (reviewSource ? { id: reviewSource.id, name: reviewSource.name } : undefined);
+    const siblings =
+      isReviewMode || embeddedSourceChat
+        ? []
+        : spaceId
+          ? allInstances
+              .filter((inst) => inst.spaceId === spaceId && inst.id !== instanceId)
+              .map((inst) => ({ id: inst.id, name: inst.name, status: inst.status }))
+          : [];
 
     return {
       siblings,
@@ -523,6 +558,7 @@ export function InstanceViewContent() {
         send({ type: "instance_message", instanceId: targetId, text: attributed });
       },
       onSendToNewChat: (messageText: string) => {
+        if (isReviewMode || embeddedSourceChat) return;
         const sourceChat = allInstances.find((inst) => inst.id === instanceId);
         const sourceName = sourceChat?.name || "Unknown";
         const attributed = `[From: ${sourceName}] ${messageText}`;
@@ -534,7 +570,20 @@ export function InstanceViewContent() {
           );
         }
       },
+      sourceChat: relaySource,
+      onSendToSourceChat: relaySource
+        ? (messageText: string) => {
+            const attributed = buildReviewSendBackMessage({
+              reviewName: shared.instance.name,
+              sourceName: relaySource.name,
+              message: messageText,
+            });
+            send({ type: "instance_message", instanceId: relaySource.id, text: attributed });
+          }
+        : undefined,
+      allowSpinOff: !isReviewMode && !embeddedSourceChat,
       onSpinOff: (request?: SpinOffRequest) => {
+        if (isReviewMode || embeddedSourceChat) return;
         setSpinOffDialogState(request ?? {});
         setSpinOffDialogOpen(true);
       },
@@ -551,7 +600,16 @@ export function InstanceViewContent() {
         });
       },
     };
-  }, [spaceId, instanceId, allInstances, send]);
+  }, [
+    spaceId,
+    instanceId,
+    allInstances,
+    isReviewMode,
+    reviewSource,
+    send,
+    shared.instance.name,
+    shared.embeddedSourceChat,
+  ]);
 
   const loadingContent = (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
@@ -582,16 +640,19 @@ export function InstanceViewContent() {
         // (shrink-0, below) always stays on screen even on short viewports.
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <EmptyChatState projectName={getProjectName(shared.instance.workingDirectory)} />
-          {!shared.instance.external && filteredSuggestions && filteredSuggestions.length > 0 && (
-            <div className="mx-auto w-full max-w-3xl shrink-0 px-6 pb-2 max-[768px]:px-3">
-              <SuggestionCards
-                suggestions={filteredSuggestions}
-                onSelect={setPendingDraft}
-                settingsHref="/settings/suggestions"
-                dimmed={composerHasContent}
-              />
-            </div>
-          )}
+          {!shared.instance.external &&
+            !isReviewMode &&
+            filteredSuggestions &&
+            filteredSuggestions.length > 0 && (
+              <div className="mx-auto w-full max-w-3xl shrink-0 px-6 pb-2 max-[768px]:px-3">
+                <SuggestionCards
+                  suggestions={filteredSuggestions}
+                  onSelect={setPendingDraft}
+                  settingsHref="/settings/suggestions"
+                  dimmed={composerHasContent}
+                />
+              </div>
+            )}
         </div>
       ) : (
         <ErrorBoundary name="Message list">
@@ -729,8 +790,16 @@ export function InstanceViewContent() {
               pendingDraft={pendingDraft}
               onPendingDraftApplied={clearPendingDraft}
               onDraftChange={setComposerHasContent}
+              mode={isReviewMode ? "review" : "default"}
               topSlot={
                 <>
+                  {shared.instance.review ? (
+                    <ReviewSourceBar
+                      sourceName={shared.instance.review.sourceName}
+                      scope={shared.instance.review.scope}
+                      fileCount={shared.instance.review.filePaths?.length ?? 0}
+                    />
+                  ) : null}
                   <SpinOffSourceBar
                     meta={spinOffMeta}
                     onClear={() => {

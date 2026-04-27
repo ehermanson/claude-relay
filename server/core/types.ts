@@ -447,6 +447,14 @@ export interface LastMessagePreview {
   timestamp: number;
 }
 
+export interface ReviewSessionInfo {
+  sourceInstanceId?: string;
+  sourceSessionId?: string;
+  sourceName: string;
+  scope: "session-files" | "branch";
+  filePaths?: string[];
+}
+
 export interface InstanceInfo {
   id: string;
   provider: ProviderKind;
@@ -500,6 +508,10 @@ export interface InstanceInfo {
   queuedMessageCount?: number;
   /** Internal bootstrap/runtime context Relay supplied to the provider. */
   sessionContext?: ProviderSessionContext;
+  /** Review-session metadata when this chat was created to audit another chat's work. */
+  review?: ReviewSessionInfo;
+  /** Attached review instance for this chat, rendered in the sidecar rather than main nav. */
+  reviewInstanceId?: string;
 }
 
 export interface HistoryEntry {
@@ -541,6 +553,10 @@ export interface CreateInstancePayload {
   modelOptions?: ProviderModelOptions;
   /** Initial runtime mode (defaults to "approval-required") */
   runtimeMode?: ProviderRuntimeMode;
+  /** Parent session ID for child chats like reviews or plan continuations */
+  parentSessionId?: string;
+  /** Review-session metadata */
+  review?: ReviewSessionInfo;
 }
 
 export interface RemoveInstancePayload {
@@ -644,6 +660,12 @@ export interface SetProviderPayload {
   provider: ProviderKind;
 }
 
+export interface SetReviewInstancePayload {
+  type: "set_review_instance";
+  instanceId: string;
+  reviewInstanceId: string;
+}
+
 export interface CreateSpacePayload {
   type: "create_space";
   projectDirectory: string;
@@ -734,6 +756,7 @@ export type ClientMessage =
   | SetRuntimeModePayload
   | SetModelOptionsPayload
   | SetProviderPayload
+  | SetReviewInstancePayload
   | CreateSpacePayload
   | CompleteSpacePayload
   | MarkSpaceMergedPayload

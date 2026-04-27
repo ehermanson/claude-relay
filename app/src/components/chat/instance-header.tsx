@@ -13,6 +13,7 @@ import {
   FileText,
   LayoutGrid,
   ListChecks,
+  MessageCircleCode,
   Pencil,
   ScrollText,
   Trash2,
@@ -52,6 +53,7 @@ interface SidecarTogglesProps {
   tasksCount: number;
   filesCount: number;
   hasPlanContent: boolean;
+  hasReviewContent: boolean;
   hasStats: boolean;
   stats?: SessionStats;
   sidecarContentCount: number;
@@ -75,6 +77,7 @@ function SidecarToggles({
   tasksCount,
   filesCount,
   hasPlanContent,
+  hasReviewContent,
   hasStats,
   stats,
   sidecarContentCount,
@@ -83,7 +86,8 @@ function SidecarToggles({
 }: SidecarTogglesProps) {
   const hasTasksContent = tasksCount > 0;
   const hasFilesContent = filesCount > 0;
-  const hasAny = hasTasksContent || hasFilesContent || hasPlanContent || hasStats;
+  const hasAny =
+    hasTasksContent || hasFilesContent || hasPlanContent || hasReviewContent || hasStats;
   if (!loading && !hasAny) return null;
 
   // A tab button is "toggled on" when it's the showing tab (active + open).
@@ -138,6 +142,18 @@ function SidecarToggles({
                 </Button>
               </Tooltip>
             )}
+            {hasReviewContent && (
+              <Tooltip content={isShowing("review") ? "Hide code review" : "Show code review"}>
+                <Button
+                  variant="icon"
+                  toggled={isShowing("review")}
+                  onClick={() => onSelectTab("review")}
+                  className="shrink-0"
+                >
+                  <MessageCircleCode size={15} strokeWidth={2} />
+                </Button>
+              </Tooltip>
+            )}
             {hasStats && (
               <HeaderContextToggle
                 stats={stats}
@@ -184,6 +200,7 @@ interface InstanceHeaderProps {
   tasksCount: number;
   filesCount: number;
   hasPlanContent: boolean;
+  hasReviewContent: boolean;
   hasStats: boolean;
   sidecarContentCount: number;
   loadingSidecarActions?: boolean;
@@ -310,6 +327,7 @@ export function InstanceHeader({
   tasksCount,
   filesCount,
   hasPlanContent,
+  hasReviewContent,
   hasStats,
   sidecarContentCount,
   loadingSidecarActions = false,
@@ -351,7 +369,6 @@ export function InstanceHeader({
     // Only fetch when we have a branch (instance is in a git repo)
     enabled: !!displayBranch,
   });
-
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const [pushDialogOpen, setPushDialogOpen] = useState(false);
   const [pushStatus, setPushStatus] = useState<InstanceGitStatus | null>(null);
@@ -481,6 +498,7 @@ export function InstanceHeader({
             tasksCount={tasksCount}
             filesCount={filesCount}
             hasPlanContent={hasPlanContent}
+            hasReviewContent={hasReviewContent}
             hasStats={hasStats}
             stats={instance.stats}
             sidecarContentCount={sidecarContentCount}
@@ -601,6 +619,7 @@ export function InstanceHeader({
           tasksCount={tasksCount}
           filesCount={filesCount}
           hasPlanContent={hasPlanContent}
+          hasReviewContent={hasReviewContent}
           hasStats={hasStats}
           stats={instance.stats}
           sidecarContentCount={sidecarContentCount}

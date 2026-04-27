@@ -15,7 +15,7 @@ import { UserMessage } from "@/components/chat/user-message";
 import { buildRows, estimateRowHeight } from "@/components/chat/build-rows";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import type { ChatItem, LiveActivity, RenderRow } from "@/lib/chat-types";
+import type { ChatItem, LiveActivity, RenderRow, UserRow } from "@/lib/chat-types";
 import type { UserInputAnswer } from "@shared/types";
 import { computeBubbleShrinkwrap, onFontReady } from "@/lib/pretext";
 
@@ -97,7 +97,19 @@ export function MessageList({
   useEffect(() => onFontReady(() => setFontTick((t) => t + 1)), []);
 
   // ── Build render rows ────────────────────────────────────────────
-  const rows = useMemo(() => buildRows(items), [items]);
+  // Queued user messages are rendered in a dedicated section at the bottom,
+  // not interleaved with the live stream — otherwise they get buried as the
+  // agent emits assistant text and tool calls.
+  const allRows = useMemo(() => buildRows(items), [items]);
+  const { rows, queuedRows } = useMemo(() => {
+    const main: RenderRow[] = [];
+    const queued: UserRow[] = [];
+    for (const r of allRows) {
+      if (r.kind === "user" && r.queued) queued.push(r);
+      else main.push(r);
+    }
+    return { rows: main, queuedRows: queued };
+  }, [allRows]);
   const searchTargetIndex = useMemo(() => {
     if (!searchFocus?.query) return -1;
     return findSearchTargetRowIndex(rows, searchFocus);
@@ -274,7 +286,7 @@ export function MessageList({
   const virtualRows = rowVirtualizer.getVirtualItems();
   const nonVirtualizedRows = rows.slice(virtualizedRowCount);
   const hasVirtual = virtualizedRowCount > 0;
-  const hasNonVirtual = nonVirtualizedRows.length > 0 || showThinking;
+  const hasNonVirtual = nonVirtualizedRows.length > 0 || showThinking || queuedRows.length > 0;
 
   return (
     <div className="relative flex min-h-0 flex-1">
@@ -328,6 +340,23 @@ export function MessageList({
                   instanceStatus={instanceStatus}
                   isCompacting={isCompactingTurn}
                 />
+              )}
+              {queuedRows.length > 0 && (
+                <div className="mt-2 flex flex-col gap-3 border-t border-dashed border-border/30 pt-3">
+                  <div className="px-1 text-[10px] uppercase tracking-wider text-muted/50">
+                    Queued
+                    {queuedRows.length > 1 ? ` · ${queuedRows.length}` : ""}
+                  </div>
+                  {queuedRows.map((row) => (
+                    <div
+                      key={row.id}
+                      data-row-id={row.id}
+                      className="flex animate-fade-in flex-col"
+                    >
+                      {renderRow(row)}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}

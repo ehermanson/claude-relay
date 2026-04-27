@@ -1891,6 +1891,110 @@ describe("InstanceManager", () => {
     });
   });
 
+  describe("review selection", () => {
+    it("preserves the active attached review in getInstance and getChatSummary", async () => {
+      const mgr = trackManager(new InstanceManager(makeConfig()));
+      const source = mgr.createInstance({ name: "Source Chat" });
+      const olderReview = mgr.createInstance({
+        name: "Review: older",
+        parentSessionId: "source-session",
+        review: {
+          sourceInstanceId: source.id,
+          sourceName: source.name,
+          scope: "branch",
+        },
+      });
+      const newerReview = mgr.createInstance({
+        name: "Review: newer",
+        parentSessionId: "source-session",
+        review: {
+          sourceInstanceId: source.id,
+          sourceName: source.name,
+          scope: "branch",
+        },
+      });
+
+      await mgr.setReviewInstance(source.id, olderReview.id);
+
+      const detail = mgr.getInstance(source.id);
+      const summary = mgr.getChatSummary(source.id);
+      const listEntry = mgr.listInstances().find((chat) => chat.id === source.id);
+
+      assert.equal(detail?.reviewInstanceId, olderReview.id);
+      assert.equal(summary?.reviewInstanceId, olderReview.id);
+      assert.equal(listEntry?.reviewInstanceId, olderReview.id);
+      assert.notEqual(detail?.reviewInstanceId, newerReview.id);
+    });
+
+    it("restores the persisted active attached review from managed runtime payload", () => {
+      const config = makeConfig();
+      const db = new SessionDB(config.dbPath, noopLogger);
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "source-1",
+            provider_session_id: "source-session",
+            working_directory: config.workingDirectory,
+            runtime_payload_json: JSON.stringify({
+              reviewInstanceId: "review-older",
+            }),
+          }),
+        );
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "review-older",
+            provider_session_id: "review-session-older",
+            name: 'Review the recent changes from "Source Chat".',
+            working_directory: config.workingDirectory,
+            parent_session_id: "source-session",
+            created_at: 1100,
+            last_activity_at: 2100,
+            runtime_payload_json: JSON.stringify({
+              review: {
+                sourceInstanceId: "source-1",
+                sourceSessionId: "source-session",
+                sourceName: "Source Chat",
+                scope: "branch",
+              },
+            }),
+          }),
+        );
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "review-newer",
+            provider_session_id: "review-session-newer",
+            name: 'Review the recent changes from "Source Chat".',
+            working_directory: config.workingDirectory,
+            parent_session_id: "source-session",
+            created_at: 1200,
+            last_activity_at: 2200,
+            runtime_payload_json: JSON.stringify({
+              review: {
+                sourceInstanceId: "source-1",
+                sourceSessionId: "source-session",
+                sourceName: "Source Chat",
+                scope: "branch",
+              },
+            }),
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = trackManager(new InstanceManager(config));
+      restored.restoreInstances();
+
+      const detail = restored.getInstance("source-1");
+      const summary = restored.getChatSummary("source-1");
+      const listEntry = restored.listInstances().find((chat) => chat.id === "source-1");
+
+      assert.equal(detail?.reviewInstanceId, "review-older");
+      assert.equal(summary?.reviewInstanceId, "review-older");
+      assert.equal(listEntry?.reviewInstanceId, "review-older");
+    });
+  });
+
   describe("sendMessage auto-exits plan mode on plan approval", () => {
     it("exits plan mode when sending a message while pendingPlan is set", async () => {
       const info = manager.createInstance();
