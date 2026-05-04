@@ -276,6 +276,26 @@ function countDiffLines(diff: string): { additions: number; deletions: number } 
   return { additions, deletions };
 }
 
+/** Pull a file path out of `view_image` tool arguments, which may be an object or a JSON string. */
+function extractViewImagePath(args: unknown): string | undefined {
+  if (!args) return undefined;
+  let parsed: unknown = args;
+  if (typeof args === "string") {
+    try {
+      parsed = JSON.parse(args);
+    } catch {
+      return undefined;
+    }
+  }
+  if (parsed && typeof parsed === "object") {
+    const path = (parsed as Record<string, unknown>).path;
+    if (typeof path === "string" && path.trim()) return path;
+    const filePath = (parsed as Record<string, unknown>).file_path;
+    if (typeof filePath === "string" && filePath.trim()) return filePath;
+  }
+  return undefined;
+}
+
 function extractAddedFileContent(diff: string): string {
   const lines = diff.split("\n");
   const hasPatchMarkers = lines.some(
@@ -2158,6 +2178,21 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       case "dynamicToolCall": {
         const dyn = item as DynamicToolCallItem;
         if (dyn.tool === "request_user_input") break;
+        if (dyn.tool === "view_image") {
+          const path = extractViewImagePath(dyn.arguments);
+          const fileName = path ? path.split("/").pop() || path : undefined;
+          this.emit("activity", {
+            type: "activity",
+            activity: "tool_use",
+            tool: "ViewImage",
+            description: "Viewing image",
+            detail: path,
+            input: path ? { file_path: path } : undefined,
+            inputDescription: fileName,
+            raw: item,
+          } as ActivityMessage);
+          break;
+        }
         this.emit("activity", {
           type: "activity",
           activity: "tool_use",
@@ -2245,6 +2280,19 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       case "dynamicToolCall": {
         const dyn = item as DynamicToolCallItem;
         if (dyn.tool === "request_user_input") break;
+        if (dyn.tool === "view_image") {
+          const path = extractViewImagePath(dyn.arguments);
+          this.emit("activity", {
+            type: "activity",
+            activity: "tool_result",
+            tool: "ViewImage",
+            description: "Image loaded",
+            detail: path,
+            input: path ? { file_path: path } : undefined,
+            raw: item,
+          } as ActivityMessage);
+          break;
+        }
         this.emit("activity", {
           type: "activity",
           activity: "tool_result",

@@ -6,7 +6,42 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { ActivityCodeBlock, PatchDiffView, langFromPath } from "@/components/chat/activity-code";
+import { ImageThumbnail } from "@/components/chat/markdown-content";
 import type { EditToolInput, UserInputAnswer } from "@shared/types";
+
+const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "svg",
+  "heic",
+  "heif",
+  "avif",
+  "ico",
+]);
+
+function isImagePath(path: string | undefined): path is string {
+  if (!path) return false;
+  const dot = path.lastIndexOf(".");
+  if (dot === -1) return false;
+  const ext = path.slice(dot + 1).toLowerCase();
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
+function ImagePreview({ path }: { path: string }) {
+  const src = `/api/file?path=${encodeURIComponent(path)}`;
+  const alt = path.split("/").pop() || "Image";
+  // The path text is rendered above by ActivityCodeBlock, so hide the thumbnail
+  // entirely if the file is gone — no need for a redundant "failed to load" message.
+  return (
+    <div className="mt-1.5">
+      <ImageThumbnail src={src} alt={alt} hideOnError />
+    </div>
+  );
+}
 
 // ── AskUserQuestion ──────────────────────────────────────────────────
 
@@ -338,7 +373,24 @@ export function ToolContent({
           if (input.offset) parts.push(`offset: ${input.offset}`);
           if (input.limit) parts.push(`limit: ${input.limit}`);
           const extra = parts.length > 0 ? ` (${parts.join(", ")})` : "";
-          return <ActivityCodeBlock content={filePath + extra} />;
+          return (
+            <>
+              <ActivityCodeBlock content={filePath + extra} />
+              {isImagePath(filePath) && <ImagePreview path={filePath} />}
+            </>
+          );
+        }
+        return null;
+      }
+      case "ViewImage": {
+        const filePath = (input.file_path as string) || (input.path as string) || undefined;
+        if (filePath) {
+          return (
+            <>
+              <ActivityCodeBlock content={filePath} />
+              <ImagePreview path={filePath} />
+            </>
+          );
         }
         return null;
       }

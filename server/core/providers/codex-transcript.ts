@@ -197,6 +197,7 @@ function parseApplyPatchChanges(patch: string): ApplyPatchChange[] {
 function normalizeToolName(name: string): string {
   if (name === "exec_command") return "Bash";
   if (name === "request_user_input") return "AskUserQuestion";
+  if (name === "view_image") return "ViewImage";
   return name;
 }
 
@@ -257,6 +258,20 @@ function buildToolUseActivity(
     };
   }
 
+  if (name === "view_image") {
+    const path = typeof parsedArgs?.path === "string" ? parsedArgs.path : undefined;
+    const fileName = path ? path.split("/").pop() || path : undefined;
+    return {
+      type: "activity",
+      activity: "tool_use",
+      tool: "ViewImage",
+      description: "Viewing image",
+      detail: path,
+      input: path ? { ...parsedArgs, file_path: path } : parsedArgs,
+      inputDescription: fileName,
+    };
+  }
+
   return {
     type: "activity",
     activity: "tool_use",
@@ -303,6 +318,18 @@ function buildToolResultActivity(
         ...parsedArgs,
         ...(call.requestId ? { requestId: call.requestId } : {}),
       },
+    };
+  }
+
+  if (call?.name === "view_image") {
+    const path = typeof parsedArgs?.path === "string" ? parsedArgs.path : undefined;
+    return {
+      type: "activity",
+      activity: "tool_result",
+      tool: "ViewImage",
+      description: "Image loaded",
+      detail: path,
+      input: path ? { ...parsedArgs, file_path: path } : parsedArgs,
     };
   }
 

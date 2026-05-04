@@ -121,13 +121,15 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
 export function ImageThumbnail({
   src,
   alt,
+  hideOnError,
   node: _,
   ...rest
-}: React.ComponentProps<"img"> & { node?: unknown }) {
+}: React.ComponentProps<"img"> & { node?: unknown; hideOnError?: boolean }) {
   const [lightbox, setLightbox] = useState(false);
   const [error, setError] = useState(false);
 
   if (!src || error) {
+    if (hideOnError) return null;
     return <span className="text-xs italic text-muted">[Image: failed to load]</span>;
   }
 

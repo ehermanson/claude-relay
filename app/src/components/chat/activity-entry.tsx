@@ -32,7 +32,7 @@ interface ActivityEntryProps {
 }
 
 /** Tools where we show a file-type icon instead of the generic tool icon. */
-const FILE_TOOLS = new Set(["Edit", "Write", "Read"]);
+const FILE_TOOLS = new Set(["Edit", "Write", "Read", "ViewImage"]);
 
 function ActivityIcon({
   activity,
@@ -113,6 +113,11 @@ function computeDisplayName(
       const fileName = detail.split("/").pop() || detail;
       const verb = tool === "Write" ? "Write" : "Read";
       return `${verb} ${fileName}`;
+    }
+    case "ViewImage": {
+      if (inputDescription) return `View ${inputDescription}`;
+      const fileName = detail.split("/").pop() || detail;
+      return `View ${fileName}`;
     }
     case "Grep":
       return `Find \`${detail}\` in files`;
