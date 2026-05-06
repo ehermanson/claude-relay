@@ -478,6 +478,47 @@ describe("InstanceManager", () => {
       assert.equal(restored.getInstance("shadow-external-restore"), undefined);
     });
 
+    it("hides live external shadows in listInstances when a managed owner exists only in persisted state", () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const project = manager.projectManager.addProject(projectDir);
+      const transcriptPath = join(projectDir, "list-shadow.jsonl");
+      writeFileSync(transcriptPath, "{}\n");
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "managed-persisted-owner",
+            provider_session_id: "list-shadow-session",
+            transcript_path: transcriptPath,
+            working_directory: projectDir,
+            original_directory: projectDir,
+            project_id: project.id,
+          }),
+        );
+        db.upsert(
+          makeExternalRow({
+            session_id: "list-shadow-session",
+            instance_id: "list-shadow-external",
+            jsonl_path: transcriptPath,
+            working_directory: projectDir,
+            original_directory: projectDir,
+            project_id: project.id,
+          }),
+        );
+        const row = db.getBySessionId("list-shadow-session");
+        assert.ok(row);
+        assert.equal(manager.restoreExternalFromRow(row), true);
+      } finally {
+        db.close();
+      }
+
+      assert.equal(
+        manager.listInstances().some((chat) => chat.id === "list-shadow-external"),
+        false,
+      );
+    });
+
     it("removes a live external shadow once a managed session captures the same transcript", () => {
       const projectDir = manager.baseConfig.workingDirectory;
       const project = manager.projectManager.addProject(projectDir);
@@ -918,6 +959,65 @@ describe("InstanceManager", () => {
       const refreshedSpace = manager.getSpaceManager().getSpace(space.id);
       assert.ok(refreshedSpace?.worktreePath);
       assert.equal(existsSync(refreshedSpace.worktreePath), true);
+    });
+
+    it("archives attached reviews when removing a source chat without purge", () => {
+      const source = manager.createInstance({ name: "Source Chat" });
+      const review = manager.createInstance({
+        name: "Review: source",
+        parentSessionId: "source-session",
+        review: {
+          sourceInstanceId: source.id,
+          sourceName: source.name,
+          scope: "branch",
+        },
+      });
+      const reviewInstance = manager.instances.get(review.id);
+      assert.ok(reviewInstance);
+
+      const transcriptPath = join(manager.baseConfig.workingDirectory, "remove-review-chat.jsonl");
+      writeFileSync(
+        transcriptPath,
+        '{"type":"message","message":{"role":"user","content":"hi"}}\n',
+      );
+
+      reviewInstance.sessionId = "review-session";
+      reviewInstance.jsonlPath = transcriptPath;
+      reviewInstance.providerBinding = {
+        provider: "claude",
+        providerSessionId: "review-session",
+        resumeCursor: { sessionId: "review-session" },
+        runtimePayload: {
+          review: {
+            sourceInstanceId: source.id,
+            sourceName: source.name,
+            scope: "branch",
+          },
+        },
+        transcriptPath,
+        runtimeMode: "approval-required",
+      };
+      manager.sessionDb.upsertManaged(
+        makeManagedRow({
+          instance_id: review.id,
+          provider_session_id: "review-session",
+          transcript_path: transcriptPath,
+          working_directory: manager.baseConfig.workingDirectory,
+          project_id: source.projectId,
+          name: "Review: source",
+          runtime_payload_json: JSON.stringify({
+            review: {
+              sourceInstanceId: source.id,
+              sourceName: source.name,
+              scope: "branch",
+            },
+          }),
+        }),
+      );
+
+      assert.equal(manager.removeInstance(source.id), true);
+      assert.equal(manager.getInstance(review.id), undefined);
+      assert.equal(manager.sessionDb.getManagedByInstanceId(review.id)?.archived, 1);
     });
 
     it("purges a removed space chat from Relay and disk", () => {
@@ -1992,6 +2092,30 @@ describe("InstanceManager", () => {
       assert.equal(detail?.reviewInstanceId, "review-older");
       assert.equal(summary?.reviewInstanceId, "review-older");
       assert.equal(listEntry?.reviewInstanceId, "review-older");
+    });
+
+    it("does not infer review metadata from legacy review titles during restore", () => {
+      const config = makeConfig();
+      const db = new SessionDB(config.dbPath, noopLogger);
+      try {
+        db.upsertManaged(
+          makeManagedRow({
+            instance_id: "legacy-review",
+            provider_session_id: "legacy-review-session",
+            name: 'Review the recent changes from "Source Chat".',
+            working_directory: config.workingDirectory,
+            parent_session_id: "source-session",
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = trackManager(new InstanceManager(config));
+      restored.restoreInstances();
+
+      const detail = restored.getInstance("legacy-review");
+      assert.equal(detail?.review, undefined);
     });
   });
 

@@ -22,7 +22,6 @@ import {
   openSync,
   readSync,
   closeSync,
-  realpathSync,
 } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
@@ -56,6 +55,55 @@ import {
 } from "#core/provider-state-file.js";
 import { createPatch } from "diff";
 import { extFromPath } from "#core/paths.js";
+import {
+  buildKnownJsonlMap,
+  collectActiveExternalSessions,
+  emptyDiscoveryPollStats,
+  formatSlowDiscoveryWarning,
+  normalizeDiscoveryResult,
+  type DiscoveryPollStats,
+} from "#core/instance-discovery.js";
+import {
+  hasSessionStats,
+  sortChatsByLastActivity,
+  summaryFromManagedRow,
+  summaryFromSessionRow,
+  toChatSummaryInfo,
+} from "#core/instance-listing.js";
+import {
+  buildPersistenceOwnershipReconciliation,
+  getPersistenceRowProjectDirectory,
+  getProjectDirectoryCandidates,
+  normalizeProjectDirectory,
+} from "#core/instance-ownership.js";
+import {
+  buildBackfilledManagedRow,
+  buildBackfilledSessionRow,
+  compareManagedCanonicalRows,
+  hasPersistedTokenUsage,
+  isSameManagedSessionIdentity,
+  mergeBackfilledStats,
+  toManagedInstanceRow,
+  toSessionRow,
+} from "#core/instance-persistence.js";
+import { parseManagedRestoreState } from "#core/managed-session-restore.js";
+import { restorePersistedRows } from "#core/instance-restore-pass.js";
+import {
+  buildExternalRestoreState,
+  buildManagedRestoreState,
+} from "#core/instance-restore-state.js";
+import {
+  attachReviewLinks,
+  getAttachedReviewIds,
+  pickPreferredAttachedReview,
+  reviewBelongsToSource,
+} from "#core/review-sessions.js";
+import {
+  collectManagedSessionKeys,
+  isManagedShadowInstance,
+  isManagedShadowSessionRow,
+  mergeProviderBinding,
+} from "#core/managed-session-identity.js";
 import type {
   ServerMessage,
   OutputMessage,
@@ -101,10 +149,6 @@ import {
   parseTranscriptForProvider,
   resolveManagedTranscriptPathForProvider,
 } from "#core/provider-registry.js";
-import type {
-  DiscoveredExternalSession,
-  ProviderDiscoveryTiming,
-} from "#core/provider-registry.js";
 import {
   AUTO_CONTINUE_MSG,
   buildCustomInstructionsPrompt,
@@ -116,8 +160,6 @@ import {
 import {
   buildSessionBootstrapContext,
   CUSTOM_INSTRUCTIONS_BLOCK_KIND,
-  getReviewInstanceIdFromRuntimePayload,
-  getReviewSessionFromRuntimePayload,
   getSessionContextFromRuntimePayload,
   hasSessionBootstrapBlock,
   SPACE_CONTEXT_BLOCK_KIND,
@@ -318,14 +360,6 @@ const MAX_TITLE_LENGTH = 50;
 const PLAN_TRANSCRIPT_RE = /read the full transcript at:\s*(\S+\.jsonl)/;
 const TRANSCRIPT_AVAILABLE_RE = /^Full transcript available at:\s+(\S+)$/;
 const COMPACT_COMMAND_RE = /^\s*\/compact\s*$/i;
-
-interface DiscoveryPollStats {
-  externalSessionCount: number;
-  activeSessionCount: number;
-  staleCheckedCount: number;
-  endedCount: number;
-  providerTimings: ProviderDiscoveryTiming[];
-}
 
 /**
  * Strip internal Claude CLI XML tags from message text.
@@ -777,20 +811,6 @@ function readModelFromJsonl(jsonlPath: string): string | null {
   return null;
 }
 
-function hasPersistedTokenUsage(entry: {
-  input_tokens: number;
-  output_tokens: number;
-  cache_creation_tokens: number;
-  cache_read_tokens: number;
-}): boolean {
-  return (
-    entry.input_tokens > 0 ||
-    entry.output_tokens > 0 ||
-    entry.cache_creation_tokens > 0 ||
-    entry.cache_read_tokens > 0
-  );
-}
-
 function readClaudeStatsFromJsonl(jsonlPath: string): SessionStats | undefined {
   try {
     const content = readFileSync(jsonlPath, "utf-8");
@@ -1074,243 +1094,6 @@ function extractResumeSessionId(resumeCursor: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 
-function hasSessionStats(stats: SessionStats | undefined): stats is SessionStats {
-  if (!stats) return false;
-  return (
-    stats.inputTokens > 0 ||
-    stats.outputTokens > 0 ||
-    stats.cacheCreationTokens > 0 ||
-    stats.cacheReadTokens > 0 ||
-    typeof stats.model === "string" ||
-    typeof stats.contextTokens === "number" ||
-    typeof stats.contextWindow === "number"
-  );
-}
-
-/** Reconstruct a LastMessagePreview from DB columns (avoids JSONL parse at restore). */
-function lastMessageFromDb(entry: {
-  last_message_text: string | null;
-  last_message_from: string | null;
-  last_message_at: number | null;
-}): LastMessagePreview | undefined {
-  if (!entry.last_message_text || !entry.last_message_from) return undefined;
-  const from =
-    entry.last_message_from === "user"
-      ? "user"
-      : entry.last_message_from === "assistant" || entry.last_message_from === "claude"
-        ? "assistant"
-        : null;
-  if (!from) return undefined;
-  return {
-    text: entry.last_message_text,
-    from,
-    timestamp: entry.last_message_at ?? 0,
-  };
-}
-
-/** Reconstruct SessionStats from DB token/cost columns (avoids JSONL parse at restore). */
-function dbStatsToSessionStats(entry: {
-  input_tokens: number;
-  output_tokens: number;
-  cache_creation_tokens: number;
-  cache_read_tokens: number;
-  model?: string | null;
-}): SessionStats | undefined {
-  const stats: SessionStats = {
-    inputTokens: entry.input_tokens,
-    outputTokens: entry.output_tokens,
-    cacheCreationTokens: entry.cache_creation_tokens,
-    cacheReadTokens: entry.cache_read_tokens,
-    model: entry.model ?? undefined,
-  };
-  return hasSessionStats(stats) ? stats : undefined;
-}
-
-function gitInfoFromDb(entry: {
-  git_info_branch: string | null;
-  git_info_is_worktree: number | null;
-}): { branch: string; isWorktree: boolean } | undefined {
-  if (!entry.git_info_branch) return undefined;
-  return {
-    branch: entry.git_info_branch,
-    isWorktree: entry.git_info_is_worktree === 1,
-  };
-}
-
-function toChatSummaryInfo(info: InstanceInfo): InstanceInfo {
-  const { lastMessage: _, ...summary } = info;
-  return { ...summary };
-}
-
-function inferLegacyReviewSessionInfo(options: {
-  name: string;
-  parentSessionId?: string;
-}): import("#core/types.js").ReviewSessionInfo | undefined {
-  if (!options.parentSessionId) return undefined;
-  const match = options.name.match(/^Review the recent changes from "(.+)"(?:\.|$)/);
-  if (!match) return undefined;
-  return {
-    sourceSessionId: options.parentSessionId,
-    sourceName: match[1] || "source chat",
-    scope: "branch",
-  };
-}
-
-function mergeProviderBinding(
-  existing: ProviderRuntimeBinding | undefined,
-  next: ProviderRuntimeBinding | undefined,
-): ProviderRuntimeBinding | undefined {
-  if (!existing) return next;
-  if (!next) return existing;
-  return {
-    ...existing,
-    ...next,
-    runtimePayload: {
-      ...(existing.runtimePayload ?? {}),
-      ...(next.runtimePayload ?? {}),
-    },
-  };
-}
-
-function buildPersistedRuntimePayload(
-  runtimePayload: Record<string, unknown> | undefined,
-  info: InstanceInfo,
-): Record<string, unknown> | undefined {
-  const next = { ...(runtimePayload ?? {}) };
-
-  if (info.sessionContext) {
-    next.sessionContext = info.sessionContext;
-  } else {
-    delete next.sessionContext;
-  }
-
-  if (info.review) {
-    next.review = info.review;
-  } else {
-    delete next.review;
-  }
-
-  if (info.reviewInstanceId) {
-    next.reviewInstanceId = info.reviewInstanceId;
-  } else {
-    delete next.reviewInstanceId;
-  }
-
-  return Object.keys(next).length > 0 ? next : undefined;
-}
-
-function reviewBelongsToSource(source: InstanceInfo, candidate: InstanceInfo): boolean {
-  const review = candidate.review;
-  if (!review) return false;
-  if (review.sourceInstanceId === source.id) return true;
-  return (
-    !!review.sourceSessionId &&
-    !!source.sessionId &&
-    review.sourceSessionId === source.sessionId &&
-    candidate.workingDirectory === source.workingDirectory
-  );
-}
-
-function compareReviewRecency(a: InstanceInfo, b: InstanceInfo): number {
-  if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
-  return b.lastActivityAt - a.lastActivityAt;
-}
-
-function pickPreferredAttachedReview(
-  source: InstanceInfo,
-  candidates: InstanceInfo[],
-  preferredId?: string,
-): InstanceInfo | undefined {
-  const matches = candidates
-    .filter((candidate) => reviewBelongsToSource(source, candidate))
-    .sort(compareReviewRecency);
-  if (matches.length === 0) return undefined;
-  if (preferredId) {
-    const preferred = matches.find((candidate) => candidate.id === preferredId);
-    if (preferred) return preferred;
-  }
-  return matches[0];
-}
-
-function attachReviewLinks(infos: InstanceInfo[]): InstanceInfo[] {
-  const preferredSelections = new Map(infos.map((info) => [info.id, info.reviewInstanceId]));
-  for (const info of infos) {
-    info.reviewInstanceId = undefined;
-  }
-  for (const info of infos) {
-    const preferred = pickPreferredAttachedReview(info, infos, preferredSelections.get(info.id));
-    if (preferred) {
-      info.reviewInstanceId = preferred.id;
-    }
-  }
-  return infos;
-}
-
-function summaryFromSessionRow(entry: SessionRow): InstanceInfo {
-  return {
-    id: entry.instance_id,
-    provider: (entry.provider_name as ProviderKind) || "claude",
-    name: entry.name,
-    workingDirectory: entry.working_directory,
-    status: "stopped",
-    createdAt: entry.created_at,
-    lastActivityAt: entry.last_activity_at,
-    external: true,
-    sessionId: entry.session_id,
-    customTitle: entry.custom_title === 1,
-    stats: dbStatsToSessionStats(entry),
-    gitBranch: entry.git_branch ?? undefined,
-    originalDirectory: entry.original_directory ?? undefined,
-    gitInfo: gitInfoFromDb(entry),
-    parentSessionId: entry.parent_session_id ?? undefined,
-    preferredModel: entry.preferred_model ?? undefined,
-    runtimeMode: (entry.runtime_mode as ProviderRuntimeMode | null) ?? undefined,
-    spaceId: entry.space_id ?? undefined,
-    projectId: entry.project_id ?? undefined,
-  };
-}
-
-function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
-  let runtimePayload: Record<string, unknown> | undefined;
-  try {
-    runtimePayload = entry.runtime_payload_json
-      ? (JSON.parse(entry.runtime_payload_json) as Record<string, unknown>)
-      : undefined;
-  } catch {
-    runtimePayload = undefined;
-  }
-  const review =
-    getReviewSessionFromRuntimePayload(runtimePayload) ??
-    inferLegacyReviewSessionInfo({
-      name: entry.name,
-      parentSessionId: entry.parent_session_id ?? undefined,
-    });
-  return {
-    id: entry.instance_id,
-    provider: entry.provider_name as ProviderKind,
-    name: entry.name,
-    workingDirectory: entry.working_directory,
-    status: "stopped",
-    createdAt: entry.created_at,
-    lastActivityAt: entry.last_activity_at,
-    sessionId: entry.provider_session_id ?? undefined,
-    customTitle: entry.custom_title === 1,
-    stats: dbStatsToSessionStats(entry),
-    gitBranch: entry.git_branch ?? undefined,
-    originalDirectory: entry.original_directory ?? undefined,
-    gitInfo: gitInfoFromDb(entry),
-    originalGitBranch:
-      entry.original_git_branch ?? entry.git_branch ?? entry.git_info_branch ?? undefined,
-    parentSessionId: entry.parent_session_id ?? undefined,
-    preferredModel: entry.preferred_model ?? undefined,
-    runtimeMode: (entry.runtime_mode as ProviderRuntimeMode | null) ?? undefined,
-    spaceId: entry.space_id ?? undefined,
-    projectId: entry.project_id ?? undefined,
-    review,
-    reviewInstanceId: getReviewInstanceIdFromRuntimePayload(runtimePayload),
-  };
-}
-
 function hasExplicitNonDefaultSpace(
   spaceManager: SpaceManager,
   spaceId: string | null | undefined,
@@ -1318,44 +1101,6 @@ function hasExplicitNonDefaultSpace(
   if (!spaceId) return false;
   const space = spaceManager.getSpace(spaceId);
   return Boolean(space && !space.isDefault);
-}
-
-function normalizeProjectDirectory(directory: string): string {
-  if (isRelayWorktreePath(directory)) {
-    return resolveWorktreeOrigin(directory) ?? directory;
-  }
-  if (isGitWorktree(directory)) {
-    return resolveAnyWorktreeOrigin(directory) ?? directory;
-  }
-  return directory;
-}
-
-function getProjectDirectoryCandidates(directory: string | null | undefined): string[] {
-  if (!directory) return [];
-
-  const candidates = new Set<string>();
-  const push = (value: string | null | undefined) => {
-    if (!value) return;
-    candidates.add(value);
-    candidates.add(normalizeProjectDirectory(value));
-    if (existsSync(value)) {
-      try {
-        candidates.add(realpathSync(value));
-      } catch {
-        // best-effort canonicalization only
-      }
-    }
-  };
-
-  push(directory);
-  return [...candidates];
-}
-
-function getPersistenceRowProjectDirectory(row: {
-  original_directory?: string | null;
-  working_directory: string;
-}): string {
-  return normalizeProjectDirectory(row.original_directory ?? row.working_directory);
 }
 
 function statsChanged(before: SessionStats, after: SessionStats): boolean {
@@ -1645,38 +1390,14 @@ export class InstanceManager extends EventEmitter {
     return null;
   }
 
-  private isManagedShadowSessionRow(
-    row: SessionRow,
-    managedKeys: { providerSessionIds: Set<string>; transcriptPaths: Set<string> },
-  ): boolean {
-    return (
-      managedKeys.providerSessionIds.has(row.session_id) ||
-      managedKeys.transcriptPaths.has(row.jsonl_path)
-    );
-  }
-
-  private isManagedShadowInstance(
-    instance: Instance,
-    managedKeys: { providerSessionIds: Set<string>; transcriptPaths: Set<string> },
-  ): boolean {
-    if (!instance.info.external) return false;
-    const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
-    const providerSessionId =
-      binding?.providerSessionId ?? instance.sessionId ?? instance.info.sessionId;
-    const transcriptPath =
-      binding?.transcriptPath ?? instance.externalState?.jsonlPath ?? instance.jsonlPath;
-    return Boolean(
-      (providerSessionId && managedKeys.providerSessionIds.has(providerSessionId)) ||
-      (transcriptPath && managedKeys.transcriptPaths.has(transcriptPath)),
-    );
-  }
-
   private pruneLiveManagedShadows(managedKeys: {
     providerSessionIds: Set<string>;
     transcriptPaths: Set<string>;
   }): void {
     for (const [instanceId, instance] of this.instances) {
-      if (!this.isManagedShadowInstance(instance, managedKeys)) continue;
+      if (!isManagedShadowInstance(this.toManagedShadowIdentity(instance), managedKeys)) {
+        continue;
+      }
 
       const watchInterval = this.watchIntervals.get(instanceId);
       if (watchInterval) {
@@ -1709,6 +1430,26 @@ export class InstanceManager extends EventEmitter {
     this.baseConfig.logger.warn(
       `[InstanceManager] Repaired space ownership during ${source} for ${rowId}: ${details.previousSpaceId ?? "null"} -> ${details.nextSpaceId ?? "null"}${details.projectDirectory ? ` (${details.projectDirectory})` : ""}`,
     );
+  }
+
+  private getAttachedReviewIds(source: InstanceInfo, excludingId?: string): string[] {
+    return getAttachedReviewIds(
+      source,
+      Array.from(this.instances.values()).map((candidate) => candidate.info),
+      excludingId,
+    );
+  }
+
+  private toManagedShadowIdentity(instance: Instance) {
+    return {
+      external: instance.info.external,
+      providerBinding: instance.providerBinding,
+      processBinding: instance.process?.getRuntimeBinding(),
+      sessionId: instance.sessionId,
+      infoSessionId: instance.info.sessionId,
+      jsonlPath: instance.jsonlPath,
+      externalJsonlPath: instance.externalState?.jsonlPath,
+    };
   }
 
   private isSpaceOwnedWorktree(instance: Instance): boolean {
@@ -2397,27 +2138,18 @@ export class InstanceManager extends EventEmitter {
     const purge = options?.purge === true;
     const reviewSourceId = instance.info.review?.sourceInstanceId;
 
-    const attachedReviewIds = Array.from(this.instances.values())
-      .map((candidate) => candidate.info)
-      .filter((candidate) => candidate.id !== id && reviewBelongsToSource(instance.info, candidate))
-      .sort(compareReviewRecency)
-      .map((candidate) => candidate.id);
+    const attachedReviewIds = this.getAttachedReviewIds(instance.info);
     for (const attachedReviewId of attachedReviewIds) {
       if (this.instances.has(attachedReviewId)) {
-        this.removeInstance(attachedReviewId, { purge: true });
+        this.removeInstance(attachedReviewId, purge ? { purge: true } : undefined);
       }
     }
 
     if (reviewSourceId) {
       const source = this.instances.get(reviewSourceId);
       if (source?.info.reviewInstanceId === id) {
-        const nextReview = pickPreferredAttachedReview(
-          source.info,
-          Array.from(this.instances.values())
-            .filter((candidate) => candidate.info.id !== id)
-            .map((candidate) => candidate.info),
-        );
-        source.info.reviewInstanceId = nextReview?.id;
+        const [nextReviewId] = this.getAttachedReviewIds(source.info, id);
+        source.info.reviewInstanceId = nextReviewId;
         this.dbSave(source);
         this.emit("instance:status", source.info.id, this.deriveInstanceView(source));
       }
@@ -2816,10 +2548,17 @@ export class InstanceManager extends EventEmitter {
   }
 
   listInstances(): InstanceInfo[] {
+    if (this.shuttingDown || this.instances.size === 0) {
+      return [];
+    }
     const managedKeys = this.collectManagedSessionKeys();
     return attachReviewLinks(
       Array.from(this.instances.values())
-        .filter((i) => !!i.info.projectId && !this.isManagedShadowInstance(i, managedKeys))
+        .filter(
+          (i) =>
+            !!i.info.projectId &&
+            !isManagedShadowInstance(this.toManagedShadowIdentity(i), managedKeys),
+        )
         .map((i) => this.deriveInstanceView(i)),
     );
   }
@@ -2880,7 +2619,7 @@ export class InstanceManager extends EventEmitter {
       if (instance.info.projectId !== projectId) {
         continue;
       }
-      if (this.isManagedShadowInstance(instance, managedKeys)) {
+      if (isManagedShadowInstance(this.toManagedShadowIdentity(instance), managedKeys)) {
         continue;
       }
       chats.set(instance.info.id, toChatSummaryInfo(this.deriveInstanceView(instance)));
@@ -2904,9 +2643,7 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    return attachReviewLinks(Array.from(chats.values())).sort(
-      (a, b) => b.lastActivityAt - a.lastActivityAt,
-    );
+    return sortChatsByLastActivity(attachReviewLinks(Array.from(chats.values())));
   }
 
   listSpaceChats(spaceId: string): InstanceInfo[] {
@@ -2941,7 +2678,7 @@ export class InstanceManager extends EventEmitter {
       if (instance.info.spaceId !== spaceId) {
         continue;
       }
-      if (this.isManagedShadowInstance(instance, managedKeys)) {
+      if (isManagedShadowInstance(this.toManagedShadowIdentity(instance), managedKeys)) {
         continue;
       }
       chats.set(instance.info.id, toChatSummaryInfo(this.deriveInstanceView(instance)));
@@ -2965,9 +2702,7 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    return attachReviewLinks(Array.from(chats.values())).sort(
-      (a, b) => b.lastActivityAt - a.lastActivityAt,
-    );
+    return sortChatsByLastActivity(attachReviewLinks(Array.from(chats.values())));
   }
 
   getWorkspaceEntries(id: string, query: string): WorkspaceEntry[] | null {
@@ -4682,13 +4417,7 @@ export class InstanceManager extends EventEmitter {
     let discoverMs = 0;
     let gitRefreshMs = 0;
     let gitRefreshCount = 0;
-    let stats: DiscoveryPollStats = {
-      externalSessionCount: 0,
-      activeSessionCount: 0,
-      staleCheckedCount: 0,
-      endedCount: 0,
-      providerTimings: [],
-    };
+    let stats: DiscoveryPollStats = emptyDiscoveryPollStats();
     try {
       const discoverStartedAt = performance.now();
       stats = await this.discoverExistingInner();
@@ -4722,40 +4451,23 @@ export class InstanceManager extends EventEmitter {
       );
     } finally {
       this.discovering = false;
-      const ms = (performance.now() - t0).toFixed(0);
-      if (Number(ms) > SLOW_DISCOVERY_WARN_MS) {
-        const parts = [
-          `[Discover] slow: ${ms}ms`,
-          `discover=${discoverMs.toFixed(0)}ms`,
-          `external=${stats.externalSessionCount}`,
-          `active=${stats.activeSessionCount}`,
-          `staleChecks=${stats.staleCheckedCount}`,
-        ];
-        if (stats.endedCount > 0) {
-          parts.push(`ended=${stats.endedCount}`);
-        }
-        if (stats.providerTimings.length > 0) {
-          parts.push(
-            `providers=${stats.providerTimings
-              .map(
-                (timing) => `${timing.provider}:${timing.ms.toFixed(0)}ms/${timing.sessionCount}`,
-              )
-              .join(",")}`,
-          );
-        }
-        if (gitRefreshCount > 0) {
-          parts.push(`git=${gitRefreshMs.toFixed(0)}ms/${gitRefreshCount}`);
-        }
-        this.baseConfig.logger.warn(parts.join(" "));
+      const totalMs = performance.now() - t0;
+      if (totalMs > SLOW_DISCOVERY_WARN_MS) {
+        this.baseConfig.logger.warn(
+          formatSlowDiscoveryWarning({
+            totalMs,
+            discoverMs,
+            stats,
+            gitRefreshMs,
+            gitRefreshCount,
+          }),
+        );
       }
     }
   }
 
   private async discoverExistingInner(): Promise<DiscoveryPollStats> {
-    const rawDiscovery = await this.discoverExternalSessions();
-    const discovery = Array.isArray(rawDiscovery)
-      ? { sessions: rawDiscovery, timings: [] }
-      : rawDiscovery;
+    const discovery = normalizeDiscoveryResult(await this.discoverExternalSessions());
     const discoveredSessions = discovery.sessions;
     if (discoveredSessions.length === 0) {
       const stale = this.removeStaleExternals(new Set());
@@ -4771,35 +4483,21 @@ export class InstanceManager extends EventEmitter {
     // Collect managed session identity keys for dedup (session IDs + transcript paths)
     const managedKeys = this.collectManagedSessionKeys();
 
-    const activeSessions = new Map<string, DiscoveredExternalSession>();
-    for (const session of discoveredSessions) {
-      if (!this.getRegisteredProjectForDirectory(session.cwd)) {
-        continue;
-      }
-      // Skip sessions whose provider session ID matches a managed session
-      if (managedKeys.providerSessionIds.has(session.sessionId)) {
-        continue;
-      }
-      activeSessions.set(session.transcriptPath, session);
-    }
+    const activeSessions = collectActiveExternalSessions({
+      sessions: discoveredSessions,
+      managedProviderSessionIds: managedKeys.providerSessionIds,
+      isRegisteredProject: (cwd) => !!this.getRegisteredProjectForDirectory(cwd),
+    });
 
     // Track known JSONL paths (external + managed)
-    const knownJsonls = new Map<string, string>(); // jsonlPath → instanceId
-    for (const [instanceId, instance] of this.instances) {
-      if (instance.externalState) {
-        knownJsonls.set(instance.externalState.jsonlPath, instanceId);
-      }
-      if (instance.jsonlPath) {
-        knownJsonls.set(instance.jsonlPath, instanceId);
-      }
-    }
-
-    // Reserve managed transcript paths (from DB) that may not be in memory yet
-    for (const managedPath of managedKeys.transcriptPaths) {
-      if (!knownJsonls.has(managedPath)) {
-        knownJsonls.set(managedPath, "__reserved_managed__");
-      }
-    }
+    const knownJsonls = buildKnownJsonlMap({
+      instances: Array.from(this.instances.entries()).map(([instanceId, instance]) => ({
+        id: instanceId,
+        externalJsonlPath: instance.externalState?.jsonlPath,
+        jsonlPath: instance.jsonlPath,
+      })),
+      managedTranscriptPaths: managedKeys.transcriptPaths,
+    });
 
     // Eagerly reserve Claude JSONL paths for managed instances that haven't captured
     // their session yet. Without this, an external Claude process in the same CWD can
@@ -4903,55 +4601,17 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
-  private collectManagedSessionKeys(): {
+  private collectManagedSessionKeys(options?: { includePersisted?: boolean }): {
     providerSessionIds: Set<string>;
     transcriptPaths: Set<string>;
   } {
-    const providerSessionIds = new Set<string>();
-    const transcriptPaths = new Set<string>();
-
-    for (const row of this.db.getAllManagedActive()) {
-      if (row.provider_session_id) providerSessionIds.add(row.provider_session_id);
-      if (row.transcript_path) transcriptPaths.add(row.transcript_path);
-    }
-
-    for (const instance of this.instances.values()) {
-      if (instance.info.external) continue;
-      const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
-      const providerSessionId =
-        binding?.providerSessionId ?? instance.sessionId ?? instance.info.sessionId;
-      const transcriptPath = binding?.transcriptPath ?? instance.jsonlPath;
-      if (providerSessionId) providerSessionIds.add(providerSessionId);
-      if (transcriptPath) transcriptPaths.add(transcriptPath);
-    }
-
-    return { providerSessionIds, transcriptPaths };
-  }
-
-  private isSameManagedSessionIdentity(a: ManagedInstanceRow, b: ManagedInstanceRow): boolean {
-    return !!(
-      (a.provider_session_id &&
-        b.provider_session_id &&
-        a.provider_session_id === b.provider_session_id) ||
-      (a.transcript_path && b.transcript_path && a.transcript_path === b.transcript_path)
-    );
-  }
-
-  private compareManagedCanonicalRows(
-    a: ManagedInstanceRow,
-    b: ManagedInstanceRow,
-    preferredInstanceId?: string,
-  ): number {
-    if (preferredInstanceId) {
-      if (a.instance_id === preferredInstanceId && b.instance_id !== preferredInstanceId) return 1;
-      if (b.instance_id === preferredInstanceId && a.instance_id !== preferredInstanceId) return -1;
-    }
-    if (a.last_activity_at !== b.last_activity_at) return a.last_activity_at - b.last_activity_at;
-    if (!!a.resume_cursor_json !== !!b.resume_cursor_json) return a.resume_cursor_json ? 1 : -1;
-    if (!!a.provider_session_id !== !!b.provider_session_id) return a.provider_session_id ? 1 : -1;
-    if (!!a.transcript_path !== !!b.transcript_path) return a.transcript_path ? 1 : -1;
-    if (a.created_at !== b.created_at) return a.created_at - b.created_at;
-    return a.instance_id.localeCompare(b.instance_id);
+    return collectManagedSessionKeys({
+      persistedRows:
+        options?.includePersisted !== false ? this.db.getAllManagedActive() : undefined,
+      liveInstances: Array.from(this.instances.values()).map((instance) =>
+        this.toManagedShadowIdentity(instance),
+      ),
+    });
   }
 
   private collapseManagedDuplicates(preferredInstanceId?: string): void {
@@ -4966,7 +4626,7 @@ export class InstanceManager extends EventEmitter {
       for (let j = i + 1; j < activeRows.length; j++) {
         const candidate = activeRows[j];
         if (archived.has(candidate.instance_id)) continue;
-        if (cluster.some((row) => this.isSameManagedSessionIdentity(row, candidate))) {
+        if (cluster.some((row) => isSameManagedSessionIdentity(row, candidate))) {
           cluster.push(candidate);
         }
       }
@@ -4975,7 +4635,7 @@ export class InstanceManager extends EventEmitter {
 
       let canonical = cluster[0];
       for (const row of cluster.slice(1)) {
-        if (this.compareManagedCanonicalRows(row, canonical, preferredInstanceId) > 0) {
+        if (compareManagedCanonicalRows(row, canonical, preferredInstanceId) > 0) {
           canonical = row;
         }
       }
@@ -6337,103 +5997,6 @@ export class InstanceManager extends EventEmitter {
   // Instance persistence (SQLite)
   // ===========================================================================
 
-  /** Build a SessionRow from an in-memory Instance for DB upsert */
-  private toSessionRow(instance: Instance): SessionRow {
-    const stats = instance.info.stats;
-    return {
-      session_id: instance.sessionId!,
-      instance_id: instance.info.id,
-      provider_name: instance.info.provider,
-      name: instance.info.name,
-      working_directory: instance.info.workingDirectory,
-      jsonl_path: instance.jsonlPath!,
-      created_at: instance.info.createdAt,
-      last_activity_at: instance.info.lastActivityAt,
-      type: instance.info.external ? "external" : "managed",
-      archived: 0,
-      custom_title: instance.info.customTitle ? 1 : 0,
-      input_tokens: stats?.inputTokens ?? 0,
-      output_tokens: stats?.outputTokens ?? 0,
-      cache_creation_tokens: stats?.cacheCreationTokens ?? 0,
-      cache_read_tokens: stats?.cacheReadTokens ?? 0,
-
-      summary: null,
-      first_prompt: null,
-      git_branch: instance.gitBranch ?? null,
-      message_count: 0,
-      allowed_tools: "[]",
-      worktree_path: instance.worktreePath ?? null,
-      original_directory: instance.originalDirectory ?? null,
-      parent_session_id: instance.info.parentSessionId ?? null,
-      preferred_model: instance.info.preferredModel ?? null,
-      reasoning_budget: null,
-      runtime_mode: instance.info.runtimeMode ?? null,
-      last_message_text: instance.info.lastMessage?.text ?? null,
-      last_message_from: instance.info.lastMessage?.from ?? null,
-      last_message_at: instance.info.lastMessage?.timestamp ?? null,
-      git_info_branch: instance.info.gitInfo?.branch ?? null,
-      git_info_is_worktree:
-        instance.info.gitInfo?.isWorktree !== undefined
-          ? instance.info.gitInfo.isWorktree
-            ? 1
-            : 0
-          : null,
-      space_id: instance.info.spaceId ?? null,
-      project_id: instance.info.projectId ?? null,
-      model: stats?.model ?? null,
-    };
-  }
-
-  private toManagedInstanceRow(instance: Instance): ManagedInstanceRow {
-    const stats = instance.info.stats;
-    const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
-    const runtimePayload = buildPersistedRuntimePayload(binding?.runtimePayload, instance.info);
-    return {
-      instance_id: instance.info.id,
-      provider_name: instance.info.provider,
-      provider_session_id:
-        binding?.providerSessionId ?? instance.sessionId ?? instance.info.sessionId ?? null,
-      name: instance.info.name,
-      working_directory: instance.info.workingDirectory,
-      created_at: instance.info.createdAt,
-      last_activity_at: instance.info.lastActivityAt,
-      archived: 0,
-      custom_title: instance.info.customTitle ? 1 : 0,
-      input_tokens: stats?.inputTokens ?? 0,
-      output_tokens: stats?.outputTokens ?? 0,
-      cache_creation_tokens: stats?.cacheCreationTokens ?? 0,
-      cache_read_tokens: stats?.cacheReadTokens ?? 0,
-
-      git_branch: instance.gitBranch ?? null,
-      worktree_path: instance.worktreePath ?? null,
-      original_directory: instance.originalDirectory ?? null,
-      parent_session_id: instance.info.parentSessionId ?? null,
-      preferred_model: instance.info.preferredModel ?? null,
-      reasoning_budget: null,
-      runtime_mode: instance.info.runtimeMode ?? this.baseConfig.defaultRuntimeMode,
-      resume_cursor_json: binding?.resumeCursor ? JSON.stringify(binding.resumeCursor) : null,
-      runtime_payload_json: runtimePayload ? JSON.stringify(runtimePayload) : null,
-      transcript_path: binding?.transcriptPath ?? instance.jsonlPath ?? null,
-      last_message_text: instance.info.lastMessage?.text ?? null,
-      last_message_from: instance.info.lastMessage?.from ?? null,
-      last_message_at: instance.info.lastMessage?.timestamp ?? null,
-      git_info_branch: instance.info.gitInfo?.branch ?? null,
-      git_info_is_worktree:
-        instance.info.gitInfo?.isWorktree !== undefined
-          ? instance.info.gitInfo.isWorktree
-            ? 1
-            : 0
-          : null,
-      space_id: instance.info.spaceId ?? null,
-      project_id: instance.info.projectId ?? null,
-      model: stats?.model ?? null,
-      model_options_json: instance.info.modelOptions
-        ? JSON.stringify(instance.info.modelOptions)
-        : null,
-      original_git_branch: instance.info.originalGitBranch ?? null,
-    };
-  }
-
   private shouldPersistManagedInstance(instance: Instance): boolean {
     const binding = instance.providerBinding ?? instance.process?.getRuntimeBinding();
     const resumeSessionId =
@@ -6446,11 +6009,12 @@ export class InstanceManager extends EventEmitter {
   }
 
   private reconcileInstancePersistenceIdentity(instance: Instance): void {
+    const persistedProjectDirectory = getPersistenceRowProjectDirectory({
+      original_directory: instance.originalDirectory ?? instance.info.originalDirectory,
+      working_directory: instance.info.workingDirectory,
+    });
     const inferredSpaceId = this.inferPersistedSpaceIdForProjectDirectory(
-      getPersistenceRowProjectDirectory({
-        original_directory: instance.originalDirectory ?? instance.info.originalDirectory,
-        working_directory: instance.info.workingDirectory,
-      }),
+      persistedProjectDirectory,
       {
         space_id: instance.info.spaceId ?? null,
         worktree_path: instance.worktreePath ?? null,
@@ -6460,51 +6024,53 @@ export class InstanceManager extends EventEmitter {
       },
     );
 
+    const currentSpaceId = instance.info.spaceId ?? inferredSpaceId ?? undefined;
     if (!instance.info.spaceId && inferredSpaceId) {
       instance.info.spaceId = inferredSpaceId;
       this.logSpaceOwnershipRepair("persist", instance.info.id, {
         previousSpaceId: null,
         nextSpaceId: inferredSpaceId,
-        projectDirectory: getPersistenceRowProjectDirectory({
-          original_directory: instance.originalDirectory ?? instance.info.originalDirectory,
-          working_directory: instance.info.workingDirectory,
-        }),
+        projectDirectory: persistedProjectDirectory,
       });
     }
 
-    const space = instance.info.spaceId
-      ? this.spaceManager.getSpace(instance.info.spaceId)
-      : undefined;
-    const projectDirectory = space?.projectDirectory
-      ? normalizeProjectDirectory(space.projectDirectory)
-      : getPersistenceRowProjectDirectory({
-          original_directory: instance.originalDirectory ?? instance.info.originalDirectory,
-          working_directory: instance.info.workingDirectory,
-        });
+    const space = currentSpaceId ? this.spaceManager.getSpace(currentSpaceId) : undefined;
+    const project = this.getRegisteredProjectForDirectory(
+      space?.projectDirectory
+        ? normalizeProjectDirectory(space.projectDirectory)
+        : persistedProjectDirectory,
+    );
+    const reconciliation = buildPersistenceOwnershipReconciliation({
+      workingDirectory: instance.info.workingDirectory,
+      originalDirectory: instance.originalDirectory,
+      infoOriginalDirectory: instance.info.originalDirectory,
+      infoProjectId: instance.info.projectId,
+      projectId: project?.id,
+      space,
+    });
 
-    const project = this.getRegisteredProjectForDirectory(projectDirectory);
-    if (project && instance.info.projectId !== project.id) {
+    if (reconciliation.nextInfoProjectId) {
       this.baseConfig.logger.warn(
-        `[InstanceManager] Reconciled project ownership for ${instance.info.id} before persistence: ${instance.info.projectId ?? "null"} -> ${project.id}`,
+        `[InstanceManager] Reconciled project ownership for ${instance.info.id} before persistence: ${instance.info.projectId ?? "null"} -> ${reconciliation.nextInfoProjectId}`,
       );
-      instance.info.projectId = project.id;
+      instance.info.projectId = reconciliation.nextInfoProjectId;
     }
 
     if (!space || space.isDefault) {
       return;
     }
 
-    if (instance.originalDirectory !== space.projectDirectory) {
+    if (reconciliation.nextOriginalDirectory) {
       this.baseConfig.logger.warn(
-        `[InstanceManager] Reconciled originalDirectory for ${instance.info.id} before persistence: ${instance.originalDirectory ?? "null"} -> ${space.projectDirectory}`,
+        `[InstanceManager] Reconciled originalDirectory for ${instance.info.id} before persistence: ${instance.originalDirectory ?? "null"} -> ${reconciliation.nextOriginalDirectory}`,
       );
-      instance.originalDirectory = space.projectDirectory;
+      instance.originalDirectory = reconciliation.nextOriginalDirectory;
     }
-    if (instance.info.originalDirectory !== space.projectDirectory) {
+    if (reconciliation.nextInfoOriginalDirectory) {
       this.baseConfig.logger.warn(
-        `[InstanceManager] Reconciled info.originalDirectory for ${instance.info.id} before persistence: ${instance.info.originalDirectory ?? "null"} -> ${space.projectDirectory}`,
+        `[InstanceManager] Reconciled info.originalDirectory for ${instance.info.id} before persistence: ${instance.info.originalDirectory ?? "null"} -> ${reconciliation.nextInfoOriginalDirectory}`,
       );
-      instance.info.originalDirectory = space.projectDirectory;
+      instance.info.originalDirectory = reconciliation.nextInfoOriginalDirectory;
     }
   }
 
@@ -6518,11 +6084,31 @@ export class InstanceManager extends EventEmitter {
           instance.providerBinding,
           instance.process?.getRuntimeBinding(),
         );
-        this.db.upsertManaged(this.toManagedInstanceRow(instance));
+        this.db.upsertManaged(
+          toManagedInstanceRow({
+            info: instance.info,
+            binding: instance.providerBinding,
+            sessionId: instance.sessionId,
+            jsonlPath: instance.jsonlPath,
+            gitBranch: instance.gitBranch,
+            worktreePath: instance.worktreePath,
+            originalDirectory: instance.originalDirectory,
+            defaultRuntimeMode: this.baseConfig.defaultRuntimeMode,
+          }),
+        );
         this.collapseManagedDuplicates(instance.info.id);
       }
       if (instance.sessionId && instance.jsonlPath) {
-        this.db.upsert(this.toSessionRow(instance));
+        this.db.upsert(
+          toSessionRow({
+            info: instance.info,
+            sessionId: instance.sessionId,
+            jsonlPath: instance.jsonlPath,
+            gitBranch: instance.gitBranch,
+            worktreePath: instance.worktreePath,
+            originalDirectory: instance.originalDirectory,
+          }),
+        );
       }
 
       // Update searchable transcript text from the in-memory history
@@ -6568,17 +6154,7 @@ export class InstanceManager extends EventEmitter {
   ): void {
     for (const instance of this.instances.values()) {
       if (instance.info.id !== instanceId && instance.sessionId !== sessionId) continue;
-      const nextStats: SessionStats = {
-        inputTokens: stats.inputTokens,
-        outputTokens: stats.outputTokens,
-        cacheCreationTokens: stats.cacheCreationTokens,
-        cacheReadTokens: stats.cacheReadTokens,
-        model: stats.model ?? instance.info.stats?.model,
-        contextTokens: stats.contextTokens ?? instance.info.stats?.contextTokens,
-        contextWindow: stats.contextWindow ?? instance.info.stats?.contextWindow,
-        contextCategories: stats.contextCategories ?? instance.info.stats?.contextCategories,
-        reasoningTokens: stats.reasoningTokens ?? instance.info.stats?.reasoningTokens,
-      };
+      const nextStats = mergeBackfilledStats(instance.info.stats, stats);
       instance.info.stats = nextStats;
       if (instance.watchState) {
         instance.watchState.stats = { ...instance.watchState.stats, ...nextStats };
@@ -6603,23 +6179,8 @@ export class InstanceManager extends EventEmitter {
       if (hasPersistedTokenUsage(row) && row.model) continue;
       const stats = this.readTranscriptStats(row.provider_name as ProviderKind, row.jsonl_path);
       if (!stats) continue;
-      const nextRow: SessionRow = {
-        ...row,
-        input_tokens: stats.inputTokens,
-        output_tokens: stats.outputTokens,
-        cache_creation_tokens: stats.cacheCreationTokens,
-        cache_read_tokens: stats.cacheReadTokens,
-        model: row.model ?? stats.model ?? null,
-      };
-      if (
-        nextRow.input_tokens === row.input_tokens &&
-        nextRow.output_tokens === row.output_tokens &&
-        nextRow.cache_creation_tokens === row.cache_creation_tokens &&
-        nextRow.cache_read_tokens === row.cache_read_tokens &&
-        nextRow.model === row.model
-      ) {
-        continue;
-      }
+      const nextRow = buildBackfilledSessionRow(row, stats);
+      if (!nextRow) continue;
       this.db.upsert(nextRow);
       this.backfillSessionStats(row.instance_id, row.session_id, {
         ...stats,
@@ -6646,25 +6207,8 @@ export class InstanceManager extends EventEmitter {
 
       const stats = this.readTranscriptStats(row.provider_name as ProviderKind, transcriptPath);
       if (!stats) continue;
-      const nextRow: ManagedInstanceRow = {
-        ...row,
-        input_tokens: stats.inputTokens,
-        output_tokens: stats.outputTokens,
-        cache_creation_tokens: stats.cacheCreationTokens,
-        cache_read_tokens: stats.cacheReadTokens,
-        model: row.model ?? stats.model ?? null,
-        transcript_path: transcriptPath,
-      };
-      if (
-        nextRow.input_tokens === row.input_tokens &&
-        nextRow.output_tokens === row.output_tokens &&
-        nextRow.cache_creation_tokens === row.cache_creation_tokens &&
-        nextRow.cache_read_tokens === row.cache_read_tokens &&
-        nextRow.model === row.model &&
-        nextRow.transcript_path === row.transcript_path
-      ) {
-        continue;
-      }
+      const nextRow = buildBackfilledManagedRow(row, stats, transcriptPath);
+      if (!nextRow) continue;
       this.db.upsertManaged(nextRow);
       this.backfillSessionStats(row.instance_id, row.provider_session_id ?? undefined, {
         ...stats,
@@ -7233,41 +6777,21 @@ export class InstanceManager extends EventEmitter {
       this.db.updateProvider(entry.session_id, "codex");
     }
 
-    const info: InstanceInfo = {
-      id: entry.instance_id,
+    const restoredState = buildExternalRestoreState({
+      entry,
       provider,
-      name: entry.name,
       workingDirectory: restoreWorkingDirectory,
-      status: "stopped",
-      createdAt: entry.created_at,
-      lastActivityAt: entry.last_activity_at,
-      external: true,
-      lastMessage: lastMessageFromDb(entry),
-      sessionId: entry.session_id,
-      customTitle: entry.custom_title === 1,
-      stats: dbStatsToSessionStats(entry),
-      gitBranch: extGitBranch,
+      worktreePath: extWorktreePath,
       originalDirectory: extOriginalDir,
-      gitInfo: gitInfoFromDb(entry),
-      parentSessionId: entry.parent_session_id ?? undefined,
-      preferredModel: entry.preferred_model ?? undefined,
-      runtimeMode: (entry.runtime_mode as ProviderRuntimeMode | null) ?? undefined,
-      spaceId: inferredSpaceId ?? undefined,
-      projectId: entry.project_id ?? undefined,
-    };
+      gitBranch: extGitBranch,
+      inferredSpaceId: inferredSpaceId ?? undefined,
+      defaultRuntimeMode: this.baseConfig.defaultRuntimeMode,
+    });
 
     const instance: Instance = {
-      info,
+      info: restoredState.info,
       process: null,
-      providerBinding: {
-        provider,
-        providerSessionId: entry.session_id,
-        resumeCursor: { sessionId: entry.session_id },
-        runtimePayload: { cwd: restoreWorkingDirectory },
-        transcriptPath: entry.jsonl_path,
-        runtimeMode:
-          (entry.runtime_mode as ProviderRuntimeMode | null) ?? this.baseConfig.defaultRuntimeMode,
-      },
+      providerBinding: restoredState.providerBinding,
       history: [], // deferred until hydration
       sessionId: entry.session_id,
       jsonlPath: entry.jsonl_path,
@@ -7276,7 +6800,7 @@ export class InstanceManager extends EventEmitter {
       worktreePath: extWorktreePath,
       gitBranch: extGitBranch,
       originalDirectory: extOriginalDir,
-      actualCwd: extWorktreePath ? extWorktreePath : undefined,
+      actualCwd: restoredState.actualCwd,
       hydrated: false,
     };
 
@@ -7292,7 +6816,7 @@ export class InstanceManager extends EventEmitter {
     if (restoredPaths.repairedStaleWorktree) {
       this.dbSave(instance);
     }
-    this.emit("instance:created", entry.instance_id, { ...info });
+    this.emit("instance:created", entry.instance_id, { ...restoredState.info });
     return true;
   }
 
@@ -7340,27 +6864,9 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    let resumeCursor: unknown;
-    let runtimePayload: Record<string, unknown> | undefined;
-    try {
-      resumeCursor = entry.resume_cursor_json ? JSON.parse(entry.resume_cursor_json) : undefined;
-    } catch {
-      resumeCursor = undefined;
-    }
-    try {
-      runtimePayload = entry.runtime_payload_json
-        ? (JSON.parse(entry.runtime_payload_json) as Record<string, unknown>)
-        : undefined;
-    } catch {
-      runtimePayload = undefined;
-    }
-    const explicitReview = getReviewSessionFromRuntimePayload(runtimePayload);
-    const inferredReview =
-      explicitReview ??
-      inferLegacyReviewSessionInfo({
-        name: entry.name,
-        parentSessionId: entry.parent_session_id ?? undefined,
-      });
+    const restoredState = parseManagedRestoreState(entry);
+    let { resumeCursor, runtimePayload } = restoredState;
+    const explicitReview = restoredState.review;
     if (restoredPaths.repairedStaleWorktree) {
       runtimePayload = { ...runtimePayload, cwd: restoreActualCwd };
     }
@@ -7380,54 +6886,26 @@ export class InstanceManager extends EventEmitter {
       return false;
     }
 
-    let restoredModelOptions: ProviderModelOptions | undefined;
-    if (entry.model_options_json) {
-      try {
-        restoredModelOptions = JSON.parse(entry.model_options_json) as ProviderModelOptions;
-      } catch {
-        restoredModelOptions = undefined;
-      }
-    }
-
-    const info: InstanceInfo = {
-      id: entry.instance_id,
-      provider: entry.provider_name as ProviderKind,
-      name: entry.name,
+    const builtRestore = buildManagedRestoreState({
+      entry,
       workingDirectory: restoreActualCwd,
-      status: "stopped",
-      createdAt: entry.created_at,
-      lastActivityAt: entry.last_activity_at,
-      lastMessage: lastMessageFromDb(entry),
-      sessionId: resumeSessionId,
-      customTitle: entry.custom_title === 1,
-      stats: dbStatsToSessionStats(entry),
-      gitBranch: restoreGitBranch,
+      worktreePath: restoreWorktreePath,
       originalDirectory: restoreOriginalDirectory,
-      gitInfo: gitInfoFromDb(entry),
-      originalGitBranch:
-        entry.original_git_branch ?? entry.git_branch ?? entry.git_info_branch ?? undefined,
-      parentSessionId: entry.parent_session_id ?? undefined,
-      preferredModel: entry.preferred_model ?? undefined,
-      modelOptions: restoredModelOptions,
-      runtimeMode: entry.runtime_mode as ProviderRuntimeMode,
-      spaceId: inferredSpaceId ?? undefined,
-      projectId: entry.project_id ?? undefined,
-      sessionContext: getSessionContextFromRuntimePayload(runtimePayload),
-      review: inferredReview,
-      reviewInstanceId: getReviewInstanceIdFromRuntimePayload(runtimePayload),
-    };
+      gitBranch: restoreGitBranch,
+      inferredSpaceId: inferredSpaceId ?? undefined,
+      resumeCursor,
+      runtimePayload,
+      resumeSessionId,
+      transcriptPath,
+      modelOptions: restoredState.modelOptions,
+      review: explicitReview,
+      reviewInstanceId: restoredState.reviewInstanceId,
+    });
 
     const instance: Instance = {
-      info,
+      info: builtRestore.info,
       process: null,
-      providerBinding: {
-        provider,
-        providerSessionId: resumeSessionId,
-        resumeCursor,
-        runtimePayload,
-        transcriptPath,
-        runtimeMode: entry.runtime_mode as ProviderRuntimeMode,
-      },
+      providerBinding: builtRestore.providerBinding,
       history: [], // deferred until hydration
       sessionId: resumeSessionId,
       jsonlPath: transcriptPath,
@@ -7436,13 +6914,10 @@ export class InstanceManager extends EventEmitter {
       worktreePath: restoreWorktreePath,
       gitBranch: restoreGitBranch,
       originalDirectory: restoreOriginalDirectory,
-      actualCwd: restoreWorktreePath ? restoreActualCwd : undefined,
+      actualCwd: builtRestore.actualCwd,
       hydrated: false,
-      taskContextInjected: hasSessionBootstrapBlock(info.sessionContext, TASK_CONTEXT_BLOCK_KIND),
-      customInstructionsInjected: hasSessionBootstrapBlock(
-        info.sessionContext,
-        CUSTOM_INSTRUCTIONS_BLOCK_KIND,
-      ),
+      taskContextInjected: builtRestore.taskContextInjected,
+      customInstructionsInjected: builtRestore.customInstructionsInjected,
     };
 
     this.instances.set(entry.instance_id, instance);
@@ -7456,23 +6931,12 @@ export class InstanceManager extends EventEmitter {
     }
     if (
       transcriptPath !== (entry.transcript_path ?? undefined) ||
-      restoredPaths.repairedStaleWorktree ||
-      (!!inferredReview && !explicitReview)
+      restoredPaths.repairedStaleWorktree
     ) {
-      if (inferredReview && !explicitReview) {
-        instance.providerBinding = {
-          ...instance.providerBinding,
-          provider,
-          runtimePayload: {
-            ...(instance.providerBinding?.runtimePayload ?? {}),
-            review: inferredReview,
-          },
-        };
-      }
       this.dbSave(instance);
     }
     this.removeLiveExternalShadow(entry.instance_id, resumeSessionId ?? undefined, transcriptPath);
-    this.emit("instance:created", entry.instance_id, { ...info });
+    this.emit("instance:created", entry.instance_id, { ...builtRestore.info });
     return true;
   }
 
@@ -7503,6 +6967,17 @@ export class InstanceManager extends EventEmitter {
     }
   }
 
+  private restorePersistedRowsFromDb(): number {
+    return restorePersistedRows({
+      externalRows: this.db.getAllActive(),
+      managedRows: this.db.getAllManagedActive(),
+      managedKeys: this.collectManagedSessionKeys(),
+      isManagedShadowSessionRow,
+      restoreExternalRow: (entry) => this.restoreExternalFromRow(entry),
+      restoreManagedRow: (entry) => this.restoreManagedFromRow(entry),
+    });
+  }
+
   /**
    * Fast restore from DB cache only — no filesystem scan.
    * Gets instances into the sidebar immediately from cached metadata.
@@ -7515,19 +6990,7 @@ export class InstanceManager extends EventEmitter {
       this.baseConfig.logger.info("[InstanceManager] DB was rebuilt from JSONL scan");
     }
 
-    let restored = 0;
-    const managedKeys = this.collectManagedSessionKeys();
-
-    // --- External sessions: skeleton from DB metadata only (no JSONL parse, no git) ---
-    for (const entry of this.db.getAllActive()) {
-      if (this.isManagedShadowSessionRow(entry, managedKeys)) continue;
-      if (this.restoreExternalFromRow(entry)) restored++;
-    }
-
-    // --- Managed sessions: skeleton from DB metadata only (no provider boot, no JSONL parse) ---
-    for (const entry of this.db.getAllManagedActive()) {
-      if (this.restoreManagedFromRow(entry)) restored++;
-    }
+    const restored = this.restorePersistedRowsFromDb();
 
     this.pruneLiveManagedShadows(this.collectManagedSessionKeys());
 
@@ -7594,15 +7057,7 @@ export class InstanceManager extends EventEmitter {
     this.backfillMissingSpaceIds();
     this.refreshInstanceSpaceIdsFromDb();
 
-    let discovered = 0;
-    const managedKeys = this.collectManagedSessionKeys();
-    for (const entry of this.db.getAllActive()) {
-      if (this.isManagedShadowSessionRow(entry, managedKeys)) continue;
-      if (this.restoreExternalFromRow(entry)) discovered++;
-    }
-    for (const entry of this.db.getAllManagedActive()) {
-      if (this.restoreManagedFromRow(entry)) discovered++;
-    }
+    const discovered = this.restorePersistedRowsFromDb();
 
     this.pruneLiveManagedShadows(this.collectManagedSessionKeys());
 
