@@ -207,7 +207,7 @@ export function InputArea({
   const projectCtx = useContext(ProjectContext);
   const { send } = useWSMethods();
   const { images, uploading, addImages, removeImage, clearImages, uploadAttachedImages } =
-    useAttachmentState();
+    useAttachmentState(instanceId);
   const [optimisticProviderSelection, setOptimisticProviderSelection] =
     useState<OptimisticProviderSelection | null>(null);
   const displayedProvider = optimisticProviderSelection?.provider ?? provider;
