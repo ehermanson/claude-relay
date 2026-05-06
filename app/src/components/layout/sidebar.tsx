@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
@@ -86,6 +86,23 @@ export function Sidebar({
   } = useSidebarNavigationController();
   const location = useLocation();
   const currentId = currentChatId;
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const didInitialScrollRef = useRef(false);
+
+  // On reload, scroll the active chat into view if it isn't already.
+  // Runs once: waits for projectEntries to populate so the target item exists,
+  // then uses block: "nearest" which is a no-op when the item is already visible.
+  useEffect(() => {
+    if (didInitialScrollRef.current) return;
+    if (!currentId) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    const el = container.querySelector<HTMLElement>(`[data-chat-id="${CSS.escape(currentId)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    didInitialScrollRef.current = true;
+  }, [currentId, projectEntries]);
 
   const [showAddProject, setShowAddProject] = useState(false);
   const [projectTab, setProjectTab] = useState<"add" | "create">("add");
@@ -246,7 +263,7 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto pb-2">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto pb-2">
           {!hasProjects && isSyncing ? (
             <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
               <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin text-muted" />

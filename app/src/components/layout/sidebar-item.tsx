@@ -99,6 +99,7 @@ export function SidebarItem({
     <Link
       to={to}
       params={params}
+      data-chat-id={instance.id}
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
