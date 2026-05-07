@@ -4,10 +4,12 @@ import { WebSocketProvider } from "../context/websocket-context";
 import { AppLayout } from "../components/layout/app-layout";
 import { ActionToastProvider } from "@/context/action-toast-context";
 import { useTerminalPendingToasts } from "../hooks/use-terminal-pending-toasts";
+import { useTurnEndToasts } from "../hooks/use-turn-end-toasts";
 
 function AppLayoutWithToasts() {
   const { chatId } = useParams({ strict: false }) as { chatId?: string };
   useTerminalPendingToasts(chatId);
+  useTurnEndToasts(chatId);
   return <AppLayout />;
 }
 

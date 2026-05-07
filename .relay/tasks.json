@@ -1947,14 +1947,14 @@
       "id": "9328fdc4",
       "title": "Toast when an agent turn ends in a non-focused chat",
       "description": "When an agent turn finishes in a chat that the user is not currently viewing (different chat, different page, or tab not focused), pop a toast notifying them that the chat is ready. Clicking the toast should navigate to that chat.\n\n**Trigger condition:** an instance transitions from running → idle (turn end) AND the user is not actively viewing that chat. \"Not viewing\" covers: looking at a different chat, on a non-chat page (settings, plans, tasks, etc.), or the browser tab is hidden (`document.visibilityState === 'hidden'`).\n\n**Implementation notes:**\n- Detect the running→idle transition client-side by diffing instance status across WS updates (similar pattern to `prevInstanceIdsRef` in `app/src/context/action-toast-context.tsx`).\n- Compare against the currently-focused chat ID (available from the router / sidebar nav controller).\n- Use `sonner` toasts with the chat name + a click handler that navigates to the chat.\n- Consider rate-limiting / coalescing if multiple chats finish in quick succession.\n- Optional: also flash `document.title` or favicon when the tab is hidden, since toasts won't be visible.\n- Optional follow-up: browser Notification API for true OS-level alerts (requires permission).\n\n**Open questions:**\n- Should this fire for every turn end, or only when the user explicitly sent a message and walked away? (Avoid toast spam from agents doing multi-turn tool loops that punctuate at idle moments.)\n- Should rate-limit / completion notifications be a separate category from turn-end?",
-      "status": "open",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["ux", "notifications"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-05-05T00:00:00Z",
-      "updatedAt": "2026-05-05T00:00:00Z"
+      "updatedAt": "2026-05-07T00:00:00Z"
     }
   ]
 }

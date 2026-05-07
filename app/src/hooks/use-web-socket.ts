@@ -93,10 +93,12 @@ export function useWebSocket() {
     [clearHandshakeTimer],
   );
 
-  const send = useCallback((message: ClientMessage) => {
+  const send = useCallback((message: ClientMessage): boolean => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
+      return true;
     }
+    return false;
   }, []);
 
   const subscribe = useCallback(
