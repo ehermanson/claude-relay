@@ -374,6 +374,22 @@ const EMPTY_STATE: State = {
   replayEpoch: undefined,
 };
 
+function canApplyDeltaReplay(
+  state: Pick<State, "hasLoadedHistory" | "hasRawHistory" | "lastSeenSequence" | "replayEpoch">,
+  replayMode: "full" | "delta" | undefined,
+  replayEpoch: number | undefined,
+  latestSequence: number | undefined,
+): boolean {
+  return (
+    replayMode === "delta" &&
+    state.hasLoadedHistory &&
+    state.hasRawHistory &&
+    state.replayEpoch !== undefined &&
+    replayEpoch === state.replayEpoch &&
+    (latestSequence ?? state.lastSeenSequence) >= state.lastSeenSequence
+  );
+}
+
 export function primeInstanceMessagesCache(instanceId: string): void {
   rawHistoryStore.set(instanceId, []);
   setCacheEntry(instanceId, {
@@ -392,10 +408,12 @@ function coreReducer(state: State, action: Action): State {
       return action.cached;
 
     case "replay": {
-      const isSafeDelta =
-        action.replayMode === "delta" &&
-        (state.replayEpoch === undefined || action.replayEpoch === state.replayEpoch) &&
-        (action.latestSequence ?? state.lastSeenSequence) >= state.lastSeenSequence;
+      const isSafeDelta = canApplyDeltaReplay(
+        state,
+        action.replayMode,
+        action.replayEpoch,
+        action.latestSequence,
+      );
 
       if (isSafeDelta) {
         return {
@@ -909,13 +927,16 @@ export function useInstanceMessages() {
             // Only replace the rawHistory buffer on a full replay. Safe deltas
             // leave existing entries in place (the reducer ignores action.history
             // in that branch), so we must too.
-            const isSafeDelta =
-              message.replayMode === "delta" &&
-              (stateRef.current.replayEpoch === undefined ||
-                message.replayEpoch === stateRef.current.replayEpoch) &&
-              (message.latestSequence ?? stateRef.current.lastSeenSequence) >=
-                stateRef.current.lastSeenSequence;
+            const isSafeDelta = canApplyDeltaReplay(
+              stateRef.current,
+              message.replayMode,
+              message.replayEpoch,
+              message.latestSequence,
+            );
             if (!isSafeDelta) {
+              if (message.replayMode === "delta") {
+                break;
+              }
               rawHistoryStore.set(instanceId, [...message.history]);
             } else if (!rawHistoryStore.has(instanceId)) {
               rawHistoryStore.set(instanceId, [...message.history]);
@@ -1055,7 +1076,8 @@ export function useInstanceMessages() {
 
   const getReplayCursor = useCallback((instanceId: string) => {
     const source =
-      instanceIdRef.current === instanceId ? stateRef.current : stateCache.get(instanceId);
+      stateCache.get(instanceId) ??
+      (instanceIdRef.current === instanceId ? stateRef.current : undefined);
     if (!source || source.lastSeenSequence <= 0 || source.replayEpoch === undefined) {
       return undefined;
     }

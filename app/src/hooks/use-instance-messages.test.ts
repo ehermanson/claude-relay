@@ -368,4 +368,72 @@ describe("useInstanceMessages passive history hydration", () => {
       expect.objectContaining({ kind: "user", text: "from websocket" }),
     ]);
   });
+
+  it("ignores delta replay acks until a full history baseline exists", () => {
+    const { result } = renderHook(() => useInstanceMessages());
+
+    act(() => {
+      result.current.setInstanceId("inst-delta");
+      result.current.handleMessage("inst-delta", {
+        type: "instance_history",
+        instanceId: "inst-delta",
+        history: [],
+        replayMode: "delta",
+        latestSequence: 4,
+        replayEpoch: 99,
+      });
+    });
+
+    expect(result.current.hasLoadedHistory).toBe(false);
+    expect(result.current.items).toEqual([]);
+
+    act(() => {
+      result.current.hydrateFromHistorySnapshot("inst-delta", [
+        {
+          timestamp: 1,
+          message: {
+            type: "user",
+            instanceId: "inst-delta",
+            text: "from rest fallback",
+          },
+        },
+      ]);
+    });
+
+    expect(result.current.hasLoadedHistory).toBe(true);
+    expect(result.current.items).toEqual([
+      expect.objectContaining({ kind: "user", text: "from rest fallback" }),
+    ]);
+  });
+
+  it("does not leak another chat's replay cursor during an instance switch", () => {
+    const { result } = renderHook(() => useInstanceMessages());
+
+    act(() => {
+      result.current.setInstanceId("inst-a");
+      result.current.handleMessage("inst-a", {
+        type: "instance_history",
+        instanceId: "inst-a",
+        history: [
+          {
+            timestamp: 1,
+            message: {
+              type: "user",
+              instanceId: "inst-a",
+              text: "chat a",
+            },
+          },
+        ],
+        replayMode: "full",
+        latestSequence: 7,
+        replayEpoch: 123,
+      });
+    });
+
+    act(() => {
+      result.current.setInstanceId("inst-b");
+    });
+
+    expect(result.current.getReplayCursor("inst-b")).toBeUndefined();
+  });
 });
