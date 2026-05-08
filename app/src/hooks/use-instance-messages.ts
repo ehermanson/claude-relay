@@ -279,6 +279,8 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
 interface State {
   items: ChatItem[];
   hasLoadedHistory: boolean;
+  /** True once the active selection has been refreshed from WS replay or REST fallback. */
+  hasSyncedHistory: boolean;
   isProcessing: boolean;
   showThinkingIndicator: boolean;
   currentTasks: TaskItem[] | null;
@@ -363,6 +365,7 @@ function setCacheEntry(id: string, state: State) {
 const EMPTY_STATE: State = {
   items: [],
   hasLoadedHistory: false,
+  hasSyncedHistory: false,
   isProcessing: false,
   showThinkingIndicator: false,
   currentTasks: null,
@@ -395,6 +398,7 @@ export function primeInstanceMessagesCache(instanceId: string): void {
   setCacheEntry(instanceId, {
     ...EMPTY_STATE,
     hasLoadedHistory: true,
+    hasSyncedHistory: true,
     hasRawHistory: true,
   });
 }
@@ -405,7 +409,12 @@ function coreReducer(state: State, action: Action): State {
       return EMPTY_STATE;
 
     case "restore":
-      return action.cached;
+      return {
+        ...action.cached,
+        // Cached state is renderable, but not authoritative for the newly
+        // selected chat until we re-sync via WS replay or REST fallback.
+        hasSyncedHistory: false,
+      };
 
     case "replay": {
       const isSafeDelta = canApplyDeltaReplay(
@@ -419,6 +428,7 @@ function coreReducer(state: State, action: Action): State {
         return {
           ...state,
           hasLoadedHistory: true,
+          hasSyncedHistory: true,
           replayEpoch: action.replayEpoch ?? state.replayEpoch,
           lastSeenSequence: action.latestSequence ?? state.lastSeenSequence,
         };
@@ -441,6 +451,7 @@ function coreReducer(state: State, action: Action): State {
       return {
         items,
         hasLoadedHistory: true,
+        hasSyncedHistory: true,
         isProcessing: false,
         showThinkingIndicator: false,
         currentTasks,
@@ -1043,7 +1054,7 @@ export function useInstanceMessages() {
     if (id) {
       const cached = stateCache.get(id);
       if (cached) {
-        historyReadyRef.current = cached.hasLoadedHistory;
+        historyReadyRef.current = false;
         dispatch({ type: "restore", cached });
         return;
       }
@@ -1059,7 +1070,7 @@ export function useInstanceMessages() {
   const hydrateFromHistorySnapshot = useCallback((instanceId: string, history: HistoryEntry[]) => {
     if (
       instanceIdRef.current !== instanceId ||
-      stateRef.current.hasLoadedHistory ||
+      stateRef.current.hasSyncedHistory ||
       historyReadyRef.current
     ) {
       return;
@@ -1099,6 +1110,7 @@ export function useInstanceMessages() {
   return {
     items: state.items,
     hasLoadedHistory: state.hasLoadedHistory,
+    hasSyncedHistory: state.hasSyncedHistory,
     isProcessing: state.isProcessing,
     showThinkingIndicator: state.showThinkingIndicator,
     currentTasks: state.currentTasks,

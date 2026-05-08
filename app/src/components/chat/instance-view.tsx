@@ -75,6 +75,7 @@ export function InstanceView({
   const {
     items,
     hasLoadedHistory,
+    hasSyncedHistory,
     isProcessing,
     showThinkingIndicator,
     currentTasks,
@@ -212,7 +213,7 @@ export function InstanceView({
   // Slow links can take a while to finish the WS replay handshake. Fall back to
   // the passive REST history endpoint so the chat can render before WS catches up.
   useEffect(() => {
-    if (!id || !resolvedInstance || hasLoadedHistory) return;
+    if (!id || !resolvedInstance || hasSyncedHistory) return;
     const timer = setTimeout(() => {
       void fetchInstanceHistory(id)
         .then((history) => {
@@ -223,7 +224,7 @@ export function InstanceView({
         });
     }, 1200);
     return () => clearTimeout(timer);
-  }, [hasLoadedHistory, hydrateFromHistorySnapshot, id, resolvedInstance]);
+  }, [hasSyncedHistory, hydrateFromHistorySnapshot, id, resolvedInstance]);
 
   const handleSend = (text: string, images?: string[], internal?: boolean) => {
     if (!id) return;

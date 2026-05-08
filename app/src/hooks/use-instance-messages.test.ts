@@ -324,6 +324,7 @@ describe("useInstanceMessages passive history hydration", () => {
     });
 
     expect(result.current.hasLoadedHistory).toBe(true);
+    expect(result.current.hasSyncedHistory).toBe(true);
     expect(result.current.items).toEqual([
       expect.objectContaining({ kind: "user", text: "hello" }),
       expect.objectContaining({ kind: "assistant", text: "world" }),
@@ -385,6 +386,7 @@ describe("useInstanceMessages passive history hydration", () => {
     });
 
     expect(result.current.hasLoadedHistory).toBe(false);
+    expect(result.current.hasSyncedHistory).toBe(false);
     expect(result.current.items).toEqual([]);
 
     act(() => {
@@ -401,8 +403,66 @@ describe("useInstanceMessages passive history hydration", () => {
     });
 
     expect(result.current.hasLoadedHistory).toBe(true);
+    expect(result.current.hasSyncedHistory).toBe(true);
     expect(result.current.items).toEqual([
       expect.objectContaining({ kind: "user", text: "from rest fallback" }),
+    ]);
+  });
+
+  it("allows REST fallback to refresh a stale cached chat after switching back", () => {
+    const { result } = renderHook(() => useInstanceMessages());
+
+    act(() => {
+      result.current.setInstanceId("inst-stale");
+      result.current.handleMessage("inst-stale", {
+        type: "instance_history",
+        instanceId: "inst-stale",
+        history: [
+          {
+            timestamp: 1,
+            message: {
+              type: "user",
+              instanceId: "inst-stale",
+              text: "stale snapshot",
+            },
+          },
+        ],
+        replayMode: "full",
+        latestSequence: 3,
+        replayEpoch: 10,
+      });
+    });
+
+    act(() => {
+      result.current.setInstanceId("inst-other");
+    });
+
+    act(() => {
+      result.current.setInstanceId("inst-stale");
+    });
+
+    expect(result.current.hasLoadedHistory).toBe(true);
+    expect(result.current.hasSyncedHistory).toBe(false);
+    expect(result.current.items).toEqual([
+      expect.objectContaining({ kind: "user", text: "stale snapshot" }),
+    ]);
+
+    act(() => {
+      result.current.hydrateFromHistorySnapshot("inst-stale", [
+        {
+          timestamp: 1,
+          message: {
+            type: "user",
+            instanceId: "inst-stale",
+            text: "fresh snapshot",
+          },
+        },
+      ]);
+    });
+
+    expect(result.current.hasSyncedHistory).toBe(true);
+    expect(result.current.items).toEqual([
+      expect.objectContaining({ kind: "user", text: "fresh snapshot" }),
     ]);
   });
 
