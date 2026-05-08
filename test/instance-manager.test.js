@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
   readdirSync,
@@ -1227,6 +1228,42 @@ describe("InstanceManager", () => {
       assert.equal(instance.hydrated, false);
       assert.equal(instance.info.status, "stopped");
       assert.equal(instance.info.lastActivityAt, originalLastActivity);
+    });
+
+    it("refreshes hydrated chat history from transcript on passive reads", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      const transcriptPath = join(manager.baseConfig.workingDirectory, "hydrated-passive.jsonl");
+      writeFileSync(transcriptPath, readFileSync(join(fixturesDir, "codex-managed-session.jsonl")));
+
+      instance.info.provider = "codex";
+      instance.info.status = "stopped";
+      instance.sessionId = "hydrated-passive-session";
+      instance.jsonlPath = transcriptPath;
+      instance.hydrated = true;
+      instance.history = [
+        {
+          timestamp: Date.parse("2026-05-07T23:59:00.000Z"),
+          message: {
+            type: "user",
+            instanceId: info.id,
+            text: "stale question",
+          },
+        },
+      ];
+
+      const history = manager.getHistory(info.id);
+      const userMessages = history.filter((entry) => entry.message.type === "user");
+
+      assert.equal(userMessages.length, 1);
+      assert.equal(userMessages[0].message.text, "How do I build this?");
+      assert.equal(
+        instance.history.some((entry) => entry.message.text === "How do I build this?"),
+        true,
+      );
+      assert.equal(instance.info.lastMessage?.text, "Run `npm run build`. It passes.");
     });
 
     it("throws for unknown instance", () => {

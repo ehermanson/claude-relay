@@ -3311,9 +3311,6 @@ export class InstanceManager extends EventEmitter {
   getHistory(id: string): HistoryEntry[] {
     const instance = this.instances.get(id);
     if (!instance) throw new Error(`Instance ${id} not found`);
-    if (instance.hydrated) {
-      return this.buildHistoryView(instance.history, instance.files);
-    }
 
     const transcriptPath =
       instance.jsonlPath ??
@@ -3331,6 +3328,24 @@ export class InstanceManager extends EventEmitter {
     this.baseConfig.logger.debug(
       `[InstanceManager] Read passive history for ${id} from ${transcriptPath} in ${Date.now() - hydrateStartedAt}ms (${cacheHit ? "cache hit" : "cache miss"}, ${parsed.history.length} history entries)`,
     );
+
+    if (instance.hydrated) {
+      instance.history = parsed.history;
+      instance.tasks = parsed.tasks.size > 0 ? parsed.tasks : undefined;
+      instance.files = parsed.files.size > 0 ? parsed.files : undefined;
+
+      const parsedStats = hasSessionStats(parsed.stats) ? parsed.stats : undefined;
+      if (parsedStats) {
+        instance.info.stats = parsedStats;
+        if (instance.watchState) instance.watchState.stats = { ...parsedStats };
+      }
+
+      const parsedLastMessage = extractLastMessage(parsed.history);
+      if (parsedLastMessage) {
+        instance.info.lastMessage = parsedLastMessage;
+      }
+      this.rebuildPendingInteractiveState(instance);
+    }
 
     return this.buildHistoryView(parsed.history, parsed.files.size > 0 ? parsed.files : undefined);
   }
