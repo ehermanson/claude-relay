@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { InstanceViewProvider } from "@/components/chat/instance-view-context";
@@ -124,6 +124,7 @@ export function InstanceView({
     ? instances.find((i) => i.parentSessionId === resolvedInstance.sessionId)
     : undefined;
   const [creatingReview, setCreatingReview] = useState(false);
+  const lastSubscriptionRef = useRef<{ instanceId: string; connectionId: number } | null>(null);
   // Track file state at last send, keyed by review instance ID.
   // "Re-review" shows only when source files have changed since the last send.
   const [sentReviewSnapshots, setSentReviewSnapshots] = useState<Map<string, string>>(new Map());
@@ -168,8 +169,14 @@ export function InstanceView({
   // Subscribe/unsubscribe — re-runs on each new WS connection (connectionId)
   useEffect(() => {
     if (!id || connectionId === 0) return;
-    const replayCursor = getReplayCursor(id);
+    const lastSubscription = lastSubscriptionRef.current;
+    const isReconnectForSameChat =
+      !!lastSubscription &&
+      lastSubscription.instanceId === id &&
+      lastSubscription.connectionId !== connectionId;
+    const replayCursor = isReconnectForSameChat ? getReplayCursor(id) : undefined;
     subscribe(id, replayCursor?.lastSeenSequence, replayCursor?.replayEpoch);
+    lastSubscriptionRef.current = { instanceId: id, connectionId };
     return () => unsubscribe(id);
   }, [id, connectionId, subscribe, unsubscribe, getReplayCursor]);
 
