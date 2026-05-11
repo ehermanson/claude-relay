@@ -904,6 +904,26 @@ describe("InstanceManager", () => {
       const info = manager.createInstance();
       assert.equal(await manager.setProvider(info.id, "gemini"), false);
     });
+
+    it("applies target provider defaults when switching an empty chat", async () => {
+      manager.sessionDb.updateGlobalSettings({
+        provider_defaults_json: JSON.stringify({
+          codex: {
+            model: "gpt-5.4",
+            reasoningEffort: "high",
+          },
+        }),
+      });
+
+      const info = manager.createInstance({ provider: "claude" });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      assert.equal(await manager.setProvider(info.id, "codex"), true);
+      assert.equal(instance.info.provider, "codex");
+      assert.equal(instance.info.preferredModel, "gpt-5.4");
+      assert.deepEqual(instance.info.modelOptions, { reasoningEffort: "high" });
+    });
   });
 
   describe("removeInstance", () => {

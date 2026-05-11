@@ -8051,14 +8051,37 @@ export class InstanceManager extends EventEmitter {
       if (instance.sessionId || instance.info.sessionId) return false;
       if (instance.info.provider === provider) return true;
 
+      const globalSettings = this.db.getGlobalSettings();
+      let providerDefaults: Record<
+        string,
+        {
+          model?: string;
+          reasoningEffort?: string;
+          fastMode?: boolean;
+        }
+      > = {};
+      if (globalSettings.provider_defaults_json) {
+        try {
+          providerDefaults = JSON.parse(globalSettings.provider_defaults_json);
+        } catch {}
+      }
+      const perProvider = providerDefaults[provider];
+      const preferredModel = perProvider?.model;
+      let modelOptions: ProviderModelOptions | undefined = perProvider?.reasoningEffort
+        ? { reasoningEffort: perProvider.reasoningEffort as ReasoningEffort }
+        : undefined;
+      if (perProvider?.fastMode != null) {
+        modelOptions = { ...modelOptions, fastMode: perProvider.fastMode };
+      }
+
       const previousProcess = instance.process;
       instance.process = null;
       if (previousProcess) {
         await Promise.resolve(previousProcess.close());
       }
 
-      instance.info.preferredModel = undefined;
-      instance.info.modelOptions = undefined;
+      instance.info.preferredModel = preferredModel;
+      instance.info.modelOptions = modelOptions;
       instance.info.provider = provider;
 
       const instanceConfig: CoreConfig = {
@@ -8070,7 +8093,8 @@ export class InstanceManager extends EventEmitter {
       const proc = this.createProviderSession(instanceConfig, {
         provider,
         runtimeMode: instance.info.runtimeMode,
-        model: BUILTIN_PROVIDER_MODELS[provider].find((m) => m.isDefault)?.id,
+        model: preferredModel ?? BUILTIN_PROVIDER_MODELS[provider].find((m) => m.isDefault)?.id,
+        modelOptions,
       });
       instance.process = proc;
       instance.providerBinding = mergeProviderBinding(
