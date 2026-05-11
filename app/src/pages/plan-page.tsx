@@ -21,7 +21,7 @@ export function PlanPage() {
   };
 
   const { artifacts } = useProjectContext();
-  const projectId = artifacts.projectId || routeProjectId;
+  const projectId = artifacts.projectSlug ?? routeProjectId ?? artifacts.projectId;
 
   const plan = artifacts.plans.find((p) => p.slug === planSlug);
   const dirName = artifacts.directory.split("/").pop() || projectId;

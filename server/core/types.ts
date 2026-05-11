@@ -502,6 +502,8 @@ export interface InstanceInfo {
   planContent?: string;
   /** Project ID this instance belongs to */
   projectId?: string;
+  /** Stable, URL-safe slug of the project this instance belongs to. Mirrors `Project.slug`. */
+  projectSlug?: string;
   /** Space this instance belongs to (null = implicit main space) */
   spaceId?: string;
   /** Number of user messages queued while the agent is processing */
@@ -1126,6 +1128,12 @@ export interface Session {
 export interface Project {
   id: string;
   name: string;
+  /**
+   * Stable, URL-safe identifier derived from the project's directory basename at
+   * registration time. Sticky: not recomputed when `name` is edited. Unique across
+   * registered projects (collisions are suffixed with `-2`, `-3`, …).
+   */
+  slug: string;
   directory: string;
   repoRoot: string | null;
   remoteUrl: string | null;
@@ -1255,6 +1263,8 @@ export interface SpinOffInfo {
 
 export interface ProjectArtifacts {
   projectId: string;
+  /** Sticky human-readable identifier used in URLs. Undefined for unregistered projects. */
+  projectSlug?: string;
   directory: string;
   memory: string | null;
   /** Contents of CLAUDE.md from the project root */

@@ -10,7 +10,7 @@ import { dirname } from "path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Logger } from "#core/logger.js";
 
-const CURRENT_SCHEMA_VERSION = 24;
+const CURRENT_SCHEMA_VERSION = 25;
 type SQLiteBindValue = string | number | bigint | null | NodeJS.ArrayBufferView;
 type SQLiteBindParams = Record<string, SQLiteBindValue>;
 
@@ -29,6 +29,7 @@ function asRows<T>(value: Record<string, unknown>[]): T[] {
 export interface ProjectRow {
   id: string;
   name: string;
+  slug: string;
   directory: string;
   repo_root: string | null;
   remote_url: string | null;
@@ -224,6 +225,17 @@ function normalizeSpaceRow(row: SpaceRow): SpaceRow {
 
 function normalizeProjectRow(row: ProjectRow): ProjectRow {
   const normalized = { ...row };
+  // Slug is required at the application layer (it's how URLs are built), but
+  // callers that build rows directly (tests, low-level migrations) may omit it.
+  // Derive a structural default from directory basename; uniqueness is still
+  // enforced by the partial UNIQUE INDEX on the column.
+  if (typeof normalized.slug !== "string" || normalized.slug.length === 0) {
+    const base = (normalized.directory.split("/").pop() || normalized.id)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    normalized.slug = base.length > 0 ? base : "project";
+  }
   normalized.repo_root ??= null;
   normalized.remote_url ??= null;
   normalized.target_branch ??= null;
@@ -417,6 +429,7 @@ export class SessionDB {
   private stmtGetGlobalStats!: StatementSync;
   private stmtUpsertProject!: StatementSync;
   private stmtGetProject!: StatementSync;
+  private stmtGetProjectBySlug!: StatementSync;
   private stmtGetProjectByDir!: StatementSync;
   private stmtGetAllProjects!: StatementSync;
   private stmtDeleteProject!: StatementSync;
@@ -608,6 +621,7 @@ ${buildSearchIndexSchemaSql()},
       this.ensureGlobalSettingsColumns();
       this.ensureSuggestionsColumns();
       this.ensureRuntimeModeColumns();
+      this.ensureProjectSlugColumn();
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
       return;
     }
@@ -620,6 +634,7 @@ ${buildSearchIndexSchemaSql()},
       this.ensureGlobalSettingsColumns();
       this.ensureSuggestionsColumns();
       this.ensureRuntimeModeColumns();
+      this.ensureProjectSlugColumn();
       return;
     }
 
@@ -722,6 +737,7 @@ ${buildSearchIndexSchemaSql()},
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        slug TEXT,
         directory TEXT NOT NULL UNIQUE,
         repo_root TEXT,
         remote_url TEXT,
@@ -831,6 +847,24 @@ ${buildSearchIndexSchemaSql()},
       );
       this.db.exec("ALTER TABLE managed_sessions DROP COLUMN skip_permissions");
     }
+  }
+
+  /**
+   * Migration for schema v25: add `slug` column to projects for human-readable URLs.
+   * Backfill happens later in ProjectManager once it can compute basenames + handle collisions.
+   * Idempotent.
+   */
+  private ensureProjectSlugColumn(): void {
+    const columns = this.db.prepare("PRAGMA table_info(projects)").all() as Array<{
+      name?: string;
+    }>;
+    const has = columns.some((c) => c.name === "slug");
+    if (!has) {
+      this.db.exec("ALTER TABLE projects ADD COLUMN slug TEXT");
+    }
+    this.db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug) WHERE slug IS NOT NULL",
+    );
   }
 
   private ensureSuggestionsColumns(): void {
@@ -1145,10 +1179,11 @@ ${buildSearchIndexSchemaSql()},
 
     // Project CRUD
     this.stmtUpsertProject = this.db.prepare(`
-      INSERT INTO projects (id, name, directory, repo_root, remote_url, target_branch, custom_instructions, default_space_branch, space_branch_source, default_provider, default_model, created_at, last_activity_at, suggestions_json)
-      VALUES (@id, @name, @directory, @repo_root, @remote_url, @target_branch, @custom_instructions, @default_space_branch, @space_branch_source, @default_provider, @default_model, @created_at, @last_activity_at, @suggestions_json)
+      INSERT INTO projects (id, name, slug, directory, repo_root, remote_url, target_branch, custom_instructions, default_space_branch, space_branch_source, default_provider, default_model, created_at, last_activity_at, suggestions_json)
+      VALUES (@id, @name, @slug, @directory, @repo_root, @remote_url, @target_branch, @custom_instructions, @default_space_branch, @space_branch_source, @default_provider, @default_model, @created_at, @last_activity_at, @suggestions_json)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
+        slug = excluded.slug,
         directory = excluded.directory,
         repo_root = excluded.repo_root,
         remote_url = excluded.remote_url,
@@ -1162,6 +1197,7 @@ ${buildSearchIndexSchemaSql()},
         suggestions_json = excluded.suggestions_json
     `);
     this.stmtGetProject = this.db.prepare("SELECT * FROM projects WHERE id = ?");
+    this.stmtGetProjectBySlug = this.db.prepare("SELECT * FROM projects WHERE slug = ?");
     this.stmtGetProjectByDir = this.db.prepare("SELECT * FROM projects WHERE directory = ?");
     this.stmtGetAllProjects = this.db.prepare(
       "SELECT * FROM projects ORDER BY last_activity_at DESC NULLS LAST, created_at DESC",
@@ -1620,6 +1656,10 @@ ${buildSearchIndexSchemaSql()},
 
   getProject(id: string): ProjectRow | undefined {
     return asRow(this.stmtGetProject.get(id) as Record<string, unknown>);
+  }
+
+  getProjectBySlug(slug: string): ProjectRow | undefined {
+    return asRow(this.stmtGetProjectBySlug.get(slug) as Record<string, unknown>);
   }
 
   getProjectByDirectory(directory: string): ProjectRow | undefined {

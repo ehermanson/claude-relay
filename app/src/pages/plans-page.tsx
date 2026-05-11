@@ -117,7 +117,7 @@ export function PlansPage() {
   });
   const navigate = useNavigate({ from: "/projects/$projectId/plans/" });
   const { artifacts } = useProjectContext();
-  const projectId = artifacts.projectId || routeProjectId;
+  const projectId = artifacts.projectSlug ?? routeProjectId ?? artifacts.projectId;
   const [searchInput, setSearchInput] = useState(searchParam ?? "");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

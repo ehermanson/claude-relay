@@ -39,17 +39,24 @@ export function getProjectName(directory: string): string {
 }
 
 export function getInstanceProjectRouteId(
-  instance: Pick<InstanceInfo, "projectId" | "workingDirectory" | "originalDirectory">,
+  instance: Pick<
+    InstanceInfo,
+    "projectId" | "projectSlug" | "workingDirectory" | "originalDirectory"
+  >,
 ): string {
+  // Prefer the sticky human-readable slug. Fall back to the UUID (legacy URLs)
+  // or to the directory basename for projects that aren't yet registered.
   return (
-    instance.projectId ?? getProjectName(instance.originalDirectory ?? instance.workingDirectory)
+    instance.projectSlug ??
+    instance.projectId ??
+    getProjectName(instance.originalDirectory ?? instance.workingDirectory)
   );
 }
 
 export function getInstanceChatRoute(
   instance: Pick<
     InstanceInfo,
-    "id" | "projectId" | "workingDirectory" | "originalDirectory" | "spaceId"
+    "id" | "projectId" | "projectSlug" | "workingDirectory" | "originalDirectory" | "spaceId"
   >,
 ): InstanceChatRoute {
   const projectId = getInstanceProjectRouteId(instance);
@@ -99,8 +106,17 @@ export function getSpaceRoute(
 }
 
 export function instanceMatchesProject(
-  instance: Pick<InstanceInfo, "projectId" | "workingDirectory" | "originalDirectory">,
+  instance: Pick<
+    InstanceInfo,
+    "projectId" | "projectSlug" | "workingDirectory" | "originalDirectory"
+  >,
   projectId: string,
 ): boolean {
-  return getInstanceProjectRouteId(instance) === projectId;
+  // Accept match on slug, UUID, or directory-basename fallback — any of these
+  // can legitimately be the current URL param depending on registration state.
+  return (
+    instance.projectSlug === projectId ||
+    instance.projectId === projectId ||
+    getInstanceProjectRouteId(instance) === projectId
+  );
 }

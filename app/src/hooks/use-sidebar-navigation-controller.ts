@@ -64,7 +64,8 @@ export function useSidebarNavigationController() {
   const projectEntries: SidebarNavigationEntry[] = navigation.groups.map(
     ([dir, groupInstances]) => {
       const project = navigation.projectByDir.get(dir);
-      const projectId = project?.id ?? getProjectName(dir);
+      // URL identifier: prefer slug, then UUID (legacy), then directory basename.
+      const projectId = project?.slug ?? project?.id ?? getProjectName(dir);
       return {
         dir,
         project,

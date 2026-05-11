@@ -5,6 +5,20 @@ import {
 import type { InstanceInfo, ProviderKind, ProviderRuntimeMode, SessionStats } from "#core/types.js";
 import type { ManagedInstanceRow, SessionRow } from "#core/db.js";
 
+/**
+ * Lookup from project UUID to slug. Built by callers (typically once per listing
+ * call) from `ProjectManager.listProjects()` so the summary helpers stay pure.
+ */
+export type ProjectSlugLookup = Map<string, string>;
+
+function slugFor(
+  projectId: string | null | undefined,
+  lookup: ProjectSlugLookup | undefined,
+): string | undefined {
+  if (!projectId || !lookup) return undefined;
+  return lookup.get(projectId);
+}
+
 export function hasSessionStats(stats: SessionStats | undefined): stats is SessionStats {
   if (!stats) return false;
   return (
@@ -71,7 +85,10 @@ export function toChatSummaryInfo(info: InstanceInfo): InstanceInfo {
   return { ...summary };
 }
 
-export function summaryFromSessionRow(entry: SessionRow): InstanceInfo {
+export function summaryFromSessionRow(
+  entry: SessionRow,
+  projectSlugs?: ProjectSlugLookup,
+): InstanceInfo {
   return {
     id: entry.instance_id,
     provider: (entry.provider_name as ProviderKind) || "claude",
@@ -92,10 +109,14 @@ export function summaryFromSessionRow(entry: SessionRow): InstanceInfo {
     runtimeMode: (entry.runtime_mode as ProviderRuntimeMode | null) ?? undefined,
     spaceId: entry.space_id ?? undefined,
     projectId: entry.project_id ?? undefined,
+    projectSlug: slugFor(entry.project_id, projectSlugs),
   };
 }
 
-export function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
+export function summaryFromManagedRow(
+  entry: ManagedInstanceRow,
+  projectSlugs?: ProjectSlugLookup,
+): InstanceInfo {
   let runtimePayload: Record<string, unknown> | undefined;
   try {
     runtimePayload = entry.runtime_payload_json
@@ -125,6 +146,7 @@ export function summaryFromManagedRow(entry: ManagedInstanceRow): InstanceInfo {
     runtimeMode: (entry.runtime_mode as ProviderRuntimeMode | null) ?? undefined,
     spaceId: entry.space_id ?? undefined,
     projectId: entry.project_id ?? undefined,
+    projectSlug: slugFor(entry.project_id, projectSlugs),
     review: getReviewSessionFromRuntimePayload(runtimePayload),
     reviewInstanceId: getReviewInstanceIdFromRuntimePayload(runtimePayload),
   };

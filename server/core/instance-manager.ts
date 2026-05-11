@@ -1189,6 +1189,7 @@ export class InstanceManager extends EventEmitter {
       for (const instance of this.instances.values()) {
         if (instance.info.projectId === removedId) {
           instance.info.projectId = undefined;
+          instance.info.projectSlug = undefined;
         }
       }
       this.emit("projects:changed");
@@ -1235,6 +1236,7 @@ export class InstanceManager extends EventEmitter {
       });
       if (instanceProjectDir === project.directory) {
         instance.info.projectId = project.id;
+        instance.info.projectSlug = project.slug;
       }
     }
   }
@@ -1983,6 +1985,7 @@ export class InstanceManager extends EventEmitter {
       runtimeMode: resolvedRuntimeMode,
       originalDirectory: spaceOriginalDirectory,
       projectId: project?.id,
+      projectSlug: project?.slug,
       spaceId,
       sessionContext: deliveredBootstrap ? { bootstrap: deliveredBootstrap } : undefined,
       review: options?.review,
@@ -2547,6 +2550,15 @@ export class InstanceManager extends EventEmitter {
     );
   }
 
+  /**
+   * Snapshot of `project_id -> slug` for every registered project. Built fresh
+   * on each call so callers always see the current state; the lookup is small
+   * (one entry per project) so this is cheap to recompute per listing.
+   */
+  private projectSlugLookup(): Map<string, string> {
+    return new Map(this._projectManager.listProjects().map((p) => [p.id, p.slug] as const));
+  }
+
   listInstances(): InstanceInfo[] {
     if (this.shuttingDown || this.instances.size === 0) {
       return [];
@@ -2574,14 +2586,16 @@ export class InstanceManager extends EventEmitter {
       return toChatSummaryInfo(this.deriveInstanceView(live));
     }
 
+    const slugs = this.projectSlugLookup();
+
     const external = this.db.getByInstanceId(id);
     if (external) {
-      return summaryFromSessionRow(external);
+      return summaryFromSessionRow(external, slugs);
     }
 
     const managed = this.db.getManagedByInstanceId(id);
     if (managed) {
-      return summaryFromManagedRow(managed);
+      return summaryFromManagedRow(managed, slugs);
     }
 
     return null;
@@ -2595,6 +2609,7 @@ export class InstanceManager extends EventEmitter {
       providerSessionIds: managedProviderSessionIds,
       transcriptPaths: managedTranscriptPaths,
     };
+    const slugs = this.projectSlugLookup();
 
     for (const instance of this.instances.values()) {
       if (instance.info.projectId !== projectId) {
@@ -2627,7 +2642,7 @@ export class InstanceManager extends EventEmitter {
 
     for (const row of this.db.getManagedByProjectId(projectId)) {
       if (!chats.has(row.instance_id)) {
-        chats.set(row.instance_id, summaryFromManagedRow(row));
+        chats.set(row.instance_id, summaryFromManagedRow(row, slugs));
       }
     }
 
@@ -2639,7 +2654,7 @@ export class InstanceManager extends EventEmitter {
         continue;
       }
       if (!chats.has(row.instance_id)) {
-        chats.set(row.instance_id, summaryFromSessionRow(row));
+        chats.set(row.instance_id, summaryFromSessionRow(row, slugs));
       }
     }
 
@@ -2654,6 +2669,7 @@ export class InstanceManager extends EventEmitter {
       providerSessionIds: managedProviderSessionIds,
       transcriptPaths: managedTranscriptPaths,
     };
+    const slugs = this.projectSlugLookup();
 
     for (const instance of this.instances.values()) {
       if (instance.info.spaceId !== spaceId) {
@@ -2686,7 +2702,7 @@ export class InstanceManager extends EventEmitter {
 
     for (const row of this.db.getManagedBySpaceId(spaceId)) {
       if (!chats.has(row.instance_id)) {
-        chats.set(row.instance_id, summaryFromManagedRow(row));
+        chats.set(row.instance_id, summaryFromManagedRow(row, slugs));
       }
     }
 
@@ -2698,7 +2714,7 @@ export class InstanceManager extends EventEmitter {
         continue;
       }
       if (!chats.has(row.instance_id)) {
-        chats.set(row.instance_id, summaryFromSessionRow(row));
+        chats.set(row.instance_id, summaryFromSessionRow(row, slugs));
       }
     }
 
@@ -4115,8 +4131,13 @@ export class InstanceManager extends EventEmitter {
       resolvedId ??
       projectId;
 
+    const projectSlug =
+      registeredProject?.slug ??
+      (directory ? this._projectManager.getProjectByDirectory(directory)?.slug : undefined);
+
     return {
       projectId: resolvedProjectId,
+      projectSlug,
       directory,
       memory,
       claudeMd,
@@ -4837,6 +4858,9 @@ export class InstanceManager extends EventEmitter {
     ]);
     if (worktreeGitInfo && worktreePath) gitBranch = worktreeGitInfo.branch;
 
+    const project = this._projectManager.getProjectByDirectory(
+      normalizeProjectDirectory(originalDirectory ?? workingDirectory),
+    );
     const info: InstanceInfo = {
       id,
       provider,
@@ -4866,9 +4890,8 @@ export class InstanceManager extends EventEmitter {
               this.spaceManager.listAllSpaces(originalDirectory),
             )
           : undefined,
-      projectId: this._projectManager.getProjectByDirectory(
-        normalizeProjectDirectory(originalDirectory ?? workingDirectory),
-      )?.id,
+      projectId: project?.id,
+      projectSlug: project?.slug,
     };
 
     let fileSize: number;
@@ -6069,6 +6092,8 @@ export class InstanceManager extends EventEmitter {
         `[InstanceManager] Reconciled project ownership for ${instance.info.id} before persistence: ${instance.info.projectId ?? "null"} -> ${reconciliation.nextInfoProjectId}`,
       );
       instance.info.projectId = reconciliation.nextInfoProjectId;
+      const reconciledProject = this._projectManager.getProject(reconciliation.nextInfoProjectId);
+      instance.info.projectSlug = reconciledProject?.slug;
     }
 
     if (!space || space.isDefault) {
@@ -6802,6 +6827,11 @@ export class InstanceManager extends EventEmitter {
       inferredSpaceId: inferredSpaceId ?? undefined,
       defaultRuntimeMode: this.baseConfig.defaultRuntimeMode,
     });
+    if (restoredState.info.projectId) {
+      restoredState.info.projectSlug = this._projectManager.getProject(
+        restoredState.info.projectId,
+      )?.slug;
+    }
 
     const instance: Instance = {
       info: restoredState.info,
@@ -6916,6 +6946,11 @@ export class InstanceManager extends EventEmitter {
       review: explicitReview,
       reviewInstanceId: restoredState.reviewInstanceId,
     });
+    if (builtRestore.info.projectId) {
+      builtRestore.info.projectSlug = this._projectManager.getProject(
+        builtRestore.info.projectId,
+      )?.slug;
+    }
 
     const instance: Instance = {
       info: builtRestore.info,

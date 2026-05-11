@@ -55,7 +55,7 @@ export function SpaceView() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const projectId = artifacts.projectId || routeProjectId;
+  const projectId = artifacts.projectSlug ?? routeProjectId ?? artifacts.projectId;
   const projectName = getProjectName(artifacts.directory);
   const spaceQueryKey = ["space", spaceId] as const;
 

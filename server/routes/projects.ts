@@ -50,7 +50,7 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
         return c.json({ error: "Missing title" }, 400);
       }
       const task = taskManager.createTask(project.directory, body);
-      instanceManager.emit("tasks:changed", projectId, taskManager.loadTasks(project.directory));
+      instanceManager.emit("tasks:changed", project.id, taskManager.loadTasks(project.directory));
       return c.json(task, 201);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "Failed to create task" }, 400);
@@ -67,7 +67,7 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
     try {
       const body = await readJsonBody<taskManager.UpdateTaskInput>(c);
       const task = taskManager.updateTask(project.directory, taskId, body);
-      instanceManager.emit("tasks:changed", projectId, taskManager.loadTasks(project.directory));
+      instanceManager.emit("tasks:changed", project.id, taskManager.loadTasks(project.directory));
       return c.json(task);
     } catch (err) {
       const status = (err as Error).message?.includes("not found") ? 404 : 400;
@@ -87,7 +87,7 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
     }
     try {
       taskManager.deleteTask(project.directory, taskId);
-      instanceManager.emit("tasks:changed", projectId, taskManager.loadTasks(project.directory));
+      instanceManager.emit("tasks:changed", project.id, taskManager.loadTasks(project.directory));
       return c.body(null, 204);
     } catch (err) {
       const status = (err as Error).message?.includes("not found") ? 404 : 400;

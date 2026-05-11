@@ -45,6 +45,39 @@ export interface ProjectManager {
   ): this;
 }
 
+/**
+ * Convert an arbitrary string into a URL-safe slug. Lowercases, replaces any
+ * non-alphanumeric run with a single hyphen, and trims leading/trailing hyphens.
+ * Returns `"project"` as a last-resort fallback when the input has no safe chars.
+ */
+function slugify(input: string): string {
+  const normalized = input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized.length > 0 ? normalized : "project";
+}
+
+/**
+ * Generate a unique project slug from `directory`, suffixing with `-2`, `-3`, …
+ * on collision. `excludeId` lets callers regenerate the slug for an existing
+ * project row without colliding with itself.
+ */
+function generateUniqueSlug(
+  directory: string,
+  existingSlugs: Iterable<string>,
+  excludeSlug?: string,
+): string {
+  const base = slugify(basename(directory));
+  const taken = new Set(existingSlugs);
+  if (excludeSlug) taken.delete(excludeSlug);
+  if (!taken.has(base)) return base;
+  for (let i = 2; ; i++) {
+    const candidate = `${base}-${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 function parseJson<T>(raw: string | null): T | null {
   if (!raw) return null;
   try {
@@ -58,6 +91,7 @@ function rowToProject(row: ProjectRow): Project {
   return {
     id: row.id,
     name: row.name,
+    slug: row.slug,
     directory: row.directory,
     repoRoot: row.repo_root,
     remoteUrl: row.remote_url,
@@ -81,7 +115,44 @@ export class ProjectManager extends EventEmitter {
     super();
     this.db = db;
     this.logger = logger;
+    this.backfillSlugs();
     this.normalizeRegisteredProjects();
+  }
+
+  /**
+   * One-time backfill: any project row without a slug gets one derived from its
+   * directory basename, with collision suffixing against already-assigned slugs.
+   * Idempotent — skips rows that already have a slug.
+   */
+  private backfillSlugs(): void {
+    const rows = this.db.getAllProjects();
+    const assigned = new Set<string>();
+    for (const row of rows) {
+      if (typeof row.slug === "string" && row.slug.length > 0) {
+        assigned.add(row.slug);
+      }
+    }
+    let filled = 0;
+    for (const row of rows) {
+      if (typeof row.slug === "string" && row.slug.length > 0) continue;
+      const slug = generateUniqueSlug(row.directory, assigned);
+      assigned.add(slug);
+      this.db.upsertProject({ ...row, slug });
+      filled++;
+    }
+    if (filled > 0) {
+      this.logger.info(`[ProjectManager] Backfilled slug for ${filled} project(s)`);
+    }
+  }
+
+  /** Snapshot of all currently-assigned slugs (used for collision-free generation). */
+  private collectExistingSlugs(): Set<string> {
+    return new Set(
+      this.db
+        .getAllProjects()
+        .map((row) => row.slug)
+        .filter((slug): slug is string => typeof slug === "string" && slug.length > 0),
+    );
   }
 
   /**
@@ -123,7 +194,8 @@ export class ProjectManager extends EventEmitter {
         continue;
       }
 
-      // No parent project registered — normalize this project to point at the parent repo
+      // No parent project registered — normalize this project to point at the parent repo.
+      // Slug is sticky: we don't regenerate it when the directory pointer changes here.
       const normalized: ProjectRow = {
         ...project,
         name:
@@ -154,6 +226,7 @@ export class ProjectManager extends EventEmitter {
     const existingByDirectory = new Map(
       this.db.getAllProjects().map((project) => [project.directory, project] as const),
     );
+    const assignedSlugs = this.collectExistingSlugs();
     let recovered = 0;
 
     for (const sessionDirectory of this.db.getDistinctSessionDirectories()) {
@@ -178,9 +251,12 @@ export class ProjectManager extends EventEmitter {
         }
 
         const now = Date.now();
+        const slug = generateUniqueSlug(canonicalDirectory, assignedSlugs);
+        assignedSlugs.add(slug);
         project = {
           id: randomUUID(),
           name: basename(canonicalDirectory),
+          slug,
           directory: canonicalDirectory,
           repo_root: canonicalDirectory,
           remote_url: getRemoteUrl(canonicalDirectory),
@@ -248,9 +324,11 @@ export class ProjectManager extends EventEmitter {
     const targetBranch = opts?.targetBranch ?? getCurrentBranch(canonicalDirectory);
 
     const now = Date.now();
+    const slug = generateUniqueSlug(canonicalDirectory, this.collectExistingSlugs());
     const row: ProjectRow = {
       id: randomUUID(),
       name: opts?.name || basename(canonicalDirectory),
+      slug,
       directory: canonicalDirectory,
       repo_root: canonicalDirectory,
       remote_url: remoteUrl,
@@ -320,10 +398,16 @@ export class ProjectManager extends EventEmitter {
     return this.db.getAllProjects().map(rowToProject);
   }
 
-  /** Get a project by ID. */
-  getProject(id: string): Project | undefined {
-    const row = this.db.getProject(id);
-    return row ? rowToProject(row) : undefined;
+  /**
+   * Get a project by ID or slug. Tries UUID lookup first, then falls back to
+   * slug — this is the single resolver used by API routes so that human-readable
+   * URLs (`/projects/relay`) and legacy UUID URLs both work.
+   */
+  getProject(idOrSlug: string): Project | undefined {
+    const byId = this.db.getProject(idOrSlug);
+    if (byId) return rowToProject(byId);
+    const bySlug = this.db.getProjectBySlug(idOrSlug);
+    return bySlug ? rowToProject(bySlug) : undefined;
   }
 
   /** Get a project by its directory path. */

@@ -46,7 +46,7 @@ function ProjectInitialBadge({ initial }: { initial: string }) {
 
 interface SidebarProjectGroupProps {
   dir: string;
-  project?: Pick<Project, "id" | "name" | "directory">;
+  project?: Pick<Project, "id" | "name" | "directory" | "slug">;
   groupInstances: InstanceInfo[];
   currentId?: string;
   currentProjectId?: string;
@@ -96,7 +96,14 @@ export function SidebarProjectGroup({
   const dirName = getProjectName(dir);
   const initial = dirName.charAt(0).toUpperCase() || "?";
   const showFavicon = iconPath && !imgError;
-  const routeProjectId = project?.id ?? groupInstances[0]?.projectId ?? dirName;
+  // Prefer the sticky human-readable slug; fall back to UUID (legacy URLs) or
+  // to an instance's slug/UUID, finally to the directory basename.
+  const routeProjectId =
+    project?.slug ??
+    project?.id ??
+    groupInstances[0]?.projectSlug ??
+    groupInstances[0]?.projectId ??
+    dirName;
   const isActiveProject = currentProjectId === routeProjectId;
   const removeProjectTarget = {
     id: project?.id ?? groupInstances.find((instance) => instance.projectId)?.projectId,

@@ -66,7 +66,13 @@ function NavTab({
 }
 
 function ProjectLayout() {
-  const { chatId, planSlug, spaceId } = useParams({ strict: false }) as {
+  const {
+    projectId: urlProjectId,
+    chatId,
+    planSlug,
+    spaceId,
+  } = useParams({ strict: false }) as {
+    projectId?: string;
     chatId?: string;
     planSlug?: string;
     spaceId?: string;
@@ -75,7 +81,9 @@ function ProjectLayout() {
   const { instances } = useWSState();
 
   const artifacts = Route.useLoaderData();
-  const projectId = artifacts.projectId;
+  // Prefer the sticky slug for tab links so URLs normalize to human-readable
+  // identifiers even when the user arrived via a legacy UUID URL.
+  const projectId = artifacts.projectSlug ?? urlProjectId ?? artifacts.projectId;
   const dirName = getProjectName(artifacts.directory);
 
   const isChildView = !!chatId || !!planSlug || !!spaceId;
