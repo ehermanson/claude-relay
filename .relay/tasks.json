@@ -2,6 +2,19 @@
   "version": 1,
   "tasks": [
     {
+      "id": "1c5f2d9a",
+      "title": "Carry full transcript across provider switch",
+      "description": "Replace the current lossy provider-switch handoff with a full visible-transcript handoff so the target provider can see the prior chat history when Relay creates the replacement managed session.",
+      "status": "done",
+      "priority": 2,
+      "type": "task",
+      "tags": [],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-05-11T17:45:13.602Z",
+      "updatedAt": "2026-05-11T17:47:28.128Z"
+    },
+    {
       "id": "3ad012d4",
       "title": "Add Gemini CLI provider",
       "description": "Implement Gemini CLI as a first-class Relay provider using Gemini ACP, matching Claude and Codex managed-session support while preserving Relay’s provider-driven architecture.",

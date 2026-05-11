@@ -123,7 +123,7 @@ cloudflared tunnel --url http://localhost:7777
 - **External session discovery** — automatically detects agent sessions running in terminals and streams their output in real time
 - **Resume external sessions** — take over a terminal-started session from the web UI
 - **Per-session controls** — model picker, reasoning effort, and build/plan mode toggle, driven by provider capabilities
-- **Provider handoff** — switch providers mid-project, optionally carrying recent context into the new session
+- **Provider handoff** — switch providers mid-project, optionally carrying the full visible transcript and changed files into the new session
 - **Interactive tool responses** — answer agent questions, approve or deny tool requests, and respond to Codex terminal-input prompts directly in the UI
 - **Slash commands** — `/model` and `/reasoning` from the composer command palette
 - **`@` file mentions** — workspace search with inline mention chips

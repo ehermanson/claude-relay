@@ -41,7 +41,7 @@ export function ProviderSwitchDialog({
             <CheckboxField
               checked={carryContext}
               onCheckedChange={onCarryContextChange}
-              label="Carry over recent conversation context and changed files"
+              label="Carry over the full visible transcript and changed files"
             />
             {error && (
               <div className="rounded-lg border border-error/25 bg-error/5 px-3 py-2 text-[0.8125rem] text-error">
