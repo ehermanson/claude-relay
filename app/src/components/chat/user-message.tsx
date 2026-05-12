@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   TerminalSquare,
   ChevronDown,
@@ -12,6 +12,7 @@ import {
   MessageSquareReply,
 } from "lucide-react";
 import { formatTimestamp } from "../../lib/utils";
+import { classifyLargeUserText } from "@/lib/message-rendering";
 import { Popover } from "../ui/popover";
 import { MarkdownContent, ImageThumbnail, IMAGE_PATTERN } from "./markdown-content";
 
@@ -203,6 +204,30 @@ function TerminalAttachment({ block }: { block: TerminalBlock }) {
   );
 }
 
+function CollapsedJsonMessage({
+  text,
+  lineCount,
+  charCount,
+}: {
+  text: string;
+  lineCount: number;
+  charCount: number;
+}) {
+  return (
+    <details className="w-full rounded-xl border border-border/50 bg-surface-inset/45">
+      <summary className="cursor-pointer list-none px-3 py-2 text-left text-[0.75rem] text-muted marker:hidden">
+        <span className="font-medium text-text">Large JSON payload</span>
+        <span className="ml-2 tabular-nums">
+          {lineCount} lines · {charCount.toLocaleString()} chars
+        </span>
+      </summary>
+      <pre className="max-h-96 overflow-auto border-t border-border/30 px-3 py-2 font-mono text-[0.6875rem] leading-relaxed text-text/80">
+        <code>{text}</code>
+      </pre>
+    </details>
+  );
+}
+
 export function UserMessage({
   text,
   timestamp,
@@ -210,7 +235,10 @@ export function UserMessage({
   queued,
   onInterruptAndSend,
 }: UserMessageProps) {
-  const { textPart, images, terminalBlocks, inlineReplies, sourceFiles } = splitContent(text);
+  const { textPart, images, terminalBlocks, inlineReplies, sourceFiles } = useMemo(
+    () => splitContent(text),
+    [text],
+  );
   const hasText = textPart.length > 0;
   const hasImages = images.length > 0;
   const hasTerminal = terminalBlocks.length > 0;
@@ -230,6 +258,13 @@ export function UserMessage({
   // Detect slash-command messages (e.g. "/simplify", "$skill-creator some args")
   const displayText = relaySource ? relayContent : textPart;
   const slashParsed = !relaySource && !spinOffSource ? parseSlashCommand(displayText) : null;
+  const largeUserRenderMode = useMemo(
+    () =>
+      !relaySource && !spinOffSource && !slashParsed
+        ? classifyLargeUserText(displayText)
+        : { kind: "markdown" as const },
+    [displayText, relaySource, slashParsed, spinOffSource],
+  );
 
   // Spin-off messages get full-width card rendering
   if (spinOffSource && spinOffContent) {
@@ -321,7 +356,15 @@ export function UserMessage({
           }`}
           style={shrinkwrapWidth ? { maxWidth: shrinkwrapWidth } : undefined}
         >
-          <MarkdownContent text={displayText} />
+          {largeUserRenderMode.kind === "json" ? (
+            <CollapsedJsonMessage
+              text={largeUserRenderMode.formattedText ?? displayText}
+              lineCount={largeUserRenderMode.lineCount ?? 0}
+              charCount={largeUserRenderMode.charCount ?? displayText.length}
+            />
+          ) : (
+            <MarkdownContent text={displayText} />
+          )}
         </div>
       ) : null}
       {hasImages && <ImageRow images={images} />}

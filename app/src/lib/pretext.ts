@@ -8,6 +8,7 @@
  */
 
 import { prepare, layout, clearCache, type PreparedText } from "@chenglou/pretext";
+import { shouldSkipShrinkwrapForText } from "@/lib/message-rendering";
 
 // ── Font constants matching CSS ─────────────────────────────────────
 // text-sm = 0.875rem = 14px, leading-relaxed = 1.625, font-family: Outfit
@@ -95,6 +96,7 @@ export function computeBubbleShrinkwrap(
 ): number | undefined {
   const text = cleanUserText(rawText);
   if (!text || !isSimpleText(text)) return undefined;
+  if (shouldSkipShrinkwrapForText(text)) return undefined;
 
   const maxTextWidth = containerWidth * 0.8 - BUBBLE_CHROME;
   if (maxTextWidth <= 0) return undefined;

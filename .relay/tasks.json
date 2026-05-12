@@ -1968,6 +1968,19 @@
       "blockedBy": [],
       "createdAt": "2026-05-05T00:00:00Z",
       "updatedAt": "2026-05-07T00:00:00Z"
+    },
+    {
+      "id": "6b8d4f21",
+      "title": "Reduce lag from large chat messages",
+      "description": "Mitigate chat-specific UI lag from large pasted messages by capping expensive user-message layout work and rendering large valid JSON payloads with a cheaper collapsed code-style presentation.",
+      "status": "done",
+      "priority": 1,
+      "type": "bug",
+      "tags": ["ui", "performance", "chat"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-05-12T18:13:02Z",
+      "updatedAt": "2026-05-12T18:17:52Z"
     }
   ]
 }
