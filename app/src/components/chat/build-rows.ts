@@ -153,6 +153,7 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
             text: item.text,
             timestamp: item.timestamp,
             queued: item.queued,
+            renderMode: item.renderMode,
           });
           break;
         case "assistant":
@@ -209,6 +210,9 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
 export function estimateRowHeight(row: RenderRow, containerWidth?: number): number {
   switch (row.kind) {
     case "user":
+      if (row.renderMode?.kind === "json" || row.renderMode?.kind === "text") {
+        return Math.min(180, 72 + (row.renderMode.lineCount ?? 0) * 2);
+      }
       if (containerWidth) return estimateUserHeight(row.text, containerWidth);
       return 72 + Math.ceil(row.text.length / 80) * 20;
     case "assistant":

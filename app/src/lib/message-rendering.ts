@@ -3,11 +3,15 @@ const JSON_END_CHARS = new Set(["}", "]"]);
 
 export const SHRINKWRAP_TEXT_CHAR_LIMIT = 4_000;
 export const SHRINKWRAP_TEXT_LINE_LIMIT = 200;
-export const LARGE_JSON_RENDER_CHAR_THRESHOLD = 6_000;
-export const LARGE_JSON_PARSE_CHAR_LIMIT = 200_000;
+export const LARGE_JSON_PARSE_CHAR_LIMIT = 1_000_000;
+export const LARGE_JSON_INPUT_CHAR_THRESHOLD = 1_500;
+export const LARGE_JSON_FORMATTED_CHAR_THRESHOLD = 2_500;
+export const LARGE_JSON_FORMATTED_LINE_THRESHOLD = 40;
+export const LARGE_TEXT_CHAR_THRESHOLD = 20_000;
+export const LARGE_TEXT_LINE_THRESHOLD = 400;
 
 export interface LargeUserRenderMode {
-  kind: "markdown" | "json";
+  kind: "markdown" | "json" | "text";
   formattedText?: string;
   lineCount?: number;
   charCount?: number;
@@ -19,35 +23,47 @@ export function shouldSkipShrinkwrapForText(text: string): boolean {
 
 export function classifyLargeUserText(text: string): LargeUserRenderMode {
   const trimmed = text.trim();
-  if (trimmed.length < LARGE_JSON_RENDER_CHAR_THRESHOLD) {
-    return { kind: "markdown" };
-  }
-
-  if (trimmed.length > LARGE_JSON_PARSE_CHAR_LIMIT) {
-    return { kind: "markdown" };
-  }
+  const rawLineCount = countLines(trimmed);
 
   const first = trimmed[0];
   const last = trimmed[trimmed.length - 1];
-  if (!JSON_START_CHARS.has(first) || !JSON_END_CHARS.has(last)) {
-    return { kind: "markdown" };
+  const looksStructured = JSON_START_CHARS.has(first) && JSON_END_CHARS.has(last);
+
+  if (looksStructured && trimmed.length <= LARGE_JSON_PARSE_CHAR_LIMIT) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed !== null && typeof parsed === "object") {
+        const formattedText = JSON.stringify(parsed, null, 2);
+        const lineCount = countLines(formattedText);
+        const charCount = formattedText.length;
+        const shouldCollapse =
+          trimmed.length >= LARGE_JSON_INPUT_CHAR_THRESHOLD ||
+          charCount >= LARGE_JSON_FORMATTED_CHAR_THRESHOLD ||
+          lineCount >= LARGE_JSON_FORMATTED_LINE_THRESHOLD;
+        if (shouldCollapse) {
+          return {
+            kind: "json",
+            formattedText,
+            lineCount,
+            charCount,
+          };
+        }
+      }
+    } catch {
+      // Fall through to generic large-text handling.
+    }
   }
 
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (parsed === null || typeof parsed !== "object") {
-      return { kind: "markdown" };
-    }
-    const formattedText = JSON.stringify(parsed, null, 2);
+  if (trimmed.length >= LARGE_TEXT_CHAR_THRESHOLD || rawLineCount >= LARGE_TEXT_LINE_THRESHOLD) {
     return {
-      kind: "json",
-      formattedText,
-      lineCount: countLines(formattedText),
-      charCount: formattedText.length,
+      kind: "text",
+      formattedText: trimmed,
+      lineCount: rawLineCount,
+      charCount: trimmed.length,
     };
-  } catch {
-    return { kind: "markdown" };
   }
+
+  return { kind: "markdown" };
 }
 
 function countLines(text: string): number {

@@ -12,7 +12,7 @@ import {
   MessageSquareReply,
 } from "lucide-react";
 import { formatTimestamp } from "../../lib/utils";
-import { classifyLargeUserText } from "@/lib/message-rendering";
+import { classifyLargeUserText, type LargeUserRenderMode } from "@/lib/message-rendering";
 import { Popover } from "../ui/popover";
 import { MarkdownContent, ImageThumbnail, IMAGE_PATTERN } from "./markdown-content";
 
@@ -21,6 +21,7 @@ interface UserMessageProps {
   timestamp?: number;
   shrinkwrapWidth?: number;
   queued?: boolean;
+  renderMode?: LargeUserRenderMode;
   onInterruptAndSend?: () => void;
 }
 
@@ -208,23 +209,38 @@ function CollapsedJsonMessage({
   text,
   lineCount,
   charCount,
+  label,
 }: {
   text: string;
   lineCount: number;
   charCount: number;
+  label: string;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <details className="w-full rounded-xl border border-border/50 bg-surface-inset/45">
-      <summary className="cursor-pointer list-none px-3 py-2 text-left text-[0.75rem] text-muted marker:hidden">
-        <span className="font-medium text-text">Large JSON payload</span>
-        <span className="ml-2 tabular-nums">
+    <div className="w-full rounded-xl border border-border/50 bg-surface-inset/45">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[0.75rem] text-muted transition-colors hover:bg-surface-hover/40"
+      >
+        {open ? (
+          <ChevronDown size={12} className="shrink-0 text-muted" />
+        ) : (
+          <ChevronRight size={12} className="shrink-0 text-muted" />
+        )}
+        <span className="font-medium text-text">{label}</span>
+        <span className="tabular-nums">
           {lineCount} lines · {charCount.toLocaleString()} chars
         </span>
-      </summary>
-      <pre className="max-h-96 overflow-auto border-t border-border/30 px-3 py-2 font-mono text-[0.6875rem] leading-relaxed text-text/80">
-        <code>{text}</code>
-      </pre>
-    </details>
+      </button>
+      {open && (
+        <pre className="max-h-96 overflow-auto border-t border-border/30 px-3 py-2 font-mono text-[0.6875rem] leading-relaxed text-text/80">
+          <code>{text}</code>
+        </pre>
+      )}
+    </div>
   );
 }
 
@@ -233,8 +249,55 @@ export function UserMessage({
   timestamp,
   shrinkwrapWidth,
   queued,
+  renderMode,
   onInterruptAndSend,
 }: UserMessageProps) {
+  const effectiveRenderMode = useMemo(() => {
+    if (renderMode && renderMode.kind !== "markdown") return renderMode;
+    if (text.length < 1_500) return renderMode;
+    return classifyLargeUserText(text);
+  }, [renderMode, text]);
+
+  if (effectiveRenderMode?.kind === "json" || effectiveRenderMode?.kind === "text") {
+    return (
+      <div
+        className={`flex max-w-[80%] flex-col items-end gap-1.5 self-end ${queued ? "opacity-60" : ""}`}
+      >
+        <div className="w-full rounded-2xl rounded-br-sm border border-border/50 bg-user-bg p-2 text-user-text">
+          <CollapsedJsonMessage
+            text={effectiveRenderMode.formattedText ?? text}
+            lineCount={effectiveRenderMode.lineCount ?? 0}
+            charCount={effectiveRenderMode.charCount ?? text.length}
+            label={
+              effectiveRenderMode.kind === "json" ? "Large JSON payload" : "Large text payload"
+            }
+          />
+        </div>
+        <div className="flex items-center gap-1.5 px-1">
+          {queued && (
+            <span className="flex items-center gap-1 text-[10px] text-muted/60">
+              <Clock size={10} />
+              queued
+            </span>
+          )}
+          {queued && onInterruptAndSend && (
+            <button
+              type="button"
+              onClick={onInterruptAndSend}
+              className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-warning transition-colors hover:bg-warning/10"
+            >
+              <Zap size={10} />
+              Send now
+            </button>
+          )}
+          {timestamp && (
+            <span className="text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const { textPart, images, terminalBlocks, inlineReplies, sourceFiles } = useMemo(
     () => splitContent(text),
     [text],
@@ -258,13 +321,6 @@ export function UserMessage({
   // Detect slash-command messages (e.g. "/simplify", "$skill-creator some args")
   const displayText = relaySource ? relayContent : textPart;
   const slashParsed = !relaySource && !spinOffSource ? parseSlashCommand(displayText) : null;
-  const largeUserRenderMode = useMemo(
-    () =>
-      !relaySource && !spinOffSource && !slashParsed
-        ? classifyLargeUserText(displayText)
-        : { kind: "markdown" as const },
-    [displayText, relaySource, slashParsed, spinOffSource],
-  );
 
   // Spin-off messages get full-width card rendering
   if (spinOffSource && spinOffContent) {
@@ -356,15 +412,7 @@ export function UserMessage({
           }`}
           style={shrinkwrapWidth ? { maxWidth: shrinkwrapWidth } : undefined}
         >
-          {largeUserRenderMode.kind === "json" ? (
-            <CollapsedJsonMessage
-              text={largeUserRenderMode.formattedText ?? displayText}
-              lineCount={largeUserRenderMode.lineCount ?? 0}
-              charCount={largeUserRenderMode.charCount ?? displayText.length}
-            />
-          ) : (
-            <MarkdownContent text={displayText} />
-          )}
+          <MarkdownContent text={displayText} />
         </div>
       ) : null}
       {hasImages && <ImageRow images={images} />}

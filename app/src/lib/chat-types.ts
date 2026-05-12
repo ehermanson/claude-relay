@@ -6,6 +6,7 @@
  */
 
 import type { ActivityMessage } from "@shared/types";
+import type { LargeUserRenderMode } from "@/lib/message-rendering";
 
 // ── Activity types ──────────────────────────────────────────────────
 
@@ -33,6 +34,7 @@ export interface UserChatItem {
   text: string;
   timestamp?: number;
   queued?: boolean;
+  renderMode?: LargeUserRenderMode;
 }
 
 export interface AssistantChatItem {
@@ -86,6 +88,7 @@ export interface UserRow {
   text: string;
   timestamp?: number;
   queued?: boolean;
+  renderMode?: LargeUserRenderMode;
 }
 
 export interface AssistantRow {

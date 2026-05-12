@@ -8,6 +8,7 @@ import type {
   SystemEventMessage,
 } from "@shared/types";
 import type { ChatItem, LiveActivity, MergedActivity } from "@/lib/chat-types";
+import { classifyLargeUserText } from "@/lib/message-rendering";
 import { INTERACTIVE_TOOLS } from "@shared/tools";
 
 // Re-export for consumers
@@ -120,6 +121,20 @@ function mergeToolResult(activities: MergedActivity[], result: ActivityMessage):
   return false;
 }
 
+function buildUserChatItem(
+  text: string,
+  timestamp?: number,
+  queued?: boolean,
+): Extract<ChatItem, { kind: "user" }> {
+  return {
+    kind: "user",
+    text,
+    timestamp,
+    queued,
+    renderMode: classifyLargeUserText(text),
+  };
+}
+
 /**
  * Process raw history entries into ChatItem[] for display.
  * Extracted so it can be reused outside the hook (e.g. space debug modal).
@@ -180,12 +195,7 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
             text: lastItem.text + "\n" + msg.text,
           };
         } else {
-          items.push({
-            kind: "user",
-            text: msg.text,
-            timestamp: entry.timestamp,
-            queued: msg.queued,
-          });
+          items.push(buildUserChatItem(msg.text, entry.timestamp, msg.queued));
         }
         break;
       }
@@ -725,7 +735,7 @@ function coreReducer(state: State, action: Action): State {
           showThinkingIndicator: false,
         };
       }
-      items.push({ kind: "user", text: action.text, timestamp: now, queued: action.queued });
+      items.push(buildUserChatItem(action.text, now, action.queued));
       return {
         ...state,
         items,

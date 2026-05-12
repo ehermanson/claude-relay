@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, ListChecks } from "lucide-react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
@@ -378,8 +378,8 @@ const MD_COMPONENTS = {
   a: MarkdownLink,
 };
 
-export function MarkdownContent({ text }: MarkdownContentProps) {
-  const processed = preprocessImages(text);
+export const MarkdownContent = memo(function MarkdownContent({ text }: MarkdownContentProps) {
+  const processed = useMemo(() => preprocessImages(text), [text]);
 
   return (
     <div className="markdown-content">
@@ -392,4 +392,4 @@ export function MarkdownContent({ text }: MarkdownContentProps) {
       </ReactMarkdown>
     </div>
   );
-}
+});
