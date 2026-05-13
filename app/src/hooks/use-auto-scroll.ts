@@ -163,5 +163,20 @@ export function useAutoScroll<T extends HTMLElement>() {
     return () => ro.disconnect();
   }, [scrollToBottom]);
 
-  return { ref, scrollToBottom, forceStickToBottom, onContentChange, showScrollToBottom };
+  // Let programmatic navigation (timeline scrub, TOC jump) detach from
+  // auto-scroll without faking a user interaction.  The user can re-engage
+  // by scrolling near the bottom or clicking "Jump to latest".
+  const detachFromBottom = useCallback(() => {
+    stickToBottom.current = false;
+    cancelForcedScroll();
+  }, [cancelForcedScroll]);
+
+  return {
+    ref,
+    scrollToBottom,
+    forceStickToBottom,
+    onContentChange,
+    showScrollToBottom,
+    detachFromBottom,
+  };
 }

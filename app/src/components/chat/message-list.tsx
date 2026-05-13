@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { AgentTranscript } from "@/components/chat/agent-transcript";
+import { ChatTimeline } from "@/components/chat/chat-timeline";
 import { ChatTOC } from "@/components/chat/chat-toc";
 import { AgentMessage } from "@/components/chat/agent-message";
 import { CompactBoundary } from "@/components/chat/compact-boundary";
@@ -73,6 +74,7 @@ export function MessageList({
     forceStickToBottom,
     onContentChange,
     showScrollToBottom,
+    detachFromBottom,
   } = useAutoScroll<HTMLDivElement>();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [activeSearchRowId, setActiveSearchRowId] = useState<string | null>(null);
@@ -179,14 +181,17 @@ export function MessageList({
   const isCompactingTurn =
     showThinking && !!lastUserMessage && /^\s*\/compact\b/i.test(lastUserMessage.text.trim());
 
-  // ── TOC scroll-to-row handler ─────────────────────────────────
+  // ── TOC / timeline scroll-to-row handler ──────────────────────
   const handleScrollToRow = useCallback(
     (rowIndex: number) => {
+      // Detach auto-scroll so the ResizeObserver / onContentChange won't
+      // immediately yank back to the bottom.  The user re-engages by
+      // scrolling near the bottom or clicking "Jump to latest".
+      detachFromBottom();
+
       if (rowIndex < virtualizedRowCount) {
-        // Row is in the virtualized section — use the virtualizer to scroll
         rowVirtualizer.scrollToIndex(rowIndex, { align: "start", behavior: "smooth" });
       } else {
-        // Row is in the non-virtualized tail — find the DOM element by row id
         const row = rows[rowIndex];
         if (row) {
           const el = scrollRef.current?.querySelector(`[data-row-id="${row.id}"]`);
@@ -196,7 +201,7 @@ export function MessageList({
         }
       }
     },
-    [virtualizedRowCount, rowVirtualizer, rows, scrollRef],
+    [detachFromBottom, virtualizedRowCount, rowVirtualizer, rows, scrollRef],
   );
 
   useEffect(() => {
@@ -236,7 +241,12 @@ export function MessageList({
           <UserMessage
             text={row.text}
             timestamp={row.timestamp}
-            shrinkwrapWidth={computeBubbleShrinkwrap(row.text, containerWidthRef.current)}
+            shrinkwrapWidth={
+              row.renderMode?.kind === "json"
+                ? undefined
+                : computeBubbleShrinkwrap(row.text, containerWidthRef.current)
+            }
+            renderMode={row.renderMode}
             queued={row.queued}
             onInterruptAndSend={row.queued ? onInterruptAndSend : undefined}
           />
@@ -289,100 +299,103 @@ export function MessageList({
   const hasNonVirtual = nonVirtualizedRows.length > 0 || showThinking || queuedRows.length > 0;
 
   return (
-    <div className="relative flex min-h-0 flex-1">
-      <ChatTOC rows={rows} onScrollToRow={handleScrollToRow} />
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div
-          ref={containerRef}
-          className="mx-auto max-w-3xl px-6 py-6 max-[768px]:px-3 max-[768px]:py-3"
-        >
-          {/* Virtualized section — absolute-positioned items in a sized container */}
-          {hasVirtual && (
-            <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-              {virtualRows.map((virtualRow) => (
-                <div
-                  key={virtualRow.key}
-                  data-index={virtualRow.index}
-                  data-row-id={rows[virtualRow.index]?.id}
-                  ref={rowVirtualizer.measureElement}
-                  className={`absolute left-0 top-0 flex w-full flex-col rounded-xl transition-colors duration-700 ${
-                    rows[virtualRow.index]?.id === activeSearchRowId
-                      ? "bg-accent/10 ring-1 ring-accent/30"
-                      : ""
-                  }`}
-                  style={{ transform: `translateY(${virtualRow.start}px)` }}
-                >
-                  {renderRow(rows[virtualRow.index], virtualRow.index)}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Non-virtualized section — current turn during processing */}
-          {hasNonVirtual && (
-            <div className={`flex flex-col gap-4${hasVirtual ? " mt-4" : ""}`}>
-              {nonVirtualizedRows.map((row, i) => (
-                <div
-                  key={row.id}
-                  data-row-id={row.id}
-                  className={`flex animate-fade-in flex-col rounded-xl transition-colors duration-700 ${
-                    row.id === activeSearchRowId ? "bg-accent/10 ring-1 ring-accent/30" : ""
-                  }`}
-                >
-                  {renderRow(row, virtualizedRowCount + i)}
-                </div>
-              ))}
-              {showThinking && (
-                <LiveStatusStrip
-                  activity={lastActivity ?? null}
-                  processingStartedAt={processingStartedAt ?? null}
-                  isProcessing={!!isProcessing}
-                  instanceStatus={instanceStatus}
-                  isCompacting={isCompactingTurn}
-                />
-              )}
-              {queuedRows.length > 0 && (
-                <div className="mt-2 flex flex-col gap-3 border-t border-dashed border-border/30 pt-3">
-                  <div className="px-1 text-[10px] uppercase tracking-wider text-muted/50">
-                    Queued
-                    {queuedRows.length > 1 ? ` · ${queuedRows.length}` : ""}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ChatTimeline rows={rows} onScrollToRow={handleScrollToRow} isLive={!!isProcessing} />
+      <div className="relative flex min-h-0 flex-1">
+        <ChatTOC rows={rows} onScrollToRow={handleScrollToRow} />
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div
+            ref={containerRef}
+            className="mx-auto max-w-3xl px-6 py-6 max-[768px]:px-3 max-[768px]:py-3"
+          >
+            {/* Virtualized section — absolute-positioned items in a sized container */}
+            {hasVirtual && (
+              <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+                {virtualRows.map((virtualRow) => (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    data-row-id={rows[virtualRow.index]?.id}
+                    ref={rowVirtualizer.measureElement}
+                    className={`absolute left-0 top-0 flex w-full flex-col rounded-xl transition-colors duration-700 ${
+                      rows[virtualRow.index]?.id === activeSearchRowId
+                        ? "bg-accent/10 ring-1 ring-accent/30"
+                        : ""
+                    }`}
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    {renderRow(rows[virtualRow.index], virtualRow.index)}
                   </div>
-                  {queuedRows.map((row) => (
-                    <div
-                      key={row.id}
-                      data-row-id={row.id}
-                      className="flex animate-fade-in flex-col"
-                    >
-                      {renderRow(row)}
+                ))}
+              </div>
+            )}
+
+            {/* Non-virtualized section — current turn during processing */}
+            {hasNonVirtual && (
+              <div className={`flex flex-col gap-4${hasVirtual ? " mt-4" : ""}`}>
+                {nonVirtualizedRows.map((row, i) => (
+                  <div
+                    key={row.id}
+                    data-row-id={row.id}
+                    className={`flex animate-fade-in flex-col rounded-xl transition-colors duration-700 ${
+                      row.id === activeSearchRowId ? "bg-accent/10 ring-1 ring-accent/30" : ""
+                    }`}
+                  >
+                    {renderRow(row, virtualizedRowCount + i)}
+                  </div>
+                ))}
+                {showThinking && (
+                  <LiveStatusStrip
+                    activity={lastActivity ?? null}
+                    processingStartedAt={processingStartedAt ?? null}
+                    isProcessing={!!isProcessing}
+                    instanceStatus={instanceStatus}
+                    isCompacting={isCompactingTurn}
+                  />
+                )}
+                {queuedRows.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-3 border-t border-dashed border-border/30 pt-3">
+                    <div className="px-1 text-[10px] uppercase tracking-wider text-muted/50">
+                      Queued
+                      {queuedRows.length > 1 ? ` · ${queuedRows.length}` : ""}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                    {queuedRows.map((row) => (
+                      <div
+                        key={row.id}
+                        data-row-id={row.id}
+                        className="flex animate-fade-in flex-col"
+                      >
+                        {renderRow(row)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      <div className="pointer-events-none absolute inset-x-[1px] bottom-0 h-10 bg-gradient-to-t from-bg to-transparent" />
+        <div className="pointer-events-none absolute inset-x-[1px] bottom-0 h-10 bg-gradient-to-t from-bg to-transparent" />
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-6">
-        <AnimatePresence>
-          {showScrollToBottom && (
-            <motion.button
-              type="button"
-              onClick={() => forceStickToBottom(true)}
-              aria-label="Scroll to bottom"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 12 }}
-              transition={{ type: "spring", duration: 0.5, bounce: 0.3 }}
-              className="glass pointer-events-auto inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[0.75rem] font-medium text-text-bright hover:brightness-110 active:scale-[0.97]"
-            >
-              <ArrowDown size={13} strokeWidth={2.5} />
-              Jump to latest
-            </motion.button>
-          )}
-        </AnimatePresence>
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-6">
+          <AnimatePresence>
+            {showScrollToBottom && (
+              <motion.button
+                type="button"
+                onClick={() => forceStickToBottom(true)}
+                aria-label="Scroll to bottom"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 12 }}
+                transition={{ type: "spring", duration: 0.5, bounce: 0.3 }}
+                className="glass pointer-events-auto inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[0.75rem] font-medium text-text-bright hover:brightness-110 active:scale-[0.97]"
+              >
+                <ArrowDown size={13} strokeWidth={2.5} />
+                Jump to latest
+              </motion.button>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );
