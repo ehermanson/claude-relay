@@ -300,7 +300,9 @@ export function MessageList({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ChatTimeline rows={rows} onScrollToRow={handleScrollToRow} isLive={!!isProcessing} />
+      {!isMobile && (
+        <ChatTimeline rows={rows} onScrollToRow={handleScrollToRow} isLive={!!isProcessing} />
+      )}
       <div className="relative flex min-h-0 flex-1">
         <ChatTOC rows={rows} onScrollToRow={handleScrollToRow} />
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
