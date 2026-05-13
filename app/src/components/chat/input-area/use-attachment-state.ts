@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { uploadImage } from "../../../lib/api";
-import type { ImageAttachment } from "./shared";
+import { uploadAttachment } from "../../../lib/api";
+import { classifyAttachment, type FileAttachment } from "./shared";
 import { deleteAttachments, loadAttachments, saveAttachments } from "./draft-attachment-store";
 
+export interface UploadedAttachments {
+  images: string[];
+  attachments: string[];
+}
+
 export function useAttachmentState(draftKey?: string) {
-  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
-  const imagesRef = useRef<ImageAttachment[]>([]);
+  const attachmentsRef = useRef<FileAttachment[]>([]);
   const hydratedRef = useRef(false);
 
   useEffect(() => {
-    imagesRef.current = images;
-  }, [images]);
+    attachmentsRef.current = attachments;
+  }, [attachments]);
 
   // Hydrate from IDB whenever the draft key changes (chat switch).
   useEffect(() => {
@@ -19,8 +24,10 @@ export function useAttachmentState(draftKey?: string) {
     hydratedRef.current = false;
 
     // Drop previews from the prior draft before swapping in new state.
-    imagesRef.current.forEach((image) => URL.revokeObjectURL(image.preview));
-    setImages([]);
+    attachmentsRef.current.forEach((entry) => {
+      if (entry.preview) URL.revokeObjectURL(entry.preview);
+    });
+    setAttachments([]);
 
     if (!draftKey) {
       hydratedRef.current = true;
@@ -29,11 +36,16 @@ export function useAttachmentState(draftKey?: string) {
 
     loadAttachments(draftKey).then((stored) => {
       if (cancelled) return;
-      const restored = stored.map((entry) => {
+      const restored: FileAttachment[] = stored.map((entry) => {
         const file = new File([entry.blob], entry.name, { type: entry.type });
-        return { file, preview: URL.createObjectURL(file) };
+        const kind = classifyAttachment(file) ?? "file";
+        return {
+          file,
+          kind,
+          preview: kind === "image" ? URL.createObjectURL(file) : undefined,
+        };
       });
-      setImages(restored);
+      setAttachments(restored);
       hydratedRef.current = true;
     });
 
@@ -43,74 +55,96 @@ export function useAttachmentState(draftKey?: string) {
   }, [draftKey]);
 
   // Persist after every mutation, but only once hydration is finished —
-  // otherwise the initial setImages([]) during chat-switch would clobber the
-  // newly-selected draft's stored attachments.
+  // otherwise the initial setAttachments([]) during chat-switch would clobber
+  // the newly-selected draft's stored attachments.
   useEffect(() => {
     if (!draftKey || !hydratedRef.current) return;
-    const items = images.map((image) => ({
-      name: image.file.name,
-      type: image.file.type,
-      blob: image.file,
+    const items = attachments.map((entry) => ({
+      name: entry.file.name,
+      type: entry.file.type,
+      blob: entry.file,
     }));
     saveAttachments(draftKey, items);
-  }, [draftKey, images]);
+  }, [draftKey, attachments]);
 
   // Final cleanup of preview URLs on unmount.
   useEffect(() => {
     return () => {
-      imagesRef.current.forEach((image) => URL.revokeObjectURL(image.preview));
+      attachmentsRef.current.forEach((entry) => {
+        if (entry.preview) URL.revokeObjectURL(entry.preview);
+      });
     };
   }, []);
 
-  const addImages = (files: File[]) => {
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    if (imageFiles.length === 0) return;
-    setImages((prev) => [
-      ...prev,
-      ...imageFiles.map((file) => ({
+  const addFiles = (files: File[]) => {
+    const entries: FileAttachment[] = [];
+    for (const file of files) {
+      const kind = classifyAttachment(file);
+      if (!kind) continue;
+      entries.push({
         file,
-        preview: URL.createObjectURL(file),
-      })),
-    ]);
+        kind,
+        preview: kind === "image" ? URL.createObjectURL(file) : undefined,
+      });
+    }
+    if (entries.length === 0) return;
+    setAttachments((prev) => [...prev, ...entries]);
   };
 
-  const removeImage = (index: number) => {
-    setImages((prev) => {
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => {
       const removed = prev[index];
-      if (removed) URL.revokeObjectURL(removed.preview);
+      if (removed?.preview) URL.revokeObjectURL(removed.preview);
       return prev.filter((_, currentIndex) => currentIndex !== index);
     });
   };
 
-  const clearImages = () => {
-    setImages((prev) => {
-      prev.forEach((image) => URL.revokeObjectURL(image.preview));
+  const clearAttachments = () => {
+    setAttachments((prev) => {
+      prev.forEach((entry) => {
+        if (entry.preview) URL.revokeObjectURL(entry.preview);
+      });
       return [];
     });
     if (draftKey) {
       // Don't wait for the persistence effect — wipe the stored draft now so
-      // a quick chat-switch right after send can't reload the just-sent images.
+      // a quick chat-switch right after send can't reload the just-sent files.
       void deleteAttachments(draftKey);
     }
   };
 
-  const uploadAttachedImages = async () => {
-    if (images.length === 0) return undefined;
+  /**
+   * Upload all staged attachments and split the resulting paths by kind.
+   * Images go on the `images` field of the outbound WS message (rendered
+   * inline as `<img>` in the transcript); other files go on `attachments`
+   * (rendered as a clickable chip).
+   */
+  const uploadAttachedFiles = async (): Promise<UploadedAttachments | undefined> => {
+    if (attachments.length === 0) return undefined;
 
     setUploading(true);
     try {
-      return await Promise.all(images.map((image) => uploadImage(image.file)));
+      const paths = await Promise.all(
+        attachments.map(async (entry) => ({
+          kind: entry.kind,
+          path: await uploadAttachment(entry.file),
+        })),
+      );
+      return {
+        images: paths.filter((p) => p.kind === "image").map((p) => p.path),
+        attachments: paths.filter((p) => p.kind === "file").map((p) => p.path),
+      };
     } finally {
       setUploading(false);
     }
   };
 
   return {
-    images,
+    attachments,
     uploading,
-    addImages,
-    removeImage,
-    clearImages,
-    uploadAttachedImages,
+    addFiles,
+    removeAttachment,
+    clearAttachments,
+    uploadAttachedFiles,
   };
 }

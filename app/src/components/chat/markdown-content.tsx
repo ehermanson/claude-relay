@@ -14,11 +14,21 @@ interface MarkdownContentProps {
 // Convert [Image: source: /path/to/file.png] → markdown image syntax
 export const IMAGE_PATTERN = /\[Image: source: ([^\]]+)\]/g;
 
-function preprocessImages(text: string): string {
-  return text.replace(IMAGE_PATTERN, (_match, filePath: string) => {
-    const encoded = encodeURIComponent(filePath.trim());
-    return `![Image](/api/file?path=${encoded})`;
-  });
+// Convert [File: source: /path/to/file.pdf] → relay-file-attachment link
+// (rendered as a chip with file icon + filename, opens via /api/file in a new tab)
+export const FILE_PATTERN = /\[File: source: ([^\]]+)\]/g;
+
+function preprocessAttachments(text: string): string {
+  return text
+    .replace(IMAGE_PATTERN, (_match, filePath: string) => {
+      const encoded = encodeURIComponent(filePath.trim());
+      return `![Image](/api/file?path=${encoded})`;
+    })
+    .replace(FILE_PATTERN, (_match, filePath: string) => {
+      const trimmed = filePath.trim();
+      const basename = trimmed.split("/").pop() || trimmed;
+      return `[${basename}](relay-file-attachment:${encodeURIComponent(trimmed)})`;
+    });
 }
 
 // ── Remark plugin: convert @mentions in text nodes into link nodes ────────
@@ -293,6 +303,29 @@ function MarkdownLink({
   children,
   ...props
 }: React.ComponentProps<"a"> & { node?: unknown }) {
+  if (href.startsWith("relay-file-attachment:")) {
+    const encodedPath = href.slice("relay-file-attachment:".length);
+    let path: string;
+    try {
+      path = decodeURIComponent(encodedPath);
+    } catch {
+      path = encodedPath;
+    }
+    const basename = path.split("/").pop() || path;
+    const url = `/api/file?path=${encodeURIComponent(path)}`;
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-surface-hover/40 px-2 py-1 align-middle text-[0.8125rem] font-medium text-text no-underline hover:border-border hover:bg-surface-hover"
+      >
+        <FileIcon path={path} size={14} className="h-3.5 w-3.5" />
+        <span className="max-w-[16rem] truncate">{basename}</span>
+      </a>
+    );
+  }
+
   if (href.startsWith("relay-file-mention:")) {
     const path = href.slice("relay-file-mention:".length);
     const basename = path.split("/").pop() || path;
@@ -379,7 +412,7 @@ const MD_COMPONENTS = {
 };
 
 export const MarkdownContent = memo(function MarkdownContent({ text }: MarkdownContentProps) {
-  const processed = useMemo(() => preprocessImages(text), [text]);
+  const processed = useMemo(() => preprocessAttachments(text), [text]);
 
   return (
     <div className="markdown-content">

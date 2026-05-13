@@ -372,15 +372,17 @@ describe("HTTP Routes — Additional Coverage", () => {
       assert.ok(res.body.error.includes("Missing path"));
     });
 
-    it("rejects non-image file extensions", async () => {
+    it("rejects disallowed file extensions", async () => {
       const session = auth.createSession();
-      // Use a path under home directory so the restriction doesn't kick in first
-      const filePath = join(homedir(), "test-nonimage-12345.txt");
+      // .exe is not in the allowlist (which includes images, PDFs, and common
+      // text-ish file types). Use a path under home so the dir check doesn't
+      // kick in first.
+      const filePath = join(homedir(), "test-disallowed-12345.exe");
       const res = await request(server, "GET", `/api/file?path=${encodeURIComponent(filePath)}`, {
         headers: { Cookie: `session=${session.id}` },
       });
       assert.equal(res.status, 400);
-      assert.ok(res.body.error.includes("image"));
+      assert.ok(res.body.error.toLowerCase().includes("not allowed"));
     });
 
     it("returns 404 for nonexistent image file", async () => {

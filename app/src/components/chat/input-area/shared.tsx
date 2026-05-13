@@ -51,9 +51,66 @@ export function mentionEntryKey(entry: MentionEntry): string {
   return entry.kind === "task" ? `task:${entry.taskId}` : entry.path;
 }
 
-export interface ImageAttachment {
+/**
+ * A staged composer attachment. `kind: "image"` renders inline as a thumbnail
+ * (and as `<img>` in the transcript); `kind: "file"` renders as a clickable
+ * file chip. `preview` is only set for images.
+ */
+export interface FileAttachment {
   file: File;
-  preview: string;
+  kind: "image" | "file";
+  preview?: string;
+}
+
+// Allowlist of non-image MIME types and extensions accepted as file attachments.
+// Mirrors the server's `ALLOWED_MIMES` / `ALLOWED_EXTS` in server/routes/uploads.ts.
+const FILE_MIME_ALLOWLIST = new Set([
+  "application/pdf",
+  "application/json",
+  "application/xml",
+  "application/yaml",
+  "application/x-yaml",
+  "application/sql",
+  "application/x-sql",
+  "text/plain",
+  "text/csv",
+  "text/markdown",
+  "text/html",
+  "text/xml",
+  "text/yaml",
+  "text/x-diff",
+  "text/x-patch",
+]);
+
+const FILE_EXT_ALLOWLIST = new Set([
+  ".pdf",
+  ".json",
+  ".csv",
+  ".md",
+  ".txt",
+  ".log",
+  ".html",
+  ".yaml",
+  ".yml",
+  ".xml",
+  ".diff",
+  ".patch",
+  ".sql",
+]);
+
+function fileExtension(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot).toLowerCase() : "";
+}
+
+export function classifyAttachment(file: File): "image" | "file" | null {
+  if (file.type.startsWith("image/")) return "image";
+  const mime = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (FILE_MIME_ALLOWLIST.has(mime)) return "file";
+  // Browsers don't always set a useful Content-Type for dragged files (e.g.
+  // .log, .md). Fall back to extension matching.
+  if (FILE_EXT_ALLOWLIST.has(fileExtension(file.name))) return "file";
+  return null;
 }
 
 export function getCommandContext(text: string): CommandContext | null {

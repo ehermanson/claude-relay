@@ -587,7 +587,10 @@ export interface InstanceMessagePayload {
   type: "instance_message";
   instanceId: string;
   text: string;
+  /** Paths to image attachments — render inline as <img> in the transcript. */
   images?: string[];
+  /** Paths to non-image file attachments — render as a clickable chip. */
+  attachments?: string[];
   internal?: boolean;
 }
 
@@ -794,6 +797,7 @@ export interface UserMessage {
   type: "user";
   text: string;
   images?: string[];
+  attachments?: string[];
   instanceId?: string;
   eventSequence?: number;
   /** If true, this message was injected programmatically (e.g. auto-continue after restart) and should be hidden from the chat UI. */

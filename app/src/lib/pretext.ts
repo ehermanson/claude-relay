@@ -20,9 +20,10 @@ const BUBBLE_CHROME = 18; // p-2 (16px) + border (2px)
 // ── Text cleaning ───────────────────────────────────────────────────
 const TERMINAL_RE = /<terminal_context[^>]*>[\s\S]*?<\/terminal_context>/g;
 const IMAGE_RE = /\[Image: source: [^\]]+\]/g;
+const FILE_RE = /\[File: source: [^\]]+\]/g;
 
 function cleanUserText(raw: string): string {
-  return raw.replace(TERMINAL_RE, "").replace(IMAGE_RE, "").trim();
+  return raw.replace(TERMINAL_RE, "").replace(IMAGE_RE, "").replace(FILE_RE, "").trim();
 }
 
 // Block-level markdown that changes layout geometry

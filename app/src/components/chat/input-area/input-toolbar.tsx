@@ -1,5 +1,5 @@
 import { Children, type ReactNode, useEffect, useRef, useState } from "react";
-import { Check, Ellipsis, ImagePlus } from "lucide-react";
+import { Check, Ellipsis, Paperclip } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Tooltip } from "../../ui/tooltip";
 import { ActionButton } from "./action-button";
@@ -18,7 +18,7 @@ interface InputToolbarProps {
   showAttachButton?: boolean;
   overflowSections?: OverflowSection[];
   onCancel: () => void;
-  onAttachImage: () => void;
+  onAttach: () => void;
   onSend: () => void;
   sendLabel?: string;
   sendTooltip?: string;
@@ -36,7 +36,7 @@ export function InputToolbar({
   showAttachButton = true,
   overflowSections,
   onCancel,
-  onAttachImage,
+  onAttach,
   onSend,
   sendLabel,
   sendTooltip,
@@ -74,14 +74,14 @@ export function InputToolbar({
       {/* Left section: attach + controls */}
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {showAttachButton ? (
-          <Tooltip content="Attach image">
+          <Tooltip content="Attach file">
             <Button
               variant="icon"
-              onClick={onAttachImage}
+              onClick={onAttach}
               disabled={disabled}
               className="h-7 w-7 shrink-0 !rounded-full"
             >
-              <ImagePlus size={15} />
+              <Paperclip size={15} />
             </Button>
           </Tooltip>
         ) : null}

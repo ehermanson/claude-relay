@@ -233,7 +233,12 @@ export function InstanceView({
     return () => clearTimeout(timer);
   }, [hasSyncedHistory, hydrateFromHistorySnapshot, id, resolvedInstance]);
 
-  const handleSend = (text: string, images?: string[], internal?: boolean) => {
+  const handleSend = (
+    text: string,
+    images?: string[],
+    internal?: boolean,
+    attachments?: string[],
+  ) => {
     if (!id) return;
     // Prepend terminal context if attached
     let finalText = text;
@@ -244,7 +249,14 @@ export function InstanceView({
       finalText = `${blocks}\n\n${text}`;
       clearTerminalContexts(id);
     }
-    send({ type: "instance_message", instanceId: id, text: finalText, images, internal });
+    send({
+      type: "instance_message",
+      instanceId: id,
+      text: finalText,
+      images,
+      attachments,
+      internal,
+    });
     showThinking();
   };
 

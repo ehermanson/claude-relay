@@ -605,7 +605,9 @@ export function createWebSocketServer(
           case "instance_message": {
             const hasText = typeof message.text === "string" && message.text.trim();
             const hasImages = Array.isArray(message.images) && message.images.length > 0;
-            if (hasText || hasImages) {
+            const hasAttachments =
+              Array.isArray(message.attachments) && message.attachments.length > 0;
+            if (hasText || hasImages || hasAttachments) {
               try {
                 // sendMessage emits instance:user which is forwarded to
                 // subscribers — no separate echo needed (avoids duplicates
@@ -615,6 +617,7 @@ export function createWebSocketServer(
                   message.text || "",
                   hasImages ? message.images : undefined,
                   message.internal,
+                  hasAttachments ? message.attachments : undefined,
                 );
                 // If sendMessage triggered a transparent resume, broadcast the transition
                 if (resumed) {

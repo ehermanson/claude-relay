@@ -98,6 +98,17 @@ export function getMimeType(filePath: string): string {
     ".ttf": "font/ttf",
     ".map": "application/json",
     ".bmp": "image/bmp",
+    ".pdf": "application/pdf",
+    ".csv": "text/csv; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".log": "text/plain; charset=utf-8",
+    ".yaml": "application/yaml; charset=utf-8",
+    ".yml": "application/yaml; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
+    ".diff": "text/plain; charset=utf-8",
+    ".patch": "text/plain; charset=utf-8",
+    ".sql": "application/sql; charset=utf-8",
   };
 
   return mimeTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream";

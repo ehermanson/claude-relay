@@ -285,7 +285,12 @@ interface Instance {
   /** Queued retry message when tool approval arrives while process is still running */
   pendingRetry?: string;
   /** Messages queued by the user while the agent is mid-turn */
-  pendingMessages?: Array<{ text: string; images?: string[]; internal?: boolean }>;
+  pendingMessages?: Array<{
+    text: string;
+    images?: string[];
+    attachments?: string[];
+    internal?: boolean;
+  }>;
   /** Set when interrupt was triggered specifically to deliver queued messages */
   interruptedToSend?: boolean;
   /** Last plan file path detected from Edit/Write activity while in plan mode */
@@ -2767,6 +2772,7 @@ export class InstanceManager extends EventEmitter {
     text: string,
     images?: string[],
     internal?: boolean,
+    attachments?: string[],
   ): InstanceInfo | undefined {
     this.hydrateInstance(id, instance);
     this.assertSpaceWritable(instance);
@@ -2816,8 +2822,13 @@ export class InstanceManager extends EventEmitter {
       const markers = images.map((p) => `[Image: source: ${p}]`).join("\n");
       messageText = messageText ? `${messageText}\n${markers}` : markers;
     }
+    if (attachments && attachments.length > 0) {
+      const markers = attachments.map((p) => `[File: source: ${p}]`).join("\n");
+      messageText = messageText ? `${messageText}\n${markers}` : markers;
+    }
 
-    const isCompactCommand = !internal && !images?.length && COMPACT_COMMAND_RE.test(text);
+    const isCompactCommand =
+      !internal && !images?.length && !attachments?.length && COMPACT_COMMAND_RE.test(text);
     const canUseNativeCompact =
       isCompactCommand &&
       instance.info.provider === "codex" &&
@@ -2841,6 +2852,7 @@ export class InstanceManager extends EventEmitter {
       type: "user",
       text: messageText,
       images,
+      attachments,
       instanceId: id,
       internal,
     };
@@ -3002,21 +3014,26 @@ export class InstanceManager extends EventEmitter {
     text: string,
     images?: string[],
     internal?: boolean,
+    attachments?: string[],
   ): Promise<InstanceInfo | undefined> {
     return this.enqueueInstanceMutation(id, (instance) => {
       // If the agent is mid-turn, queue the message for delivery when the turn ends
       if (instance.process?.isProcessing && !instance.info.external) {
         if (!instance.pendingMessages) instance.pendingMessages = [];
-        instance.pendingMessages.push({ text, images, internal });
+        instance.pendingMessages.push({ text, images, attachments, internal });
 
         // Emit to the UI so the queued message appears in the chat immediately,
         // but do NOT push to history — dispatchUserMessageLocked will create
         // the real history entry when the queue is drained.
-        // Apply the same image-marker transform that dispatchUserMessageLocked
-        // uses, so the placeholder text is self-contained and renderable.
+        // Apply the same marker transform that dispatchUserMessageLocked uses,
+        // so the placeholder text is self-contained and renderable.
         let displayText = text;
         if (images && images.length > 0) {
           const markers = images.map((p) => `[Image: source: ${p}]`).join("\n");
+          displayText = displayText ? `${displayText}\n${markers}` : markers;
+        }
+        if (attachments && attachments.length > 0) {
+          const markers = attachments.map((p) => `[File: source: ${p}]`).join("\n");
           displayText = displayText ? `${displayText}\n${markers}` : markers;
         }
         const userMessage: import("#core/types.js").UserMessage = {
@@ -3031,7 +3048,7 @@ export class InstanceManager extends EventEmitter {
         this.emitInstanceStatus(instance);
         return undefined;
       }
-      return this.dispatchUserMessageLocked(id, instance, text, images, internal);
+      return this.dispatchUserMessageLocked(id, instance, text, images, internal, attachments);
     });
   }
 
@@ -3082,16 +3099,19 @@ export class InstanceManager extends EventEmitter {
   private coalescePendingMessages(instance: Instance): {
     text: string;
     images?: string[];
+    attachments?: string[];
     internal?: boolean;
   } {
     const msgs = instance.pendingMessages ?? [];
     const texts = msgs.map((m) => m.text).filter(Boolean);
     const images = msgs.flatMap((m) => m.images ?? []);
+    const attachments = msgs.flatMap((m) => m.attachments ?? []);
     // If any message is non-internal, treat the coalesced result as non-internal
     const allInternal = msgs.every((m) => m.internal);
     return {
       text: texts.join("\n\n"),
       images: images.length ? images : undefined,
+      attachments: attachments.length ? attachments : undefined,
       internal: allInternal ? true : undefined,
     };
   }
@@ -3378,6 +3398,10 @@ export class InstanceManager extends EventEmitter {
       let displayText = m.text;
       if (m.images && m.images.length > 0) {
         const markers = m.images.map((p) => `[Image: source: ${p}]`).join("\n");
+        displayText = displayText ? `${displayText}\n${markers}` : markers;
+      }
+      if (m.attachments && m.attachments.length > 0) {
+        const markers = m.attachments.map((p) => `[File: source: ${p}]`).join("\n");
         displayText = displayText ? `${displayText}\n${markers}` : markers;
       }
       return {
@@ -7308,6 +7332,7 @@ export class InstanceManager extends EventEmitter {
               coalesced.text,
               coalesced.images,
               coalesced.internal,
+              coalesced.attachments,
             );
           } else {
             this.checkWorktreeChanges(live);
@@ -7684,6 +7709,7 @@ export class InstanceManager extends EventEmitter {
             coalesced.text,
             coalesced.images,
             coalesced.internal,
+            coalesced.attachments,
           );
           return;
         }

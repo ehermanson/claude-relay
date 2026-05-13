@@ -15,7 +15,8 @@ import type {
 import { getProviderDisplayName } from "@shared/provider-catalog";
 import { AskUserQuestionPanel } from "@/components/chat/input-area/ask-user-question-panel";
 import { ComposerPanel } from "@/components/chat/input-area/composer-panel";
-import { ImageAttachmentStrip } from "@/components/chat/input-area/image-attachment-strip";
+import { AttachmentStrip } from "@/components/chat/input-area/attachment-strip";
+import { classifyAttachment } from "@/components/chat/input-area/shared";
 import { InputToolbar, type OverflowSection } from "@/components/chat/input-area/input-toolbar";
 import { ProviderSwitchDialog } from "@/components/chat/input-area/provider-switch-dialog";
 import { buildModelLabelLookup } from "@/components/chat/input-area/shared";
@@ -43,7 +44,7 @@ import {
 } from "@/components/chat/input-area/provider-model-picker";
 
 interface InputAreaProps {
-  onSend: (text: string, images?: string[], internal?: boolean) => void;
+  onSend: (text: string, images?: string[], internal?: boolean, attachments?: string[]) => void;
   onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
   onCancel: () => void;
   onSwitchProvider?: (
@@ -206,8 +207,14 @@ export function InputArea({
   const isMobile = useMediaQuery("(max-width: 768px)");
   const projectCtx = useContext(ProjectContext);
   const { send } = useWSMethods();
-  const { images, uploading, addImages, removeImage, clearImages, uploadAttachedImages } =
-    useAttachmentState(instanceId);
+  const {
+    attachments,
+    uploading,
+    addFiles,
+    removeAttachment,
+    clearAttachments,
+    uploadAttachedFiles,
+  } = useAttachmentState(instanceId);
   const [optimisticProviderSelection, setOptimisticProviderSelection] =
     useState<OptimisticProviderSelection | null>(null);
   const displayedProvider = optimisticProviderSelection?.provider ?? provider;
@@ -421,7 +428,7 @@ export function InputArea({
 
     let text = draftText.trim();
     const hasFragments = inlineReplyFragments.length > 0;
-    if (!text && images.length === 0 && !hasFragments) return;
+    if (!text && attachments.length === 0 && !hasFragments) return;
 
     // Prepend inline reply fragments as markdown blockquotes
     if (hasFragments) {
@@ -437,16 +444,16 @@ export function InputArea({
       text = expandTaskReferences(text, projectTasks);
     }
 
-    let imagePaths: string[] | undefined;
+    let uploaded: { images: string[]; attachments: string[] } | undefined;
     try {
-      imagePaths = await uploadAttachedImages();
+      uploaded = await uploadAttachedFiles();
     } catch {
       return;
     }
 
-    onSend(text, imagePaths);
+    onSend(text, uploaded?.images, undefined, uploaded?.attachments);
     resetAfterSend();
-    clearImages();
+    clearAttachments();
   };
 
   const promptAnswerForQuestion = (question: UserInputQuestion) => {
@@ -575,15 +582,17 @@ export function InputArea({
     const files: File[] = [];
     for (let index = 0; index < items.length; index++) {
       const item = items[index];
-      if (item.kind === "file" && item.type.startsWith("image/")) {
+      if (item.kind === "file") {
         const file = item.getAsFile();
-        if (file) files.push(file);
+        if (file && classifyAttachment(file) !== null) {
+          files.push(file);
+        }
       }
     }
 
     if (files.length > 0) {
       event.preventDefault();
-      addImages(files);
+      addFiles(files);
     }
   };
 
@@ -859,18 +868,18 @@ export function InputArea({
           className={`mx-auto max-w-3xl ${isMobile ? "px-2 pb-1.5" : "px-6 pb-4"}`}
           onDrop={(event) => {
             event.preventDefault();
-            addImages(Array.from(event.dataTransfer.files));
+            addFiles(Array.from(event.dataTransfer.files));
           }}
           onDragOver={(event) => event.preventDefault()}
         >
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf,application/json,application/xml,application/yaml,application/sql,text/plain,text/csv,text/markdown,text/html,text/xml,text/yaml,.pdf,.json,.csv,.md,.txt,.log,.html,.yaml,.yml,.xml,.diff,.patch,.sql"
             multiple
             className="hidden"
             onChange={(event) => {
-              if (event.target.files) addImages(Array.from(event.target.files));
+              if (event.target.files) addFiles(Array.from(event.target.files));
               event.target.value = "";
             }}
           />
@@ -881,7 +890,7 @@ export function InputArea({
           >
             {composerTopSlot}
             {!isInSpecialMode ? (
-              <ImageAttachmentStrip images={images} onRemove={removeImage} />
+              <AttachmentStrip attachments={attachments} onRemove={removeAttachment} />
             ) : null}
             <ComposerPanel
               compact={isMobile}
@@ -946,7 +955,7 @@ export function InputArea({
                   }
                   isProcessing={isInSpecialMode ? false : isProcessing}
                   onCancel={onCancel}
-                  onAttachImage={() => fileInputRef.current?.click()}
+                  onAttach={() => fileInputRef.current?.click()}
                   onSend={
                     hasPendingPrompt
                       ? handleSubmitPrompt
@@ -974,7 +983,7 @@ export function InputArea({
                         uploading ||
                         (!hasPendingPlan &&
                           !draftText.trim() &&
-                          images.length === 0 &&
+                          attachments.length === 0 &&
                           inlineReplyFragments.length === 0)
                   }
                 />

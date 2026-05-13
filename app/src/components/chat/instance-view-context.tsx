@@ -92,7 +92,12 @@ export type InstanceViewContextValue = {
     navigateAfterDelete: () => void;
     sendRemoveInstance: () => void;
     handleRename: (name: string) => void;
-    handleSend: (text: string, images?: string[], internal?: boolean) => void;
+    handleSend: (
+      text: string,
+      images?: string[],
+      internal?: boolean,
+      attachments?: string[],
+    ) => void;
     handleAnswerUserInput: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
     handleTakeover: () => void;
     handleCancel: () => void;

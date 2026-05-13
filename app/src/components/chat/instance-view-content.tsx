@@ -368,15 +368,15 @@ export function InstanceViewContent() {
 
   // Prepend source attribution when a spun-off draft is sent for the first time.
   const handleSendWithSpinOff = useCallback(
-    (text: string, images?: string[], internal?: boolean) => {
+    (text: string, images?: string[], internal?: boolean, attachments?: string[]) => {
       const meta = spinOffMeta;
       if (meta) {
         clearSpinOffMeta(instanceId);
         setSpinOffMeta(null);
         const attributed = `[Spun off from: ${meta.sourceName}]\n\n${text}`;
-        actions.handleSend(attributed, images, internal);
+        actions.handleSend(attributed, images, internal, attachments);
       } else {
-        actions.handleSend(text, images, internal);
+        actions.handleSend(text, images, internal, attachments);
       }
     },
     [instanceId, actions, spinOffMeta],
@@ -384,12 +384,12 @@ export function InstanceViewContent() {
 
   // Wrap send to clear inline reply fragments after sending.
   const handleSendWithContext = useCallback(
-    (text: string, images?: string[], internal?: boolean) => {
+    (text: string, images?: string[], internal?: boolean, attachments?: string[]) => {
       if (inlineReplyFragments.length > 0) {
         setInlineReplyFragments([]);
         clearInlineReplyFragments(instanceId);
       }
-      handleSendWithSpinOff(text, images, internal);
+      handleSendWithSpinOff(text, images, internal, attachments);
     },
     [instanceId, inlineReplyFragments, handleSendWithSpinOff],
   );

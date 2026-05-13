@@ -229,10 +229,40 @@ export async function fetchInstanceSummary(instanceId: string): Promise<Instance
   return res.json();
 }
 
-export async function uploadImage(file: File): Promise<string> {
+// Extension -> Content-Type fallback used when the OS reports an empty MIME
+// (common for .md, .log, .yaml, etc. dragged from the filesystem). Values must
+// match an entry in the server's ALLOWED_MIMES table (server/routes/uploads.ts).
+const EXT_TO_MIME: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".json": "application/json",
+  ".csv": "text/csv",
+  ".md": "text/markdown",
+  ".txt": "text/plain",
+  ".log": "text/plain",
+  ".html": "text/html",
+  ".yaml": "application/yaml",
+  ".yml": "application/yaml",
+  ".xml": "application/xml",
+  ".diff": "text/x-diff",
+  ".patch": "text/x-patch",
+  ".sql": "application/sql",
+};
+
+function inferContentType(file: File): string {
+  if (file.type) return file.type;
+  const dot = file.name.lastIndexOf(".");
+  if (dot < 0) return "application/octet-stream";
+  return EXT_TO_MIME[file.name.slice(dot).toLowerCase()] ?? "application/octet-stream";
+}
+
+/**
+ * Upload a single file attachment (image or supported document) to the server.
+ * Returns the absolute path on disk where the file was staged (~/.relay/uploads/<uuid>.ext).
+ */
+export async function uploadAttachment(file: File): Promise<string> {
   const res = await fetch("/api/upload", {
     method: "POST",
-    headers: { "Content-Type": file.type },
+    headers: { "Content-Type": inferContentType(file) },
     body: file,
   });
   if (!res.ok) {

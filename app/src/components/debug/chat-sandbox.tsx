@@ -24,7 +24,7 @@ import {
   HelpCircle,
   ClipboardList,
   Square,
-  ImagePlus,
+  Paperclip,
   Image,
   Terminal,
   ListChecks,
@@ -1462,7 +1462,7 @@ function MockComposer({
                     className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-surface-hover hover:text-text"
                     disabled={isProcessing}
                   >
-                    <ImagePlus size={15} />
+                    <Paperclip size={15} />
                   </button>
                   <div className="h-4 w-px bg-border/60" />
                 </>

@@ -7,7 +7,38 @@ import { relayDir } from "#core/config.js";
 import { getMimeType, readBodyBuffer } from "#server/hono-utils.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
 
-const IMAGE_EXTS = new Set([
+// Content-Type -> file extension. Includes image types (rendered inline in
+// the transcript) and file types (rendered as a clickable chip).
+const ALLOWED_MIMES: Record<string, string> = {
+  // images
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "image/svg+xml": ".svg",
+  "image/bmp": ".bmp",
+  "image/avif": ".avif",
+  // documents / structured text
+  "application/pdf": ".pdf",
+  "application/json": ".json",
+  "application/xml": ".xml",
+  "application/yaml": ".yaml",
+  "application/x-yaml": ".yaml",
+  "application/sql": ".sql",
+  "application/x-sql": ".sql",
+  // text/*
+  "text/plain": ".txt",
+  "text/csv": ".csv",
+  "text/markdown": ".md",
+  "text/html": ".html",
+  "text/xml": ".xml",
+  "text/yaml": ".yaml",
+  "text/x-diff": ".diff",
+  "text/x-patch": ".patch",
+};
+
+const ALLOWED_EXTS = new Set([
+  // images
   ".png",
   ".jpg",
   ".jpeg",
@@ -17,33 +48,42 @@ const IMAGE_EXTS = new Set([
   ".bmp",
   ".avif",
   ".ico",
+  // documents / structured text
+  ".pdf",
+  ".json",
+  ".csv",
+  ".md",
+  ".txt",
+  ".log",
+  ".html",
+  ".yaml",
+  ".yml",
+  ".xml",
+  ".diff",
+  ".patch",
+  ".sql",
 ]);
+
+const MAX_UPLOAD = 10 * 1024 * 1024;
 
 export function registerUploadRoutes(app: Hono<AppEnv>, _: HttpDeps): void {
   app.post("/api/upload", async (c) => {
-    const contentType = c.req.header("content-type") || "";
-    const allowedMimes: Record<string, string> = {
-      "image/png": ".png",
-      "image/jpeg": ".jpg",
-      "image/gif": ".gif",
-      "image/webp": ".webp",
-      "image/svg+xml": ".svg",
-      "image/bmp": ".bmp",
-      "image/avif": ".avif",
-    };
-    const ext = allowedMimes[contentType];
+    // Content-Type from the browser may include a charset or boundary param —
+    // strip everything after the first `;` before matching the allowlist.
+    const rawContentType = c.req.header("content-type") || "";
+    const contentType = rawContentType.split(";")[0]!.trim().toLowerCase();
+    const ext = ALLOWED_MIMES[contentType];
     if (!ext) {
-      return c.json({ error: "Unsupported image type" }, 400);
+      return c.json({ error: "Unsupported file type" }, 400);
     }
 
-    const maxUpload = 10 * 1024 * 1024;
     const contentLength = parseInt(c.req.header("content-length") || "0", 10);
-    if (contentLength > maxUpload) {
+    if (contentLength > MAX_UPLOAD) {
       return c.json({ error: "File too large (10MB limit)" }, 413);
     }
 
     try {
-      const body = await readBodyBuffer(c, maxUpload);
+      const body = await readBodyBuffer(c, MAX_UPLOAD);
       const uploadsDir = path.join(relayDir, "uploads");
       fs.mkdirSync(uploadsDir, { recursive: true });
       const filePath = path.join(uploadsDir, `${crypto.randomUUID()}${ext}`);
@@ -70,14 +110,13 @@ export function registerUploadRoutes(app: Hono<AppEnv>, _: HttpDeps): void {
     }
 
     const ext = path.extname(resolved).toLowerCase();
-    if (!IMAGE_EXTS.has(ext)) {
-      return c.json({ error: "Only image files are supported" }, 400);
+    if (!ALLOWED_EXTS.has(ext)) {
+      return c.json({ error: "File type not allowed" }, 400);
     }
 
-    const maxImageSize = 10 * 1024 * 1024;
     try {
       const stat = fs.statSync(resolved);
-      if (stat.size > maxImageSize) {
+      if (stat.size > MAX_UPLOAD) {
         return c.json({ error: "File too large (10MB limit)" }, 413);
       }
     } catch {
