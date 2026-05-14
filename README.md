@@ -1,21 +1,58 @@
 # Relay
 
-A remote control center for your local AI coding agents. Run Relay on your dev machine, reach that same Relay server locally or from another device, and manage Claude Code or Codex sessions from anywhere.
+Relay gives you a browser UI for the coding agents already running on your machine.
 
-Relay discovers sessions already running on your machine, lets you resume them from the browser, and gives you a cleaner way to manage multiple chats, projects, and git worktrees in one place.
+Run Relay on your dev machine, open it from your laptop or phone, and keep up with your local agent chats without staying in the terminal the whole time.
 
-- Monitor local Claude Code and Codex sessions from anywhere
-- Resume terminal-started chats from the web UI
-- Switch branches, manage worktrees, and keep project context organized
-- Reach it locally, over Tailscale, or through a tunnel when needed
+- Watch Claude Code and Codex chats in one place
+- Pick up terminal-started chats from the web UI
+- Organize work by project, chat, and git-backed space
+- Start new chats, switch models, and manage runtime settings
+- Review tasks, plans, docs, and project stats alongside the chat
+- Reach the same Relay server locally, over Tailscale, or through a tunnel
 
 ### Chats
 
-<img src="relay.png" alt="Relay" width="800" />
+<img src="relay.png" alt="Relay chat view" width="800" />
 
-### Spaces (git worktrees)
+### Spaces
 
-<img src="relay-space.png" alt="Relay Spaces" width="800" />
+<img src="relay-space.png" alt="Relay spaces view" width="800" />
+
+## What Relay Is
+
+Relay is a control panel for local coding agents.
+
+It does not give you model access by itself. You still need the provider tools installed on your machine. Relay sits on top of them and gives you a cleaner way to see chats, resume work, and manage projects.
+
+Right now, the main supported providers are:
+
+- Claude Code
+- Codex CLI
+
+## A Few Terms
+
+- **Project**: a local codebase you add to Relay
+- **Chat**: one conversation with an agent
+- **Space**: a git-backed work area inside a project, usually tied to a branch
+
+If you do not use spaces, you can still use Relay just fine with regular chats.
+
+## What You Can Do
+
+- Add existing git repos as projects, or create a new project from Relay
+- Start a new chat in a project
+- See chats that were started in the terminal and take them over from the UI
+- Create spaces for branch-based work, with separate chats inside each space
+- Complete a space by merging it, or archive it without merging
+- Use built-in git actions like branch switch, fetch, pull, push, and space push/PR
+- Change provider, model, reasoning level, and runtime mode when the provider supports it
+- Respond to approval requests and other agent prompts from the browser
+- Start review chats for a branch or for the files changed in a chat
+- Browse project tasks, plans, installed skills, docs, and usage stats
+- Set global defaults and project-specific instructions
+- Update an installed Relay build from the settings screen
+- Open Relay on another device with a QR code, Tailscale address, or tunnel
 
 ## Quick Start
 
@@ -23,35 +60,19 @@ Relay discovers sessions already running on your machine, lets you resume them f
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ehermanson/relay/main/install.sh | bash
-```
-
-This clones to `~/.relay/app`, builds, and links the `relay` command to `~/.local/bin`. Run it again to update.
-
-Installed production builds can also update themselves from Settings → General in the UI. Relay checks whether the local checkout is behind GitHub `main`, pulls the latest commit, rebuilds, and restarts in place. The updater is hidden in dev/source mode.
-
-For updater testing, you can override the target without changing code:
-
-```bash
-RELAY_UPDATE_REMOTE=origin \
-RELAY_UPDATE_BRANCH=my-test-branch \
 relay start
 ```
 
-You can also force the UI to report an available update for restart-flow testing:
+Then open `http://localhost:7777`.
 
-```bash
-RELAY_UPDATE_FORCE_AVAILABLE=1 relay start
-```
+The install script clones Relay to `~/.relay/app`, builds it, and links the `relay` command into `~/.local/bin`.
 
-Then:
+To update later, you can either:
 
-```bash
-relay start
-```
+- run the install command again, or
+- use **Settings -> General -> Relay Updates** in the UI to update and restart in place
 
-Open `http://localhost:7777`. That's it.
-
-### Manual Install
+### Manual install
 
 ```bash
 git clone git@github.com:ehermanson/relay.git
@@ -61,324 +82,147 @@ pnpm build
 pnpm start
 ```
 
-### Setting a Password
+## Login and Remote Access
 
-Relay can run in open mode with no login, or with a single shared password for the web UI.
+Relay can run in open mode or with a shared password.
 
 ```bash
-# Open mode (local-only / trusted network)
+# Open mode
 relay start
 
-# Password via CLI flag
+# Password-protected
 relay start --password "your-secret"
-
-# Password via env var
-export RELAY_PASSWORD="your-secret"
-relay start
-
-# Or use a .env file (not committed to git)
-echo 'RELAY_PASSWORD=your-secret' > .env
-source .env && relay start
 ```
 
-When a password is configured, the web UI shows a login page and then keeps you authenticated with a session cookie for 7 days. Settings → General → Open On Phone can also show a scannable QR code and a phone-friendly link for another device. In open mode that link opens Relay directly; with a password configured you can also generate a short-lived one-time pairing code so the login page is prefilled without sharing the main password.
+You can also set the password with `RELAY_PASSWORD`.
 
-If you are running from the repo without a global install, use the same flags through `pnpm start`:
+If you want to open Relay from another device, there are three common options:
 
-```bash
-pnpm start -- --password "your-secret"
-pnpm start -- --port 8888
-pnpm start -- --tunnel --password "your-secret"
-```
+- `localhost` for the same machine
+- Tailscale for private access across your devices
+- `--tunnel` to expose the same Relay server through `cloudflared`
 
-### Remote Access
+If you use a tunnel, set a password.
 
-These are different ways to reach the same Relay server. They do not change how Relay manages sessions, projects, or providers.
+The UI also has an **Open On Phone** flow in settings. It can show a QR code, give you a better device-friendly URL, and generate a one-time pairing code when password auth is on.
 
-**Option A: Tailscale (recommended for personal use)**
+## Everyday Flow
 
-If you run [Tailscale](https://tailscale.com) on your devices, the relay is already accessible:
-
-```bash
-relay start --password "your-secret"
-# -> http://your-machine:7777 from any tailnet device
-```
-
-**Option B: Cloudflare Tunnel (for public URLs)**
-
-```bash
-# Built-in helper for starting a tunnel (requires cloudflared)
-relay start --tunnel --password "your-secret"
-
-# Or manually
-cloudflared tunnel --url http://localhost:7777
-```
-
-`--tunnel` is just a launch helper for `cloudflared`; it exposes the same Relay server over a public URL. If you use it, set a password. Open mode plus a public tunnel exposes the full Relay UI to anyone with the URL.
-
-## Core Features
-
-- **Multi-session management** — run multiple agent instances side-by-side, each with its own working directory and conversation history
-- **Multi-provider support** — managed sessions for Claude and Codex, with a provider picker in the UI
-- **External session discovery** — automatically detects agent sessions running in terminals and streams their output in real time
-- **Resume external sessions** — take over a terminal-started session from the web UI
-- **Per-session controls** — model picker, reasoning effort, and build/plan mode toggle, driven by provider capabilities
-- **Provider handoff** — switch providers mid-project, optionally carrying the full visible transcript and changed files into the new session
-- **Interactive tool responses** — answer agent questions, approve or deny tool requests, and respond to Codex terminal-input prompts directly in the UI
-- **Slash commands** — `/model` and `/reasoning` from the composer command palette
-- **`@` file mentions** — workspace search with inline mention chips
-- **Lazy hydration** — sidebar renders instantly from cached metadata; full transcript replay happens when you open a session
-- **Git integration** — branch switching, push/pull/fetch from the UI, ahead/behind indicators, and space push with optional PR creation via `gh` CLI
-- **Project settings** — per-project custom instructions, default space branch, and default provider/model
-- **Git worktree support** — sessions in relay-managed worktrees can be merged back to main from the sidebar
-- **Remote access** — reach the same Relay server over localhost, Tailscale, or an optional Cloudflare Tunnel
-
-## Product Planning
-
-Roadmap notes live in [docs/roadmap/README.md](./docs/roadmap/README.md).
+1. Start Relay.
+2. Add a project.
+3. Start a chat, or open a chat Relay discovered from your terminal.
+4. If you want branch-scoped work, create a space.
+5. Use the project pages for tasks, plans, skills, docs, and project-level settings.
 
 ## How It Works
 
-```
-                          YOUR DEV MACHINE
-  ┌──────────────────────────────────────────────────────────────┐
-  │                                                              │
-  │   Terminal sessions           Relay                          │
-  │  ┌──────────────────┐       ┌──────────────────────────┐     │
-  │  │ $ claude          │──┐   │                          │     │
-  │  │ $ claude          │──┤   │  InstanceManager         │     │
-  │  │ $ codex           │──┘   │    ┌───────────────────┐ │     │
-  │  └──────────────────┘  ▲    │    │ ProviderSession ×N│ │     │
-  │     discovered via     │    │    └───────────────────┘ │     │
-  │     ps + JSONL watch ──┘    │                          │     │
-  │                             │  HTTP   ─── REST API     │     │
-  │                             │  WebSocket ─ streaming   │     │
-  │                             │  Auth   ─── sessions     │     │
-  │                             │  UI     ─── React SPA    │     │
-  │                             └──────┬─────────┬─────────┘     │
-  │                                    │         │               │
-  │                     ┌──────────────┴┐  ┌─────┴────────────┐  │
-  │                     │  Tailscale    │  │  cloudflared      │  │
-  │                     │  (tailnet)    │  │  (public tunnel)  │  │
-  │                     └──────────────┬┘  └─────┬────────────┘  │
-  └────────────────────────────────────┼─────────┼───────────────┘
-                                       │         │
-                                 tailnet mesh   HTTPS tunnel
-                                       │         │
-                              ┌────────┴─┐  ┌────┴─────┐
-                              │  Phone   │  │  Laptop  │
-                              └──────────┘  └──────────┘
+Relay runs on your machine next to your coding agents.
+
+It can start and manage its own chats, and it can also discover chats that were started outside Relay in a terminal. The browser UI talks to that same local Relay server, whether you open it on the same machine or from another device.
+
+```text
+                  your dev machine
+
+  terminal chats         Relay server          browser UI
+  claude / codex   <->   manages chats   <->   laptop / phone / tablet
+                              |
+                              v
+                    projects / spaces / git / tasks / plans
 ```
 
-1. **Relay** runs on your dev machine alongside your coding agents
-2. **InstanceManager** spawns and manages provider-backed sessions through the provider-driver registry
-3. **Session discovery** finds agent sessions running in terminals and streams their transcripts
-4. **WebSocket** streams output, activity, and status changes to subscribed browser clients
-5. **Tailscale** (optional) is one way to reach that Relay server from any device on your private tailnet
-6. **Cloudflare Tunnel** (optional) is another way to reach that same server over a public HTTPS URL
+Relay keeps chat history on disk, uses SQLite as local app state, and loads full chat detail when you open it.
 
-### Provider Registry
+```text
+new chat in Relay
+  -> Relay starts provider session
+  -> provider writes transcript on disk
+  -> Relay tracks it and streams updates to the UI
 
-Relay's backend is organized around a **provider-driver registry**. Each provider declares its capabilities and owns its own session lifecycle behind a shared contract:
-
-```
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                        Provider Registry                            │
-  │                                                                     │
-  │  ┌─────────────┐   ┌─────────────┐                                 │
-  │  │  Claude      │   │  Codex      │  ← Drivers                     │
-  │  │  SDK / CLI   │   │  app-server │                                 │
-  │  └──────┬───────┘   └──────┬──────┘                                 │
-  │         │                  │                                        │
-  │         ▼                  ▼                                        │
-  │  ┌──────────────────────────────────────────────────────────┐       │
-  │  │              ProviderSession contract                    │       │
-  │  │  send() · interrupt() · close() · setModel()            │       │
-  │  │  setReasoningBudget() · setRuntimeMode()                 │       │
-  │  │  getRuntimeBinding() · respondToRequest()                │       │
-  │  └──────────────────────────────────────────────────────────┘       │
-  │         │                                                           │
-  │         ▼                                                           │
-  │  ┌──────────────────────────────────────────────────────────┐       │
-  │  │              ProviderCapabilities                        │       │
-  │  │  supportsResume · supportsApprovals · runtimeModes       │       │
-  │  │  supportsReasoningEffort · supportsModelSelection · ...   │       │
-  │  └──────────────────────────────────────────────────────────┘       │
-  └─────────────────────────────────────────────────────────────────────┘
+chat started in terminal
+  -> Relay discovers it
+  -> UI can observe it
+  -> you can take it over from the browser if you want
 ```
 
-Each driver implements: `isAvailable()`, `createSession()`, `getModels()`, `parseTranscript()`, `discoverExternalSessions()`, `resolveManagedTranscriptPath()`, and `captureManagedSession()`. The UI never hardcodes provider-specific logic — it queries `GET /api/providers` for available providers and `GET /api/provider-models?provider=...` for model lists and capabilities, then shows or hides controls accordingly.
+## Project Features
 
-### Data Flow
+Each project can have:
 
-```
-  ┌────────────┐
-  │  React UI  │
-  │  (Vite)    │
-  └─────┬──────┘
-        │ WebSocket (JSON)
-        ▼
-  ┌────────────────┐     subscribe/unsubscribe per instance
-  │  WS Server     │───► broadcast: status, create, remove → all clients
-  │                │───► scoped: output, activity, exit → subscribers only
-  └─────┬──────────┘
-        │
-        ▼
-  ┌────────────────────────────────────────────────────────────┐
-  │                    InstanceManager                          │
-  │                                                            │
-  │  instances: Map<id, Instance>                              │
-  │                                                            │
-  │  ┌──────────────────┐   ┌──────────────────┐               │
-  │  │  Managed          │   │  External         │              │
-  │  │  ProviderSession  │   │  JSONL watcher    │              │
-  │  │  (live process)   │   │  (2s poll)        │              │
-  │  └────────┬─────────┘   └────────┬──────────┘              │
-  │           │                      │                          │
-  │           ▼                      ▼                          │
-  │  ┌─────────────────────────────────────────────────┐       │
-  │  │  Unified event stream                           │       │
-  │  │  output · activity · stats · exit               │       │
-  │  └─────────────────────────────────────────────────┘       │
-  │           │                                                 │
-  │           ▼                                                 │
-  │  ┌─────────────────────────────────────────────────┐       │
-  │  │  SessionDB (SQLite)                             │       │
-  │  │  sessions: rebuildable transcript index         │       │
-  │  │  managed_sessions: provider runtime bindings    │       │
-  │  └─────────────────────────────────────────────────┘       │
-  └────────────────────────────────────────────────────────────┘
-```
+- Chats
+- Spaces
+- Tasks stored in `.relay/tasks.json`
+- Plans collected from chats
+- Project instructions
+- Default provider and model settings
+- README and project-doc visibility in the UI
+- Usage stats grouped by provider and model
 
-### Session Lifecycle
+Relay keeps history on disk and lazily loads the full chat state when you open it, so the sidebar stays fast even with a larger project.
 
-```
-  New chat request
-        │
-        ▼
-  ┌──────────────┐    Provider registry picks driver
-  │ createSession│───► driver.createSession()
-  └──────┬───────┘    returns ProviderSession
-         │
-         ▼
-  ┌──────────────┐    First response arrives
-  │ Capture      │───► extract session ID + transcript path
-  │ session ID   │    persist runtime binding to SQLite
-  └──────┬───────┘
-         │
-         ▼
-  ┌──────────────┐    User sends messages
-  │ Active       │───► provider session handles send/resume
-  │              │    transcript watcher tracks changes
-  └──────┬───────┘
-         │
-         ▼
-  ┌──────────────┐    Relay restarts
-  │ Persisted    │───► SQLite has runtime binding
-  │ (stopped)    │    sidebar renders from cached metadata
-  └──────┬───────┘
-         │
-         ▼
-  ┌──────────────┐    User opens the session
-  │ Lazy hydrate │───► replay transcript, restore state
-  │              │    boot provider session if resumable
-  └──────────────┘
-```
+## Provider Features
 
-### External Session Discovery
+Relay asks each provider what it supports and shows the right controls from that.
 
-```
-  Every 10 seconds:
-  ┌──────────────┐
-  │ ps -eo pid   │───► find agent CLI processes
-  └──────┬───────┘     (exclude managed PIDs)
-         │
-         ▼
-  ┌──────────────┐
-  │ lsof -p PID  │───► resolve working directory
-  └──────┬───────┘
-         │
-         ▼
-  ┌──────────────┐
-  │ Match trans- │───► provider-specific transcript paths
-  │ cript files  │    (e.g. ~/.claude/projects/, ~/.codex/sessions/)
-  └──────┬───────┘
-         │
-         ▼
-  ┌──────────────┐
-  │ Start watch  │───► 2s poll, emit new entries
-  └──────┬───────┘
-         │
-         ▼
-  ┌──────────────┐     User sends message from UI
-  │ Resume       │───► stop external process
-  │ (optional)   │    spawn managed provider session
-  └──────────────┘
-```
+Depending on the provider, you may see support for:
 
-## Projects and Directories
+- Model selection
+- Reasoning level
+- Runtime mode
+- Fast mode
+- Approval requests
+- User-input prompts
+- Session resume
 
-Relay organizes work around explicitly registered git projects. A project is opt-in: once you add a repo, Relay discovers sessions for that repo, groups chats under that project in the sidebar, and aggregates project artifacts (plans, memory, docs) on the project page.
+## Requirements
 
-Sessions still carry a working directory, and that directory remains the agent's "home base," not a sandbox. Nothing prevents a session started in `~/projects/foo` from editing files in `~/projects/bar`. But visibility and discovery now key off registered projects, with Relay normalizing registrations to the repo root.
+- Node.js 22+
+- `pnpm`
+- At least one supported provider installed and signed in
 
-## Limits
+Helpful extras:
 
-- **No model access** — this is not an API wrapper. It manages provider CLIs and SDKs on your machine. You need at least one provider installed.
-- **No multi-user auth** — optional single-password auth protects the whole server when enabled.
-- **No multi-device sync** — persistence is local to the machine running the relay. The DB is a rebuildable cache; JSONL transcript files on disk are the canonical source of truth.
+- Tailscale for private remote access
+- `cloudflared` if you want a public tunnel
+- `gh` if you want Relay to create pull requests for pushed spaces
 
 ## Configuration
 
-### Environment Variables
+Common environment variables:
 
-| Variable          | Default                  | Description                                |
-| ----------------- | ------------------------ | ------------------------------------------ |
-| `RELAY_PASSWORD`  | unset                    | Authentication password; unset = open mode |
-| `RELAY_HOME`      | `~/.relay`               | Base directory for Relay state             |
-| `PORT`            | `7777`                   | Server port                                |
-| `WORKING_DIR`     | `process.cwd()`          | Default working directory                  |
-| `MAX_PROCESSES`   | `15`                     | Maximum concurrent managed processes       |
-| `TUNNEL`          | `false`                  | Start a Cloudflare Tunnel                  |
-| `SESSION_MAX_AGE` | `604800000`              | Auth session lifetime in ms (7 days)       |
-| `SESSION_FILE`    | `~/.relay/sessions.json` | Auth session persistence file              |
-| `DB_PATH`         | `~/.relay/sessions.db`   | Relay SQLite database path                 |
-| `CLAUDE_DIR`      | `~/.claude`              | Claude data directory                      |
-| `CODEX_DIR`       | `~/.codex`               | Codex data directory                       |
-| `GEMINI_DIR`      | `~/.gemini`              | Gemini data directory                      |
-
-When `RELAY_HOME` is unset, Relay now uses `~/.relay` for both normal and dev runs. If an older `~/.relay-dev` directory exists, Relay will automatically migrate its contents into `~/.relay` on startup.
+| Variable         | Default                  | What it does               |
+| ---------------- | ------------------------ | -------------------------- |
+| `RELAY_PASSWORD` | unset                    | Turns on login             |
+| `RELAY_HOME`     | `~/.relay`               | Relay state directory      |
+| `PORT`           | `7777`                   | Server port                |
+| `WORKING_DIR`    | current directory        | Default working directory  |
+| `MAX_PROCESSES`  | `15`                     | Max managed chats          |
+| `TUNNEL`         | `false`                  | Starts a Cloudflare tunnel |
+| `CLAUDE_DIR`     | `~/.claude`              | Claude data directory      |
+| `CODEX_DIR`      | `~/.codex`               | Codex data directory       |
+| `DB_PATH`        | `~/.relay/sessions.db`   | Relay SQLite path          |
+| `SESSION_FILE`   | `~/.relay/sessions.json` | Auth session file          |
 
 ## Development
 
-### For Contributors
-
-Contributor workflow stays repo-local; you do not need a global install for development.
-
 ```bash
 pnpm install
-pnpm dev    # Runs server from TS source + Vite HMR for UI
-pnpm build:server
-pnpm test   # Tests import from dist/, so build server first
-pnpm typecheck  # Run server + UI TypeScript checks
-pnpm build  # Build everything
+pnpm dev
 ```
 
-`pnpm dev` binds Vite to `0.0.0.0` and allows Tailscale `*.ts.net` hostnames, so you can open the dev UI from other devices on your tailnet without hardcoding your machine name.
-
-Commits run a fast staged check through Husky: `lint-staged` and `pnpm knip --no-exit-code`. Use `pnpm test` for the full suite.
-
-Useful repo-local CLI commands:
+Useful commands:
 
 ```bash
-pnpm start -- --password "your-secret"
-pnpm start -- --port 8888
+pnpm build
+pnpm build:server
+pnpm typecheck
+pnpm test
 ```
 
-## Prerequisites
+`pnpm dev` runs the server from TypeScript source and the app with Vite. It does not auto-restart the server on file changes; press `r` in the dev process when you want a manual restart.
 
-- Node.js 22+
-- At least one supported provider installed and authenticated:
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-  - [Codex](https://github.com/openai/codex) (`npm install -g @openai/codex`)
-- [Tailscale](https://tailscale.com) (optional) or [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (optional) for remote access
+## Limits
+
+- Relay is not a hosted service
+- Relay does not replace provider login or setup
+- Auth is single-password, not multi-user
+- Data stays on the machine running Relay
