@@ -31,15 +31,19 @@ import {
   resolveQueryFn,
   prewarmSdk,
   getSdkDiscoveredAccountInfo,
+  getSdkDiscoveredModels,
 } from "#core/providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "#core/providers/claude-sdk.js";
 import { convertCodexTranscriptEntry } from "#core/providers/codex-transcript.js";
 import { fetchCodexProviderGlobalStateSnapshot } from "#core/providers/codex-app-server.js";
-import { prewarmCodexModels } from "#core/providers/codex-models.js";
+import { getCachedCodexModels, prewarmCodexModels } from "#core/providers/codex-models.js";
 import { isCodexInstalled } from "#core/providers/codex-cli.js";
 import { SessionDB } from "#core/db.js";
 import type { SessionRow, ManagedInstanceRow } from "#core/db.js";
-import { BUILTIN_PROVIDER_MODELS } from "#core/provider-catalog.js";
+import {
+  BUILTIN_PROVIDER_MODELS,
+  resolveProviderDefaultModelOption,
+} from "#core/provider-catalog.js";
 import { SpaceManager } from "#core/space-manager.js";
 import { SpinOffManager } from "#core/spin-off-manager.js";
 import { ProjectManager } from "#core/project-manager.js";
@@ -1922,14 +1926,20 @@ export class InstanceManager extends EventEmitter {
       modelOptions = { ...modelOptions, fastMode: perProvider.fastMode };
     }
 
-    // Effective session model: explicit choice, or catalog default as a stable seed.
-    // When no explicit model is chosen we still want the provider session to use the
-    // catalog's declared default (e.g. Opus 4.7 for Claude) rather than letting the
-    // SDK/binary silently fall back to its own internal default (which may differ).
+    // Effective session model: explicit choice, or a provider fallback as a stable seed.
+    // Claude is the exception: when the SDK has reported model metadata, leaving
+    // the model unset lets Claude Code use its own current default without Relay
+    // pinning a stale catalog ID.
     // This is separate from `preferredModel` on InstanceInfo, which stays undefined
     // so the UI renders the "Default" label and the user can always override.
     const effectiveSessionModel =
-      model ?? BUILTIN_PROVIDER_MODELS[provider].find((m) => m.isDefault)?.id;
+      model ??
+      (provider === "claude" && getSdkDiscoveredModels()?.length
+        ? undefined
+        : resolveProviderDefaultModelOption(
+            provider,
+            provider === "codex" ? (getCachedCodexModels() ?? undefined) : undefined,
+          )?.id);
     const bootstrapContext = resumeId
       ? this.buildBootstrapContext(project, {
           spaceId,
@@ -8154,7 +8164,14 @@ export class InstanceManager extends EventEmitter {
       const proc = this.createProviderSession(instanceConfig, {
         provider,
         runtimeMode: instance.info.runtimeMode,
-        model: preferredModel ?? BUILTIN_PROVIDER_MODELS[provider].find((m) => m.isDefault)?.id,
+        model:
+          preferredModel ??
+          (provider === "claude" && getSdkDiscoveredModels()?.length
+            ? undefined
+            : resolveProviderDefaultModelOption(
+                provider,
+                provider === "codex" ? (getCachedCodexModels() ?? undefined) : undefined,
+              )?.id),
         modelOptions,
       });
       instance.process = proc;

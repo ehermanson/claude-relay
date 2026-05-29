@@ -40,6 +40,76 @@ function reasoningLevels(
 const STANDARD_EFFORTS = reasoningLevels("medium", "low", "medium", "high", "max");
 const EXTENDED_EFFORTS = reasoningLevels("xhigh", "low", "medium", "high", "xhigh", "max");
 
+function toTitleCaseToken(token: string): string {
+  return token
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function formatCodexModelLabel(modelId: string): string {
+  const parts = modelId.split("-");
+  if (parts.length === 0) return modelId;
+  return parts
+    .map((part, index) => {
+      if (index === 0 && /^gpt$/i.test(part)) return "GPT";
+      if (/^\d+(?:\.\d+)*$/.test(part)) return part;
+      if (/^[a-z]+$/i.test(part) && part.length <= 4) return part.toUpperCase();
+      return toTitleCaseToken(part);
+    })
+    .join("-");
+}
+
+function codexFamilyRank(modelId: string): number {
+  const lowerId = modelId.toLowerCase();
+  if (/(?:^|-)spark(?:-|$)/.test(lowerId)) return 0;
+  if (/(?:^|-)mini(?:-|$)/.test(lowerId)) return 1;
+  if (/(?:^|-)codex(?:-|$)/.test(lowerId)) return 2;
+  return 3;
+}
+
+function codexVersionTuple(modelId: string): number[] {
+  const match = modelId.toLowerCase().match(/^gpt-(\d+(?:\.\d+)*)/);
+  return match ? match[1].split(".").map((part) => Number.parseInt(part, 10) || 0) : [];
+}
+
+function compareVersionTuples(a: number[], b: number[]): number {
+  const len = Math.max(a.length, b.length);
+  for (let index = 0; index < len; index += 1) {
+    const left = a[index] ?? 0;
+    const right = b[index] ?? 0;
+    if (left !== right) return left - right;
+  }
+  return 0;
+}
+
+function resolveCodexDefaultModelOption(
+  models: readonly ProviderModelOption[],
+): ProviderModelOption | undefined {
+  if (models.length === 0) return undefined;
+  const explicitDefault = models.find((model) => model.isDefault);
+  if (explicitDefault) return explicitDefault;
+  return [...models].sort((left, right) => {
+    const versionOrder = compareVersionTuples(
+      codexVersionTuple(right.id),
+      codexVersionTuple(left.id),
+    );
+    if (versionOrder !== 0) return versionOrder;
+    const familyOrder = codexFamilyRank(right.id) - codexFamilyRank(left.id);
+    if (familyOrder !== 0) return familyOrder;
+    return left.id.localeCompare(right.id);
+  })[0];
+}
+
+function formatClaudeModelLabel(modelId: string): string | null {
+  const match = modelId.match(/^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/i);
+  if (!match) return null;
+  const family = toTitleCaseToken(match[1]);
+  const version = match[3] ? `${match[2]}.${match[3]}` : match[2];
+  return `${family} ${version}`;
+}
+
 export const BUILTIN_PROVIDER_MODELS: Record<ProviderKind, readonly ProviderModelOption[]> = {
   claude: [
     {
@@ -195,6 +265,13 @@ export function resolveProviderDefaultModelOption(
   const catalogModels = BUILTIN_PROVIDER_MODELS[provider];
   const candidateModels = models && models.length > 0 ? models : catalogModels;
   if (candidateModels.length === 0) return undefined;
+  if (provider === "codex") {
+    return resolveCodexDefaultModelOption(candidateModels);
+  }
+  if (provider === "claude" && models && models.length > 0) {
+    const explicitDefault = candidateModels.find((model) => model.isDefault);
+    if (explicitDefault) return explicitDefault;
+  }
   // Prefer the catalog's declared default by id (so an enriched model from
   // `models` — with resolvedCapabilities etc. — wins over the raw catalog
   // entry). Fall back to any isDefault model in the candidate list, then the
@@ -208,7 +285,11 @@ export function resolveProviderDefaultModelOption(
 }
 
 export function findProviderModelLabel(provider: ProviderKind, modelId: string): string | null {
-  return BUILTIN_PROVIDER_MODELS[provider].find((model) => model.id === modelId)?.label ?? null;
+  const known = BUILTIN_PROVIDER_MODELS[provider].find((model) => model.id === modelId)?.label;
+  if (known) return known;
+  if (provider === "claude") return formatClaudeModelLabel(modelId);
+  if (provider === "codex") return formatCodexModelLabel(modelId);
+  return null;
 }
 
 /**

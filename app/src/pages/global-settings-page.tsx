@@ -735,7 +735,7 @@ function ProviderDefaultsRow({
   const defaultModel = models.find((m) => m.isDefault);
 
   // Per-model capabilities: reasoning effort levels and fast mode vary by model
-  // (e.g. xhigh only on Opus 4.7). Use the selected model's resolvedCapabilities
+  // (e.g. extra effort only on latest Opus). Use the selected model's resolvedCapabilities
   // so the controls reflect what that model actually supports.
   const selectedModel = defaults.model ? models.find((m) => m.id === defaults.model) : defaultModel;
   const modelCaps = selectedModel?.resolvedCapabilities ?? caps;

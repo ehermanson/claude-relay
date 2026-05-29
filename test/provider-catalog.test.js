@@ -66,9 +66,19 @@ describe("findProviderModelLabel", () => {
     assert.equal(label, "Opus 4.6");
   });
 
+  it("formats a readable label for an unknown claude model id", () => {
+    const label = findProviderModelLabel("claude", "claude-opus-4-8");
+    assert.equal(label, "Opus 4.8");
+  });
+
   it("finds label for a known codex model", () => {
     const label = findProviderModelLabel("codex", "gpt-5.4");
     assert.equal(label, "GPT-5.4");
+  });
+
+  it("formats a readable label for an unknown codex model id", () => {
+    const label = findProviderModelLabel("codex", "gpt-5.5");
+    assert.equal(label, "GPT-5.5");
   });
 
   it("returns null for unknown model ID", () => {

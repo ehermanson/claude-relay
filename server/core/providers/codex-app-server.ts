@@ -45,7 +45,8 @@ import { buildTaskListActivityFromPlan } from "#core/tools.js";
 import { ProposedPlanStreamParser } from "#core/proposed-plan.js";
 import { isPathWithinWorkspace } from "#core/workspace-paths.js";
 import { findCodexBinary } from "#core/providers/codex-cli.js";
-import { getBuiltinProviderModels } from "#core/provider-catalog.js";
+import { resolveProviderDefaultModelOption } from "#core/provider-catalog.js";
+import { getCachedCodexModels } from "#core/providers/codex-models.js";
 import { extFromPath } from "#core/paths.js";
 
 type SpawnFn = typeof spawn;
@@ -1223,8 +1224,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private resolveCollaborationModel(): string {
     return (
       this._preferredModel ??
-      getBuiltinProviderModels("codex").find((model) => model.isDefault)?.id ??
-      getBuiltinProviderModels("codex")[0]?.id ??
+      resolveProviderDefaultModelOption("codex", getCachedCodexModels() ?? undefined)?.id ??
       "gpt-5.4"
     );
   }

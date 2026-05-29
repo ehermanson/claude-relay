@@ -22,6 +22,16 @@ describe("resolveProviderDefaultModelOption", () => {
     assert.equal(result.isDefault, true);
   });
 
+  it("prefers the newest discovered codex model when no default is marked", () => {
+    const result = resolveProviderDefaultModelOption("codex", [
+      { provider: "codex", id: "gpt-5.4", label: "GPT-5.4" },
+      { provider: "codex", id: "gpt-5.5", label: "GPT-5.5" },
+      { provider: "codex", id: "gpt-5.5-mini", label: "GPT-5.5 Mini" },
+    ]);
+    assert.ok(result);
+    assert.equal(result.id, "gpt-5.5");
+  });
+
   it("prefers the catalog default id in an enriched models list", () => {
     // Simulate enriched models (like the route produces) where resolvedCapabilities
     // are attached — the function should find the enriched version by id.
@@ -39,6 +49,15 @@ describe("resolveProviderDefaultModelOption", () => {
     assert.ok(result);
     assert.equal(result.id, "claude-opus-4-7");
     assert.equal(result.extra, true); // got the enriched version, not raw catalog
+  });
+
+  it("prefers a discovered claude default over the fallback catalog default", () => {
+    const result = resolveProviderDefaultModelOption("claude", [
+      { provider: "claude", id: "claude-opus-4-7", label: "Opus 4.7" },
+      { provider: "claude", id: "claude-opus-4-8", label: "Opus 4.8", isDefault: true },
+    ]);
+    assert.ok(result);
+    assert.equal(result.id, "claude-opus-4-8");
   });
 
   it("falls back to first model when catalog default is absent and no isDefault", () => {

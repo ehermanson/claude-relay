@@ -7,6 +7,7 @@ import {
   getProviderDriver,
   getProviderCapabilities,
   getRegisteredProviders,
+  inferClaudeModelIdFromSdkInfo,
   listAvailableProviders,
   resolveCoreConfig,
 } from "../dist/server/core/index.js";
@@ -51,6 +52,15 @@ describe("provider registry", () => {
   it("keeps gemini out of the available provider catalog until it is supported", () => {
     const available = listAvailableProviders(makeContext());
     assert.ok(!available.some((provider) => provider.provider === "gemini"));
+  });
+
+  it("infers canonical Claude model ids from SDK model descriptions", () => {
+    const inferred = inferClaudeModelIdFromSdkInfo({
+      value: "default",
+      displayName: "Default (recommended)",
+      description: "Opus 4.8 with 1M context · Most capable for complex work",
+    });
+    assert.equal(inferred, "claude-opus-4-8");
   });
 
   it("resolves managed transcript paths through the provider driver", () => {

@@ -44,6 +44,7 @@ export {
   getProviderCapabilities,
   getProviderDriver,
   getRegisteredProviders,
+  inferClaudeModelIdFromSdkInfo,
   isProviderAvailable,
   listAvailableProviders,
 } from "#core/provider-registry.js";

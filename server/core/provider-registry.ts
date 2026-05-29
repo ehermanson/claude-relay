@@ -7,8 +7,10 @@ import type { CoreConfig } from "#core/config.js";
 import { ClaudeProcess } from "#core/claude-process.js";
 import {
   DEFAULT_PROVIDER_CAPABILITIES,
+  findProviderModelLabel,
   getBuiltinProviderModels,
   getProviderDisplayName,
+  resolveProviderDefaultModelOption,
 } from "#core/provider-catalog.js";
 import type { ProviderSession } from "#core/provider.js";
 import type {
@@ -127,6 +129,23 @@ interface ProviderDriver {
 }
 
 const NO_SESSION_MESSAGE = "Gemini provider support is not implemented in this relay build yet.";
+
+type ClaudeSdkModelInfo = NonNullable<ReturnType<typeof getSdkDiscoveredModels>>[number];
+
+export function inferClaudeModelIdFromSdkInfo(model: ClaudeSdkModelInfo): string | null {
+  if (model.value.startsWith("claude-")) return model.value;
+  const text = `${model.displayName ?? ""} ${model.description ?? ""}`;
+  const match = text.match(/\b(Opus|Sonnet|Haiku)\s+(\d+)(?:\.(\d+))?\b/i);
+  if (!match) return null;
+  const family = match[1].toLowerCase();
+  const major = match[2];
+  const minor = match[3];
+  return minor ? `claude-${family}-${major}-${minor}` : `claude-${family}-${major}`;
+}
+
+function formatInferredClaudeModelLabel(modelId: string, fallback: string): string {
+  return findProviderModelLabel("claude", modelId) ?? fallback;
+}
 
 function resolveClaudeProjectDir(providerRoot: string, workingDirectory: string): string {
   const projectsDir = join(providerRoot, "projects");
@@ -520,7 +539,8 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       // The SDK returns short aliases ("default", "sonnet", "haiku") rather
       // than canonical model IDs like "claude-opus-4-6". We enrich builtin
       // catalog entries with SDK capability metadata where available, and
-      // surface SDK-reported extras (models not in the catalog) too.
+      // synthesize canonical IDs from SDK descriptions when the SDK reports a
+      // newer family/version before Relay's fallback catalog has been updated.
 
       const builtins = getBuiltinProviderModels("claude");
       if (!sdkModels?.length) return builtins;
@@ -530,19 +550,18 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
         sdkModels.filter((m) => m.value !== "default").map((m) => [m.value, m]),
       );
 
-      // Map builtin IDs to the SDK alias they correspond to. Only the *current*
-      // generation model claims a short alias ("opus"/"sonnet"/"haiku") — older
-      // versions keep their hardcoded catalog capabilities so they don't
-      // accidentally inherit newer-gen features (e.g. higher reasoning tiers)
-      // via the SDK's alias output.
-      const ALIAS_MAP: Record<string, string> = {
-        "claude-opus-4-7": "opus",
-        "claude-sonnet-4-6": "sonnet",
-        "claude-haiku-4-5-20251001": "haiku",
-      };
+      const inferredById = new Map<string, ClaudeSdkModelInfo>();
+      const inferredDefaultId = sdkModels.find((m) => m.value === "default")
+        ? inferClaudeModelIdFromSdkInfo(sdkModels.find((m) => m.value === "default")!)
+        : null;
+      for (const model of sdkModels) {
+        const inferredId = inferClaudeModelIdFromSdkInfo(model);
+        if (!inferredId || inferredId === "default") continue;
+        inferredById.set(inferredId, model);
+      }
 
       // Programmatic per-model capabilities — derived from SDK metadata where
-      // available. This is what makes e.g. Opus 4.7's higher reasoning tier
+      // available. This is what makes e.g. new Opus higher reasoning tiers
       // surface in the UI without hardcoding it client-side.
       const claudeProviderCaps = DEFAULT_PROVIDER_CAPABILITIES.claude;
       const builtinEffortLevels = claudeProviderCaps.reasoningEffortLevels ?? [];
@@ -572,41 +591,48 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
 
       // Enrich builtins with SDK capability metadata. We do NOT filter the
       // list to SDK-reported aliases only — the Claude API accepts full model
-      // IDs (e.g. "claude-opus-4-7") even when the SDK's supportedModels()
+      // IDs (e.g. "claude-opus-4-8") even when the SDK's supportedModels()
       // alias list doesn't enumerate them, so removing unlisted models would
       // make valid choices disappear without actually preventing session use.
       const enrichedBuiltins = builtins.map((builtin) => {
-        const alias = ALIAS_MAP[builtin.id];
-        const sdkMatch = alias ? sdkByAlias.get(alias) : sdkByAlias.get(builtin.id);
+        const sdkMatch = sdkByAlias.get(builtin.id) ?? inferredById.get(builtin.id);
         const capabilities = buildModelCapabilities(sdkMatch, builtin.capabilities);
-
-        // Catalog is the source of truth for isDefault on builtin models.
-        // Overriding it from SDK detection changes what the "Default" label
-        // points to, which changes what the SDK receives when no explicit
-        // model is chosen — confusing when the SDK default doesn't match
-        // what the catalog (and the user) expects.
-        const isDefault = builtin.isDefault ?? false;
 
         return {
           provider: "claude" as const,
           id: builtin.id,
           label: builtin.label,
           description: sdkMatch?.description || builtin.description,
-          isDefault,
+          isDefault: inferredDefaultId
+            ? builtin.id === inferredDefaultId
+            : (builtin.isDefault ?? false),
           ...(capabilities ? { capabilities } : {}),
         };
       });
 
-      // Forward-compat: surface SDK-reported models that aren't covered by
-      // a builtin alias and aren't already a builtin ID. Without this, a
-      // new Claude model shipped by the SDK would be invisible in Relay
-      // until we updated the builtin catalog.
-      const aliasValues = new Set(Object.values(ALIAS_MAP));
       const builtinIds = new Set(builtins.map((b) => b.id));
-      const extras = sdkModels
-        .filter(
-          (m) => m.value !== "default" && !aliasValues.has(m.value) && !builtinIds.has(m.value),
-        )
+      const builtinLabels = new Set(builtins.map((b) => b.label));
+      const inferredExtras = [...inferredById.entries()]
+        .filter(([id]) => !builtinIds.has(id))
+        .filter(([id]) => !builtinLabels.has(formatInferredClaudeModelLabel(id, id)))
+        .map(([id, m]) => {
+          const capabilities = buildModelCapabilities(m, undefined);
+          return {
+            provider: "claude" as const,
+            id,
+            label: formatInferredClaudeModelLabel(id, m.displayName || id),
+            description: m.description || undefined,
+            isDefault: inferredDefaultId === id,
+            ...(capabilities ? { capabilities } : {}),
+          };
+        });
+      const coveredSdkValues = new Set([
+        "default",
+        ...sdkModels.filter((m) => inferClaudeModelIdFromSdkInfo(m)).map((m) => m.value),
+        ...builtinIds,
+      ]);
+      const sdkValueExtras = sdkModels
+        .filter((m) => !coveredSdkValues.has(m.value))
         .map((m) => {
           const capabilities = buildModelCapabilities(m, undefined);
           return {
@@ -619,7 +645,13 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
           };
         });
 
-      return [...enrichedBuiltins, ...extras];
+      const models = [...enrichedBuiltins, ...inferredExtras, ...sdkValueExtras];
+      if (models.some((model) => model.isDefault)) return models;
+      const defaultModel = resolveProviderDefaultModelOption("claude", models);
+      return models.map((model) => ({
+        ...model,
+        isDefault: model.id === defaultModel?.id,
+      }));
     },
     parseTranscript(filePath, parseClaudeTranscript) {
       return parseClaudeTranscript(filePath);
@@ -726,9 +758,17 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       // and `resolveProviderDefaultModelOption` would fall through to
       // `candidateModels[0]` — whatever the binary happened to list first.
       const discoveredHasDefault = discovered.some((model) => model.isDefault);
-      return discovered.map((model) => {
+      const mergedModels = discovered.map((model) => {
         const builtin = builtinById.get(model.id);
-        if (!builtin) return model;
+        if (!builtin) {
+          return {
+            ...model,
+            label:
+              model.label && model.label !== model.id
+                ? model.label
+                : (findProviderModelLabel("codex", model.id) ?? model.label),
+          };
+        }
         const isDefault = discoveredHasDefault
           ? model.isDefault
           : (builtin.isDefault ?? model.isDefault);
@@ -744,6 +784,14 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
           ...(builtin.capabilities ? { capabilities: builtin.capabilities } : {}),
         };
       });
+      if (mergedModels.some((model) => model.isDefault)) {
+        return mergedModels;
+      }
+      const defaultModel = resolveProviderDefaultModelOption("codex", mergedModels);
+      return mergedModels.map((model) => ({
+        ...model,
+        isDefault: model.id === defaultModel?.id,
+      }));
     },
     parseTranscript(filePath) {
       const parsed = parseCodexTranscript(filePath);

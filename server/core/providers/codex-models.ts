@@ -174,6 +174,9 @@ export async function discoverCodexModels(
           upgradeTo: item.upgrade || undefined,
         }));
 
+      if (models.length > 0) {
+        codexDiscoveredModels = models.map((model) => ({ ...model }));
+      }
       finish(null, models);
     };
 

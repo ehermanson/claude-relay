@@ -381,7 +381,7 @@ export interface ProviderModelOption {
   /**
    * Per-model capability overrides. Merged on top of the provider's default
    * capabilities by `mergeCapabilities()` — present fields win, omitted fields
-   * inherit from the provider. Use for model-specific deltas (e.g. Opus 4.7
+   * inherit from the provider. Use for model-specific deltas (e.g. latest Opus
    * exposes a higher reasoning-effort tier than other Claude models).
    *
    * Populated programmatically when the provider exposes per-model metadata
