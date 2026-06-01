@@ -243,6 +243,42 @@ describe("TerminalManager", () => {
     });
   });
 
+  describe("listActiveScopes", () => {
+    it("groups live terminals by scope with counts", () => {
+      tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
+      tm.createTerminal({ scope: spaceScope, cwd: "/tmp" });
+      tm.createTerminal({ scope: instanceScope, cwd: "/tmp" });
+
+      const scopes = tm.listActiveScopes();
+      const space = scopes.find((s) => s.scope.type === "space");
+      const instance = scopes.find((s) => s.scope.type === "instance");
+
+      assert.equal(space.count, 2);
+      assert.equal(space.scope.spaceId, "sp-1");
+      assert.equal(instance.count, 1);
+      assert.equal(instance.scope.instanceId, "inst-1");
+    });
+
+    it("excludes exited terminals from the live count", () => {
+      const info = tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
+      tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });
+      ptys[0].emit("exit", 0);
+
+      const scopes = tm.listActiveScopes();
+      assert.equal(scopes.length, 1);
+      assert.equal(scopes[0].count, 1);
+
+      // Closing the last live terminal drops the scope entirely.
+      tm.closeTerminal(info.id);
+      const remaining = tm.listActiveScopes().find((s) => s.scope.type === "space");
+      assert.equal(remaining.count, 1);
+    });
+
+    it("returns an empty array when there are no terminals", () => {
+      assert.deepEqual(tm.listActiveScopes(), []);
+    });
+  });
+
   describe("closeAll", () => {
     it("closes every terminal", () => {
       tm.createTerminal({ scope: spaceScope, cwd: "/tmp", cols: 120, rows: 30 });

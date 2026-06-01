@@ -382,6 +382,10 @@ export function createWebSocketServer(
   // available until after start() completes.
   let terminalManagerBound = false;
 
+  function broadcastTerminalScopes(tm: TerminalManager): void {
+    broadcast({ type: "terminal_scopes", scopes: tm.listActiveScopes() });
+  }
+
   function bindTerminalManager(): TerminalManager | undefined {
     const tm = getTerminalManager?.();
     if (tm && !terminalManagerBound) {
@@ -391,6 +395,9 @@ export function createWebSocketServer(
       });
       tm.on("terminal:exit", (terminalId, code, signal) => {
         sendToTerminalSubscribers(terminalId, { type: "terminal_exit", terminalId, code, signal });
+        // An exited shell no longer counts as a live terminal — refresh the
+        // global scope snapshot so sidebar indicators clear.
+        broadcastTerminalScopes(tm);
       });
       tm.on("terminal:created", (terminal) => {
         for (const [ws] of subscriptions) {
@@ -398,12 +405,14 @@ export function createWebSocketServer(
             sendMessage(ws, { type: "terminal_created", terminal });
           }
         }
+        broadcastTerminalScopes(tm);
       });
       tm.on("terminal:removed", (terminalId) => {
         for (const [, subs] of terminalSubscriptions) {
           subs.delete(terminalId);
         }
         broadcast({ type: "terminal_removed", terminalId });
+        broadcastTerminalScopes(tm);
       });
     }
     return tm;
@@ -454,6 +463,12 @@ export function createWebSocketServer(
     });
     if (instanceManager.scanComplete) {
       sendMessage(ws, { type: "scan_complete" });
+    }
+    // Seed the global live-terminal snapshot so sidebar indicators render
+    // immediately, before this client opens any terminal scope.
+    const tmForSnapshot = bindTerminalManager();
+    if (tmForSnapshot) {
+      sendMessage(ws, { type: "terminal_scopes", scopes: tmForSnapshot.listActiveScopes() });
     }
 
     ws.on("message", async (data: Buffer | string) => {

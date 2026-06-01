@@ -11,7 +11,7 @@
 import { randomUUID } from "crypto";
 import { EventEmitter } from "events";
 import type { PtyAdapterFactory, PtyProcess } from "#core/pty-adapter.js";
-import type { TerminalInfo, TerminalScope } from "#core/types.js";
+import type { TerminalInfo, TerminalScope, TerminalScopeSummary } from "#core/types.js";
 import type { Logger } from "#core/logger.js";
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -196,6 +196,25 @@ export class TerminalManager extends EventEmitter {
     if (!scope) return all;
     const key = scopeKey(scope);
     return all.filter((t) => scopeKey(t.scope) === key);
+  }
+
+  /**
+   * Summarize live (non-exited) terminals grouped by scope. Used to broadcast
+   * a global "which scopes have running terminals" snapshot to the sidebar.
+   */
+  listActiveScopes(): TerminalScopeSummary[] {
+    const byKey = new Map<string, TerminalScopeSummary>();
+    for (const { info } of this.terminals.values()) {
+      if (info.exited) continue;
+      const key = scopeKey(info.scope);
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        byKey.set(key, { scope: info.scope, count: 1 });
+      }
+    }
+    return Array.from(byKey.values());
   }
 
   /**

@@ -1028,6 +1028,24 @@ export interface TerminalListResponse {
   terminals: TerminalInfo[];
 }
 
+/** Live-terminal count for a single scope (chat or space). */
+export interface TerminalScopeSummary {
+  scope: TerminalScope;
+  /** Number of live (non-exited) terminals in this scope. */
+  count: number;
+}
+
+/**
+ * Global snapshot of which scopes currently have live terminals.
+ * Broadcast to all clients on every terminal lifecycle change so the
+ * sidebar can flag chats/spaces with running terminals without having
+ * to open each scope first.
+ */
+export interface TerminalScopesMessage {
+  type: "terminal_scopes";
+  scopes: TerminalScopeSummary[];
+}
+
 // =============================================================================
 // Update Types
 // =============================================================================
@@ -1111,6 +1129,7 @@ export type ServerMessage =
   | TerminalRemovedMessage
   | TerminalScrollbackMessage
   | TerminalListResponse
+  | TerminalScopesMessage
   | SpinOffCreatedMessage
   | SpinOffSentMessage
   | HeartbeatMessage;

@@ -20,6 +20,7 @@ import {
 import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { Menu } from "../ui/menu";
 import { Badge } from "../ui/badge";
+import { TerminalRunningIndicator } from "../ui/terminal-running-indicator";
 import type { SpaceInfo } from "@shared/types";
 
 interface SidebarSpaceGroupProps {
@@ -73,7 +74,7 @@ export function SidebarSpaceGroup({
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
-      className={`group relative flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5 transition-all duration-150 ${
+      className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-2.5 py-2 transition-all duration-150 ${
         isActive
           ? "bg-accent-dim text-accent"
           : isClosed
@@ -82,7 +83,7 @@ export function SidebarSpaceGroup({
       }`}
     >
       {/* Branch icon */}
-      <span className="absolute left-2.5 top-2.5 flex h-4 w-4 items-center justify-center">
+      <span className="absolute left-2 top-2 flex h-4 w-4 items-center justify-center">
         <GitBranch
           size={12}
           strokeWidth={2.5}
@@ -134,6 +135,10 @@ export function SidebarSpaceGroup({
                 Archived
               </Badge>
             )}
+            <TerminalRunningIndicator
+              scope={{ type: "space", spaceId: space.id }}
+              active={isActive}
+            />
           </div>
         )}
         {!editing && space.gitBranch && (
@@ -146,7 +151,7 @@ export function SidebarSpaceGroup({
 
       {/* Context menu — active and broken spaces can still be renamed/archived */}
       {hasMenu && (isSpaceActive || isSpaceBroken) && (
-        <span className="relative ml-auto flex w-12 shrink-0 items-center justify-end self-start">
+        <span className="relative ml-auto flex w-10 shrink-0 items-center justify-end self-start">
           {menuOpen ? (
             <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
               <Menu.Trigger

@@ -172,6 +172,8 @@ export type {
   TerminalRemovedMessage,
   TerminalScrollbackMessage,
   TerminalListResponse,
+  TerminalScopeSummary,
+  TerminalScopesMessage,
   ProjectPlan,
   ProjectStats,
   ModelUsageStats,

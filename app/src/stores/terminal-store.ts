@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { TerminalInfo, TerminalScope } from "@shared/types";
+import type { TerminalInfo, TerminalScope, TerminalScopeSummary } from "@shared/types";
 
 const PANEL_HEIGHT_KEY = "relay-terminal-panel-height";
 const PANEL_VISIBLE_KEY = "relay-terminal-panel-visible";
@@ -83,6 +83,12 @@ interface TerminalState {
   terminalContexts: Record<string, TerminalContextAttachment[]>;
   /** Custom terminal names (terminalId → name). Persisted to localStorage. */
   terminalNames: Record<string, string>;
+  /**
+   * Global count of live terminals per scope key (`instance:<id>` / `space:<id>`).
+   * Sourced from the server's `terminal_scopes` broadcast so the sidebar can
+   * flag scopes with running terminals without opening each one.
+   */
+  activeScopeCounts: Record<string, number>;
 
   // ── Actions ──────────────────────────────────────────────────────
   /** Replace all terminals for a scope — removes stale entries not in the new list. */
@@ -105,6 +111,8 @@ interface TerminalState {
   clearTerminalContexts: (instanceId: string) => void;
   getTerminalContexts: (instanceId: string) => TerminalContextAttachment[];
   renameTerminal: (terminalId: string, name: string) => void;
+  /** Replace the global live-terminal scope snapshot. */
+  setActiveScopes: (scopes: TerminalScopeSummary[]) => void;
 
   // ── Selectors ────────────────────────────────────────────────────
   getTerminalsForScope: (scope: TerminalScope) => TerminalInfo[];
@@ -123,6 +131,7 @@ export const useTerminalStore = create<TerminalState>()((set, get) => ({
   panelHeight: loadHeight(),
   terminalContexts: {},
   terminalNames: loadNames(),
+  activeScopeCounts: {},
 
   setTerminalsForScope: (scope, terminals) =>
     set((s) => {
@@ -267,6 +276,13 @@ export const useTerminalStore = create<TerminalState>()((set, get) => ({
     }),
 
   getTerminalContexts: (instanceId) => get().terminalContexts[instanceId] ?? [],
+
+  setActiveScopes: (scopes) =>
+    set(() => {
+      const counts: Record<string, number> = {};
+      for (const s of scopes) counts[scopeKey(s.scope)] = s.count;
+      return { activeScopeCounts: counts };
+    }),
 
   renameTerminal: (terminalId, name) =>
     set((s) => {

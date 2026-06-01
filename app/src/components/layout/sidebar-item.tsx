@@ -4,7 +4,9 @@ import { Columns2, GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "luc
 import { Menu } from "@/components/ui/menu";
 import { Badge } from "@/components/ui/badge";
 import { SessionIndicator } from "@/components/ui/session-indicator";
+import { TerminalRunningIndicator } from "@/components/ui/terminal-running-indicator";
 import { Tooltip } from "@/components/ui/tooltip";
+import type { TerminalScope } from "@shared/types";
 import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { getInstanceProjectRouteId } from "@/lib/project-route";
 import { formatTimeAgo, getChatRecencyTimestamp } from "@/lib/utils";
@@ -42,6 +44,11 @@ export function SidebarItem({
 
   const canMerge = !!instance.gitBranch && !!instance.hasChanges;
   const canSplit = !!activeChatId && activeChatId !== instance.id;
+  // Terminals attach to the space when the chat belongs to one, else to the
+  // chat itself — mirror the scope the chat view uses to open terminals.
+  const terminalScope: TerminalScope = instance.spaceId
+    ? { type: "space", spaceId: instance.spaceId }
+    : { type: "instance", instanceId: instance.id };
   const hasMenu = true; // always show menu for rename/delete
 
   // Focus input when entering edit mode
@@ -103,7 +110,7 @@ export function SidebarItem({
       onClick={(e: React.MouseEvent) => {
         if (editing) e.preventDefault();
       }}
-      className={`group relative flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5 transition-all duration-150 ${
+      className={`group relative flex cursor-pointer items-start gap-2 rounded-lg px-2.5 py-2 transition-all duration-150 ${
         isChild ? "pl-7" : ""
       } ${isActive ? "bg-accent-dim text-accent" : "text-text hover:bg-surface-hover"}`}
     >
@@ -138,6 +145,7 @@ export function SidebarItem({
                 Review
               </Badge>
             ) : null}
+            <TerminalRunningIndicator scope={terminalScope} active={isActive} />
           </div>
         )}
         {!editing && instance.gitBranch && (
@@ -170,7 +178,7 @@ export function SidebarItem({
       {/* Right slot: timestamp (default) ↔ menu trigger (hover) */}
       {!editing && (
         <span
-          className={`relative ml-auto flex w-12 shrink-0 items-center justify-end self-start${hasMenu ? " sidebar-slot-has-menu" : ""}`}
+          className={`relative ml-auto flex w-10 shrink-0 items-center justify-end self-start${hasMenu ? " sidebar-slot-has-menu" : ""}`}
         >
           {/* Timestamp — fades out on hover (kept visible on touch via CSS) */}
           {recencyAt > 0 && (
