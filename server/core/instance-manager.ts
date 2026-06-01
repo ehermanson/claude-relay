@@ -427,6 +427,18 @@ function defaultSessionTitle(provider?: ProviderKind): string {
 }
 
 /**
+ * True if `name` is a placeholder/default session title (provider-agnostic),
+ * and therefore a candidate to be upgraded to a real generated/summary title.
+ * Matches the values produced by `defaultSessionTitle()` case-insensitively.
+ */
+function isDefaultSessionTitle(name: string): boolean {
+  const trimmed = name.trim();
+  if (!trimmed) return true;
+  if (trimmed.toLowerCase() === "new session") return true;
+  return /^External (?:Claude|Codex|Gemini) Session$/i.test(trimmed);
+}
+
+/**
  * Sanitise user message text into plain-text suitable for a session title.
  * 1. Strip XML/HTML-style tags (self-closing and paired) — covers
  *    task_reference, terminal_context, image tags, and anything else.
@@ -7091,7 +7103,7 @@ export class InstanceManager extends EventEmitter {
     for (const inst of this.instances.values()) {
       if (
         !inst.info.customTitle &&
-        (inst.info.name === "New session" || isTrivialMessage(inst.info.name))
+        (isDefaultSessionTitle(inst.info.name) || isTrivialMessage(inst.info.name))
       ) {
         this.doRefreshTitle(inst);
       }
