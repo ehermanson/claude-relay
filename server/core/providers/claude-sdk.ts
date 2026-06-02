@@ -758,13 +758,26 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     let updatedInput = this.pendingPermission.input;
 
     if (toolName === "AskUserQuestion" && response?.answers) {
-      // Flatten Relay's { questionId: { answers: string[] } } format
-      // to { questionId: string } for the SDK's built-in handler.
+      // The SDK's built-in AskUserQuestion handler keys answers by the question
+      // TEXT ("question text -> answer string", see AskUserQuestionOutput in
+      // sdk-tools.d.ts) — NOT by the synthetic q_<index> ids Relay generates
+      // (the tool input has no question ids). Translate Relay's
+      // { questionId: { answers: string[] } } format into { questionText: string }
+      // by mapping each answer back to its question via index/id.
+      const inputQuestions = Array.isArray(
+        (updatedInput as { questions?: unknown } | undefined)?.questions,
+      )
+        ? ((updatedInput as { questions: Record<string, unknown>[] }).questions ?? [])
+        : [];
       const flatAnswers: Record<string, string> = {};
-      for (const [questionId, answer] of Object.entries(response.answers)) {
+      inputQuestions.forEach((question, index) => {
+        const questionText = question?.question;
+        if (typeof questionText !== "string") return;
+        const answerKey = typeof question?.id === "string" ? question.id : `q_${index}`;
+        const answer = response.answers?.[answerKey] ?? response.answers?.[`q_${index}`];
         const values = answer?.answers?.filter((v) => typeof v === "string" && v.trim());
-        if (values?.length) flatAnswers[questionId] = values.join(", ");
-      }
+        if (values?.length) flatAnswers[questionText] = values.join(", ");
+      });
       updatedInput = { ...updatedInput, answers: flatAnswers };
     } else {
       // Only add non-interactive tools to the pre-approved set.

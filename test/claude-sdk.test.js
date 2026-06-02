@@ -896,6 +896,61 @@ describe("ClaudeSdkSession", () => {
 
       session.close();
     });
+
+    it("resolves AskUserQuestion answers keyed by question text, not synthetic ids", async () => {
+      const fakeQuery = new FakeQuery();
+      let canUseToolFn;
+      const session = await createSdkSession({
+        cwd: "/test",
+        logger: noopLogger,
+        queryFn: ({ _prompt, options }) => {
+          canUseToolFn = options.canUseTool;
+          return fakeQuery;
+        },
+      });
+      const requests = collectEvents(session, "permissionRequest");
+
+      // AskUserQuestion tool input has NO question ids (matches real SDK input).
+      const resultPromise = canUseToolFn(
+        "AskUserQuestion",
+        {
+          questions: [
+            { header: "Access", question: "How is it obtainable?" },
+            { header: "Fire-all", question: "How should fire-all behave?" },
+          ],
+        },
+        { signal: new AbortController().signal, toolUseID: "tu-ask-9" },
+      );
+
+      await tick();
+
+      // The emitted request should carry generated q_<index> ids.
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0][0].kind, "user_input");
+      assert.deepEqual(
+        requests[0][0].questions.map((q) => q.id),
+        ["q_0", "q_1"],
+      );
+
+      // Answer using Relay's q_<index>-keyed format.
+      const handled = session.respondToRequest("tu-ask-9", "accept", {
+        answers: {
+          q_0: { answers: ["Admin devtool toggle"] },
+          q_1: { answers: ["All weapons, ignore heat/cooldown"] },
+        },
+      });
+      assert.equal(handled, true);
+
+      const result = await resultPromise;
+      assert.equal(result.behavior, "allow");
+      // SDK's built-in handler keys answers by question TEXT.
+      assert.deepEqual(result.updatedInput.answers, {
+        "How is it obtainable?": "Admin devtool toggle",
+        "How should fire-all behave?": "All weapons, ignore heat/cooldown",
+      });
+
+      session.close();
+    });
   });
 
   describe("control methods", () => {
