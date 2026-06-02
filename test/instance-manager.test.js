@@ -1911,9 +1911,10 @@ describe("InstanceManager", () => {
               id: "watch-ask-1",
               name: "AskUserQuestion",
               input: {
+                // Real AskUserQuestion tool input has no `id` on questions —
+                // it must be generated deterministically by index.
                 questions: [
                   {
-                    id: "drink",
                     header: "Preference",
                     question: "Which do you prefer?",
                   },
@@ -1927,6 +1928,7 @@ describe("InstanceManager", () => {
       assert.equal(instance.info.pendingTool, undefined);
       assert.equal(instance.info.pendingPermission?.kind, "user_input");
       assert.equal(instance.info.pendingPermission?.requestId, "watch-ask-1");
+      assert.equal(instance.info.pendingPermission?.questions?.[0]?.id, "q_0");
       const promptHistory = instance.history.find(
         (entry) =>
           entry.message.type === "activity" &&

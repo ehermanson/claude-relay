@@ -621,13 +621,23 @@ function extractUserInputRequest(activity: ActivityMessage): ProviderRequest | n
   if (typeof requestId !== "string") return null;
 
   const questions = Array.isArray(activity.input.questions)
-    ? activity.input.questions.filter(
-        (question): question is UserInputQuestion =>
-          typeof question === "object" &&
-          question !== null &&
-          typeof (question as UserInputQuestion).id === "string" &&
-          typeof (question as UserInputQuestion).question === "string",
-      )
+    ? activity.input.questions
+        .filter(
+          (question): question is Record<string, unknown> =>
+            typeof question === "object" &&
+            question !== null &&
+            typeof (question as { question?: unknown }).question === "string",
+        )
+        // AskUserQuestion tool input doesn't include `id` — generate one
+        // deterministically by index so it matches the live permissionRequest
+        // path (see claude-sdk.ts handleCanUseTool).
+        .map(
+          (question, index) =>
+            ({
+              ...question,
+              id: typeof question.id === "string" ? question.id : `q_${index}`,
+            }) as UserInputQuestion,
+        )
     : [];
   if (questions.length === 0) return null;
 
