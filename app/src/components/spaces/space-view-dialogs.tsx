@@ -146,6 +146,7 @@ export function SpaceViewDialogs() {
         }
         confirmLabel="Archive space"
         onConfirm={() => void actions.confirmDeleteSpace()}
+        isLoading={shared.deletePending}
       />
 
       {shared.showDebug && (

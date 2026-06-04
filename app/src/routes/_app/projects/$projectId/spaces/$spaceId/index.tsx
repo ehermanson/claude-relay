@@ -33,6 +33,7 @@ import {
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
 import { aggregateSpaceStats, buildSpaceInstances, parseSpaceDiffFiles } from "@/lib/space-view";
+import { toastAsync } from "@/lib/async-toast";
 import { getChatRecencyTimestamp } from "@/lib/utils";
 import "@/components/chat/sidecar.css";
 import type { TerminalScope } from "@shared/types";
@@ -64,6 +65,7 @@ export function SpaceView() {
   const [diffScrollToFile, setDiffScrollToFile] = useState<string | undefined>();
   const [closeTabId, setCloseTabId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
   const [editingSpaceName, setEditingSpaceName] = useState(false);
@@ -486,13 +488,12 @@ export function SpaceView() {
     }
   };
 
-  const handleMarkMerged = async () => {
-    try {
-      await markSpaceMerged(spaceId);
-      toast.success("Space marked as merged");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to mark space as merged");
-    }
+  const handleMarkMerged = () => {
+    void toastAsync(markSpaceMerged(spaceId), {
+      loading: "Marking space as merged...",
+      success: "Space marked as merged",
+      error: (err) => (err instanceof Error ? err.message : "Failed to mark space as merged"),
+    });
   };
 
   const handleCommit = async (message: string) => {
@@ -554,12 +555,12 @@ export function SpaceView() {
   };
 
   const confirmDeleteSpace = async () => {
-    setConfirmDelete(false);
+    setDeletePending(true);
     try {
       await deleteSpace(spaceId);
       navigate({ to: "/projects/$projectId", params: { projectId } });
     } catch {
-      // error handled by API
+      setDeletePending(false);
     }
   };
 
@@ -631,6 +632,7 @@ export function SpaceView() {
       mergeDialog,
       closeTabId,
       confirmDelete,
+      deletePending,
       showDebug,
       commitDialogOpen,
       ghCliDialogOpen,

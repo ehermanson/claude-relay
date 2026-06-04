@@ -11,6 +11,7 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from "re
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastAsync } from "../lib/async-toast";
 import type { InstanceInfo, Project } from "@shared/types";
 import { useWSMethods, useWSState } from "./websocket-context";
 import { useActionToasts } from "./action-toast-context";
@@ -83,6 +84,8 @@ export function SidebarActionsProvider({
     null,
   );
   const [confirmCompleteSpaceId, setConfirmCompleteSpaceId] = useState<string | null>(null);
+  const [confirmDeleteSpaceId, setConfirmDeleteSpaceId] = useState<string | null>(null);
+  const [deleteSpacePending, setDeleteSpacePending] = useState(false);
   const spaceDialog = useCreateSpaceDialog();
 
   // ── Confirmation actions ───────────────────────────────────────────
@@ -124,6 +127,23 @@ export function SidebarActionsProvider({
     }
   };
 
+  const confirmDeleteSpaceAction = async () => {
+    if (!confirmDeleteSpaceId) return;
+    const spaceId = confirmDeleteSpaceId;
+    setDeleteSpacePending(true);
+    try {
+      await apiDeleteSpace(spaceId);
+      setConfirmDeleteSpaceId(null);
+      if (currentSpaceId === spaceId && currentProjectId) {
+        navigate({ to: "/projects/$projectId", params: { projectId: currentProjectId } });
+      }
+      toast.success("Space archived");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to archive space");
+      setDeleteSpacePending(false);
+    }
+  };
+
   // ── Actions (memoized to prevent re-renders) ──────────────────────
   const actions = useMemo<SidebarActions>(
     () => ({
@@ -138,25 +158,14 @@ export function SidebarActionsProvider({
 
       // Space
       completeSpace: (spaceId) => setConfirmCompleteSpaceId(spaceId),
-      markSpaceMerged: async (spaceId) => {
-        try {
-          await apiMarkSpaceMerged(spaceId);
-          toast.success("Space marked as merged");
-        } catch (err) {
-          toast.error(err instanceof Error ? err.message : "Failed to mark space as merged");
-        }
+      markSpaceMerged: (spaceId) => {
+        void toastAsync(apiMarkSpaceMerged(spaceId), {
+          loading: "Marking space as merged...",
+          success: "Space marked as merged",
+          error: (err) => (err instanceof Error ? err.message : "Failed to mark space as merged"),
+        });
       },
-      deleteSpace: async (spaceId) => {
-        try {
-          await apiDeleteSpace(spaceId);
-          if (currentSpaceId === spaceId && currentProjectId) {
-            navigate({ to: "/projects/$projectId", params: { projectId: currentProjectId } });
-          }
-          toast.success("Space deleted");
-        } catch (err) {
-          toast.error(err instanceof Error ? err.message : "Failed to delete space");
-        }
-      },
+      deleteSpace: (spaceId) => setConfirmDeleteSpaceId(spaceId),
       renameSpace: (spaceId, name) => send({ type: "rename_space", spaceId, name }),
       createSpace: (dir) => spaceDialog.open(dir),
 
@@ -227,6 +236,21 @@ export function SidebarActionsProvider({
         }
         confirmLabel="Remove"
         onConfirm={confirmRemoveAction}
+      />
+
+      <ConfirmActionDialog
+        open={!!confirmDeleteSpaceId}
+        onOpenChange={(open) => !open && setConfirmDeleteSpaceId(null)}
+        title="Archive this space?"
+        description={
+          <>
+            This removes this space from active work and deletes its separate working copy without
+            merging it into the main workspace. Chats and history remain available in Closed spaces.
+          </>
+        }
+        confirmLabel="Archive space"
+        onConfirm={() => void confirmDeleteSpaceAction()}
+        isLoading={deleteSpacePending}
       />
 
       <ConfirmMergeDialog

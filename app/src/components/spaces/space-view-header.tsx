@@ -153,7 +153,7 @@ export function SpaceViewHeader() {
               Debug
             </Menu.Item>
             {!shared.space.isDefault && shared.isActive && (
-              <Menu.Item onClick={() => void actions.handleMarkMerged()}>
+              <Menu.Item onClick={actions.handleMarkMerged}>
                 <Check size={13} strokeWidth={2} className="text-muted" />
                 Mark as merged
               </Menu.Item>

@@ -49,6 +49,7 @@ type SpaceViewContextValue = {
     mergeDialog: SpaceMergeDialogState;
     closeTabId: string | null;
     confirmDelete: boolean;
+    deletePending: boolean;
     showDebug: boolean;
     commitDialogOpen: boolean;
     ghCliDialogOpen: boolean;
@@ -83,7 +84,7 @@ type SpaceViewContextValue = {
     handleTerminalResizeStart: (e: MouseEvent) => void;
     expandTerminalPanel: () => void;
     handleComplete: (mergeMethod?: string, squashMessage?: string) => Promise<void>;
-    handleMarkMerged: () => Promise<void>;
+    handleMarkMerged: () => void;
     handleMergeSuccessDone: () => void;
     confirmCloseTab: () => void;
     confirmDeleteSpace: () => Promise<void>;

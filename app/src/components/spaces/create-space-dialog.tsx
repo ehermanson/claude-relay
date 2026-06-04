@@ -73,6 +73,14 @@ export function CreateSpaceDialog({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const handleClose = () => {
+    setName("");
+    setDescription("");
+    setBaseBranch("");
+    setSelectedWorktreePath(undefined);
+    onOpenChange(false);
+  };
+
   // Sync mode + preselection when the dialog reopens with new options
   useEffect(() => {
     if (dir) {
@@ -111,7 +119,7 @@ export function CreateSpaceDialog({
         baseBranch: effectiveBranch,
         description: description.trim() || undefined,
       });
-      onOpenChange(false);
+      handleClose();
       await queryClient.invalidateQueries({ queryKey: ["spaces", projectId] });
       navigate({
         to: "/projects/$projectId/spaces/$spaceId",
@@ -137,7 +145,7 @@ export function CreateSpaceDialog({
         name: name.trim() || undefined,
         description: description.trim() || undefined,
       });
-      onOpenChange(false);
+      handleClose();
       await queryClient.invalidateQueries({ queryKey: ["spaces", projectId] });
       await queryClient.invalidateQueries({ queryKey: ["branches", projectId] });
       await queryClient.invalidateQueries({
@@ -159,13 +167,8 @@ export function CreateSpaceDialog({
     <Dialog.Root
       open={!!dir}
       onOpenChange={(open) => {
-        if (!open) {
-          setName("");
-          setDescription("");
-          setBaseBranch("");
-          setSelectedWorktreePath(undefined);
-        }
-        onOpenChange(open);
+        if (!open) handleClose();
+        onOpenChange(true);
       }}
     >
       <Dialog.Content maxWidth="max-w-md">
@@ -338,7 +341,7 @@ export function CreateSpaceDialog({
           )}
 
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            <Button variant="ghost" size="sm" onClick={handleClose}>
               Cancel
             </Button>
             <Button
