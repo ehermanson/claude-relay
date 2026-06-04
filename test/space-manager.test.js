@@ -1,7 +1,14 @@
 import "./test-env.js";
 import { after, afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -109,5 +116,70 @@ describe("SpaceManager lifecycle", () => {
     assert.equal(completed.targetBranch, "main");
     assert.ok(completed.mergeCommit);
     assert.match(manager.readSpaceContext(space.id), /Complete me/);
+  });
+
+  it("lists external worktrees as convertible and excludes already-spaced ones", () => {
+    const externalWorktree = join(tempDir, "external-wt");
+    execSync(`git worktree add -b external-branch ${externalWorktree}`, {
+      cwd: repoDir,
+      stdio: "pipe",
+    });
+
+    const before = manager.listConvertibleWorktrees(repoDir);
+    assert.equal(before.length, 1);
+    assert.equal(before[0].branch, "external-branch");
+
+    // Native space worktree should not appear as convertible
+    manager.createSpace(repoDir, { name: "Native" });
+    const afterCreate = manager.listConvertibleWorktrees(repoDir);
+    assert.equal(afterCreate.length, 1);
+    assert.equal(afterCreate[0].branch, "external-branch");
+
+    // Once converted, the external worktree disappears from the convertible list
+    manager.convertWorktreeToSpace(repoDir, before[0].path, {
+      name: "Adopted",
+    });
+    assert.equal(manager.listConvertibleWorktrees(repoDir).length, 0);
+  });
+
+  it("converts an external worktree into a full-lifecycle space and refuses double-convert", () => {
+    const externalWorktree = join(tempDir, "external-wt-2");
+    execSync(`git worktree add -b feature/x ${externalWorktree}`, {
+      cwd: repoDir,
+      stdio: "pipe",
+    });
+
+    const events = [];
+    manager.on("space:created", (space) => events.push(space.name));
+
+    const space = manager.convertWorktreeToSpace(repoDir, externalWorktree, {
+      name: "Adopted feature",
+      description: "Carry on the external work",
+    });
+
+    assert.equal(space.gitBranch, "feature/x");
+    // Git canonicalizes worktree paths (e.g. /tmp → /private/tmp on macOS),
+    // so compare against the realpath rather than the literal input.
+    assert.equal(space.worktreePath, realpathSync(externalWorktree));
+    assert.equal(space.isDefault, false);
+    assert.equal(space.status, "active");
+    assert.equal(existsSync(join(externalWorktree, ".relay", "space-context.md")), true);
+    assert.match(manager.readSpaceContext(space.id), /Carry on the external work/);
+    assert.deepEqual(events, ["Adopted feature"]);
+
+    assert.throws(
+      () =>
+        manager.convertWorktreeToSpace(repoDir, externalWorktree, {
+          name: "Again",
+        }),
+      /already tracked/,
+    );
+  });
+
+  it("refuses to convert the primary worktree", () => {
+    assert.throws(
+      () => manager.convertWorktreeToSpace(repoDir, repoDir, { name: "Nope" }),
+      /primary worktree/,
+    );
   });
 });

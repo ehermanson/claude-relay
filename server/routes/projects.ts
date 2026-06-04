@@ -9,6 +9,7 @@ import {
   gitPush,
   isWorktreeDirty,
   listBranches,
+  listWorktrees,
 } from "#core/git.js";
 import { resolveSuggestions } from "#core/actions.js";
 import { readJsonBody } from "#server/hono-utils.js";
@@ -245,7 +246,15 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
     const branches = listBranches(dir);
     const aheadBehind = getAheadBehind(dir);
     const dirty = isWorktreeDirty(dir);
-    return c.json({ ...branches, aheadBehind, dirty });
+    const spaceManager = instanceManager.getSpaceManager();
+    const worktrees = listWorktrees(dir)
+      .filter((w) => !w.isPrimary && w.branch)
+      .map((w) => ({
+        branch: w.branch as string,
+        path: w.path,
+        spaceId: spaceManager.getSpaceByWorktreePath(w.path)?.id,
+      }));
+    return c.json({ ...branches, aheadBehind, dirty, worktrees });
   });
 
   app.post("/api/projects/:id/checkout", async (c) => {

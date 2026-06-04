@@ -2310,6 +2310,21 @@ export class InstanceManager extends EventEmitter {
     return this.spaceManager;
   }
 
+  /**
+   * After a worktree has been converted into a Space, attach any existing
+   * loose chats that already live in that worktree to the new space and
+   * broadcast the updated `spaceId` for any in-memory instances.
+   */
+  claimChatsForSpace(spaceId: string): void {
+    this.backfillMissingSpaceIds();
+    this.refreshInstanceSpaceIdsFromDb();
+    for (const instance of this.instances.values()) {
+      if (instance.info.spaceId === spaceId) {
+        this.emit("instance:status", instance.info.id, this.deriveInstanceView(instance));
+      }
+    }
+  }
+
   getSpinOffManager(): SpinOffManager {
     return this.spinOffManager;
   }

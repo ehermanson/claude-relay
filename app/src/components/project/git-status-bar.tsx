@@ -1,5 +1,6 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   GitBranch,
@@ -9,8 +10,16 @@ import {
   Check,
   Cloud,
   Loader2,
+  FolderGit2,
 } from "lucide-react";
-import { fetchBranches, checkoutBranch, gitFetch, gitPull, gitPush } from "../../lib/api";
+import {
+  fetchBranches,
+  checkoutBranch,
+  gitFetch,
+  gitPull,
+  gitPush,
+  type WorktreeBranchInfo,
+} from "../../lib/api";
 import { Popover } from "../ui/popover";
 import {
   Command,
@@ -21,6 +30,9 @@ import {
   CommandItem,
 } from "../ui/command";
 import { Tooltip } from "../ui/tooltip";
+import { ErrorBoundary } from "../ui/error-boundary";
+import { useProjectsQuery } from "../../hooks/use-projects-query";
+import { CreateSpaceDialog, useCreateSpaceDialog } from "../spaces/create-space-dialog";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -34,12 +46,15 @@ function BranchSelector({
   projectId,
   current,
   onBranchChanged,
+  onConvertWorktree,
 }: {
   projectId: string;
   current: string | null;
   onBranchChanged: () => void;
+  onConvertWorktree: (worktreePath: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
 
   const { data } = useQuery({
     queryKey: ["branches", projectId],
@@ -48,9 +63,29 @@ function BranchSelector({
     staleTime: 5000,
   });
 
+  const worktreesByBranch = useMemo(() => {
+    const map = new Map<string, WorktreeBranchInfo>();
+    for (const w of data?.worktrees ?? []) map.set(w.branch, w);
+    return map;
+  }, [data?.worktrees]);
+
   const handleSelect = useCallback(
     async (branch: string) => {
       if (branch === current) {
+        setOpen(false);
+        return;
+      }
+      const worktree = worktreesByBranch.get(branch);
+      if (worktree?.spaceId) {
+        navigate({
+          to: "/projects/$projectId/spaces/$spaceId",
+          params: { projectId, spaceId: worktree.spaceId },
+        });
+        setOpen(false);
+        return;
+      }
+      if (worktree) {
+        onConvertWorktree(worktree.path);
         setOpen(false);
         return;
       }
@@ -63,11 +98,31 @@ function BranchSelector({
         toast.error(err instanceof Error ? err.message : "Failed to switch branch");
       }
     },
-    [projectId, current, onBranchChanged],
+    [projectId, current, onBranchChanged, worktreesByBranch, navigate, onConvertWorktree],
   );
 
   const localBranches = data?.local ?? [];
   const remoteBranches = (data?.remote ?? []).filter((b) => !localBranches.includes(b));
+
+  const renderBranchRow = (b: string) => {
+    const worktree = worktreesByBranch.get(b);
+    const isWorktree = !!worktree;
+    const isUnconvertedWorktree = isWorktree && !worktree.spaceId;
+    return (
+      <CommandItem key={b} onSelect={() => void handleSelect(b)}>
+        {isWorktree ? (
+          <FolderGit2 size={13} className="shrink-0 text-muted" />
+        ) : (
+          <GitBranch size={13} className="shrink-0 text-muted" />
+        )}
+        <span className="truncate">{b}</span>
+        {isUnconvertedWorktree && (
+          <span className="ml-1 text-[0.625rem] uppercase tracking-wide text-muted">convert</span>
+        )}
+        {b === current && <Check size={13} className="ml-auto shrink-0 text-accent" />}
+      </CommandItem>
+    );
+  };
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -81,15 +136,7 @@ function BranchSelector({
           <CommandList>
             <CommandEmpty>No branches found</CommandEmpty>
             {localBranches.length > 0 && (
-              <CommandGroup heading="Local">
-                {localBranches.map((b) => (
-                  <CommandItem key={b} onSelect={() => void handleSelect(b)}>
-                    <GitBranch size={13} className="shrink-0 text-muted" />
-                    <span className="truncate">{b}</span>
-                    {b === current && <Check size={13} className="ml-auto shrink-0 text-accent" />}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+              <CommandGroup heading="Local">{localBranches.map(renderBranchRow)}</CommandGroup>
             )}
             {remoteBranches.length > 0 && (
               <CommandGroup heading="Remote">
@@ -144,6 +191,20 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
   const [fetchLoading, setFetchLoading] = useState(false);
   const [pullLoading, setPullLoading] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
+  const spaceDialog = useCreateSpaceDialog();
+  const { data: projects = [] } = useProjectsQuery();
+  const project = projects.find((p) => p.slug === projectId || p.id === projectId);
+
+  const handleConvertWorktree = useCallback(
+    (worktreePath: string) => {
+      if (!project) {
+        toast.error("Project not found");
+        return;
+      }
+      spaceDialog.open(project.directory, { mode: "convert", worktreePath });
+    },
+    [project, spaceDialog],
+  );
 
   const { data, refetch } = useQuery({
     queryKey: ["branches", projectId],
@@ -229,7 +290,14 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
 
   return (
     <div className="flex items-center gap-1">
-      <BranchSelector projectId={projectId} current={current} onBranchChanged={invalidate} />
+      <ErrorBoundary inline name="Branch picker">
+        <BranchSelector
+          projectId={projectId}
+          current={current}
+          onBranchChanged={invalidate}
+          onConvertWorktree={handleConvertWorktree}
+        />
+      </ErrorBoundary>
 
       {dirty && (
         <Tooltip content="Uncommitted changes">
@@ -272,6 +340,17 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
         loading={pushLoading}
         disabled={ahead === 0}
         onClick={handlePush}
+      />
+
+      <CreateSpaceDialog
+        dir={spaceDialog.dir}
+        mode={spaceDialog.mode}
+        preselectedWorktreePath={spaceDialog.preselectedWorktreePath}
+        projectName={project?.name ?? spaceDialog.dir ?? ""}
+        projectId={project?.id}
+        defaultBaseBranch={project?.defaultSpaceBranch ?? undefined}
+        spaceBranchSource={project?.spaceBranchSource ?? undefined}
+        onOpenChange={(open) => !open && spaceDialog.close()}
       />
     </div>
   );

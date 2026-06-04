@@ -7,7 +7,7 @@
  */
 
 import { randomUUID } from "crypto";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, realpathSync } from "fs";
 import { execSync, execFileSync } from "child_process";
 import { basename, join } from "path";
 import { EventEmitter } from "events";
@@ -31,6 +31,8 @@ import {
   gitPush,
   getWorktreeBase,
   resolveWorktreeOrigin,
+  listWorktrees,
+  type WorktreeEntry,
 } from "#core/git.js";
 
 function rowToInfo(row: SpaceRow, chatCount: number): SpaceInfo {
@@ -359,6 +361,120 @@ export class SpaceManager extends EventEmitter {
   }
 
   /**
+   * List git worktrees of the project that are not yet tracked as a Space and
+   * are eligible for conversion (skips primary checkout, bare, detached, and
+   * branchless entries).
+   */
+  listConvertibleWorktrees(projectDirectory: string): WorktreeEntry[] {
+    if (!isGitRepo(projectDirectory)) return [];
+    const repoRoot = getRepoRoot(projectDirectory);
+    if (!repoRoot) return [];
+
+    const trackedPaths = new Set<string>();
+    for (const row of this.db.getSpacesByProjectAll(projectDirectory)) {
+      if (!row.worktree_path) continue;
+      trackedPaths.add(row.worktree_path);
+      try {
+        trackedPaths.add(realpathSync(row.worktree_path));
+      } catch {
+        // worktree dir may not exist on disk anymore
+      }
+    }
+
+    return listWorktrees(repoRoot).filter((w) => {
+      if (w.isPrimary || w.isBare || w.isDetached || !w.branch) return false;
+      if (trackedPaths.has(w.path)) return false;
+      try {
+        if (trackedPaths.has(realpathSync(w.path))) return false;
+      } catch {
+        // path missing — fall through, still treat as convertible
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Convert an existing git worktree (created outside Relay) into a
+   * full-lifecycle Space. The worktree's current branch + path are reused;
+   * no `git worktree add` is run.
+   */
+  convertWorktreeToSpace(
+    projectDirectory: string,
+    worktreePath: string,
+    opts?: { name?: string; description?: string },
+  ): SpaceInfo {
+    if (!isGitRepo(projectDirectory)) {
+      throw new Error("Cannot convert worktree: project is not a git repository");
+    }
+    const repoRoot = getRepoRoot(projectDirectory);
+    if (!repoRoot) {
+      throw new Error("Cannot determine git repository root");
+    }
+
+    let canonicalRequest = worktreePath;
+    try {
+      canonicalRequest = realpathSync(worktreePath);
+    } catch {
+      // keep raw
+    }
+    const worktrees = listWorktrees(repoRoot);
+    const candidate = worktrees.find((w) => {
+      if (w.path === worktreePath || w.path === canonicalRequest) return true;
+      try {
+        return realpathSync(w.path) === canonicalRequest;
+      } catch {
+        return false;
+      }
+    });
+    if (!candidate) {
+      throw new Error("Worktree not found for this project");
+    }
+    if (candidate.isPrimary) {
+      throw new Error("Cannot convert the primary worktree");
+    }
+    if (candidate.isBare || candidate.isDetached || !candidate.branch) {
+      throw new Error("Worktree must be on a branch to convert");
+    }
+    if (this.db.getSpaceByWorktreePath(candidate.path)) {
+      throw new Error("This worktree is already tracked as a Space");
+    }
+
+    this.getOrCreateDefaultSpace(projectDirectory);
+
+    const id = randomUUID();
+    const spaceName = opts?.name?.trim() || candidate.branch;
+    const now = Date.now();
+    const row: SpaceRow = {
+      id,
+      project_directory: projectDirectory,
+      name: spaceName,
+      git_branch: candidate.branch,
+      worktree_path: candidate.path,
+      is_default: 0,
+      status: "active",
+      created_at: now,
+      last_activity_at: now,
+      merge_commit: null,
+      merge_method: null,
+      merged_at: null,
+      target_branch: null,
+      remote_status: null,
+      pr_url: null,
+    };
+
+    this.seedSpaceContext(candidate.path, spaceName, opts?.description);
+    this.excludeRelayDir(candidate.path);
+    this.db.upsertSpace(row);
+
+    this.logger.info(
+      `[SpaceManager] Converted worktree at ${candidate.path} (${candidate.branch}) into space "${spaceName}" (${id})`,
+    );
+    const info = this.toInfo(row);
+    this.emit("space:created", info);
+    return info;
+  }
+
+  /**
    * List all active spaces for a project.
    */
   listSpaces(projectDirectory: string): SpaceInfo[] {
@@ -599,7 +715,20 @@ export class SpaceManager extends EventEmitter {
    * Get a space by its worktree path.
    */
   getSpaceByWorktreePath(worktreePath: string): SpaceInfo | undefined {
-    const row = this.db.getSpaceByWorktreePath(worktreePath);
+    let row = this.db.getSpaceByWorktreePath(worktreePath);
+    if (!row) {
+      // Git canonicalizes worktree paths (e.g. /tmp → /private/tmp on macOS),
+      // so the stored path may differ from what the caller has. Try the
+      // canonical form before giving up.
+      try {
+        const canonical = realpathSync(worktreePath);
+        if (canonical !== worktreePath) {
+          row = this.db.getSpaceByWorktreePath(canonical);
+        }
+      } catch {
+        // path may not exist on disk
+      }
+    }
     if (!row) return undefined;
     return this.toInfo(row);
   }

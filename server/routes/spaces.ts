@@ -50,6 +50,50 @@ export function registerSpaceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
     }
   });
 
+  app.get("/api/projects/:id/convertible-worktrees", (c) => {
+    const project = instanceManager.projectManager.getProject(c.req.param("id"));
+    if (!project) {
+      return c.json({ error: "Project not found" }, 404);
+    }
+    const dir = project.repoRoot || project.directory;
+    const worktrees = instanceManager
+      .getSpaceManager()
+      .listConvertibleWorktrees(dir)
+      .map((w) => ({ path: w.path, branch: w.branch }));
+    return c.json({ worktrees });
+  });
+
+  app.post("/api/projects/:id/convert-worktree", async (c) => {
+    const project = instanceManager.projectManager.getProject(c.req.param("id"));
+    if (!project) {
+      return c.json({ error: "Project not found" }, 404);
+    }
+    try {
+      const body = await readJsonBody<{
+        worktreePath: string;
+        name?: string;
+        description?: string;
+      }>(c);
+      if (!body.worktreePath) {
+        return c.json({ error: "worktreePath is required" }, 400);
+      }
+      const dir = project.repoRoot || project.directory;
+      const space = instanceManager
+        .getSpaceManager()
+        .convertWorktreeToSpace(dir, body.worktreePath, {
+          name: body.name,
+          description: body.description,
+        });
+      instanceManager.claimChatsForSpace(space.id);
+      return c.json(space, 201);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Failed to convert worktree" },
+        400,
+      );
+    }
+  });
+
   app.get("/api/projects/:id/spaces/all", (c) => {
     const project = instanceManager.projectManager.getProject(c.req.param("id"));
     if (!project) {
