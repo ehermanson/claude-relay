@@ -6,14 +6,16 @@
  * Menu shows: status summary, branch switcher (submenu), action items.
  */
 
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Check,
   ChevronRight,
   Cloud,
+  FolderGit2,
   FolderOpen,
   GitBranch,
   GitCommitHorizontal,
@@ -24,7 +26,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Menu } from "./menu";
-import { fetchBranches, checkoutBranch } from "@/lib/api";
+import { ErrorBoundary } from "./error-boundary";
+import { fetchBranches, checkoutBranch, type WorktreeBranchInfo } from "@/lib/api";
+import { useProjectsQuery } from "@/hooks/use-projects-query";
+import { CreateSpaceDialog, useCreateSpaceDialog } from "@/components/spaces/create-space-dialog";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -69,20 +74,42 @@ function BranchSubmenu({
   projectId,
   current,
   onBranchChanged,
+  onConvertWorktree,
 }: {
   projectId: string;
   current: string;
   onBranchChanged: () => void;
+  onConvertWorktree: (worktreePath: string) => void;
 }) {
+  const navigate = useNavigate();
+
   const { data, isLoading } = useQuery({
     queryKey: ["branches", projectId],
     queryFn: () => fetchBranches(projectId),
     staleTime: 5000,
   });
 
+  const worktreesByBranch = useMemo(() => {
+    const map = new Map<string, WorktreeBranchInfo>();
+    for (const w of data?.worktrees ?? []) map.set(w.branch, w);
+    return map;
+  }, [data?.worktrees]);
+
   const handleSelect = useCallback(
     async (branch: string) => {
       if (branch === current) return;
+      const worktree = worktreesByBranch.get(branch);
+      if (worktree?.spaceId) {
+        navigate({
+          to: "/projects/$projectId/spaces/$spaceId",
+          params: { projectId, spaceId: worktree.spaceId },
+        });
+        return;
+      }
+      if (worktree) {
+        onConvertWorktree(worktree.path);
+        return;
+      }
       try {
         await checkoutBranch(projectId, branch);
         toast.success(`Switched to ${branch}`);
@@ -91,16 +118,11 @@ function BranchSubmenu({
         toast.error(err instanceof Error ? err.message : "Failed to switch branch");
       }
     },
-    [projectId, current, onBranchChanged],
+    [projectId, current, onBranchChanged, worktreesByBranch, navigate, onConvertWorktree],
   );
 
-  // Filter out space branches (relay-space/*) to avoid worktree conflicts
-  const isSpaceBranch = (b: string) => b.startsWith("relay-space/");
-
-  const localBranches = (data?.local ?? []).filter((b) => !isSpaceBranch(b));
-  const remoteBranches = (data?.remote ?? []).filter(
-    (b) => !localBranches.includes(b) && !isSpaceBranch(b),
-  );
+  const localBranches = data?.local ?? [];
+  const remoteBranches = (data?.remote ?? []).filter((b) => !localBranches.includes(b));
 
   if (isLoading) {
     return (
@@ -113,13 +135,26 @@ function BranchSubmenu({
 
   return (
     <>
-      {localBranches.map((b) => (
-        <Menu.Item key={b} onClick={() => void handleSelect(b)}>
-          <GitBranch size={13} className="text-muted" />
-          <span className="flex-1 truncate">{b}</span>
-          {b === current && <Check size={13} className="ml-auto shrink-0 text-accent" />}
-        </Menu.Item>
-      ))}
+      {localBranches.map((b) => {
+        const worktree = worktreesByBranch.get(b);
+        const isUnconvertedWorktree = !!worktree && !worktree.spaceId;
+        return (
+          <Menu.Item key={b} onClick={() => void handleSelect(b)}>
+            {worktree ? (
+              <FolderGit2 size={13} className="text-muted" />
+            ) : (
+              <GitBranch size={13} className="text-muted" />
+            )}
+            <span className="flex-1 truncate">{b}</span>
+            {isUnconvertedWorktree && (
+              <span className="ml-1 text-[0.625rem] uppercase tracking-wide text-muted">
+                convert
+              </span>
+            )}
+            {b === current && <Check size={13} className="ml-auto shrink-0 text-accent" />}
+          </Menu.Item>
+        );
+      })}
       {remoteBranches.length > 0 && (
         <>
           <Menu.Separator />
@@ -156,6 +191,11 @@ export function GitBadge({
   extraActions,
 }: GitBadgeProps) {
   const queryClient = useQueryClient();
+  const spaceDialog = useCreateSpaceDialog();
+  const { data: projects = [] } = useProjectsQuery();
+  const project = projectId
+    ? projects.find((p) => p.slug === projectId || p.id === projectId)
+    : undefined;
 
   const hasStatus = dirty !== undefined || ahead > 0 || behind > 0 || statusLoading;
 
@@ -164,6 +204,17 @@ export function GitBadge({
       queryClient.invalidateQueries({ queryKey: ["branches", projectId] });
     }
   }, [queryClient, projectId]);
+
+  const handleConvertWorktree = useCallback(
+    (path: string) => {
+      if (!project) {
+        toast.error("Project not found");
+        return;
+      }
+      spaceDialog.open(project.directory, { mode: "convert", worktreePath: path });
+    },
+    [project, spaceDialog],
+  );
 
   return (
     <Menu.Root>
@@ -238,11 +289,14 @@ export function GitBadge({
               <ChevronRight size={12} className="text-muted" />
             </Menu.SubTrigger>
             <Menu.SubContent className="max-h-[300px] w-56 overflow-y-auto">
-              <BranchSubmenu
-                projectId={projectId}
-                current={branch}
-                onBranchChanged={handleBranchChanged}
-              />
+              <ErrorBoundary inline name="Branch picker">
+                <BranchSubmenu
+                  projectId={projectId}
+                  current={branch}
+                  onBranchChanged={handleBranchChanged}
+                  onConvertWorktree={handleConvertWorktree}
+                />
+              </ErrorBoundary>
             </Menu.SubContent>
           </Menu.Sub>
         )}
@@ -299,6 +353,17 @@ export function GitBadge({
           </Menu.Item>
         ))}
       </Menu.Content>
+
+      <CreateSpaceDialog
+        dir={spaceDialog.dir}
+        mode={spaceDialog.mode}
+        preselectedWorktreePath={spaceDialog.preselectedWorktreePath}
+        projectName={project?.name ?? spaceDialog.dir ?? ""}
+        projectId={project?.id}
+        defaultBaseBranch={project?.defaultSpaceBranch ?? undefined}
+        spaceBranchSource={project?.spaceBranchSource ?? undefined}
+        onOpenChange={(open) => !open && spaceDialog.close()}
+      />
     </Menu.Root>
   );
 }

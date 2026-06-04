@@ -569,6 +569,34 @@ export async function createSpace(
   return res.json();
 }
 
+export interface ConvertibleWorktree {
+  path: string;
+  branch: string;
+}
+
+export async function fetchConvertibleWorktrees(projectId: string): Promise<ConvertibleWorktree[]> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/convertible-worktrees`);
+  if (!res.ok) throw new Error("Failed to fetch convertible worktrees");
+  const data: { worktrees: ConvertibleWorktree[] } = await res.json();
+  return data.worktrees;
+}
+
+export async function convertWorktreeToSpace(
+  projectId: string,
+  opts: { worktreePath: string; name?: string; description?: string },
+): Promise<SpaceInfo> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/convert-worktree`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to convert worktree" }));
+    throw new Error(data.error || "Failed to convert worktree");
+  }
+  return res.json();
+}
+
 export async function fetchSpaceDetail(spaceId: string): Promise<SpaceInfo> {
   const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}`);
   if (!res.ok) throw new Error("Failed to fetch space");
@@ -638,12 +666,19 @@ export async function fetchSpaceContext(spaceId: string): Promise<string | null>
 }
 // ─── Branch & Git Operations ──────────────────────────────────────────────
 
+export interface WorktreeBranchInfo {
+  branch: string;
+  path: string;
+  spaceId?: string;
+}
+
 interface BranchesResponse {
   local: string[];
   remote: string[];
   current: string | null;
   aheadBehind: { ahead: number; behind: number };
   dirty?: boolean;
+  worktrees?: WorktreeBranchInfo[];
 }
 
 interface GitOpResult {

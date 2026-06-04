@@ -1337,6 +1337,96 @@ export function getAheadBehind(dir: string): { ahead: number; behind: number } {
   }
 }
 
+export interface WorktreeEntry {
+  path: string;
+  branch: string | null;
+  head: string;
+  isPrimary: boolean;
+  isBare: boolean;
+  isDetached: boolean;
+}
+
+/**
+ * List all git worktrees registered for the repo containing `dir`, parsed
+ * from `git worktree list --porcelain`. Paths are returned verbatim from git;
+ * `isPrimary` compares against the repo root after canonicalization so it
+ * holds even when the on-disk path passes through symlinks (e.g. macOS tmpdir).
+ */
+export function listWorktrees(dir: string): WorktreeEntry[] {
+  const rawRepoRoot = getRepoRoot(dir);
+  let canonicalRepoRoot: string | null = rawRepoRoot;
+  if (rawRepoRoot) {
+    try {
+      canonicalRepoRoot = realpathSync(rawRepoRoot);
+    } catch {
+      // keep raw
+    }
+  }
+
+  let output: string;
+  try {
+    output = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      cwd: dir,
+      timeout: 5000,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch {
+    return [];
+  }
+
+  const entries: WorktreeEntry[] = [];
+  let current: Partial<WorktreeEntry> | null = null;
+
+  const flush = () => {
+    if (!current?.path) return;
+    let canonicalPath = current.path;
+    try {
+      canonicalPath = realpathSync(current.path);
+    } catch {
+      // path missing on disk — keep the raw path
+    }
+    const isPrimary =
+      (rawRepoRoot != null && current.path === rawRepoRoot) ||
+      (canonicalRepoRoot != null && canonicalPath === canonicalRepoRoot);
+    entries.push({
+      path: current.path,
+      branch: current.branch ?? null,
+      head: current.head ?? "",
+      isPrimary,
+      isBare: current.isBare ?? false,
+      isDetached: current.isDetached ?? false,
+    });
+    current = null;
+  };
+
+  for (const rawLine of output.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (!line) {
+      flush();
+      continue;
+    }
+    if (line.startsWith("worktree ")) {
+      flush();
+      current = { path: line.slice("worktree ".length).trim() };
+    } else if (!current) {
+      continue;
+    } else if (line.startsWith("HEAD ")) {
+      current.head = line.slice("HEAD ".length).trim();
+    } else if (line.startsWith("branch ")) {
+      const ref = line.slice("branch ".length).trim();
+      current.branch = ref.replace(/^refs\/heads\//, "");
+    } else if (line === "bare") {
+      current.isBare = true;
+    } else if (line === "detached") {
+      current.isDetached = true;
+    }
+  }
+  flush();
+
+  return entries;
+}
+
 /**
  * Switch branch. Throws on dirty working tree or invalid branch.
  */

@@ -237,6 +237,8 @@ export function SidebarActionsProvider({
 
       <CreateSpaceDialog
         dir={spaceDialog.dir}
+        mode={spaceDialog.mode}
+        preselectedWorktreePath={spaceDialog.preselectedWorktreePath}
         projectName={
           spaceDialog.dir ? (projectByDir.get(spaceDialog.dir)?.name ?? spaceDialog.dir) : ""
         }
