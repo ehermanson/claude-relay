@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { isRelayWorktreePath, resolveWorktreeOrigin } from "#core/git.js";
 import type { SpaceInfo } from "#core/types.js";
 
@@ -25,6 +26,20 @@ function normalizeProjectDirectory(directory: string): string {
   return directory;
 }
 
+function canonicalizePath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+function worktreePathsMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return canonicalizePath(a) === canonicalizePath(b);
+}
+
 export function inferSpaceIdForPersistenceRow(
   row: PersistenceOwnershipRow,
   spaces: SpaceInfo[],
@@ -34,8 +49,8 @@ export function inferSpaceIdForPersistenceRow(
   const worktreeMatch = row.worktree_path
     ? spaces.find(
         (space) =>
-          space.worktreePath === row.worktree_path ||
-          space.missingWorktreePath === row.worktree_path,
+          worktreePathsMatch(space.worktreePath, row.worktree_path) ||
+          worktreePathsMatch(space.missingWorktreePath, row.worktree_path),
       )
     : undefined;
   if (worktreeMatch) return worktreeMatch.id;

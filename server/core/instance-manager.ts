@@ -1309,7 +1309,7 @@ export class InstanceManager extends EventEmitter {
     for (const row of this.db.getAllManagedActive()) {
       if (row.space_id) continue;
       if (row.worktree_path) {
-        const directSpace = this.db.getSpaceByWorktreePath(row.worktree_path);
+        const directSpace = this.spaceManager.getSpaceByWorktreePath(row.worktree_path);
         if (directSpace) {
           this.db.updateManagedSpaceId(row.instance_id, directSpace.id);
           repaired++;
@@ -1339,7 +1339,7 @@ export class InstanceManager extends EventEmitter {
     for (const row of this.db.getAllActive()) {
       if (row.space_id) continue;
       if (row.worktree_path) {
-        const directSpace = this.db.getSpaceByWorktreePath(row.worktree_path);
+        const directSpace = this.spaceManager.getSpaceByWorktreePath(row.worktree_path);
         if (directSpace) {
           this.db.updateSessionSpaceId(row.session_id, directSpace.id);
           repaired++;
@@ -1387,7 +1387,7 @@ export class InstanceManager extends EventEmitter {
     // explicit ownership when a current space row already exists.
     if (!projectDirectory) return null;
     if (row.worktree_path) {
-      const directSpace = this.db.getSpaceByWorktreePath(row.worktree_path);
+      const directSpace = this.spaceManager.getSpaceByWorktreePath(row.worktree_path);
       if (directSpace) return directSpace.id;
     }
     const project = this.getRegisteredProjectForDirectory(projectDirectory);
