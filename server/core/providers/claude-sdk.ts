@@ -455,6 +455,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private _isProcessing = false;
   private _hasStreamedText = false;
   private _lastMessageHadToolUse = false;
+  /**
+   * True when the last assistant message ended by calling ExitPlanMode. That is
+   * a deliberate STOP point awaiting user plan approval
+   */
+  private _lastMessageWasExitPlanMode = false;
   /** Number of thinking blocks already emitted for the current message turn. */
   private _emittedThinkingCount = 0;
   /** True until the first user message is sent — suppresses replay emissions. */
@@ -623,6 +628,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this._isProcessing = true;
     this._hasStreamedText = false;
     this._lastMessageHadToolUse = false;
+    this._lastMessageWasExitPlanMode = false;
     this._emittedThinkingCount = 0;
     this._isResumeReplay = false;
     this._autoContinueCount = 0;
@@ -1081,6 +1087,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     // Track whether this message contained tool_use for auto-continue fallback
     this._lastMessageHadToolUse = message.content.some((block) => block.type === "tool_use");
+    // Track on ExitPlanMode terminal tool_use so auto-continue can skip it - the
+    // turn must go idle and wait for the user to approve the plan.
+    this._lastMessageWasExitPlanMode = message.content.some(
+      (block) => block.type === "tool_use" && block.name === "ExitPlanMode",
+    );
 
     // Count thinking blocks in this partial message so we only emit new ones.
     // With includePartialMessages the SDK re-sends the full content array on
@@ -1233,7 +1244,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // Also continue when stop_reason is missing but the last message had tool_use
     // blocks — the SDK sometimes omits stop_reason when the subprocess exits.
     const shouldContinue =
-      stopReason === "tool_use" || (stopReason == null && this._lastMessageHadToolUse);
+      (stopReason === "tool_use" || (stopReason == null && this._lastMessageHadToolUse)) &&
+      // ExitPlanMode is a deliberate stop awaiting user approval, not a turn the
+      // CLI cut off mid-loop. Auto-continuing here would execute the plan before
+      // the user approves it.
+      !this._lastMessageWasExitPlanMode;
     if (shouldContinue && this._autoContinueCount < MAX_AUTO_CONTINUES && !this._stopped) {
       this._autoContinueCount++;
       this.logger.info(

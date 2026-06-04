@@ -694,6 +694,71 @@ describe("ClaudeSdkSession", () => {
       assert.ok(exits[0][0].stderr.includes("Something went wrong"));
       session.close();
     });
+
+    it("auto-continues when a turn ends mid-tool-loop", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness);
+
+      session.send("do the thing");
+      // Assistant ends a partial turn with a regular tool_use block.
+      harness.fakeQuery.emit({
+        type: "assistant",
+        session_id: "sess-1",
+        message: {
+          content: [{ type: "tool_use", name: "Read", id: "tu-1", input: {} }],
+        },
+      });
+      harness.fakeQuery.emit({
+        type: "result",
+        subtype: "success",
+        session_id: "sess-1",
+        is_error: false,
+        stop_reason: "tool_use",
+        modelUsage: {},
+      });
+
+      await tick();
+      // Auto-continue fired - the turn stays active rather than going idle.
+      assert.equal(session.isProcessing, true);
+      session.close();
+    });
+
+    it("does NOT auto-continue after ExitPlanMode - turn goes idle awaiting approval", async () => {
+      const harness = makeHarness();
+      const session = await createTestSession(harness, { runtimeMode: "plan" });
+
+      session.send("plan the work");
+      // In plan mode the model presents its plan via ExitPlanMode and the turn
+      // ends. This is a deliberate stop awaiting user approval - auto-continue
+      // must NOT inject a "Continue." prompt and start executing the plan.
+      harness.fakeQuery.emit({
+        type: "assistant",
+        session_id: "sess-1",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              name: "ExitPlanMode",
+              id: "tu-plan-1",
+              input: { plan: "1. Do X\n2. Do Y" },
+            },
+          ],
+        },
+      });
+      harness.fakeQuery.emit({
+        type: "result",
+        subtype: "success",
+        session_id: "sess-1",
+        is_error: false,
+        stop_reason: "tool_use",
+        modelUsage: {},
+      });
+
+      await tick();
+      // Turn went idle - the plan-review flow takes over and waits for the user.
+      assert.equal(session.isProcessing, false);
+      session.close();
+    });
   });
 
   describe("permissions", () => {
