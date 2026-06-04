@@ -114,6 +114,7 @@ Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a ch
 Spaces group multiple concurrent agent chats within a shared git worktree/branch (`Project → Space[] → Chat[]`). Every project has an implicit "main" space (no worktree, default branch). Additional spaces create dedicated worktrees in `<RELAY_HOME>/worktrees/space-<id>/` (defaults to `~/.relay/worktrees/space-<id>/`; legacy `~/.relay-dev` state is migrated into `~/.relay` automatically).
 
 - `SpaceManager` (`server/core/space-manager.ts`) owns space lifecycle: create, list, complete (merge + cleanup), delete (archive + cleanup)
+- Each space has a "brief" at `.relay/space-context.md` (git-excluded, seeded on creation). Its **contents** are injected into every chat's bootstrap context (the space-level analog of project custom instructions) via `buildSpaceBootstrapContextBlock` + `extractSpaceContextForInjection` — only when the file has authored content beyond the seed template, and only at session start (new/resumed chats).
 - `spaces` table in SQLite with `space_id` FK on `sessions` and `managed_sessions`
 - Space completion auto-commits dirty worktrees, merges into the default branch, and removes the worktree; local branch is kept for recoverability
 - `MergeMethod` type: `"squash" | "merge-commit"` — passed per-merge via `completeSpace(id, { mergeMethod, squashMessage? })`; default is `"squash"`

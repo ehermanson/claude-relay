@@ -68,6 +68,32 @@ export function buildSessionBootstrapContext(options: {
   };
 }
 
+/**
+ * Decide whether a space brief (`.relay/space-context.md`) has meaningful,
+ * authored content worth injecting into a chat's bootstrap context.
+ *
+ * A freshly seeded brief contains only markdown headers and HTML-comment
+ * placeholders — injecting that is noise. We strip headers and comments to
+ * test for real content, but return the FULL trimmed text (headers included)
+ * when content exists, so the injected brief keeps its structure.
+ *
+ * @returns the trimmed brief to inject, or null when effectively empty.
+ */
+export function extractSpaceContextForInjection(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const meaningful = trimmed
+    .replace(/<!--[\s\S]*?-->/g, "") // drop HTML-comment placeholders
+    .split("\n")
+    .filter((line) => !/^\s*#{1,6}\s/.test(line)) // drop markdown headers
+    .join("")
+    .trim();
+
+  return meaningful ? trimmed : null;
+}
+
 export function getSessionContextFromRuntimePayload(
   runtimePayload: Record<string, unknown> | undefined,
 ): ProviderSessionContext | undefined {

@@ -164,6 +164,7 @@ import {
 import {
   buildSessionBootstrapContext,
   CUSTOM_INSTRUCTIONS_BLOCK_KIND,
+  extractSpaceContextForInjection,
   getSessionContextFromRuntimePayload,
   hasSessionBootstrapBlock,
   SPACE_CONTEXT_BLOCK_KIND,
@@ -1728,18 +1729,32 @@ export class InstanceManager extends EventEmitter {
     if (!spaceId) return undefined;
     const space = this.getSpaceManager().getSpace(spaceId);
     if (!space) return undefined;
+
+    const guidance =
+      `You are working in a shared Space.\n\n` +
+      `Worktree: \`${space.worktreePath || workingDirectory || space.projectDirectory}\`\n` +
+      `Original project: \`${space.projectDirectory}\`\n\n` +
+      `IMPORTANT: All file reads, writes, and searches must use paths under the worktree, not the original project directory. The worktree is an isolated copy.\n\n` +
+      `The file \`.relay/space-context.md\` is the shared coordination source of truth for this Space. Read it before making decisions that may depend on sibling chats, and re-read it as you work whenever you need the latest shared status, interfaces, decisions, or blockers.\n\n` +
+      `When you complete significant work, update \`.relay/space-context.md\` with decisions, interfaces other chats may depend on, current status, and blockers/questions.`;
+
+    // Inject the brief's current contents (not just a pointer) so every chat in
+    // the space starts with the shared context, mirroring how project custom
+    // instructions inject their text. Skip when the file is empty or only the
+    // seed template (headers/comments). See task b3e9f1a2 — completes the
+    // bootstrap-content port custom_instructions received in 12fc245 (which
+    // left the space brief as a pointer only).
+    const brief = extractSpaceContextForInjection(this.getSpaceManager().readSpaceContext(spaceId));
+    const text = brief
+      ? `${guidance}\n\nCurrent \`.relay/space-context.md\` contents:\n\n${brief}`
+      : guidance;
+
     return {
       key: `space:${spaceId}`,
       kind: SPACE_CONTEXT_BLOCK_KIND,
       title: `Space: ${space.name}`,
       source: ".relay/space-context.md",
-      text:
-        `You are working in a shared Space.\n\n` +
-        `Worktree: \`${space.worktreePath || workingDirectory || space.projectDirectory}\`\n` +
-        `Original project: \`${space.projectDirectory}\`\n\n` +
-        `IMPORTANT: All file reads, writes, and searches must use paths under the worktree, not the original project directory. The worktree is an isolated copy.\n\n` +
-        `The file \`.relay/space-context.md\` is the shared coordination source of truth for this Space. Read it before making decisions that may depend on sibling chats, and re-read it as you work whenever you need the latest shared status, interfaces, decisions, or blockers.\n\n` +
-        `When you complete significant work, update \`.relay/space-context.md\` with decisions, interfaces other chats may depend on, current status, and blockers/questions.`,
+      text,
     };
   }
 

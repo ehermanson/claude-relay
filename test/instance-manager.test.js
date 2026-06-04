@@ -1465,7 +1465,7 @@ describe("InstanceManager", () => {
       assert.deepEqual(sentMessages, ["hello on the new branch"]);
     });
 
-    it("stores space guidance in bootstrap context and keeps normal turns unwrapped", async () => {
+    it("injects space brief contents into bootstrap context and keeps normal turns unwrapped", async () => {
       const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
         name: "Shared Bootstrap Context",
       });
@@ -1491,7 +1491,9 @@ describe("InstanceManager", () => {
       const spaceBlock = fakeProc.bootstrapContext.blocks.find((b) => b.kind === "space_context");
       assert.match(spaceBlock.text, /shared Space/);
       assert.match(spaceBlock.text, /re-read it as you work/);
-      assert.ok(!spaceBlock.text.includes("Sibling chat is updating the API contract"));
+      // Regression guard (task b3e9f1a2): the brief's actual contents must be
+      // injected, not just a pointer to the file. Regressed in commit 12fc245.
+      assert.ok(spaceBlock.text.includes("Sibling chat is updating the API contract"));
 
       await manager.sendMessage(info.id, "continue with the backend changes");
 
@@ -1505,6 +1507,28 @@ describe("InstanceManager", () => {
       const history = manager.getHistory(info.id).filter((entry) => entry.message.type === "user");
       assert.equal(history.length, 1);
       assert.equal(history[0].message.text, "continue with the backend changes");
+    });
+
+    it("does not inject seed-template-only space briefs (no real content)", async () => {
+      const space = manager.getSpaceManager().createSpace(manager.baseConfig.workingDirectory, {
+        name: "Pristine Brief",
+      });
+      assert.ok(space.worktreePath);
+      // Leave the seeded template untouched — only headers + HTML-comment
+      // placeholders, no authored content.
+      const fakeProc = new FakeProviderSession("codex");
+      manager.createProviderSession = (_config, options) => {
+        fakeProc.bootstrapContext = options?.bootstrapContext;
+        return fakeProc;
+      };
+
+      manager.createInstance({ provider: "codex", spaceId: space.id });
+
+      const spaceBlock = fakeProc.bootstrapContext.blocks.find((b) => b.kind === "space_context");
+      assert.ok(spaceBlock);
+      assert.match(spaceBlock.text, /shared Space/);
+      // Guidance only — no "Current ... contents" section for an empty template.
+      assert.ok(!spaceBlock.text.includes("Current `.relay/space-context.md` contents"));
     });
   });
 
