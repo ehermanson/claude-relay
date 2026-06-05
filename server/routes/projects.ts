@@ -12,6 +12,7 @@ import {
   listWorktrees,
 } from "#core/git.js";
 import { resolveSuggestions } from "#core/actions.js";
+import { searchWorkspaceEntries } from "#core/workspace-entries.js";
 import { readJsonBody } from "#server/hono-utils.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
 import type { SuggestionsConfig } from "#core/types.js";
@@ -235,6 +236,19 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
       return c.json({ error: "Project not found" }, 404);
     }
     return c.json(artifacts);
+  });
+
+  // Project-scoped file/dir search for @-mentions outside a running session
+  // (e.g. the settings instructions editor). Mirrors /api/workspace-entries but
+  // keys off the project's root directory instead of an instance's CWD.
+  app.get("/api/projects/:id/workspace-entries", (c) => {
+    const project = instanceManager.projectManager.getProject(c.req.param("id"));
+    if (!project) {
+      return c.json({ error: "Project not found" }, 404);
+    }
+    const query = c.req.query("q") || "";
+    const entries = searchWorkspaceEntries(project.directory, query);
+    return c.json({ entries });
   });
 
   app.get("/api/projects/:id/branches", (c) => {

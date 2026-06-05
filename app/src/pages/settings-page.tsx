@@ -8,11 +8,13 @@ import {
   updateProject,
   fetchProviders,
   fetchProviderModels,
+  fetchProjectWorkspaceEntries,
   fetchGlobalSettings,
   fetchHealth,
 } from "../lib/api";
 import { useProjectContext } from "../context/project-context";
-import { Input, Textarea, Select } from "../components/ui/input";
+import { Input, Select } from "../components/ui/input";
+import { MarkdownEditor } from "../components/ui/markdown-editor";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import { SettingsSection, SettingRow } from "@/components/settings/settings-shared";
 import { SuggestionSettings } from "@/components/settings/suggestion-settings";
@@ -172,14 +174,15 @@ function InstructionsSection({
   project: Project;
   save: ReturnType<typeof useProjectAutoSave>;
 }) {
-  const [value, setValue] = useState(project.customInstructions ?? "");
-
-  const handleBlur = useCallback(() => {
-    const trimmed = value.trim() || null;
-    if (trimmed !== (project.customInstructions ?? null)) {
-      save.mutate({ customInstructions: trimmed });
-    }
-  }, [save, value, project.customInstructions]);
+  const handleBlur = useCallback(
+    (markdown: string) => {
+      const trimmed = markdown.trim() || null;
+      if (trimmed !== (project.customInstructions ?? null)) {
+        save.mutate({ customInstructions: trimmed });
+      }
+    },
+    [save, project.customInstructions],
+  );
 
   return (
     <SettingsSection
@@ -187,14 +190,18 @@ function InstructionsSection({
       description="Injected into every session for this project. Appended after global instructions."
     >
       <div className="pt-2">
-        <Textarea
-          rows={8}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={handleBlur}
-          placeholder="e.g. Always use TypeScript strict mode. Prefer functional components with hooks..."
-          className="min-h-[120px] resize-y font-mono text-xs leading-relaxed"
-        />
+        <div className="overflow-hidden rounded-lg border border-border bg-bg shadow-sm shadow-black/5 transition-all duration-150 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
+          <MarkdownEditor
+            defaultValue={project.customInstructions ?? ""}
+            onBlur={handleBlur}
+            ariaLabel="Project instructions"
+            placeholder="e.g. Always use TypeScript strict mode. Prefer functional components with hooks..."
+            className="min-h-[120px] max-h-[420px] overflow-y-auto text-[0.8125rem] leading-relaxed"
+            searchFiles={async (query) =>
+              (await fetchProjectWorkspaceEntries(project.id, query)).entries
+            }
+          />
+        </div>
         <div className="mt-2 flex items-center gap-2 text-[0.6875rem] text-muted">
           <FileText size={12} />
           <span>

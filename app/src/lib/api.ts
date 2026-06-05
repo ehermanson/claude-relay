@@ -147,6 +147,26 @@ export async function fetchWorkspaceEntries(
   return res.json();
 }
 
+/** Project-scoped variant for @-mentions outside a running session (settings editor). */
+export async function fetchProjectWorkspaceEntries(
+  projectId: string,
+  query: string,
+): Promise<{ entries: Array<{ path: string; kind: "file" | "directory" }> }> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/workspace-entries?q=${encodeURIComponent(query)}`,
+  );
+  // Guard against the SPA fallback (HTML 200) when the route isn't live yet, and
+  // any non-JSON/parse failure — degrade to empty rather than throwing.
+  if (!res.ok || !res.headers.get("content-type")?.includes("application/json")) {
+    return { entries: [] };
+  }
+  try {
+    return await res.json();
+  } catch {
+    return { entries: [] };
+  }
+}
+
 export async function fetchProviderModels(provider: ProviderKind): Promise<ProviderModelsResponse> {
   const res = await fetch(`/api/provider-models?provider=${encodeURIComponent(provider)}`);
   if (!res.ok) throw new Error("Failed to fetch provider models");

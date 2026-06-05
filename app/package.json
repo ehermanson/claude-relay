@@ -12,7 +12,13 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
+    "@lexical/code": "^0.41.0",
+    "@lexical/link": "^0.41.0",
+    "@lexical/list": "^0.41.0",
+    "@lexical/markdown": "^0.41.0",
     "@lexical/react": "^0.41.0",
+    "@lexical/rich-text": "^0.41.0",
+    "@lexical/selection": "^0.41.0",
     "@pierre/diffs": "^1.1.0",
     "@tanstack/devtools-vite": "^0.6.0",
     "@tanstack/react-devtools": "^0.10.0",

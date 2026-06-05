@@ -25,7 +25,8 @@ import {
 import { useSystemUpdate, describeUpdateStage } from "@/hooks/use-system-update";
 
 import { Button } from "@/components/ui/button";
-import { Input, Textarea, Select } from "../components/ui/input";
+import { Input, Select } from "../components/ui/input";
+import { MarkdownEditor } from "../components/ui/markdown-editor";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { RateLimitBar, flattenRateLimitWindows } from "@/components/ui/rate-limit-bar";
@@ -950,8 +951,8 @@ export function InstructionsSettingsSection() {
   const save = useAutoSave();
 
   const handleBlur = useCallback(
-    (e: React.FocusEvent<HTMLTextAreaElement>) => {
-      const value = e.target.value.trim() || null;
+    (markdown: string) => {
+      const value = markdown.trim() || null;
       if (value !== (settings?.customInstructions ?? null)) {
         save.mutate({ customInstructions: value });
       }
@@ -965,13 +966,16 @@ export function InstructionsSettingsSection() {
       description="Injected into every session across all projects. Project-level instructions are appended after these."
     >
       <div className="pt-2">
-        <Textarea
-          rows={10}
-          defaultValue={settings?.customInstructions ?? ""}
-          onBlur={handleBlur}
-          placeholder="e.g. Always respond concisely. Use American English spelling..."
-          className="min-h-[160px] resize-y font-mono text-xs leading-relaxed"
-        />
+        <div className="overflow-hidden rounded-lg border border-border bg-bg shadow-sm shadow-black/5 transition-all duration-150 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
+          <MarkdownEditor
+            key={`global-instructions-${settings?.customInstructions ?? ""}`}
+            defaultValue={settings?.customInstructions ?? ""}
+            onBlur={handleBlur}
+            ariaLabel="Global instructions"
+            placeholder="e.g. Always respond concisely. Use American English spelling..."
+            className="min-h-[160px] max-h-[480px] overflow-y-auto text-[0.8125rem] leading-relaxed"
+          />
+        </div>
       </div>
     </SettingsSection>
   );
