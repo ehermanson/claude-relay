@@ -31,11 +31,14 @@ function preprocessAttachments(text: string): string {
     });
 }
 
-// ── Remark plugin: convert @mentions in text nodes into link nodes ────────
+// ── Remark plugin: convert @mentions and /skill chips in text nodes into link nodes ──
 // Operates on the parsed mdast tree so it never touches text inside links,
 // code blocks, or inline code — only bare prose text nodes.
 
-const MENTION_AST_RE = /((?:^|\s))@(task:[a-f0-9]{8}(?::[^\s@]*)?|[^\s@]+)(?=\s|$)/g;
+// Matches @file/@task mentions OR /skill-name tokens, both requiring word boundaries.
+// Group 1: leading whitespace. Group 2: @mention token. Group 3: /skill name (no slash).
+const TOKEN_AST_RE =
+  /((?:^|\s))(?:@(task:[a-f0-9]{8}(?::[^\s@]*)?|[^\s@]+)|\/((?=[a-zA-Z])[\w-]+))(?=\s|$)/g;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MdastNode = any;
@@ -52,7 +55,7 @@ function walkMentions(node: MdastNode, insideLink: boolean): void {
   const next: MdastNode[] = [];
   for (const child of node.children as MdastNode[]) {
     if (child.type === "text" && !insideLink) {
-      const parts = splitMentionText(child.value as string);
+      const parts = splitTokenText(child.value as string);
       next.push(...parts);
     } else {
       walkMentions(child, insideLink || child.type === "link");
@@ -62,30 +65,34 @@ function walkMentions(node: MdastNode, insideLink: boolean): void {
   node.children = next;
 }
 
-function splitMentionText(text: string): MdastNode[] {
+function splitTokenText(text: string): MdastNode[] {
   const result: MdastNode[] = [];
   let last = 0;
 
-  for (const m of text.matchAll(MENTION_AST_RE)) {
+  for (const m of text.matchAll(TOKEN_AST_RE)) {
     const leading = m[1] ?? "";
-    const token = m[2] ?? "";
-    const atPos = (m.index ?? 0) + leading.length;
+    const mentionToken = m[2]; // defined for @mentions
+    const skillName = m[3]; // defined for /skill tokens
+    const tokenPos = (m.index ?? 0) + leading.length;
 
-    if (atPos > last) {
-      result.push({ type: "text", value: text.slice(last, atPos) });
+    if (tokenPos > last) {
+      result.push({ type: "text", value: text.slice(last, tokenPos) });
     }
 
-    const url = token.startsWith("task:")
-      ? `relay-task-mention:${token.slice(5)}`
-      : `relay-file-mention:${token}`;
-
-    result.push({
-      type: "link",
-      url,
-      children: [{ type: "text", value: token }],
-    });
-
-    last = atPos + 1 + token.length; // skip @ + token
+    if (mentionToken !== undefined) {
+      const url = mentionToken.startsWith("task:")
+        ? `relay-task-mention:${mentionToken.slice(5)}`
+        : `relay-file-mention:${mentionToken}`;
+      result.push({ type: "link", url, children: [{ type: "text", value: mentionToken }] });
+      last = tokenPos + 1 + mentionToken.length; // skip @ + token
+    } else if (skillName !== undefined) {
+      result.push({
+        type: "link",
+        url: `relay-skill-mention:${skillName}`,
+        children: [{ type: "text", value: skillName }],
+      });
+      last = tokenPos + 1 + skillName.length; // skip / + skillName
+    }
   }
 
   if (last < text.length) {
@@ -356,6 +363,29 @@ function MarkdownLink({
         <ListChecks size={12} className="h-3 w-3 shrink-0 text-muted" />
         <span className="text-muted">task:</span>
         <span className="max-w-[12rem] truncate">{title}</span>
+      </MentionChip>
+    );
+  }
+
+  if (href.startsWith("relay-skill-mention:")) {
+    const name = href.slice("relay-skill-mention:".length);
+    return (
+      <MentionChip>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-3 w-3 shrink-0 text-muted"
+        >
+          <path d="M22 2 2 22" />
+        </svg>
+        <span className="max-w-[12rem] truncate">{name}</span>
       </MentionChip>
     );
   }

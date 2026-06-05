@@ -23,10 +23,60 @@ interface MentionTriggerMatch {
   rangeEnd: number;
 }
 
+export interface SlashTriggerMatch {
+  query: string;
+  rangeStart: number;
+  rangeEnd: number;
+}
+
 const MENTION_RE = /(^|\s)@([^\s@]+)(?=\s|$)/g;
 
 /** Matches a leading `/command` or `$command` at the start of the prompt. */
 const LEADING_SLASH_RE = /^([/$]\S+)(\s[\s\S]*)?$/;
+
+/** Matches inline /skill-name tokens preceded by whitespace (not at string start). */
+const INLINE_SLASH_RE = /(?<=\s)\/((?=[a-zA-Z])[\w-]+)(?=\s|$)/g;
+
+interface InlineTokenMatch {
+  kind: "mention" | "slash";
+  value: string;
+  tokenStart: number;
+  tokenEnd: number;
+}
+
+function collectInlineTokens(text: string): InlineTokenMatch[] {
+  const tokens: InlineTokenMatch[] = [];
+
+  for (const match of text.matchAll(MENTION_RE)) {
+    const leading = match[1] ?? "";
+    const path = match[2] ?? "";
+    if (!path) continue;
+    const matchIndex = match.index ?? 0;
+    const tokenStart = matchIndex + leading.length;
+    tokens.push({
+      kind: "mention",
+      value: path,
+      tokenStart,
+      tokenEnd: tokenStart + 1 + path.length,
+    });
+  }
+
+  for (const match of text.matchAll(INLINE_SLASH_RE)) {
+    const name = match[1] ?? "";
+    if (!name) continue;
+    const matchIndex = match.index ?? 0;
+    const fullCommand = `/${name}`;
+    tokens.push({
+      kind: "slash",
+      value: fullCommand,
+      tokenStart: matchIndex,
+      tokenEnd: matchIndex + fullCommand.length,
+    });
+  }
+
+  tokens.sort((a, b) => a.tokenStart - b.tokenStart);
+  return tokens;
+}
 
 export function splitPromptIntoComposerSegments(prompt: string): ComposerSegment[] {
   const segments: ComposerSegment[] = [];
@@ -39,26 +89,19 @@ export function splitPromptIntoComposerSegments(prompt: string): ComposerSegment
     remaining = slashMatch[2] ?? "";
   }
 
+  const tokens = collectInlineTokens(remaining);
   let cursor = 0;
 
-  for (const match of remaining.matchAll(MENTION_RE)) {
-    const leading = match[1] ?? "";
-    const path = match[2] ?? "";
-    const raw = match[0] ?? "";
-    const matchIndex = match.index ?? 0;
-    const mentionStart = matchIndex + leading.length;
-
-    if (mentionStart > cursor) {
-      segments.push({ kind: "text", text: remaining.slice(cursor, mentionStart) });
+  for (const token of tokens) {
+    if (token.tokenStart > cursor) {
+      segments.push({ kind: "text", text: remaining.slice(cursor, token.tokenStart) });
     }
-
-    if (path) {
-      segments.push({ kind: "mention", path });
-    } else if (raw) {
-      segments.push({ kind: "text", text: raw });
+    if (token.kind === "mention") {
+      segments.push({ kind: "mention", path: token.value });
+    } else {
+      segments.push({ kind: "slash", command: token.value });
     }
-
-    cursor = mentionStart + 1 + path.length;
+    cursor = token.tokenEnd;
   }
 
   if (cursor < remaining.length) {
@@ -91,6 +134,56 @@ export function detectMentionTrigger(text: string, cursor: number): MentionTrigg
     rangeStart: start,
     rangeEnd: cursor,
   };
+}
+
+/**
+ * Detects an inline `/skill-name` trigger at the cursor position.
+ * Only fires when the slash token is preceded by non-whitespace content
+ * (i.e. it's genuinely mid-message, not a leading command).
+ */
+export function detectInlineSlashTrigger(text: string, cursor: number): SlashTriggerMatch | null {
+  if (cursor < 0 || cursor > text.length) return null;
+
+  let start = cursor;
+  while (start > 0) {
+    const char = text[start - 1];
+    if (!char || /\s/.test(char)) break;
+    start -= 1;
+  }
+
+  const token = text.slice(start, cursor);
+  if (!token.startsWith("/")) return null;
+
+  // Only fire mid-message — suppress if no real content precedes the slash
+  const precedingText = text.slice(0, start);
+  if (!precedingText.trim()) return null;
+
+  return {
+    query: token.slice(1).toLowerCase(),
+    rangeStart: start,
+    rangeEnd: cursor,
+  };
+}
+
+/**
+ * If the trimmed message contains an inline /skill-name chip (preceded by non-empty text),
+ * rearranges it to a leading invocation so the provider dispatches the skill correctly.
+ * Returns the text unchanged if no inline skill is detected.
+ */
+export function resolveInlineSkillInvocation(text: string): string {
+  // Already a leading slash/dollar command — leave it alone
+  if (/^[/$]/.test(text.trimStart())) return text;
+
+  // Find the first inline /skill-name token preceded by whitespace
+  const match = /\s(\/[a-zA-Z][\w-]*)(?=\s|$)/.exec(text);
+  if (!match) return text;
+
+  const skill = match[1]; // e.g. "/grill-me"
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + match[0].length);
+  const args = (before + after).trim();
+
+  return args ? `${skill} ${args}` : skill;
 }
 
 export function replacePromptRange(

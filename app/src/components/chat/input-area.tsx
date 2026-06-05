@@ -219,13 +219,28 @@ export function InputArea({
     useState<OptimisticProviderSelection | null>(null);
   const displayedProvider = optimisticProviderSelection?.provider ?? provider;
   const displayedPreferredModel = optimisticProviderSelection?.preferredModel ?? preferredModel;
-  const runtimeSlashCommands: ProviderSlashCommand[] =
-    providerStatus?.slashCommands?.map((command) => ({
-      ...command,
-      input: command.input ? { ...command.input } : undefined,
-    })) ?? [];
-  const runtimeProviderSkills: ProviderSkill[] =
-    providerStatus?.skills?.map((skill) => ({ ...skill })) ?? [];
+  // Dedupe slash commands by name — provider may report the same command multiple times
+  const runtimeSlashCommands: ProviderSlashCommand[] = (() => {
+    const seen = new Set<string>();
+    return (providerStatus?.slashCommands ?? [])
+      .map((command) => ({ ...command, input: command.input ? { ...command.input } : undefined }))
+      .filter((command) => {
+        if (seen.has(command.name)) return false;
+        seen.add(command.name);
+        return true;
+      });
+  })();
+  // Dedupe runtime skills by name — provider may emit skill events multiple times
+  const runtimeProviderSkills: ProviderSkill[] = (() => {
+    const seen = new Set<string>();
+    return (providerStatus?.skills ?? [])
+      .map((skill) => ({ ...skill }))
+      .filter((skill) => {
+        if (seen.has(skill.name)) return false;
+        seen.add(skill.name);
+        return true;
+      });
+  })();
   const artifactProviderSkills =
     projectCtx?.artifacts.skills
       .filter((skill) => skill.providers.includes(displayedProvider))
@@ -240,6 +255,9 @@ export function InputArea({
       ...artifactProviderSkills.filter((s) => !runtimeNames.has(s.name)),
     ];
   })();
+  // Filter slash commands that are already surfaced as skills — skills section takes precedence
+  const skillNames = new Set(providerSkills.map((s) => s.name));
+  const dedupedSlashCommands = runtimeSlashCommands.filter((c) => !skillNames.has(c.name));
   const { showModelMenu, setShowModelMenu, availableProviderModels, capabilities, defaultModel } =
     useProviderModels(displayedProvider);
   const { providers: availableProviders } = useAvailableProviders();
@@ -541,7 +559,7 @@ export function InputArea({
   const { composerMenu, handleComposerKeyDown } = useComposerMenus({
     instanceId,
     isMobile,
-    slashCommands: runtimeSlashCommands,
+    slashCommands: dedupedSlashCommands,
     skills: providerSkills,
     tasks: projectCtx?.artifacts.tasks ?? null,
     draftText: isInSpecialMode ? "" : draftText,

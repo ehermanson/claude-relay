@@ -7,7 +7,11 @@ import {
 } from "react";
 import type { ProviderSkill, ProviderSlashCommand, ReasoningEffort, Task } from "@shared/types";
 import { fetchWorkspaceEntries } from "../../../lib/api";
-import { detectMentionTrigger, replacePromptRange } from "../../../lib/composer-mentions";
+import {
+  detectMentionTrigger,
+  detectInlineSlashTrigger,
+  replacePromptRange,
+} from "../../../lib/composer-mentions";
 import { MentionMenu, SlashMenu } from "./overlay-menus";
 import {
   SLASH_COMMANDS,
@@ -260,16 +264,47 @@ export function useComposerMenus({
       ? null
       : rawCommandContext;
 
-  const slashMenuItems: SlashMenuItem[] = (() => {
-    if (!slashContext) return [];
+  // Inline slash trigger — fires when cursor is on a /token mid-message (preceded by real text)
+  const inlineSlashTrigger =
+    !slashMenuDismissed && !rawCommandContext
+      ? detectInlineSlashTrigger(draftText, composerSelectionOffset)
+      : null;
 
-    if (!slashContext.hasArgument) {
+  const applyInlineSlashItem = (command: string) => {
+    if (!inlineSlashTrigger) return;
+    const next = replacePromptRange(
+      draftText,
+      inlineSlashTrigger.rangeStart,
+      inlineSlashTrigger.rangeEnd,
+      `${command} `,
+    );
+    setComposerValue(next.value, next.cursor);
+    dismissSlashMenu();
+  };
+
+  const slashMenuItems: SlashMenuItem[] = (() => {
+    // Synthesize a context for inline triggers so items are built identically to the
+    // start-of-message case. Only skill onSelect differs (inline insertion vs full replace).
+    const ctx =
+      slashContext ??
+      (inlineSlashTrigger
+        ? ({
+            prefix: "/",
+            commandQuery: inlineSlashTrigger.query,
+            argQuery: "",
+            hasArgument: false,
+          } as const)
+        : null);
+
+    if (!ctx) return [];
+
+    if (!ctx.hasArgument) {
       const builtInCommandItems: SlashMenuItem[] =
-        slashContext.prefix === "/"
+        ctx.prefix === "/"
           ? SLASH_COMMANDS.filter((command) => {
               if (command.id === "model" && !supportsModelSelection) return false;
               if (command.id === "effort" && !supportsReasoningEffort) return false;
-              return matchesQuery(slashContext.commandQuery, [command.id, command.title.slice(1)]);
+              return matchesQuery(ctx.commandQuery, [command.id, command.title.slice(1)]);
             }).map((command) => ({
               key: command.id,
               category: command.category,
@@ -288,8 +323,8 @@ export function useComposerMenus({
           : [];
 
       const providerCommandItems: SlashMenuItem[] =
-        slashContext.prefix === "/"
-          ? searchProviderSlashCommands([...(slashCommands ?? [])], slashContext.commandQuery).map(
+        ctx.prefix === "/"
+          ? searchProviderSlashCommands([...(slashCommands ?? [])], ctx.commandQuery).map(
               (command) => ({
                 key: `provider-command-${command.name}`,
                 category: "Provider Commands",
@@ -303,20 +338,18 @@ export function useComposerMenus({
 
       const skillItems: SlashMenuItem[] = searchProviderSkills(
         (skills ?? []).filter((skill) =>
-          slashContext.prefix === "/"
+          ctx.prefix === "/"
             ? skill.invocationPrefix === "/" ||
               (skill.invocationPrefix == null && true) ||
               (skill.invocationPrefix === "$" && true)
             : (skill.invocationPrefix ?? "$") === "$",
         ),
-        slashContext.commandQuery,
+        ctx.commandQuery,
       ).map((skill) => {
-        // Use the menu's prefix when the skill doesn't declare one,
-        // or when the skill's native prefix doesn't match the active menu.
         const displayPrefix =
-          skill.invocationPrefix != null && skill.invocationPrefix === slashContext.prefix
+          skill.invocationPrefix != null && skill.invocationPrefix === ctx.prefix
             ? skill.invocationPrefix
-            : slashContext.prefix;
+            : ctx.prefix;
         const displayTitle = `${displayPrefix}${skill.name}`;
         return {
           key: `skill-${skill.name}`,
@@ -324,21 +357,20 @@ export function useComposerMenus({
           title: displayTitle,
           description: describeSkill(skill),
           actionHint: "Enter",
-          onSelect: () => setComposerValue(`${displayTitle} `),
+          // Inline trigger: insert chip at cursor position; start-of-message: replace whole draft
+          onSelect: inlineSlashTrigger
+            ? () => applyInlineSlashItem(displayTitle)
+            : () => setComposerValue(`${displayTitle} `),
         };
       });
 
       return [...builtInCommandItems, ...providerCommandItems, ...skillItems];
     }
 
-    if (
-      slashContext.prefix === "/" &&
-      slashContext.commandQuery === "model" &&
-      supportsModelSelection
-    ) {
+    if (ctx.prefix === "/" && ctx.commandQuery === "model" && supportsModelSelection) {
       return modelOptions
         .filter((option) =>
-          matchesQuery(slashContext.argQuery, [option.commandValue, option.label.toLowerCase()]),
+          matchesQuery(ctx.argQuery, [option.commandValue, option.label.toLowerCase()]),
         )
         .map((option) => ({
           key: `model-${option.commandValue}`,
@@ -353,13 +385,13 @@ export function useComposerMenus({
     }
 
     if (
-      slashContext.prefix === "/" &&
-      slashContext.commandQuery === "effort" &&
+      ctx.prefix === "/" &&
+      ctx.commandQuery === "effort" &&
       supportsReasoningEffort &&
       reasoningEffortLevels
     ) {
       const items: SlashMenuItem[] = [];
-      if (matchesQuery(slashContext.argQuery, ["default", "auto"])) {
+      if (matchesQuery(ctx.argQuery, ["default", "auto"])) {
         const defaultEffortLabel = reasoningEffortLevels.find((l) => l.isDefault)?.label;
         items.push({
           key: "effort-default",
@@ -373,7 +405,7 @@ export function useComposerMenus({
         });
       }
       for (const level of reasoningEffortLevels) {
-        if (matchesQuery(slashContext.argQuery, [level.effort, level.label.toLowerCase()])) {
+        if (matchesQuery(ctx.argQuery, [level.effort, level.label.toLowerCase()])) {
           items.push({
             key: `effort-${level.effort}`,
             category: "Effort",
@@ -403,7 +435,7 @@ export function useComposerMenus({
     slashMenuItems[0] ??
     null;
   const isMentionMenuOpen = !!mentionTrigger;
-  const isSlashMenuOpen = !!slashContext && slashMenuItems.length > 0;
+  const isSlashMenuOpen = (!!slashContext || !!inlineSlashTrigger) && slashMenuItems.length > 0;
 
   useEffect(() => {
     if (slashMenuItems.length === 0) {
