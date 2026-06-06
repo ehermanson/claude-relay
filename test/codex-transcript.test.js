@@ -125,6 +125,34 @@ describe("convertCodexTranscriptEntry", () => {
     });
   });
 
+  describe("generated images", () => {
+    it("converts image_generation_end to a GenerateImage activity", () => {
+      const ctx = createContext();
+      const savedPath = "/Users/me/.codex/generated_images/sess/ig_abc.png";
+      const results = convertCodexTranscriptEntry(
+        {
+          type: "event_msg",
+          payload: { type: "image_generation_end", saved_path: savedPath, result: "iVBOR..." },
+        },
+        ctx,
+      );
+      assert.equal(results.length, 1);
+      assert.equal(results[0].message.type, "activity");
+      assert.equal(results[0].message.tool, "GenerateImage");
+      assert.equal(results[0].message.input.file_path, savedPath);
+      assert.equal(results[0].message.inputDescription, "ig_abc.png");
+    });
+
+    it("ignores image_generation_end without a saved_path", () => {
+      const ctx = createContext();
+      const results = convertCodexTranscriptEntry(
+        { type: "event_msg", payload: { type: "image_generation_end", result: "iVBOR..." } },
+        ctx,
+      );
+      assert.equal(results.length, 0);
+    });
+  });
+
   describe("function calls and results", () => {
     it("converts function_call to tool_use activity", () => {
       const ctx = createContext();

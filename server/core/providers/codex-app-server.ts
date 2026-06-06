@@ -156,6 +156,13 @@ interface DynamicToolCallItem extends ThreadItemBase {
   contentItems?: Array<{ text?: string; [key: string]: unknown }> | null;
 }
 
+interface ImageGenerationItem extends ThreadItemBase {
+  type: "imageGeneration";
+  saved_path?: string | null;
+  savedPath?: string | null;
+  revised_prompt?: string | null;
+}
+
 interface ContextCompactionItem {
   type: "compaction";
   encrypted_content: string;
@@ -185,6 +192,7 @@ type ThreadItem =
   | ReasoningItem
   | McpToolCallItem
   | DynamicToolCallItem
+  | ImageGenerationItem
   | (ThreadItemBase & Record<string, unknown>);
 
 // =============================================================================
@@ -293,6 +301,19 @@ function extractViewImagePath(args: unknown): string | undefined {
     if (typeof path === "string" && path.trim()) return path;
     const filePath = (parsed as Record<string, unknown>).file_path;
     if (typeof filePath === "string" && filePath.trim()) return filePath;
+  }
+  return undefined;
+}
+
+/**
+ * Pull the on-disk path of a generated image out of an `imageGeneration` item.
+ * Codex writes the PNG to `~/.codex/generated_images/...` and reports its path;
+ * field naming varies, so check the known variants defensively.
+ */
+function extractGeneratedImagePath(item: ThreadItem): string | undefined {
+  const rec = item as Record<string, unknown>;
+  for (const value of [rec.saved_path, rec.savedPath, rec.path]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
   }
   return undefined;
 }
@@ -2262,6 +2283,27 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           detail,
           raw: item,
         } as ActivityMessage);
+        break;
+      }
+
+      case "imageGeneration": {
+        // Codex saves the generated PNG under ~/.codex/generated_images and reports
+        // its path. Surface it as a GenerateImage tool activity (rendered as its own
+        // card with a thumbnail) — matches transcript replay.
+        const path = extractGeneratedImagePath(item);
+        if (path) {
+          const fileName = path.split("/").pop() || path;
+          this.emit("activity", {
+            type: "activity",
+            activity: "tool_use",
+            tool: "GenerateImage",
+            description: "Generated image",
+            detail: path,
+            input: { file_path: path },
+            inputDescription: fileName,
+            raw: item,
+          } as ActivityMessage);
+        }
         break;
       }
 

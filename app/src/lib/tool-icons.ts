@@ -22,6 +22,7 @@ import {
   UserPlus,
   UserMinus,
   Wrench,
+  Image as ImageIcon,
   type LucideIcon,
 } from "lucide-react";
 
@@ -46,6 +47,7 @@ export const TOOL_ICONS: Record<string, LucideIcon> = {
   SendMessage: Send,
   TeamCreate: UserPlus,
   TeamDelete: UserMinus,
+  GenerateImage: ImageIcon,
 };
 
 /** Default icon when a tool name isn't in the registry. */

@@ -394,6 +394,13 @@ export function ToolContent({
         }
         return null;
       }
+      case "GenerateImage": {
+        const filePath = (input.file_path as string) || (input.path as string) || undefined;
+        if (filePath) {
+          return <ImagePreview path={filePath} />;
+        }
+        return null;
+      }
       case "Grep": {
         const pattern = input.pattern as string | undefined;
         if (pattern) {

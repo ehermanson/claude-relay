@@ -520,6 +520,29 @@ export function convertCodexTranscriptEntry(
         }
         break;
 
+      case "image_generation_end": {
+        // Codex saves generated images to `~/.codex/generated_images/<session>/<call_id>.png`
+        // and records the path here. Surface it as a GenerateImage tool activity (rendered
+        // as its own card with a thumbnail), served from disk via /api/file.
+        const savedPath = typeof payload.saved_path === "string" ? payload.saved_path.trim() : "";
+        if (savedPath) {
+          const fileName = savedPath.split("/").pop() || savedPath;
+          results.push({
+            timestamp,
+            message: {
+              type: "activity",
+              activity: "tool_use",
+              tool: "GenerateImage",
+              description: "Generated image",
+              detail: savedPath,
+              input: { file_path: savedPath },
+              inputDescription: fileName,
+            } as ActivityMessage,
+          });
+        }
+        break;
+      }
+
       case "plan_update": {
         const activity = buildTaskListActivityFromPlan(payload);
         if (activity) {

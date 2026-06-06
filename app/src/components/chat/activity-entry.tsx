@@ -154,7 +154,8 @@ export function ActivityEntry({
 }: ActivityEntryProps) {
   const hasRichContent = !!input && !!tool;
   const isPermDenied = !!permissionDenied;
-  const defaultExpanded = isPermDenied || (hasRichContent && tool === "AskUserQuestion");
+  const defaultExpanded =
+    isPermDenied || (hasRichContent && (tool === "AskUserQuestion" || tool === "GenerateImage"));
   const [expanded, setExpanded] = useState(defaultExpanded);
   // Lazy-mount: only render content once it's been expanded at least once,
   // so collapsed-by-default items don't pay the render cost.
