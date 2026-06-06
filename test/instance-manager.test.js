@@ -2291,5 +2291,106 @@ describe("InstanceManager", () => {
       assert.deepEqual(runtimeModeSet, []);
       assert.equal(instance.info.runtimeMode, "plan");
     });
+
+    it("does not re-set pendingPlan when ExitPlanMode fires after plan approval", async () => {
+      // Regression test: after the user approves a plan and runtimeMode switches to
+      // "approval-required", a subsequent ExitPlanMode activity (model presenting
+      // another plan phase) must NOT re-open the plan-review panel.
+      const fakeProc = new FakeProviderSession("codex");
+      manager.createProviderSession = () => fakeProc;
+
+      const info = manager.createInstance({ provider: "codex", runtimeMode: "plan" });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+      assert.equal(instance.info.runtimeMode, "plan");
+      instance.info.status = "idle";
+
+      // Phase 1: model presents first plan via ExitPlanMode while in plan mode
+      fakeProc.emit("activity", {
+        type: "activity",
+        activity: "tool_use",
+        tool: "ExitPlanMode",
+        description: "Presenting plan",
+        input: { plan: "# Plan v1\n- Step A\n- Step B" },
+      });
+      await manager.flushInstanceMutations();
+
+      assert.equal(instance.info.pendingPlan, "# Plan v1\n- Step A\n- Step B");
+
+      // Phase 2: user approves — clears pendingPlan and switches to approval-required
+      await manager.sendMessage(info.id, "Yes, go ahead with this plan.");
+      assert.equal(instance.info.pendingPlan, undefined);
+      assert.equal(instance.info.runtimeMode, "approval-required");
+
+      // Phase 3: model (still running in plan permissionMode at the CLI level) emits
+      // another ExitPlanMode — this must NOT re-show the plan-review panel now that
+      // the session is in approval-required mode.
+      fakeProc.emit("activity", {
+        type: "activity",
+        activity: "tool_use",
+        tool: "ExitPlanMode",
+        description: "Presenting sub-plan",
+        input: { plan: "# Plan v2\n- Step C" },
+      });
+      await manager.flushInstanceMutations();
+
+      assert.equal(
+        instance.info.pendingPlan,
+        undefined,
+        "pendingPlan must not be set after plan was already approved",
+      );
+      // planContent is still updated so the sidebar can display the latest plan
+      assert.equal(instance.info.planContent, "# Plan v2\n- Step C");
+    });
+
+    it("does not re-set pendingPlan when ExitPlanMode fires after plan dismissal", async () => {
+      // Regression test: dismissing a plan flows through the same dispatchUserMessageLocked
+      // path as approval — it clears pendingPlan and flips runtimeMode to
+      // "approval-required". A subsequent ExitPlanMode must NOT re-open the panel.
+      // Guards against someone later special-casing dismiss separately from accept.
+      const fakeProc = new FakeProviderSession("codex");
+      manager.createProviderSession = () => fakeProc;
+
+      const info = manager.createInstance({ provider: "codex", runtimeMode: "plan" });
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+      assert.equal(instance.info.runtimeMode, "plan");
+      instance.info.status = "idle";
+
+      // Phase 1: model presents a plan via ExitPlanMode while in plan mode
+      fakeProc.emit("activity", {
+        type: "activity",
+        activity: "tool_use",
+        tool: "ExitPlanMode",
+        description: "Presenting plan",
+        input: { plan: "# Plan v1\n- Step A" },
+      });
+      await manager.flushInstanceMutations();
+
+      assert.equal(instance.info.pendingPlan, "# Plan v1\n- Step A");
+
+      // Phase 2: user dismisses — handleDismissPlan sends this internal message,
+      // which clears pendingPlan and exits plan mode.
+      await manager.sendMessage(info.id, "Dismiss this plan.", undefined, true);
+      assert.equal(instance.info.pendingPlan, undefined);
+      assert.equal(instance.info.runtimeMode, "approval-required");
+
+      // Phase 3: a stray ExitPlanMode after dismissal must NOT re-show the panel.
+      fakeProc.emit("activity", {
+        type: "activity",
+        activity: "tool_use",
+        tool: "ExitPlanMode",
+        description: "Presenting another plan",
+        input: { plan: "# Plan v2\n- Step B" },
+      });
+      await manager.flushInstanceMutations();
+
+      assert.equal(
+        instance.info.pendingPlan,
+        undefined,
+        "pendingPlan must not be set after plan was dismissed",
+      );
+      assert.equal(instance.info.planContent, "# Plan v2\n- Step B");
+    });
   });
 });

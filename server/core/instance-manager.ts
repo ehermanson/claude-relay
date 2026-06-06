@@ -3711,11 +3711,17 @@ export class InstanceManager extends EventEmitter {
             const plan = (activity.input as Record<string, unknown> | undefined)?.plan as
               | string
               | undefined;
-            this.baseConfig.logger.info(
-              `[InstanceManager] syncPending: ExitPlanMode — setting pendingPlan (${plan ? plan.length : 0} chars)`,
-            );
-            instance.info.pendingPlan = plan;
             if (plan) instance.info.planContent = plan;
+            // Only surface the plan-review UI when in plan mode. After the first
+            // approval/dismissal the session switches to "approval-required", so
+            // subsequent ExitPlanMode calls route through the permission-banner
+            // path instead of re-opening the plan review panel.
+            if (instance.info.runtimeMode === "plan") {
+              this.baseConfig.logger.info(
+                `[InstanceManager] syncPending: ExitPlanMode — setting pendingPlan (${plan ? plan.length : 0} chars)`,
+              );
+              instance.info.pendingPlan = plan;
+            }
           }
         } else {
           instance.info.pendingTool = activity.tool;
