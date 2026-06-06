@@ -1,4 +1,39 @@
-import { RotateCcw } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+
+// ─── Section error boundary ────────────────────────────────────────────────
+
+function SettingsSectionFallback({ name }: { name?: string }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-surface/30 p-5">
+      <div className="flex items-center gap-2 text-[0.8125rem] font-medium text-text">
+        <AlertTriangle size={14} className="shrink-0 text-warning" />
+        <span>{name ? `${name} failed to load` : "This section failed to load"}</span>
+      </div>
+      <p className="mt-1 pl-6 text-[0.75rem] text-muted">
+        The rest of your settings still work. Try reloading the page.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Isolates a single settings section so a render error in one section
+ * (e.g. a broken editor) doesn't take down the entire settings screen.
+ */
+export function SettingsSectionBoundary({
+  name,
+  children,
+}: {
+  name?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <ErrorBoundary name={name} fallback={<SettingsSectionFallback name={name} />}>
+      {children}
+    </ErrorBoundary>
+  );
+}
 
 // ─── Shared layout components ──────────────────────────────────────────────
 

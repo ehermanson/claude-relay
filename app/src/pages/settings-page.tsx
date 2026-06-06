@@ -16,7 +16,11 @@ import { useProjectContext } from "../context/project-context";
 import { Input, Select } from "../components/ui/input";
 import { MarkdownEditor } from "../components/ui/markdown-editor";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
-import { SettingsSection, SettingRow } from "@/components/settings/settings-shared";
+import {
+  SettingsSection,
+  SettingRow,
+  SettingsSectionBoundary,
+} from "@/components/settings/settings-shared";
 import { SuggestionSettings } from "@/components/settings/suggestion-settings";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { PageShell } from "@/components/ui/page-shell";
@@ -92,26 +96,36 @@ function SettingsForm({
   return (
     <PageShell maxWidth="narrow">
       <div className="space-y-10">
-        <InstructionsSection
-          key={`instructions-${project.customInstructions ?? ""}`}
-          project={project}
-          save={save}
-        />
-        <RemoteAccessSection />
-        <GitSection
-          key={`git-${project.defaultSpaceBranch ?? ""}`}
-          project={project}
-          globalSettings={globalSettings}
-          save={save}
-        />
-        <ProvidersSection project={project} globalSettings={globalSettings} save={save} />
-        <SuggestionSettings
-          config={project.suggestions}
-          onChange={(suggestions) => save.mutate({ suggestions })}
-          title="Suggestions"
-          description="Customize prompt suggestions for new chats in this project. Layers on top of global defaults."
-          globalConfig={globalSettings.suggestions}
-        />
+        <SettingsSectionBoundary name="Instructions">
+          <InstructionsSection
+            key={`instructions-${project.customInstructions ?? ""}`}
+            project={project}
+            save={save}
+          />
+        </SettingsSectionBoundary>
+        <SettingsSectionBoundary name="Remote Access">
+          <RemoteAccessSection />
+        </SettingsSectionBoundary>
+        <SettingsSectionBoundary name="Git">
+          <GitSection
+            key={`git-${project.defaultSpaceBranch ?? ""}`}
+            project={project}
+            globalSettings={globalSettings}
+            save={save}
+          />
+        </SettingsSectionBoundary>
+        <SettingsSectionBoundary name="Providers">
+          <ProvidersSection project={project} globalSettings={globalSettings} save={save} />
+        </SettingsSectionBoundary>
+        <SettingsSectionBoundary name="Suggestions">
+          <SuggestionSettings
+            config={project.suggestions}
+            onChange={(suggestions) => save.mutate({ suggestions })}
+            title="Suggestions"
+            description="Customize prompt suggestions for new chats in this project. Layers on top of global defaults."
+            globalConfig={globalSettings.suggestions}
+          />
+        </SettingsSectionBoundary>
       </div>
     </PageShell>
   );

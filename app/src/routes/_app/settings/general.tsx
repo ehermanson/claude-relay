@@ -3,12 +3,17 @@ import {
   GeneralSettingsSection,
   InstructionsSettingsSection,
 } from "../../../pages/global-settings-page";
+import { SettingsSectionBoundary } from "@/components/settings/settings-shared";
 
 function GeneralRoute() {
   return (
     <div className="space-y-10">
-      <GeneralSettingsSection />
-      <InstructionsSettingsSection />
+      <SettingsSectionBoundary name="General">
+        <GeneralSettingsSection />
+      </SettingsSectionBoundary>
+      <SettingsSectionBoundary name="Global Instructions">
+        <InstructionsSettingsSection />
+      </SettingsSectionBoundary>
     </div>
   );
 }
