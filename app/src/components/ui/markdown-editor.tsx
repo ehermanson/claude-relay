@@ -1,3 +1,6 @@
+// Must precede `@lexical/code`: installs the global `Prism` its bundled grammar
+// components require at module-eval time (see prism-setup for details).
+import "@/lib/prism-setup";
 import { $createCodeNode, $isCodeNode, CodeHighlightNode, CodeNode } from "@lexical/code";
 import { $isLinkNode, LinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
 import {
