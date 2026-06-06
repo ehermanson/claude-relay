@@ -38,7 +38,7 @@ import { CommitMessageDialog } from "../git/commit-message-dialog";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
 import { fetchInstanceGitStatus, gitCommitInstance, gitPushInstance } from "../../lib/api";
 import { deriveInstanceStatusPresentation } from "../../lib/utils";
-import type { InstanceInfo, ProviderNotice, SessionStats } from "@shared/types";
+import type { InstanceInfo, ProviderKind, ProviderNotice, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
 
 // ── Sidecar toggle buttons ───────────────────────────────────────────
@@ -56,6 +56,7 @@ interface SidecarTogglesProps {
   hasReviewContent: boolean;
   hasStats: boolean;
   stats?: SessionStats;
+  provider?: ProviderKind;
   sidecarContentCount: number;
   onSelectTab: (panel: SidecarTab) => void;
   onOpenMobileSidecar: () => void;
@@ -80,6 +81,7 @@ function SidecarToggles({
   hasReviewContent,
   hasStats,
   stats,
+  provider,
   sidecarContentCount,
   onSelectTab,
   onOpenMobileSidecar,
@@ -160,6 +162,7 @@ function SidecarToggles({
                 active={isShowing("context")}
                 tooltip={isShowing("context") ? "Hide context" : "Show context"}
                 onClick={() => onSelectTab("context")}
+                provider={provider}
               />
             )}
           </>
@@ -501,6 +504,7 @@ export function InstanceHeader({
             hasReviewContent={hasReviewContent}
             hasStats={hasStats}
             stats={instance.stats}
+            provider={instance.provider}
             sidecarContentCount={sidecarContentCount}
             onSelectTab={onSelectTab}
             onOpenMobileSidecar={onOpenMobileSidecar}
@@ -622,6 +626,7 @@ export function InstanceHeader({
           hasReviewContent={hasReviewContent}
           hasStats={hasStats}
           stats={instance.stats}
+          provider={instance.provider}
           sidecarContentCount={sidecarContentCount}
           onSelectTab={onSelectTab}
           onOpenMobileSidecar={onOpenMobileSidecar}

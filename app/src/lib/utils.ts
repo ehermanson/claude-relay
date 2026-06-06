@@ -1,4 +1,4 @@
-import type { InstanceInfo, ProviderKind } from "@shared/types";
+import type { InstanceInfo, ProviderKind, ProviderRateLimitStatus } from "@shared/types";
 import type { StatusDotVariant } from "@/components/ui/status-dot";
 
 export interface InstanceStatusPresentation {
@@ -203,6 +203,56 @@ export function getContextWindowUsage(stats: { contextTokens?: number; contextWi
     contextWindow,
     usagePct: Math.min(contextTokens / contextWindow, 1) * 100,
   };
+}
+
+// =============================================================================
+// Rate limit color helpers
+// =============================================================================
+
+/**
+ * Derive the worst rate limit status across all windows.
+ * "rejected" beats "allowed_warning" beats null.
+ */
+export function worstRateLimitStatus(
+  rateLimits: ProviderRateLimitStatus[],
+): "allowed_warning" | "rejected" | null {
+  let worst: "allowed_warning" | "rejected" | null = null;
+  for (const limit of rateLimits) {
+    for (const w of limit.windows ?? []) {
+      if (w.status === "rejected") return "rejected";
+      if (w.status === "allowed_warning") worst = "allowed_warning";
+    }
+  }
+  return worst;
+}
+
+/**
+ * Single source of truth for rate-limit severity tiers. Status takes priority
+ * over percentage thresholds (pct expected 0–100). Both color helpers below
+ * map from this so their thresholds can never drift apart.
+ */
+function rateLimitTier(
+  status?: string | null,
+  pct?: number | null,
+): "critical" | "warning" | "normal" {
+  if (status === "rejected" || (pct != null && pct > 90)) return "critical";
+  if (status === "allowed_warning" || (pct != null && pct > 70)) return "warning";
+  return "normal";
+}
+
+/** Tailwind bg class for a rate limit bar or fill. */
+export function rateLimitColorClass(status?: string | null, pct?: number | null): string {
+  const tier = rateLimitTier(status, pct);
+  return tier === "critical" ? "bg-red-400" : tier === "warning" ? "bg-amber-400" : "bg-accent";
+}
+
+/**
+ * SVG hex color for strokes / fills that can't use Tailwind classes.
+ * Returns "currentColor" at the normal tier so it inherits the button color.
+ */
+export function rateLimitHexColor(status?: string | null, pct?: number | null): string {
+  const tier = rateLimitTier(status, pct);
+  return tier === "critical" ? "#ef4444" : tier === "warning" ? "#f59e0b" : "currentColor";
 }
 
 /** Turn a model ID like "claude-opus-4-6" into a short display name like "Opus 4.6" */

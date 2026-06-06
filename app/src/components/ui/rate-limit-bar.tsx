@@ -1,5 +1,5 @@
 import type { ProviderRateLimitWindow } from "@shared/types";
-import { formatTimeUntil } from "../../lib/utils";
+import { formatTimeUntil, rateLimitColorClass } from "../../lib/utils";
 
 /**
  * Derive a human-readable label from the rate-limit window duration.
@@ -49,14 +49,10 @@ export function RateLimitBar({
       ? ((window.limit - window.remaining) / window.limit) * 100
       : null;
 
-  const effectivePct = pct ?? derivedPct;
+  // When rejected and no pct is available, show a full bar.
+  const effectivePct = pct ?? derivedPct ?? (window.status === "rejected" ? 100 : null);
 
-  const barColor =
-    effectivePct !== null && effectivePct > 90
-      ? "bg-red-400"
-      : effectivePct !== null && effectivePct > 70
-        ? "bg-amber-400"
-        : "bg-accent";
+  const barColor = rateLimitColorClass(window.status, effectivePct);
 
   const resetIn = window.resetAt
     ? formatTimeUntil(window.resetAt)

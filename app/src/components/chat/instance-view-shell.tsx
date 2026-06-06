@@ -11,6 +11,7 @@ import { InstanceViewHeader } from "@/components/chat/instance-view-header";
 import { useInstanceViewContext } from "@/components/chat/instance-view-context";
 import { useFirstPaint } from "@/hooks/use-first-paint";
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
+import { useRateLimitWarning } from "@/hooks/use-rate-limit-warning";
 
 const TERMINAL_ANIM_TRANSITION = { duration: 0.22, ease: [0.22, 1, 0.36, 1] } as const;
 
@@ -19,6 +20,12 @@ export function InstanceViewShell() {
   const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
   const currentProviderGlobalState = providerGlobalState[shared.instance.provider];
   const firstPaint = useFirstPaint();
+
+  useRateLimitWarning(shared.instance.provider, () => {
+    if (!shared.isSidecarOpen || shared.activeTab !== "context") {
+      actions.selectTab("context");
+    }
+  });
   const mountTerminalPanel =
     (shared.showTerminalPanel || shared.isTerminalCollapsed) && !shared.isMobile;
 

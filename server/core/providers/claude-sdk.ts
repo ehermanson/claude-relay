@@ -1472,6 +1472,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
                 : undefined,
             windowMinutes,
             resetAt: data.resetsAt ? new Date(data.resetsAt * 1000).toISOString() : undefined,
+            status: data.status,
           },
         ],
       };

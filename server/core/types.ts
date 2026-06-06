@@ -207,6 +207,8 @@ export interface ProviderRateLimitWindow {
   usedPercent?: number;
   windowMinutes?: number;
   resetAt?: string;
+  /** "allowed" | "allowed_warning" | "rejected" — from Claude rate_limit_event */
+  status?: string;
 }
 
 export interface ProviderRateLimitStatus {

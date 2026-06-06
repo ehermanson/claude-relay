@@ -1,8 +1,10 @@
 import { Info, TerminalSquare } from "lucide-react";
-import type { SessionStats } from "@shared/types";
+import type { ProviderKind, SessionStats } from "@shared/types";
 import { Button } from "../ui/button";
 import { Tooltip } from "../ui/tooltip";
 import { ContextRing } from "@/components/ui/context-ring";
+import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
+import { worstRateLimitStatus } from "@/lib/utils";
 
 export function HeaderIconSkeleton({ className = "" }: { className?: string }) {
   return (
@@ -28,14 +30,27 @@ export function HeaderContextToggle({
   active,
   onClick,
   tooltip,
+  provider,
 }: {
   stats?: SessionStats | null;
   active?: boolean;
   onClick?: () => void;
   tooltip?: string;
+  provider?: ProviderKind;
 }) {
+  const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
+  const rateLimits = provider ? (providerGlobalState[provider]?.account?.rateLimits ?? []) : [];
+  const rateLimitStatus = worstRateLimitStatus(rateLimits);
+
   if (stats?.contextTokens) {
-    return <ContextRing stats={stats} active={active} onClick={onClick} />;
+    return (
+      <ContextRing
+        stats={stats}
+        active={active}
+        onClick={onClick}
+        rateLimitStatus={rateLimitStatus}
+      />
+    );
   }
 
   return (

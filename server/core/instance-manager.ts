@@ -371,6 +371,64 @@ const PLAN_TRANSCRIPT_RE = /read the full transcript at:\s*(\S+\.jsonl)/;
 const TRANSCRIPT_AVAILABLE_RE = /^Full transcript available at:\s+(\S+)$/;
 const COMPACT_COMMAND_RE = /^\s*\/compact\s*$/i;
 
+// =============================================================================
+// Rate-limit merge helpers
+// =============================================================================
+
+/** Severity ordering: rejected > allowed_warning > allowed */
+const RL_SEVERITY: Record<string, number> = { rejected: 2, allowed_warning: 1, allowed: 0 };
+function rlSeverity(status?: string): number {
+  return RL_SEVERITY[status ?? "allowed"] ?? 0;
+}
+
+/**
+ * Merge incoming rate limit windows against the previously stored ones,
+ * keeping the more severe status unless the window's resetAt has already
+ * passed. This prevents a new session's opening "allowed" event from
+ * wiping out a "rejected" status that is still active.
+ */
+function mergeRateLimitWindows(
+  prevWindows: import("#core/types.js").ProviderRateLimitWindow[] | undefined,
+  patchWindows: import("#core/types.js").ProviderRateLimitWindow[] | undefined,
+): import("#core/types.js").ProviderRateLimitWindow[] | undefined {
+  if (!patchWindows) return prevWindows?.map((w) => ({ ...w }));
+  return patchWindows.map((pw, i) => {
+    const prev = prevWindows?.[i];
+    if (!prev) return { ...pw };
+    if (rlSeverity(prev.status) > rlSeverity(pw.status)) {
+      // Only allow downgrade once the reset window has actually passed.
+      const resetAt = prev.resetAt ? new Date(prev.resetAt).getTime() : null;
+      if (!resetAt || Date.now() < resetAt) {
+        return { ...pw, status: prev.status, usedPercent: prev.usedPercent ?? pw.usedPercent };
+      }
+    }
+    return { ...pw };
+  });
+}
+
+/**
+ * Merge incoming rate limit statuses against previously stored ones,
+ * matching limits by scope/name and delegating window merging to
+ * mergeRateLimitWindows.
+ */
+function mergeRateLimits(
+  prev: import("#core/types.js").ProviderRateLimitStatus[] | undefined,
+  patch: import("#core/types.js").ProviderRateLimitStatus[] | undefined,
+): import("#core/types.js").ProviderRateLimitStatus[] | undefined {
+  if (!patch) return prev?.map((l) => ({ ...l }));
+  return patch.map((patchLimit) => {
+    const prevLimit = prev?.find(
+      (pl) =>
+        (patchLimit.scope && pl.scope === patchLimit.scope) ||
+        (patchLimit.name && pl.name === patchLimit.name),
+    );
+    return {
+      ...patchLimit,
+      windows: mergeRateLimitWindows(prevLimit?.windows, patchLimit.windows),
+    };
+  });
+}
+
 /**
  * Strip internal Claude CLI XML tags from message text.
  * These are metadata injected by the CLI (system reminders, local command
@@ -2531,7 +2589,7 @@ export class InstanceManager extends EventEmitter {
             ...prev?.account,
             ...patch.account,
             rateLimits: patch.account.rateLimits
-              ? patch.account.rateLimits.map((limit) => ({ ...limit }))
+              ? mergeRateLimits(prev?.account?.rateLimits, patch.account.rateLimits)
               : prev?.account?.rateLimits?.map((limit) => ({ ...limit })),
           }
         : prev?.account

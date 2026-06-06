@@ -11,6 +11,7 @@ import {
   getContextWindowUsage,
   getDisplaySessionStats,
   instanceStatusVariant,
+  rateLimitColorClass,
 } from "../../lib/utils";
 import type {
   SessionStats,
@@ -154,13 +155,7 @@ function ContextWindowBar({
           ))
         ) : (
           <div
-            className={`h-full shrink-0 ${
-              contextUsage.usagePct > 90
-                ? "bg-red-400"
-                : contextUsage.usagePct > 70
-                  ? "bg-amber-400"
-                  : "bg-accent"
-            }`}
+            className={`h-full shrink-0 ${rateLimitColorClass(null, contextUsage.usagePct)}`}
             style={{ width: `${Math.min(contextUsage.usagePct, 100)}%` }}
           />
         )}
