@@ -17,6 +17,7 @@ import type {
   ReasoningEffort,
 } from "@shared/types";
 import { BUILTIN_PROVIDER_MODELS, getProviderDisplayName } from "@shared/provider-catalog";
+import type { ProviderModelsEntry } from "@/hooks/use-provider-models";
 import { Menu } from "../../ui/menu";
 import { Tooltip } from "../../ui/tooltip";
 import { ProviderLogo } from "@/components/ui/provider-logo";
@@ -29,6 +30,10 @@ interface ProviderModelPickerProps {
   preferredModel?: string;
   availableProviders: ProviderDescriptor[];
   currentProviderModels: ProviderModelOption[];
+  /** Discovered models + resolved default per provider, used to render
+   *  non-current provider panels (falls back to the builtin catalog for
+   *  providers not yet loaded). */
+  providerModelsByProvider?: Partial<Record<ProviderKind, ProviderModelsEntry>>;
   currentDefaultModelId?: string;
   modelLabel: string;
   onSelectModel: (model: string | null, label?: string) => void;
@@ -44,6 +49,7 @@ export function ProviderModelPicker({
   preferredModel,
   availableProviders,
   currentProviderModels,
+  providerModelsByProvider,
   currentDefaultModelId,
   modelLabel,
   onSelectModel,
@@ -56,28 +62,34 @@ export function ProviderModelPicker({
     optionProvider: ProviderKind,
     models: ProviderModelOption[],
     isCurrent: boolean,
+    discoveredDefault?: ProviderModelOption,
   ) => {
     const defaultModel = isCurrent
       ? (models.find((model) => model.id === currentDefaultModelId) ??
         models.find((model) => model.isDefault) ??
         models[0])
-      : (models.find((model) => model.isDefault) ?? models[0]);
+      : (discoveredDefault ?? models.find((model) => model.isDefault) ?? models[0]);
 
     return (
       <>
-        {isCurrent && (
-          <Menu.Item
-            onClick={() => {
-              onSelectModel(null, defaultModel?.label ?? "Default");
-              onOpenChange(false);
-            }}
-          >
-            <span className="min-w-0 flex-1 truncate">
-              Default{defaultModel ? ` (${defaultModel.label})` : ""}
-            </span>
-            {!preferredModel && <Check size={14} strokeWidth={2.5} className="shrink-0" />}
-          </Menu.Item>
-        )}
+        <Menu.Item
+          onClick={() => {
+            const defaultLabel = defaultModel?.label ?? "Default";
+            if (isCurrent) {
+              onSelectModel(null, defaultLabel);
+            } else {
+              onSelectProviderModel?.(optionProvider, null, defaultLabel);
+            }
+            onOpenChange(false);
+          }}
+        >
+          <span className="min-w-0 flex-1 truncate">
+            Default{defaultModel ? ` (${defaultModel.label})` : ""}
+          </span>
+          {isCurrent && !preferredModel && (
+            <Check size={14} strokeWidth={2.5} className="shrink-0" />
+          )}
+        </Menu.Item>
         {models.map((model) => {
           const isDefault = model.id === defaultModel?.id;
           const isSelected = isCurrent ? preferredModel === model.id : false;
@@ -126,13 +138,15 @@ export function ProviderModelPicker({
         {availableProviders.map((option) => {
           const isCurrent = option.provider === provider;
           const optionLabel = option.provider === "claude" ? "Claude" : option.label;
+          const entry = isCurrent ? undefined : providerModelsByProvider?.[option.provider];
           const models = isCurrent
             ? currentProviderModels
-            : (BUILTIN_PROVIDER_MODELS[option.provider] as ProviderModelOption[]);
+            : (entry?.models ??
+              (BUILTIN_PROVIDER_MODELS[option.provider] as ProviderModelOption[]));
           if (singleProvider) {
             return (
               <Fragment key={option.provider}>
-                {renderModelItems(option.provider, models, isCurrent)}
+                {renderModelItems(option.provider, models, isCurrent, entry?.defaultModel)}
               </Fragment>
             );
           }
@@ -146,7 +160,7 @@ export function ProviderModelPicker({
                 <ChevronRight size={14} strokeWidth={2} className="shrink-0 opacity-50" />
               </Menu.SubTrigger>
               <Menu.SubContent className="min-w-44">
-                {renderModelItems(option.provider, models, isCurrent)}
+                {renderModelItems(option.provider, models, isCurrent, entry?.defaultModel)}
               </Menu.SubContent>
             </Menu.Sub>
           );

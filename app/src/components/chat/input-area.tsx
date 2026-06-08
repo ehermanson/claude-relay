@@ -24,7 +24,7 @@ import { useAttachmentState } from "@/components/chat/input-area/use-attachment-
 import { useAvailableProviders } from "@/hooks/use-available-providers";
 import { useComposerMenus } from "@/components/chat/input-area/use-composer-menus";
 import { useComposerState } from "@/components/chat/input-area/use-composer-state";
-import { useProviderModels } from "@/hooks/use-provider-models";
+import { useProviderModels, useProviderModelsMap } from "@/hooks/use-provider-models";
 import { useProviderSwitchState } from "@/components/chat/input-area/use-provider-switch-state";
 import { ComposerEditorHandle } from "@/components/chat/composer-editor";
 import { PlanReviewPanel, type PlanComment } from "@/components/chat/plan-review-card";
@@ -261,6 +261,10 @@ export function InputArea({
   const { showModelMenu, setShowModelMenu, availableProviderModels, capabilities, defaultModel } =
     useProviderModels(displayedProvider);
   const { providers: availableProviders } = useAvailableProviders();
+  const providerModelsByProvider = useProviderModelsMap(
+    availableProviders.map((entry) => entry.provider),
+    { enabled: showModelMenu },
+  );
   const {
     showProviderSwitchDialog,
     providerSwitchTarget,
@@ -697,6 +701,7 @@ export function InputArea({
         preferredModel={displayedPreferredModel}
         availableProviders={providerPickerProviders}
         currentProviderModels={currentProviderModels}
+        providerModelsByProvider={providerModelsByProvider}
         currentDefaultModelId={defaultModel?.id}
         modelLabel={modelLabel}
         onSelectModel={setModel}

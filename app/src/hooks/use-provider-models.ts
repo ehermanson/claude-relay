@@ -1,8 +1,12 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import type { ProviderCapabilities, ProviderKind, ProviderModelOption } from "@shared/types";
 import { getDefaultProviderCapabilities } from "@shared/provider-catalog";
 import { fetchProviderModels } from "@/lib/api";
+
+// Discovered models change rarely; cache for a minute so opening the picker for
+// several providers doesn't refire discovery on every render/mount.
+const PROVIDER_MODELS_STALE_TIME = 60_000;
 
 export function useProviderModels(provider?: ProviderKind) {
   const [showModelMenu, setShowModelMenu] = useState(false);
@@ -12,6 +16,7 @@ export function useProviderModels(provider?: ProviderKind) {
     queryKey: ["providerModels", provider],
     queryFn: () => fetchProviderModels(provider!),
     enabled: !!provider,
+    staleTime: PROVIDER_MODELS_STALE_TIME,
   });
 
   const availableProviderModels: ProviderModelOption[] =
@@ -27,4 +32,49 @@ export function useProviderModels(provider?: ProviderKind) {
     capabilities,
     defaultModel,
   };
+}
+
+export interface ProviderModelsEntry {
+  models: ProviderModelOption[];
+  /** Backend-resolved default for this provider (may differ from any model's
+   *  `isDefault` flag), used to render default labels/badges. */
+  defaultModel?: ProviderModelOption;
+}
+
+/**
+ * Fetch discovered (non-hidden) models for several providers at once, keyed by
+ * provider. Shares React Query's cache with `useProviderModels` (same query
+ * key), so the currently-active provider's fetch is deduplicated. Providers
+ * whose discovery hasn't resolved yet are simply absent from the map — callers
+ * should fall back to the builtin catalog for those.
+ *
+ * Pass `enabled: false` to keep the queries idle (e.g. until the model picker
+ * is opened) — discovery can spawn provider processes, so it should not run on
+ * every chat render.
+ */
+export function useProviderModelsMap(
+  providers: ProviderKind[],
+  options: { enabled?: boolean } = {},
+): Partial<Record<ProviderKind, ProviderModelsEntry>> {
+  const enabled = options.enabled ?? true;
+  const results = useQueries({
+    queries: providers.map((provider) => ({
+      queryKey: ["providerModels", provider],
+      queryFn: () => fetchProviderModels(provider),
+      staleTime: PROVIDER_MODELS_STALE_TIME,
+      enabled,
+    })),
+  });
+
+  const map: Partial<Record<ProviderKind, ProviderModelsEntry>> = {};
+  providers.forEach((provider, index) => {
+    const data = results[index]?.data;
+    if (data) {
+      map[provider] = {
+        models: data.models.filter((model) => !model.hidden),
+        defaultModel: data.defaultModel,
+      };
+    }
+  });
+  return map;
 }
