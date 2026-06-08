@@ -20,14 +20,20 @@ import {
 import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { Menu } from "../ui/menu";
 import { Badge } from "../ui/badge";
+import { Tooltip } from "../ui/tooltip";
 import { TerminalRunningIndicator } from "../ui/terminal-running-indicator";
-import type { SpaceInfo } from "@shared/types";
+import { dotClassToTextColor } from "../ui/session-indicator";
+import { deriveInstanceStatusPresentation } from "@/lib/utils";
+import { useUnreadStore, selectHasUnread } from "@/stores/unread-store";
+import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
 interface SidebarSpaceGroupProps {
   space: SpaceInfo;
   projectId: string;
   latestChatId?: string;
   isActive: boolean;
+  /** Chats belonging to this space — drives the aggregate branch-icon state. */
+  chats?: InstanceInfo[];
 }
 
 export function SidebarSpaceGroup({
@@ -35,6 +41,7 @@ export function SidebarSpaceGroup({
   projectId,
   latestChatId,
   isActive,
+  chats,
 }: SidebarSpaceGroupProps) {
   const actions = useSidebarActions();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -46,6 +53,52 @@ export function SidebarSpaceGroup({
   const isSpaceBroken = space.status === "broken";
   const isClosed = space.status === "completed" || space.status === "archived";
   const spaceRoute = getSpaceRoute(projectId, space.id, latestChatId);
+
+  // Aggregate the live state of the space's chats onto the branch icon so
+  // activity is visible without opening the space. Precedence (highest wins):
+  // running (processing / waiting-on-permission) > error > unread > none.
+  // Closed spaces stay on the baseline color.
+  const members = chats ?? [];
+  const pendingCount = members.filter((c) => c.status !== "stopped" && !!c.pendingTool).length;
+  const runningCount = members.filter(
+    (c) => c.status === "processing" || (c.status !== "stopped" && !!c.pendingTool),
+  ).length;
+  const errorCount = members.filter((c) => c.status === "error").length;
+  const unreadCount = useUnreadStore((s) =>
+    members.reduce((n, c) => n + (selectHasUnread(s, c.id, c.lastActivityAt) ? 1 : 0), 0),
+  );
+
+  let aggSynthetic: Pick<InstanceInfo, "status" | "external" | "pendingTool"> | null = null;
+  let aggTooltip = "";
+  if (!isClosed) {
+    if (runningCount > 0) {
+      aggSynthetic = {
+        status: "processing",
+        external: false,
+        pendingTool: pendingCount > 0 ? "pending" : undefined,
+      };
+      aggTooltip =
+        pendingCount > 0
+          ? `${pendingCount} chat${pendingCount === 1 ? "" : "s"} waiting for permission`
+          : `${runningCount} chat${runningCount === 1 ? "" : "s"} running`;
+    } else if (errorCount > 0) {
+      aggSynthetic = { status: "error", external: false, pendingTool: undefined };
+      aggTooltip = `${errorCount} chat${errorCount === 1 ? "" : "s"} errored`;
+    } else if (unreadCount > 0) {
+      aggSynthetic = { status: "idle", external: false, pendingTool: undefined };
+      aggTooltip = `${unreadCount} unread chat${unreadCount === 1 ? "" : "s"}`;
+    }
+  }
+  const aggPresentation = aggSynthetic ? deriveInstanceStatusPresentation(aggSynthetic) : null;
+  // Activity color overrides the active-space accent baseline.
+  const branchColorClass = aggPresentation
+    ? dotClassToTextColor(aggPresentation.dotClass)
+    : isActive
+      ? "text-accent"
+      : "text-muted";
+  const branchAnimate = aggPresentation?.dotClass.includes("animate-pulse-dot")
+    ? "animate-pulse-dot"
+    : "";
 
   useEffect(() => {
     if (editing) {
@@ -82,13 +135,19 @@ export function SidebarSpaceGroup({
             : "text-text hover:bg-surface-hover"
       }`}
     >
-      {/* Branch icon */}
+      {/* Branch icon — reflects the aggregate state of the space's chats */}
       <span className="absolute left-2 top-2 flex h-4 w-4 items-center justify-center">
-        <GitBranch
-          size={12}
-          strokeWidth={2.5}
-          className={isActive ? "text-accent" : "text-muted"}
-        />
+        {aggTooltip ? (
+          <Tooltip content={aggTooltip} side="right">
+            <GitBranch
+              size={12}
+              strokeWidth={2.5}
+              className={`${branchColorClass} ${branchAnimate}`}
+            />
+          </Tooltip>
+        ) : (
+          <GitBranch size={12} strokeWidth={2.5} className={branchColorClass} />
+        )}
       </span>
 
       {/* Name + branch */}

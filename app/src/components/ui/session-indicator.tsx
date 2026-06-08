@@ -69,7 +69,7 @@ export function SessionIndicator({
 }
 
 /** Map a dotClass like "bg-accent" / "bg-warning" / "bg-error" to a text color. */
-function dotClassToTextColor(dotClass: string): string {
+export function dotClassToTextColor(dotClass: string): string {
   if (dotClass.includes("bg-warning")) return "text-warning";
   if (dotClass.includes("bg-error")) return "text-error";
   if (dotClass.includes("bg-accent")) return "text-accent";

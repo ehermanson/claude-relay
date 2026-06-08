@@ -421,6 +421,7 @@ export function SidebarProjectGroup({
                     projectId={routeProjectId}
                     latestChatId={latestChatIdBySpace?.[space.id]}
                     isActive={activeSpaceId === space.id}
+                    chats={groupInstances.filter((inst) => inst.spaceId === space.id)}
                   />
                 ))}
 
