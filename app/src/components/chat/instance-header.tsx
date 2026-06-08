@@ -36,7 +36,13 @@ import { OpenInMenu } from "../project/open-in-menu";
 import { HeaderContextToggle, HeaderIconSkeleton, HeaderTerminalToggle } from "./header-actions";
 import { CommitMessageDialog } from "../git/commit-message-dialog";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
-import { fetchInstanceGitStatus, gitCommitInstance, gitPushInstance } from "../../lib/api";
+import {
+  fetchInstanceGitStatus,
+  gitCommitInstance,
+  gitFetchInstance,
+  gitPullInstance,
+  gitPushInstance,
+} from "../../lib/api";
 import { deriveInstanceStatusPresentation } from "../../lib/utils";
 import type { InstanceInfo, ProviderKind, ProviderNotice, SessionStats } from "@shared/types";
 import type { SidecarTab } from "./sidecar";
@@ -413,6 +419,30 @@ export function InstanceHeader({
     }
   };
 
+  const handleFetch = async () => {
+    const result = await gitFetchInstance(instance.id);
+    if (result.success) {
+      toast.success("Fetched from remote");
+      invalidateGitStatus();
+    } else {
+      toast.error(result.error || "Fetch failed");
+    }
+  };
+
+  const handlePull = async () => {
+    const ahead = gitStatus?.aheadBehind?.ahead ?? 0;
+    const behind = gitStatus?.aheadBehind?.behind ?? 0;
+    // Diverged (ahead *and* behind) can't fast-forward — rebase onto remote.
+    const diverged = ahead > 0 && behind > 0;
+    const result = await gitPullInstance(instance.id, { rebase: diverged });
+    if (result.success) {
+      toast.success(diverged ? "Rebased onto remote" : "Pulled from remote");
+      invalidateGitStatus();
+    } else {
+      toast.error(result.error || "Pull failed");
+    }
+  };
+
   const openPushDialog = () => {
     setPushDialogOpen(true);
     setPushStatus(null);
@@ -595,6 +625,8 @@ export function InstanceHeader({
             behind={gitStatus?.aheadBehind?.behind}
             statusLoading={gitStatusLoading}
             onCommit={gitStatus?.dirty ? () => setCommitDialogOpen(true) : undefined}
+            onFetch={() => void handleFetch()}
+            onPull={() => void handlePull()}
             onPush={openPushDialog}
           />
         )}

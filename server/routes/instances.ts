@@ -4,6 +4,8 @@ import {
   getCommitsAhead,
   getDefaultBranch,
   getWorktreeStatus,
+  gitFetch,
+  gitPull,
   gitPush,
   isWorktreeDirty,
 } from "#core/git.js";
@@ -180,5 +182,26 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "Failed to push" }, 400);
     }
+  });
+
+  app.post("/api/instances/:id/git/fetch", async (c) => {
+    const instance = instanceManager.getInstance(c.req.param("id"));
+    if (!instance) {
+      return c.json({ error: "Instance not found" }, 404);
+    }
+    const result = await gitFetch(instance.workingDirectory);
+    return c.json(result, result.success ? 200 : 400);
+  });
+
+  app.post("/api/instances/:id/git/pull", async (c) => {
+    const instance = instanceManager.getInstance(c.req.param("id"));
+    if (!instance) {
+      return c.json({ error: "Instance not found" }, 404);
+    }
+    const body = await readJsonBody<{ rebase?: boolean }>(c).catch(
+      () => ({}) as { rebase?: boolean },
+    );
+    const result = await gitPull(instance.workingDirectory, { rebase: body.rebase === true });
+    return c.json(result, result.success ? 200 : 400);
   });
 }

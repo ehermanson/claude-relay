@@ -25,6 +25,9 @@ import {
   getWorktreeStatus,
   hasWorktreeChanges,
   commitAll,
+  gitPull,
+  gitFetch,
+  getAheadBehind,
 } from "../dist/server/core/git.js";
 
 let seedRepoDir;
@@ -382,5 +385,122 @@ describe("worktree lifecycle", () => {
 
     // Prevent afterEach from trying to clean up again
     worktreeResult = null;
+  });
+});
+
+describe("gitPull", () => {
+  let root;
+  let remote;
+  let cloneA;
+  let cloneB;
+
+  const git = (cwd, args) => execSync(`git ${args}`, { cwd, stdio: "pipe" });
+
+  const configIdentity = (dir) => {
+    git(dir, "config user.email test@example.com");
+    git(dir, "config user.name Test");
+    git(dir, "config commit.gpgsign false");
+  };
+
+  const cloneOf = (name) => {
+    git(root, `clone --quiet ${remote} ${name}`);
+    const dir = join(root, name);
+    configIdentity(dir);
+    return dir;
+  };
+
+  const addCommit = (dir, file, contents, message) => {
+    writeFileSync(join(dir, file), contents);
+    git(dir, "add -A");
+    git(dir, `commit -m ${message}`);
+  };
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "relay-git-pull-"));
+    remote = join(root, "remote.git");
+    mkdirSync(remote, { recursive: true });
+    git(remote, "init --bare -b main");
+
+    // cloneA seeds the shared history and pushes it as origin/main.
+    cloneA = cloneOf("a");
+    addCommit(cloneA, "file.txt", "base\n", "base");
+    git(cloneA, "push -u origin main");
+
+    // cloneB starts from that same base, tracking origin/main.
+    cloneB = cloneOf("b");
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("fast-forwards when only behind the remote", async () => {
+    addCommit(cloneA, "file.txt", "base\nupstream\n", "upstream");
+    git(cloneA, "push origin main");
+
+    const result = await gitPull(cloneB);
+    assert.deepEqual(result, { success: true });
+    assert.match(execSync("cat file.txt", { cwd: cloneB, encoding: "utf8" }), /upstream/);
+    assert.deepEqual(getAheadBehind(cloneB), { ahead: 0, behind: 0 });
+  });
+
+  it("ff-only pull fails on a diverged branch, rebase pull succeeds", async () => {
+    addCommit(cloneB, "local.txt", "local\n", "local");
+    addCommit(cloneA, "file.txt", "base\nupstream\n", "upstream");
+    git(cloneA, "push origin main");
+
+    await gitFetch(cloneB);
+    assert.deepEqual(getAheadBehind(cloneB), { ahead: 1, behind: 1 });
+
+    const ffOnly = await gitPull(cloneB);
+    assert.equal(ffOnly.success, false);
+
+    const rebased = await gitPull(cloneB, { rebase: true });
+    assert.deepEqual(rebased, { success: true });
+    // Local commit replayed on top of upstream: ahead 1 (unpushed), behind 0.
+    assert.deepEqual(getAheadBehind(cloneB), { ahead: 1, behind: 0 });
+    assert.match(execSync("cat file.txt", { cwd: cloneB, encoding: "utf8" }), /upstream/);
+    assert.match(execSync("cat local.txt", { cwd: cloneB, encoding: "utf8" }), /local/);
+  });
+
+  it("does not rebase when rebase is not requested (flag is respected)", async () => {
+    addCommit(cloneB, "local.txt", "local\n", "local");
+    addCommit(cloneA, "file.txt", "base\nupstream\n", "upstream");
+    git(cloneA, "push origin main");
+
+    // Explicit falsy flag must keep ff-only semantics — which fail on divergence.
+    const result = await gitPull(cloneB, { rebase: false });
+    assert.equal(result.success, false);
+  });
+
+  it("auto-stashes a dirty worktree during a rebase pull", async () => {
+    addCommit(cloneB, "local.txt", "local\n", "local");
+    writeFileSync(join(cloneB, "file.txt"), "base\ndirty-edit\n"); // uncommitted
+    addCommit(cloneA, "other.txt", "upstream\n", "upstream");
+    git(cloneA, "push origin main");
+
+    const result = await gitPull(cloneB, { rebase: true });
+    assert.deepEqual(result, { success: true });
+    // Autostash should have restored the uncommitted edit.
+    assert.match(execSync("cat file.txt", { cwd: cloneB, encoding: "utf8" }), /dirty-edit/);
+  });
+
+  it("preserves a local merge commit when rebasing a diverged branch", async () => {
+    // Build a local merge commit on cloneB's main.
+    git(cloneB, "checkout -b side");
+    addCommit(cloneB, "side.txt", "side\n", "side");
+    git(cloneB, "checkout main");
+    git(cloneB, "merge --no-ff side -m merge");
+
+    addCommit(cloneA, "file.txt", "base\nupstream\n", "upstream");
+    git(cloneA, "push origin main");
+
+    const result = await gitPull(cloneB, { rebase: true });
+    assert.deepEqual(result, { success: true });
+    // --rebase=merges keeps the merge commit instead of flattening it.
+    const mergeCount = Number(
+      execSync("git rev-list --merges --count HEAD", { cwd: cloneB, encoding: "utf8" }).trim(),
+    );
+    assert.ok(mergeCount >= 1, `expected a merge commit to survive, got ${mergeCount}`);
   });
 });

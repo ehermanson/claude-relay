@@ -480,6 +480,25 @@ export async function gitCommitInstance(
   return res.json();
 }
 
+export async function gitFetchInstance(instanceId: string): Promise<GitOpResult> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/git/fetch`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function gitPullInstance(
+  instanceId: string,
+  opts?: { rebase?: boolean },
+): Promise<GitOpResult> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/git/pull`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
+  });
+  return res.json();
+}
+
 // =========================================================================
 // Project CRUD
 // =========================================================================
@@ -746,9 +765,14 @@ export async function gitFetch(projectId: string): Promise<GitOpResult> {
   return res.json();
 }
 
-export async function gitPull(projectId: string): Promise<GitOpResult> {
+export async function gitPull(
+  projectId: string,
+  opts?: { rebase?: boolean },
+): Promise<GitOpResult> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/git/pull`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts ?? {}),
   });
   return res.json();
 }

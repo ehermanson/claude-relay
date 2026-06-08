@@ -1457,11 +1457,19 @@ export async function gitFetch(dir: string): Promise<{ success: boolean; error?:
 }
 
 /**
- * Pull with fast-forward only (safe default).
+ * Pull from remote. Defaults to fast-forward only (safe). Pass `rebase: true`
+ * for diverged branches (local ahead *and* behind) where a fast-forward is
+ * impossible — replays local commits on top of the remote. Uses
+ * `--rebase-merges` to preserve any local merge topology rather than flattening
+ * it, and `--autostash` so a dirty worktree isn't required.
  */
-export async function gitPull(dir: string): Promise<{ success: boolean; error?: string }> {
+export async function gitPull(
+  dir: string,
+  opts?: { rebase?: boolean },
+): Promise<{ success: boolean; error?: string }> {
+  const args = opts?.rebase ? ["pull", "--rebase=merges", "--autostash"] : ["pull", "--ff-only"];
   try {
-    await execFileAsync("git", ["pull", "--ff-only"], {
+    await execFileAsync("git", args, {
       cwd: dir,
       timeout: 30000,
     });

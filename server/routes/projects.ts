@@ -310,7 +310,10 @@ export function registerProjectRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
       return c.json({ error: "Project not found" }, 404);
     }
     const dir = project.repoRoot || project.directory;
-    const result = await gitPull(dir);
+    const body = await readJsonBody<{ rebase?: boolean }>(c).catch(
+      () => ({}) as { rebase?: boolean },
+    );
+    const result = await gitPull(dir, { rebase: body.rebase === true });
     return c.json(result, result.success ? 200 : 400);
   });
 

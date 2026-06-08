@@ -22,6 +22,7 @@ import {
   GitMerge,
   GitPullRequest,
   Loader2,
+  RefreshCw,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -58,6 +59,10 @@ interface GitBadgeProps {
   // ── Actions (each optional — only rendered if provided) ──
 
   onCommit?: () => void | Promise<void>;
+  /** Fetch remote refs (refreshes ahead/behind without merging) */
+  onFetch?: () => void | Promise<void>;
+  /** Pull from remote (ff-only, or rebase when diverged) */
+  onPull?: () => void | Promise<void>;
   onPush?: () => void | Promise<void>;
   onPushAndCreatePR?: () => void | Promise<void>;
   onMerge?: () => void | Promise<void>;
@@ -183,6 +188,8 @@ export function GitBadge({
   behind = 0,
   statusLoading,
   onCommit,
+  onFetch,
+  onPull,
   onPush,
   onPushAndCreatePR,
   onMerge,
@@ -302,7 +309,9 @@ export function GitBadge({
         )}
 
         {/* Actions */}
-        {projectId && (onCommit || onPush || onPushAndCreatePR || onMerge) && <Menu.Separator />}
+        {projectId && (onCommit || onFetch || onPull || onPush || onPushAndCreatePR || onMerge) && (
+          <Menu.Separator />
+        )}
 
         {onMerge && (
           <>
@@ -317,6 +326,18 @@ export function GitBadge({
           <Menu.Item onClick={() => void onCommit()}>
             <GitCommitHorizontal size={13} className="text-muted" />
             Commit changes
+          </Menu.Item>
+        )}
+        {onFetch && (
+          <Menu.Item onClick={() => void onFetch()}>
+            <RefreshCw size={13} className="text-muted" />
+            Fetch
+          </Menu.Item>
+        )}
+        {onPull && (
+          <Menu.Item onClick={() => void onPull()} disabled={behind === 0}>
+            <ArrowDownToLine size={13} className="text-muted" />
+            {ahead > 0 && behind > 0 ? "Pull (rebase)" : "Pull"}
           </Menu.Item>
         )}
         {onPush && (

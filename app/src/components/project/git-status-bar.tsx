@@ -245,12 +245,20 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
     }
   }, [projectId, invalidate]);
 
+  const current = data?.current ?? null;
+  const ahead = data?.aheadBehind?.ahead ?? 0;
+  const behind = data?.aheadBehind?.behind ?? 0;
+  const dirty = data?.dirty ?? false;
+  // Diverged (local ahead *and* behind) can't fast-forward — rebase local
+  // commits onto the remote instead.
+  const diverged = ahead > 0 && behind > 0;
+
   const handlePull = useCallback(async () => {
     setPullLoading(true);
     try {
-      const result = await gitPull(projectId);
+      const result = await gitPull(projectId, { rebase: diverged });
       if (result.success) {
-        toast.success("Pulled from remote");
+        toast.success(diverged ? "Rebased onto remote" : "Pulled from remote");
         invalidate();
       } else {
         toast.error(result.error || "Pull failed");
@@ -258,12 +266,7 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
     } finally {
       setPullLoading(false);
     }
-  }, [projectId, invalidate]);
-
-  const current = data?.current ?? null;
-  const ahead = data?.aheadBehind?.ahead ?? 0;
-  const behind = data?.aheadBehind?.behind ?? 0;
-  const dirty = data?.dirty ?? false;
+  }, [projectId, invalidate, diverged]);
 
   const handlePush = useCallback(async () => {
     setPushLoading(true);
@@ -329,16 +332,16 @@ export function GitStatusBar({ projectId }: GitStatusBarProps) {
       <GitAction icon={RefreshCw} tooltip="Fetch" loading={fetchLoading} onClick={handleFetch} />
       <GitAction
         icon={ArrowDownToLine}
-        tooltip="Pull"
+        tooltip={diverged ? "Pull (rebase — diverged from remote)" : "Pull"}
         loading={pullLoading}
         disabled={behind === 0}
         onClick={handlePull}
       />
       <GitAction
         icon={ArrowUpFromLine}
-        tooltip="Push"
+        tooltip={behind > 0 ? "Pull before pushing — behind remote" : "Push"}
         loading={pushLoading}
-        disabled={ahead === 0}
+        disabled={ahead === 0 || behind > 0}
         onClick={handlePush}
       />
 
