@@ -1408,6 +1408,7 @@ function MockComposer({
   selectedAnswers: Record<string, string>;
   onSelectAnswer: (qId: string, answer: string) => void;
 }) {
+  const [isQuestionPanelCollapsed, setIsQuestionPanelCollapsed] = useState(false);
   const hasPlanFeedback = planComments.length > 0;
 
   const placeholder = (() => {
@@ -1420,7 +1421,11 @@ function MockComposer({
   const actionLabel = (() => {
     if (mode === "plan-review") return hasPlanFeedback ? "Send Feedback" : "Approve Plan";
     if (mode === "ask-user")
-      return Object.keys(selectedAnswers).length > 0 ? "Submit answers" : "Submit answer";
+      return isQuestionPanelCollapsed
+        ? "Show Questions"
+        : Object.keys(selectedAnswers).length > 0
+          ? "Submit answers"
+          : "Submit answer";
     return null;
   })();
 
@@ -1439,13 +1444,13 @@ function MockComposer({
           )}
 
           {mode === "ask-user" && (
-            <div className="max-h-[50vh] overflow-y-auto border-b border-border/60">
-              <AskUserQuestionPanel
-                questions={ASK_USER_QUESTIONS}
-                selectedAnswers={selectedAnswers}
-                onSelectOption={onSelectAnswer}
-              />
-            </div>
+            <AskUserQuestionPanel
+              questions={ASK_USER_QUESTIONS}
+              selectedAnswers={selectedAnswers}
+              onSelectOption={onSelectAnswer}
+              collapsed={isQuestionPanelCollapsed}
+              onToggleCollapse={() => setIsQuestionPanelCollapsed((v) => !v)}
+            />
           )}
 
           <div
@@ -1494,7 +1499,11 @@ function MockComposer({
                 </div>
               ) : actionLabel ? (
                 <button
-                  onClick={onDismiss}
+                  onClick={
+                    mode === "ask-user" && isQuestionPanelCollapsed
+                      ? () => setIsQuestionPanelCollapsed(false)
+                      : onDismiss
+                  }
                   className="h-9 rounded-full bg-accent px-4 text-[0.875rem] font-medium text-white shadow-sm transition-colors hover:bg-accent-hover hover:shadow-md"
                 >
                   {actionLabel}

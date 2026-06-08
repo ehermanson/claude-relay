@@ -299,6 +299,7 @@ export function InputArea({
   } = useComposerState(instanceId, composerRef);
   const [promptText, setPromptText] = useState("");
   const [selectedPromptAnswers, setSelectedPromptAnswers] = useState<Record<string, string>>({});
+  const [isQuestionPanelCollapsed, setIsQuestionPanelCollapsed] = useState(false);
   const [planComments, setPlanComments] = useState<PlanComment[]>([]);
   const [planFeedbackText, setPlanFeedbackText] = useState("");
   const hasPendingPlan = !!pendingPlan;
@@ -339,6 +340,7 @@ export function InputArea({
   useEffect(() => {
     setPromptText("");
     setSelectedPromptAnswers({});
+    setIsQuestionPanelCollapsed(false);
     if (promptRequestId) {
       composerRef.current?.focus();
     }
@@ -656,6 +658,8 @@ export function InputArea({
           [questionId]: answer,
         }))
       }
+      collapsed={isQuestionPanelCollapsed}
+      onToggleCollapse={() => setIsQuestionPanelCollapsed((v) => !v)}
     />
   ) : hasPendingPlan ? (
     <PlanReviewPanel
@@ -673,14 +677,18 @@ export function InputArea({
     </>
   );
   const sendLabel = hasPendingPrompt
-    ? `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
+    ? isQuestionPanelCollapsed
+      ? "Show Questions"
+      : `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
     : hasPendingPlan
       ? hasPlanFeedback
         ? "Send Feedback"
         : "Approve Plan"
       : undefined;
   const sendTooltip = hasPendingPrompt
-    ? `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
+    ? isQuestionPanelCollapsed
+      ? "Show questions to submit"
+      : `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
     : hasPendingPlan
       ? hasPlanFeedback
         ? "Send feedback (Enter)"
@@ -940,7 +948,11 @@ export function InputArea({
                 if (hasPendingPrompt) {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    handleSubmitPrompt();
+                    if (isQuestionPanelCollapsed) {
+                      setIsQuestionPanelCollapsed(false);
+                    } else {
+                      handleSubmitPrompt();
+                    }
                     return;
                   }
                   if (event.key === "Escape") {
@@ -981,7 +993,9 @@ export function InputArea({
                   onAttach={() => fileInputRef.current?.click()}
                   onSend={
                     hasPendingPrompt
-                      ? handleSubmitPrompt
+                      ? isQuestionPanelCollapsed
+                        ? () => setIsQuestionPanelCollapsed(false)
+                        : handleSubmitPrompt
                       : hasPendingPlan
                         ? handleApprovePlan
                         : handleSend
@@ -1001,7 +1015,9 @@ export function InputArea({
                   isSecondaryActionDisabled={disabled}
                   isSendDisabled={
                     hasPendingPrompt
-                      ? disabled || !canSubmitPrompt
+                      ? isQuestionPanelCollapsed
+                        ? disabled
+                        : disabled || !canSubmitPrompt
                       : disabled ||
                         uploading ||
                         (!hasPendingPlan &&
