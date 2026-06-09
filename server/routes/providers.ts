@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
-import type { ProviderModelsResponse } from "#core/types.js";
+import type { ProviderKind, ProviderModelsResponse } from "#core/types.js";
 import { mergeCapabilities, resolveProviderDefaultModelOption } from "#core/provider-catalog.js";
+import { refreshProviderVersionAdvisories } from "#core/provider-registry.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
 
 export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
@@ -36,5 +37,28 @@ export function registerProviderRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
 
   app.get("/api/providers", (c) => {
     return c.json({ providers: deps.getAvailableProviders() });
+  });
+
+  // Force-refresh provider version advisories, bypassing the 1h npm registry
+  // cache. Used by the "Re-check" button in settings. Optional `provider`
+  // query param scopes the refresh to one provider; absent = refresh all.
+  app.post("/api/providers/recheck-version", async (c) => {
+    const providerParam = c.req.query("provider");
+    const known = deps.getAvailableProviders().map((p) => p.provider);
+    if (providerParam && !known.includes(providerParam as ProviderKind)) {
+      return c.json({ error: "Invalid provider" }, 400);
+    }
+    try {
+      await refreshProviderVersionAdvisories({
+        provider: providerParam ? (providerParam as ProviderKind) : undefined,
+        force: true,
+      });
+      return c.json({ providers: deps.getAvailableProviders() });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Failed to recheck provider version" },
+        500,
+      );
+    }
   });
 }

@@ -28,8 +28,10 @@ import type {
   TaskItem,
 } from "#core/types.js";
 import { createSdkSessionSync, getSdkDiscoveredModels } from "#core/providers/claude-sdk.js";
-import { isClaudeInstalled } from "#core/providers/claude-cli.js";
-import { isCodexInstalled } from "#core/providers/codex-cli.js";
+import { findClaudeBinary, isClaudeInstalled } from "#core/providers/claude-cli.js";
+import { findCodexBinary, isCodexInstalled } from "#core/providers/codex-cli.js";
+import { buildVersionAdvisory } from "#core/provider-versions.js";
+import type { ProviderVersionAdvisory } from "#core/types.js";
 import { discoverCodexModels, getCachedCodexModels } from "#core/providers/codex-models.js";
 import { CodexAppServerSession } from "#core/providers/codex-app-server.js";
 import { findCodexTranscriptPath, parseCodexTranscript } from "#core/providers/codex-transcript.js";
@@ -868,11 +870,108 @@ export function isProviderAvailable(
   return getProviderDriver(provider).isAvailable(context);
 }
 
+// ─── Version advisory cache ─────────────────────────────────────────────────
+//
+// Background-refreshed in-memory cache: probes each available provider's
+// installed CLI vs the latest npm version, stashes the result here, and
+// `getProviderCapabilities()` merges it into the descriptor returned to the
+// UI. First-paint descriptors carry no advisory (status reads as "unknown" on
+// the client) — the probe completes a few seconds later and the next refetch
+// of `/api/providers` picks up the populated advisory.
+
+const ADVISORY_REFRESH_INTERVAL_MS = 30 * 60 * 1_000;
+const versionAdvisoryCache = new Map<ProviderKind, ProviderVersionAdvisory>();
+let advisoryRefreshTimer: NodeJS.Timeout | null = null;
+let inflightProbes = new Map<ProviderKind, Promise<void>>();
+
+const PROVIDER_BINARY_LOCATORS: Partial<Record<ProviderKind, () => string | null>> = {
+  claude: findClaudeBinary,
+  codex: findCodexBinary,
+};
+
+export function getCachedVersionAdvisory(
+  provider: ProviderKind,
+): ProviderVersionAdvisory | undefined {
+  return versionAdvisoryCache.get(provider);
+}
+
+async function probeProviderVersionAdvisory(
+  provider: ProviderKind,
+  options: { force?: boolean } = {},
+): Promise<void> {
+  const locator = PROVIDER_BINARY_LOCATORS[provider];
+  if (!locator) return;
+  const binaryPath = locator();
+  const advisory = await buildVersionAdvisory({
+    provider,
+    binaryPath,
+    force: options.force,
+  });
+  versionAdvisoryCache.set(provider, advisory);
+}
+
+/**
+ * Refresh advisories for one or all providers. Probes run in parallel; each
+ * provider's probe is deduped via `inflightProbes` so concurrent callers (e.g.
+ * UI mount + the background timer) share a single probe.
+ *
+ * Returns when all relevant probes complete. Never throws — individual probe
+ * failures are absorbed by `buildVersionAdvisory()` which returns a status:
+ * "unknown" advisory.
+ */
+export async function refreshProviderVersionAdvisories(
+  options: {
+    provider?: ProviderKind;
+    force?: boolean;
+  } = {},
+): Promise<void> {
+  const candidates: ProviderKind[] = options.provider
+    ? [options.provider]
+    : (Object.keys(PROVIDER_BINARY_LOCATORS) as ProviderKind[]);
+
+  await Promise.all(
+    candidates.map((provider) => {
+      const existing = inflightProbes.get(provider);
+      if (existing && !options.force) return existing;
+      const probe = probeProviderVersionAdvisory(provider, options).finally(() => {
+        inflightProbes.delete(provider);
+      });
+      inflightProbes.set(provider, probe);
+      return probe;
+    }),
+  );
+}
+
+function ensureAdvisoryRefreshTimer(): void {
+  if (advisoryRefreshTimer) return;
+  // Kick off an initial probe non-blocking; subsequent probes fire every 30min.
+  void refreshProviderVersionAdvisories();
+  advisoryRefreshTimer = setInterval(() => {
+    void refreshProviderVersionAdvisories();
+  }, ADVISORY_REFRESH_INTERVAL_MS);
+  // Don't keep the process alive just for the version probe.
+  advisoryRefreshTimer.unref?.();
+}
+
+/** Test-only: stop the background advisory refresh timer. */
+export function stopAdvisoryRefreshForTests(): void {
+  if (advisoryRefreshTimer) {
+    clearInterval(advisoryRefreshTimer);
+    advisoryRefreshTimer = null;
+  }
+  versionAdvisoryCache.clear();
+  inflightProbes = new Map();
+}
+
 export function listAvailableProviders(context: ProviderDriverContext): ProviderDescriptor[] {
   // Testing override: set RELAY_HIDE_PROVIDERS=1 to simulate no providers installed
   if (process.env.RELAY_HIDE_PROVIDERS === "1") {
     return [];
   }
+
+  // Lazily start the background refresh on first descriptor request so test
+  // environments that never call this don't accumulate stray intervals.
+  ensureAdvisoryRefreshTimer();
 
   return (Object.keys(PROVIDER_DRIVERS) as ProviderKind[])
     .filter((provider) => isProviderAvailable(provider, context))
@@ -895,7 +994,11 @@ export function getProviderCapabilities(provider: ProviderKind): ProviderCapabil
   // (derived from SDK discovery in getModels()) are applied via
   // mergeCapabilities() in the route — this avoids leaking capabilities from
   // one model onto another through provider-level aggregation.
-  return getProviderDriver(provider).capabilities;
+  const base = getProviderDriver(provider).capabilities;
+  const advisory = versionAdvisoryCache.get(provider);
+  // Always include a versionAdvisory if we have one cached; the UI uses its
+  // presence (vs absence) to know whether the probe has completed yet.
+  return advisory ? { ...base, versionAdvisory: advisory } : base;
 }
 
 export function createManagedProviderSession(

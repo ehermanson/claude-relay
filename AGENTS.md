@@ -147,6 +147,14 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - Settings page: `/projects/:id/settings` with textarea for instructions, branch picker, provider/model selectors
 - `SessionDB` creates the final schema directly; any DB whose `schema_version` does not match the current version is backed up and rebuilt from transcript discovery
 
+### Provider Version Advisories
+
+- `ProviderCapabilities.versionAdvisory` carries the result of the provider-version probe: installed CLI version vs latest npm-published version, detected install method, and the recommended update command
+- Probe runs in `server/core/provider-versions.ts` (pure helpers + `buildVersionAdvisory`); `server/core/provider-registry.ts` caches the result in-memory and refreshes every 30 min
+- Latest-version lookup hits the npm registry with a 1h in-memory cache; `POST /api/providers/recheck-version` force-bypasses the cache (used by the settings "Re-check" button)
+- UI surfaces a one-shot sonner toast at app launch via `app/src/components/provider-update-notification.tsx`; dismissals persist per (provider, latestVersion) key in localStorage (`use-dismissed-provider-advisories.ts`)
+- The settings page renders a per-provider advisory card inside `ProviderDefaultsRow` with a copy-to-clipboard update command and a manual recheck button
+
 ### Plan Review Abstraction
 
 - Provider-specific plan output should normalize onto Relay's shared `ExitPlanMode` / `pendingPlan` / `planContent` flow instead of inventing a separate UI path

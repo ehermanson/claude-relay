@@ -41,12 +41,14 @@ export {
   resolveProviderDefaultModelOption,
 } from "#core/provider-catalog.js";
 export {
+  getCachedVersionAdvisory,
   getProviderCapabilities,
   getProviderDriver,
   getRegisteredProviders,
   inferClaudeModelIdFromSdkInfo,
   isProviderAvailable,
   listAvailableProviders,
+  refreshProviderVersionAdvisories,
 } from "#core/provider-registry.js";
 export { buildProviderSwitchHandoffPrompt } from "#core/session-handoff.js";
 

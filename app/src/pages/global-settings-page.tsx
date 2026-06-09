@@ -21,8 +21,13 @@ import {
   updateGlobalSettings,
   fetchProviders,
   fetchProviderModels,
+  recheckProviderVersions,
 } from "../lib/api";
 import { useSystemUpdate, describeUpdateStage } from "@/hooks/use-system-update";
+import {
+  INSTALL_METHOD_LABEL,
+  formatVersion,
+} from "@/components/provider-update-notification.logic";
 
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "../components/ui/input";
@@ -40,6 +45,8 @@ import type {
   ProviderDefaults,
   ProviderDescriptor,
   ProviderGlobalState,
+  ProviderKind,
+  ProviderVersionAdvisory,
   UpdateSnapshot,
 } from "@shared/types";
 
@@ -711,6 +718,148 @@ export function ProvidersSettingsSection() {
   );
 }
 
+// ─── Provider Version Advisory Card ────────────────────────────────────────
+//
+// Shown inside each provider's row when the version probe has produced an
+// advisory. "behind_latest" → orange call-to-action with copyable update
+// command; "current" → muted "up to date" line. "unknown" is not rendered.
+
+function ProviderVersionAdvisoryCard({
+  provider,
+  advisory,
+}: {
+  provider: ProviderKind;
+  advisory: ProviderVersionAdvisory;
+}) {
+  const queryClient = useQueryClient();
+  const [copied, setCopied] = useState(false);
+
+  const recheckMutation = useMutation({
+    mutationFn: () => recheckProviderVersions(provider),
+    onSuccess: (providers) => {
+      queryClient.setQueryData(["providers"], providers);
+      toast.success("Version check complete");
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Recheck failed");
+    },
+  });
+
+  const onCopy = async () => {
+    if (!advisory.updateCommand) return;
+    try {
+      await navigator.clipboard.writeText(advisory.updateCommand);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    } catch {
+      toast.error("Failed to copy");
+    }
+  };
+
+  if (advisory.status === "unknown") {
+    // Probe hasn't completed (or failed). Offer a manual recheck so users
+    // aren't stuck waiting up to 30 min for the next background pass.
+    const checked = advisory.checkedAt ? new Date(advisory.checkedAt) : null;
+    return (
+      <div className="flex items-center gap-2 text-[0.75rem] text-muted">
+        <RefreshCw size={12} />
+        <span>
+          {checked
+            ? `Version check unavailable · last attempted ${formatRelativeTime(checked)}`
+            : "Checking for updates…"}
+        </span>
+        <button
+          type="button"
+          onClick={() => recheckMutation.mutate()}
+          disabled={recheckMutation.isPending}
+          className="text-accent hover:underline disabled:opacity-50"
+        >
+          {recheckMutation.isPending ? "Checking…" : "Check now"}
+        </button>
+      </div>
+    );
+  }
+
+  if (advisory.status === "current") {
+    const checked = advisory.checkedAt ? new Date(advisory.checkedAt) : null;
+    return (
+      <div className="flex items-center gap-2 text-[0.75rem] text-muted">
+        <CheckCircle2 size={12} className="text-success" />
+        <span>
+          Up to date
+          {advisory.currentVersion ? ` · ${formatVersion(advisory.currentVersion)}` : ""}
+          {checked ? ` · checked ${formatRelativeTime(checked)}` : ""}
+        </span>
+        <button
+          type="button"
+          onClick={() => recheckMutation.mutate()}
+          disabled={recheckMutation.isPending}
+          className="text-accent hover:underline disabled:opacity-50"
+        >
+          {recheckMutation.isPending ? "Checking…" : "Re-check"}
+        </button>
+      </div>
+    );
+  }
+
+  // status === "behind_latest"
+  const installLabel = advisory.installMethod ? INSTALL_METHOD_LABEL[advisory.installMethod] : null;
+
+  return (
+    <div className="rounded-md border border-warning/40 bg-warning/5 p-3">
+      <div className="flex items-start gap-2">
+        <DownloadCloud size={14} className="mt-0.5 shrink-0 text-warning" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[0.8125rem] font-medium text-text-bright">
+            Update available: {formatVersion(advisory.latestVersion)}
+          </div>
+          <div className="mt-0.5 text-[0.75rem] text-muted">
+            Installed{" "}
+            {advisory.currentVersion ? formatVersion(advisory.currentVersion) : "(unknown)"} →
+            latest {formatVersion(advisory.latestVersion)}
+            {installLabel ? ` · ${installLabel}` : ""}
+          </div>
+
+          {advisory.updateCommand && (
+            <div className="mt-2 flex items-center gap-2">
+              <code className="flex-1 truncate rounded bg-bg/60 px-2 py-1 font-mono text-[0.6875rem] text-text">
+                {advisory.updateCommand}
+              </code>
+              <button
+                type="button"
+                onClick={onCopy}
+                className="text-[0.6875rem] text-accent hover:underline"
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => recheckMutation.mutate()}
+            disabled={recheckMutation.isPending}
+            className="mt-2 text-[0.6875rem] text-muted hover:text-text disabled:opacity-50"
+          >
+            {recheckMutation.isPending ? "Checking…" : "Re-check now"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatRelativeTime(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
 // ─── Provider Defaults Row (always visible, no expand) ─────────────────────
 
 function ProviderDefaultsRow({
@@ -752,7 +901,15 @@ function ProviderDefaultsRow({
   const accountLabel =
     runtimeState?.account?.label ?? runtimeState?.account?.email ?? runtimeState?.account?.plan;
 
-  if (!hasAnyControls && !hasRuntime) return null;
+  const versionAdvisory = provider.capabilities.versionAdvisory;
+  // Always render the advisory section when an advisory exists, including
+  // status: "unknown" — the card surfaces a "Re-check" button so users have a
+  // way to retry the probe when the initial pass failed (e.g. transient
+  // network outage on startup). Without this branch the section would
+  // silently disappear for the entire 30-min refresh window.
+  const showAdvisory = versionAdvisory != null;
+
+  if (!hasAnyControls && !hasRuntime && !showAdvisory) return null;
 
   return (
     <div className="py-5">
@@ -765,6 +922,12 @@ function ProviderDefaultsRow({
           </div>
         </div>
       </div>
+
+      {showAdvisory && versionAdvisory && (
+        <div className={`pl-7 ${hasAnyControls ? "mb-4" : ""}`}>
+          <ProviderVersionAdvisoryCard provider={provider.provider} advisory={versionAdvisory} />
+        </div>
+      )}
 
       {hasAnyControls && (
         <div className="flex flex-wrap gap-4 pl-7">

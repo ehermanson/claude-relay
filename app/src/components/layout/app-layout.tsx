@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { MiniSidebar } from "@/components/layout/mini-sidebar";
 import { Sidebar } from "@/components/layout/sidebar";
 import { NoProvidersLanding } from "@/components/no-providers-landing";
+import { ProviderUpdateNotification } from "@/components/provider-update-notification";
 import { SearchDialog, useSearchDialog } from "@/components/search-dialog";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { useAvailableProviders } from "@/hooks/use-available-providers";
@@ -124,6 +125,7 @@ export function AppLayout() {
         )}
         <SearchDialog open={search.open} onOpenChange={search.setOpen} />
         {toaster}
+        <ProviderUpdateNotification />
       </div>
     );
   }
@@ -165,6 +167,7 @@ export function AppLayout() {
       </div>
       <SearchDialog open={search.open} onOpenChange={search.setOpen} />
       {toaster}
+      <ProviderUpdateNotification />
     </>
   );
 }

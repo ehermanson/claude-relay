@@ -186,6 +186,24 @@ export async function fetchProviders(): Promise<ProviderDescriptor[]> {
   return data.providers ?? [];
 }
 
+/**
+ * Force a fresh version probe against the npm registry, bypassing the
+ * server's 1h in-memory cache. Returns the refreshed provider list so callers
+ * can update react-query in one shot.
+ */
+export async function recheckProviderVersions(
+  provider?: ProviderKind,
+): Promise<ProviderDescriptor[]> {
+  const params = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+  const res = await fetch(`/api/providers/recheck-version${params}`, { method: "POST" });
+  if (!res.ok) {
+    const message = await res.text().catch(() => "");
+    throw new Error(message || "Failed to recheck provider version");
+  }
+  const data = (await res.json()) as { providers?: ProviderDescriptor[] };
+  return data.providers ?? [];
+}
+
 export async function fetchUpdateStatus(): Promise<UpdateSnapshot> {
   const res = await fetch("/api/system/update");
   if (!res.ok) throw new Error("Failed to fetch update status");

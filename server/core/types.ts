@@ -363,6 +363,30 @@ export interface ProviderCapabilities {
   runtimeModes?: Partial<Record<ProviderRuntimeMode, ControlOption>>;
   /** Labels/descriptions for the fast mode toggle */
   fastModes?: { off: ControlOption; on: ControlOption };
+  /**
+   * Advisory describing whether the provider's installed CLI is current with
+   * the latest published version. Populated asynchronously by the version
+   * probe; absent or `status: "unknown"` means the probe hasn't completed
+   * (or failed). UI uses this to surface a launch toast + settings card.
+   */
+  versionAdvisory?: ProviderVersionAdvisory;
+}
+
+export type ProviderInstallMethod = "npm" | "brew" | "bun" | "pnpm" | "native" | "manual";
+export type ProviderVersionStatus = "unknown" | "current" | "behind_latest";
+
+export interface ProviderVersionAdvisory {
+  status: ProviderVersionStatus;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  /** npm package name (or equivalent), e.g. "@anthropic-ai/claude-code" */
+  packageName: string | null;
+  /** Human-readable update command, e.g. "npm install -g @anthropic-ai/claude-code@latest" */
+  updateCommand: string | null;
+  /** How the binary was installed, used to pick the update command and label it in UI */
+  installMethod: ProviderInstallMethod | null;
+  /** ISO timestamp of last successful probe; null if the probe has never completed */
+  checkedAt: string | null;
 }
 
 export interface ProviderDescriptor {
