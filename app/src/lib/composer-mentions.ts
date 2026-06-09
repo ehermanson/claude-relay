@@ -165,27 +165,6 @@ export function detectInlineSlashTrigger(text: string, cursor: number): SlashTri
   };
 }
 
-/**
- * If the trimmed message contains an inline /skill-name chip (preceded by non-empty text),
- * rearranges it to a leading invocation so the provider dispatches the skill correctly.
- * Returns the text unchanged if no inline skill is detected.
- */
-export function resolveInlineSkillInvocation(text: string): string {
-  // Already a leading slash/dollar command — leave it alone
-  if (/^[/$]/.test(text.trimStart())) return text;
-
-  // Find the first inline /skill-name token preceded by whitespace
-  const match = /\s(\/[a-zA-Z][\w-]*)(?=\s|$)/.exec(text);
-  if (!match) return text;
-
-  const skill = match[1]; // e.g. "/grill-me"
-  const before = text.slice(0, match.index);
-  const after = text.slice(match.index + match[0].length);
-  const args = (before + after).trim();
-
-  return args ? `${skill} ${args}` : skill;
-}
-
 export function replacePromptRange(
   text: string,
   start: number,

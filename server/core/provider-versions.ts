@@ -259,11 +259,6 @@ interface NpmLatestCacheEntry {
 }
 const npmLatestCache = new Map<string, NpmLatestCacheEntry>();
 
-/** Test-only: clear the in-memory npm registry cache. */
-export function clearNpmLatestCacheForTests(): void {
-  npmLatestCache.clear();
-}
-
 /**
  * Run `<binary> --version` and parse the first semver-looking token from the
  * output. Returns null on any failure (timeout, nonzero exit, unparseable

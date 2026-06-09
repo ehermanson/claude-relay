@@ -882,7 +882,7 @@ export function isProviderAvailable(
 const ADVISORY_REFRESH_INTERVAL_MS = 30 * 60 * 1_000;
 const versionAdvisoryCache = new Map<ProviderKind, ProviderVersionAdvisory>();
 let advisoryRefreshTimer: NodeJS.Timeout | null = null;
-let inflightProbes = new Map<ProviderKind, Promise<void>>();
+const inflightProbes = new Map<ProviderKind, Promise<void>>();
 
 const PROVIDER_BINARY_LOCATORS: Partial<Record<ProviderKind, () => string | null>> = {
   claude: findClaudeBinary,
@@ -951,16 +951,6 @@ function ensureAdvisoryRefreshTimer(): void {
   }, ADVISORY_REFRESH_INTERVAL_MS);
   // Don't keep the process alive just for the version probe.
   advisoryRefreshTimer.unref?.();
-}
-
-/** Test-only: stop the background advisory refresh timer. */
-export function stopAdvisoryRefreshForTests(): void {
-  if (advisoryRefreshTimer) {
-    clearInterval(advisoryRefreshTimer);
-    advisoryRefreshTimer = null;
-  }
-  versionAdvisoryCache.clear();
-  inflightProbes = new Map();
 }
 
 export function listAvailableProviders(context: ProviderDriverContext): ProviderDescriptor[] {
