@@ -18,6 +18,7 @@ class FakeQuery {
     this.setPermissionModeCalls = [];
     this.setModelCalls = [];
     this.closeCalls = 0;
+    this.usageSnapshot = null;
   }
 
   emit(message) {
@@ -60,6 +61,10 @@ class FakeQuery {
 
   async supportedModels() {
     return [];
+  }
+
+  async usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET() {
+    return this.usageSnapshot;
   }
 
   async applyFlagSettings(_settings) {}
@@ -376,6 +381,54 @@ describe("ClaudeSdkSession", () => {
       assert.equal(compactEvent.type, "system_event");
       assert.equal(compactEvent.event, "compact_boundary");
       assert.equal(compactEvent.payload.sessionId, "sess-compact-1");
+      session.close();
+    });
+
+    it("emits provider status from the experimental usage snapshot", async () => {
+      const harness = makeHarness();
+      harness.fakeQuery.usageSnapshot = {
+        subscription_type: "max",
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: {
+            utilization: 42,
+            resets_at: "2026-06-09T21:30:00.000Z",
+          },
+          seven_day_sonnet: {
+            utilization: 75.5,
+            resets_at: "2026-06-15T12:00:00.000Z",
+          },
+        },
+      };
+      const session = createSdkSessionSync(
+        {
+          cwd: "/test/project",
+          logger: noopLogger,
+        },
+        harness.queryFn,
+      );
+      const systemEvents = collectEvents(session, "systemEvent");
+
+      await tick();
+
+      const providerStatus = systemEvents
+        .map(([event]) => event)
+        .find((event) => event.event === "provider_status");
+      assert.ok(providerStatus, "Expected provider_status from usage snapshot");
+
+      const rateLimits = providerStatus.payload.account.rateLimits;
+      assert.equal(rateLimits.length, 2);
+      assert.equal(rateLimits[0].scope, "five_hour");
+      assert.equal(rateLimits[0].windows[0].usedPercent, 42);
+      assert.equal(rateLimits[0].windows[0].remaining, 58);
+      assert.equal(rateLimits[0].windows[0].windowMinutes, 300);
+      assert.equal(rateLimits[0].windows[0].resetAt, "2026-06-09T21:30:00.000Z");
+      assert.equal(rateLimits[1].scope, "seven_day_sonnet");
+      assert.equal(rateLimits[1].windows[0].usedPercent, 75.5);
+      assert.equal(rateLimits[1].windows[0].remaining, 25);
+      assert.equal(rateLimits[1].windows[0].windowMinutes, 10080);
+
+      assert.deepEqual(session.getRateLimitSnapshot(), rateLimits);
       session.close();
     });
 

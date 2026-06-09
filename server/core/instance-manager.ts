@@ -32,6 +32,7 @@ import {
   prewarmSdk,
   getSdkDiscoveredAccountInfo,
   getSdkDiscoveredModels,
+  getSdkDiscoveredRateLimits,
 } from "#core/providers/claude-sdk.js";
 import type { ClaudeSdkSession } from "#core/providers/claude-sdk.js";
 import { convertCodexTranscriptEntry } from "#core/providers/codex-transcript.js";
@@ -2526,9 +2527,9 @@ export class InstanceManager extends EventEmitter {
           if (accountInfo?.email) accountPatch.email = accountInfo.email;
           if (accountInfo?.organization) accountPatch.label = accountInfo.organization;
 
-          // Rate limits: Claude's SDK doesn't expose a snapshot-style
-          // rateLimits/read RPC, so we can only surface data that active
-          // sessions have already received via `rate_limit_event`.
+          // Rate limits: prefer live `rate_limit_event` data accumulated by
+          // active sessions, falling back to the experimental get_usage
+          // snapshot cached at prewarm / session start (SDK >= 0.3.169).
           for (const instance of this.instances.values()) {
             if (instance.info.provider !== "claude" || !instance.process) continue;
             const session =
@@ -2539,6 +2540,10 @@ export class InstanceManager extends EventEmitter {
               accountPatch.rateLimits = rateLimits;
               break;
             }
+          }
+          if (!accountPatch.rateLimits) {
+            const snapshot = getSdkDiscoveredRateLimits();
+            if (snapshot?.length) accountPatch.rateLimits = snapshot;
           }
 
           if (Object.keys(accountPatch).length > 0) {

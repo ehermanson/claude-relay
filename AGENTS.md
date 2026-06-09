@@ -155,6 +155,10 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - UI surfaces a one-shot sonner toast at app launch via `app/src/components/provider-update-notification.tsx`; dismissals persist per (provider, latestVersion) key in localStorage (`use-dismissed-provider-advisories.ts`)
 - The settings page renders a per-provider advisory card inside `ProviderDefaultsRow` with a copy-to-clipboard update command and a manual recheck button
 
+### Claude Plan Rate Limits
+
+- Plan utilization has two SDK sources: live `rate_limit_event` messages mid-session, and the experimental `get_usage` snapshot (SDK ≥ 0.3.169) probed at prewarm and session start (`probeUsageRateLimits` in `server/core/providers/claude-sdk.ts`). Always feature-detect the snapshot method (`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`) — it will be renamed at stabilization. Per window, live event data overrides snapshot data.
+
 ### Plan Review Abstraction
 
 - Provider-specific plan output should normalize onto Relay's shared `ExitPlanMode` / `pendingPlan` / `planContent` flow instead of inventing a separate UI path

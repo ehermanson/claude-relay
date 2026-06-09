@@ -28,6 +28,7 @@ import type {
   ProviderSessionBootstrap,
   UserInputQuestion,
   SystemEventMessage,
+  ProviderRateLimitStatus,
 } from "#core/types.js";
 import type { CoreConfig } from "#core/config.js";
 import type { ProviderSession } from "#core/provider.js";
@@ -87,6 +88,17 @@ interface AccountInfo {
   apiProvider?: "firstParty" | "bedrock" | "vertex" | "foundry";
 }
 
+/**
+ * Minimal subset of the SDK's experimental get_usage response (SDK >= 0.3.169).
+ * The shape is explicitly unstable — every field is validated defensively at
+ * the access site rather than trusted from this declaration.
+ */
+interface SdkUsageSnapshot {
+  subscription_type?: string | null;
+  rate_limits_available?: boolean;
+  rate_limits?: Record<string, unknown> | null;
+}
+
 /** Context usage breakdown from getContextUsage() */
 interface ContextUsage {
   categories: { name: string; tokens: number; color: string; isDeferred?: boolean }[];
@@ -120,6 +132,12 @@ interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   accountInfo(): Promise<AccountInfo>;
   getContextUsage(): Promise<ContextUsage>;
   supportedModels(): Promise<SdkModelInfo[]>;
+  /**
+   * Structured /usage snapshot (SDK >= 0.3.169): plan rate-limit utilization
+   * windows. Optional — older SDKs lack it; the name will change when the SDK
+   * stabilizes the API, so always feature-detect before calling.
+   */
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?(): Promise<SdkUsageSnapshot>;
   close(): void | Promise<void>;
 }
 
@@ -297,7 +315,7 @@ export interface ClaudeSdkSessionOptions {
 export interface ClaudeSdkSession extends ProviderSession {
   /** The session ID assigned by the SDK (available after first message from stream) */
   readonly sessionId: string | undefined;
-  /** Return accumulated rate limit data from received events, if any. */
+  /** Return accumulated rate limit data (get_usage snapshot + live events), if any. */
   getRateLimitSnapshot(): import("#core/types.js").ProviderRateLimitStatus[] | undefined;
 }
 
@@ -311,11 +329,100 @@ let sdkDiscoveredModels: SdkModelInfo[] | null = null;
 /**
  * Module-level cache of SDK-discovered account info (plan/email/org).
  * Populated eagerly by prewarmSdk() — refreshed by real sessions via
- * fetchAccountInfo(). The SDK doesn't expose a snapshot-style rateLimits
- * API today, so rate-limit data still only comes from live `rate_limit_event`
- * messages mid-session.
+ * fetchAccountInfo().
  */
 let sdkDiscoveredAccountInfo: AccountInfo | null = null;
+
+/**
+ * Module-level cache of plan rate-limit utilization from the SDK's
+ * experimental get_usage snapshot (SDK >= 0.3.169). Populated eagerly by
+ * prewarmSdk() and refreshed by sessions (snapshot fetch + live
+ * rate_limit_event), so the UI can show plan utilization at boot without
+ * waiting for a mid-session event.
+ */
+let sdkDiscoveredRateLimits: ProviderRateLimitStatus[] | null = null;
+
+/** One accumulated rate-limit window: utilization as 0-1 fraction, resetsAt as epoch seconds. */
+type RateLimitWindowData = {
+  utilization: number | undefined;
+  resetsAt: number | undefined;
+  status: string | undefined;
+};
+
+/** Known rateLimitType → window duration in minutes. */
+const RATE_LIMIT_WINDOW_MINUTES: Record<string, number> = {
+  five_hour: 300,
+  seven_day: 10080,
+  seven_day_opus: 10080,
+  seven_day_sonnet: 10080,
+  seven_day_oauth_apps: 10080,
+  overage: 10080,
+};
+
+/** Window keys in the get_usage response that map onto plan rate-limit windows. */
+const USAGE_RATE_LIMIT_WINDOW_KEYS = [
+  "five_hour",
+  "seven_day",
+  "seven_day_opus",
+  "seven_day_sonnet",
+  "seven_day_oauth_apps",
+] as const;
+
+/** Build the normalized ProviderRateLimitStatus array from accumulated windows. */
+function buildRateLimitsFromWindows(
+  windows: Map<string, RateLimitWindowData>,
+): ProviderRateLimitStatus[] {
+  return [...windows.entries()].map(([type, data]) => {
+    const usedPercent = typeof data.utilization === "number" ? data.utilization * 100 : undefined;
+    return {
+      name: type,
+      scope: type,
+      windows: [
+        {
+          usedPercent,
+          remaining:
+            typeof usedPercent === "number"
+              ? Math.max(0, Math.round(100 - usedPercent))
+              : undefined,
+          windowMinutes: RATE_LIMIT_WINDOW_MINUTES[type],
+          resetAt: data.resetsAt ? new Date(data.resetsAt * 1000).toISOString() : undefined,
+          status: data.status,
+        },
+      ],
+    };
+  });
+}
+
+/**
+ * Probe the SDK's experimental get_usage control request and normalize the
+ * plan rate-limit windows. Returns null when the SDK is too old, plan limits
+ * don't apply (API key / Bedrock / Vertex), or the response is unusable —
+ * the shape is experimental, so everything is validated defensively.
+ */
+async function probeUsageRateLimits(
+  handle: QueryHandle,
+): Promise<Map<string, RateLimitWindowData> | null> {
+  const getUsage = handle.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+  if (typeof getUsage !== "function") return null;
+  const snapshot = await getUsage.call(handle);
+  const limits = snapshot?.rate_limits;
+  if (!limits || typeof limits !== "object") return null;
+
+  const windows = new Map<string, RateLimitWindowData>();
+  for (const key of USAGE_RATE_LIMIT_WINDOW_KEYS) {
+    const entry = (limits as Record<string, unknown>)[key];
+    if (!entry || typeof entry !== "object") continue;
+    const { utilization, resets_at: resetsAt } = entry as Record<string, unknown>;
+    const resetsAtEpoch = typeof resetsAt === "string" ? Date.parse(resetsAt) / 1000 : NaN;
+    windows.set(key, {
+      // get_usage reports utilization as 0-100; events use 0-1 fractions.
+      utilization: typeof utilization === "number" ? utilization / 100 : undefined,
+      resetsAt: Number.isFinite(resetsAtEpoch) ? resetsAtEpoch : undefined,
+      status: undefined, // snapshot has no allowed/warning/rejected signal
+    });
+  }
+  return windows.size ? windows : null;
+}
 
 /**
  * Resolve the SDK's `query` and `startup` functions via dynamic import.
@@ -371,9 +478,10 @@ export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<void> {
     const promptQueue = new PromptQueue();
     const handle = warm.query(promptQueue);
     try {
-      const [modelsResult, accountResult] = await Promise.allSettled([
+      const [modelsResult, accountResult, usageResult] = await Promise.allSettled([
         handle.supportedModels(),
         handle.accountInfo(),
+        probeUsageRateLimits(handle),
       ]);
       if (modelsResult.status === "fulfilled") {
         sdkDiscoveredModels = modelsResult.value;
@@ -395,6 +503,14 @@ export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<void> {
         logger.debug(
           `[SdkSession] Pre-warm accountInfo() failed (non-fatal): ${accountResult.reason}`,
         );
+      }
+      if (usageResult.status === "fulfilled" && usageResult.value) {
+        sdkDiscoveredRateLimits = buildRateLimitsFromWindows(usageResult.value);
+        logger.info(
+          `[SdkSession] Pre-warm usage snapshot: ${usageResult.value.size} rate-limit windows`,
+        );
+      } else if (usageResult.status === "rejected") {
+        logger.debug(`[SdkSession] Pre-warm get_usage failed (non-fatal): ${usageResult.reason}`);
       }
     } finally {
       // Done with the warm subprocess — close it cleanly.
@@ -424,6 +540,15 @@ export function getSdkDiscoveredModels(): SdkModelInfo[] | null {
  */
 export function getSdkDiscoveredAccountInfo(): AccountInfo | null {
   return sdkDiscoveredAccountInfo;
+}
+
+/**
+ * Return plan rate-limit utilization discovered via the experimental
+ * get_usage snapshot, if available. Populated eagerly by prewarmSdk() at
+ * server startup, and refreshed by sessions.
+ */
+export function getSdkDiscoveredRateLimits(): ProviderRateLimitStatus[] | null {
+  return sdkDiscoveredRateLimits;
 }
 
 /**
@@ -1359,6 +1484,30 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       .catch((err) => {
         this.logger.debug(`[SdkSession] accountInfo() unavailable: ${err}`);
       });
+
+    // Plan rate-limit utilization via the experimental get_usage snapshot
+    // (SDK >= 0.3.169) — surfaces the windows at session start instead of
+    // waiting for a mid-session rate_limit_event.
+    void probeUsageRateLimits(this.query)
+      .then((windows) => {
+        if (!windows) return;
+        // Seed only windows not already populated by live rate_limit_event —
+        // event data is fresher than the snapshot.
+        for (const [type, data] of windows) {
+          if (!this.rateLimitWindows.has(type)) this.rateLimitWindows.set(type, data);
+        }
+        const rateLimits = this.buildRateLimitsSnapshot();
+        if (!rateLimits.length) return;
+        sdkDiscoveredRateLimits = rateLimits;
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: { account: { rateLimits } },
+        } as SystemEventMessage);
+      })
+      .catch((err) => {
+        this.logger.debug(`[SdkSession] get_usage snapshot unavailable: ${err}`);
+      });
   }
 
   // ===========================================================================
@@ -1405,19 +1554,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
    * `utilization` may be undefined for `allowed` status — Claude only sends it
    * for `allowed_warning` or `rejected`.
    */
-  private rateLimitWindows = new Map<
-    string,
-    { utilization: number | undefined; resetsAt: number | undefined; status: string }
-  >();
-
-  /** Known rateLimitType → window duration in minutes. */
-  private static readonly rateLimitWindowMinutes: Record<string, number> = {
-    five_hour: 300,
-    seven_day: 10080,
-    seven_day_opus: 10080,
-    seven_day_sonnet: 10080,
-    overage: 10080,
-  };
+  private rateLimitWindows = new Map<string, RateLimitWindowData>();
 
   /**
    * Handle `rate_limit_event` from the Claude SDK stream. Converts the
@@ -1446,6 +1583,10 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     const rateLimits = this.buildRateLimitsSnapshot();
     if (!rateLimits.length) return;
 
+    // Keep the module-level snapshot fresh so the boot-time fallback in
+    // instance-manager reflects the latest event data.
+    sdkDiscoveredRateLimits = rateLimits;
+
     this.emit("systemEvent", {
       type: "system_event",
       event: "provider_status",
@@ -1457,26 +1598,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
   /** Build the normalized rate limits array from accumulated windows. */
   private buildRateLimitsSnapshot(): import("#core/types.js").ProviderRateLimitStatus[] {
-    return [...this.rateLimitWindows.entries()].map(([type, data]) => {
-      const usedPercent = typeof data.utilization === "number" ? data.utilization * 100 : undefined;
-      const windowMinutes = ClaudeSdkSessionImpl.rateLimitWindowMinutes[type];
-      return {
-        name: type,
-        scope: type,
-        windows: [
-          {
-            usedPercent,
-            remaining:
-              typeof usedPercent === "number"
-                ? Math.max(0, Math.round(100 - usedPercent))
-                : undefined,
-            windowMinutes,
-            resetAt: data.resetsAt ? new Date(data.resetsAt * 1000).toISOString() : undefined,
-            status: data.status,
-          },
-        ],
-      };
-    });
+    return buildRateLimitsFromWindows(this.rateLimitWindows);
   }
 
   /**
