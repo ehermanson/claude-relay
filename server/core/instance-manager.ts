@@ -397,10 +397,24 @@ function mergeRateLimitWindows(
     const prev = prevWindows?.[i];
     if (!prev) return { ...pw };
     if (rlSeverity(prev.status) > rlSeverity(pw.status)) {
-      // Only allow downgrade once the reset window has actually passed.
+      // get_usage snapshot windows carry no status but authoritative
+      // utilization: below 100% the window cannot still be rejected.
+      const snapshotShowsCleared =
+        pw.status === undefined && typeof pw.usedPercent === "number" && pw.usedPercent < 100;
+      // Otherwise keep the more severe status until its own reset time passes.
+      // Carry prev.resetAt (not the patch's rolling next-window reset) so the
+      // carried status can actually expire instead of sticking forever.
       const resetAt = prev.resetAt ? new Date(prev.resetAt).getTime() : null;
-      if (!resetAt || Date.now() < resetAt) {
-        return { ...pw, status: prev.status, usedPercent: prev.usedPercent ?? pw.usedPercent };
+      const stillActive = resetAt !== null && Date.now() < resetAt;
+      if (!snapshotShowsCleared && stillActive) {
+        const hasFreshUsage = typeof pw.usedPercent === "number";
+        return {
+          ...pw,
+          status: prev.status,
+          usedPercent: hasFreshUsage ? pw.usedPercent : prev.usedPercent,
+          remaining: hasFreshUsage ? pw.remaining : prev.remaining,
+          resetAt: prev.resetAt,
+        };
       }
     }
     return { ...pw };
