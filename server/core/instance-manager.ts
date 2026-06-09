@@ -3732,9 +3732,15 @@ export class InstanceManager extends EventEmitter {
       if (activity.activity === "tool_result") {
         instance.info.pendingTool = undefined;
         instance.info.pendingPlan = undefined;
+        // Clear a pending AskUserQuestion (user_input) when its result is replayed.
+        // The transcript-parse path only sets `activity.tool` on permission denials,
+        // so a normal answered/dismissed question arrives with `tool: undefined` but
+        // a populated `resolution`. Matching on `tool` alone left pendingPermission
+        // stranded on reload (panel reappeared). `resolution` is the reliable signal
+        // for a resolved interactive result in both the live and replay paths.
         if (
-          activity.tool === "AskUserQuestion" &&
-          instance.info.pendingPermission?.kind === "user_input"
+          instance.info.pendingPermission?.kind === "user_input" &&
+          (activity.tool === "AskUserQuestion" || !!activity.resolution)
         ) {
           instance.info.pendingPermission = undefined;
         }

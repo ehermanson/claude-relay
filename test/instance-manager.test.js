@@ -1705,6 +1705,99 @@ describe("InstanceManager", () => {
     });
   });
 
+  describe("rebuildPendingInteractiveState (AskUserQuestion replay)", () => {
+    // Parse real JSONL so the tool_result carries the parser's actual shape:
+    // `tool: undefined` + `resolution: "approved"` (the parser only tags `tool`
+    // on permission denials). This is what made the panel reappear on reload.
+    const askToolUseEntry = {
+      type: "assistant",
+      timestamp: "2026-06-06T12:00:00.000Z",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_ask_1",
+            name: "AskUserQuestion",
+            input: {
+              questions: [
+                {
+                  id: "drink",
+                  header: "Preference",
+                  question: "Which do you prefer?",
+                  options: [{ label: "Coffee" }, { label: "Tea" }],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+    const askToolResultEntry = {
+      type: "user",
+      timestamp: "2026-06-06T12:00:05.000Z",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_ask_1", is_error: false, content: "Tea" },
+        ],
+      },
+    };
+
+    function parseHistory(manager, entries) {
+      const ctx = {
+        pendingTools: new Map(),
+        pendingTaskCreates: new Map(),
+        tasks: new Map(),
+        files: new Map(),
+        stats: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+      };
+      const history = [];
+      for (const entry of entries) {
+        history.push(...manager.convertJsonlEntry(entry, ctx));
+      }
+      return history;
+    }
+
+    it("clears pendingPermission when an answered question is replayed", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      instance.history = parseHistory(manager, [askToolUseEntry, askToolResultEntry]);
+
+      // Sanity: the parsed tool_result really has the problematic shape.
+      const toolResult = instance.history.find(
+        (e) => e.message.type === "activity" && e.message.activity === "tool_result",
+      );
+      assert.ok(toolResult, "expected a parsed tool_result activity");
+      assert.equal(toolResult.message.tool, undefined);
+      assert.equal(toolResult.message.resolution, "approved");
+
+      manager.rebuildPendingInteractiveState(instance);
+
+      assert.equal(
+        instance.info.pendingPermission,
+        undefined,
+        "an answered AskUserQuestion must not leave a pending request after replay",
+      );
+    });
+
+    it("keeps pendingPermission when the question is unanswered (no tool_result)", () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      assert.ok(instance);
+
+      // Only the tool_use — the genuinely-waiting case (transcript ends on the question).
+      instance.history = parseHistory(manager, [askToolUseEntry]);
+
+      manager.rebuildPendingInteractiveState(instance);
+
+      assert.equal(instance.info.pendingPermission?.kind, "user_input");
+      assert.equal(instance.info.pendingPermission?.requestId, "tu_ask_1");
+    });
+  });
+
   describe("stopAll", () => {
     it("clears all instances", () => {
       manager.createInstance();
