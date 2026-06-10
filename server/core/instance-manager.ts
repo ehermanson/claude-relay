@@ -620,23 +620,21 @@ function buildUserInputReply(
 ): { text: string; resolution: "approved" | "dismissed" } {
   const answers = decision === "accept" ? (response?.answers ?? {}) : {};
   const questions = request.questions ?? [];
-  const answerLines = questions
+  const answerBlocks = questions
     .map((question) => {
       const values = answers[question.id]?.answers?.filter(
         (answer): answer is string => typeof answer === "string" && answer.trim().length > 0,
       );
       if (!values?.length) return null;
-      const normalized = values.map((value) => value.trim());
-      if (questions.length === 1 && normalized.length === 1) {
-        return normalized[0];
-      }
-      return `${question.question}: ${normalized.join(", ")}`;
+      const normalized = values.map((value) => value.trim()).join(", ");
+      const prefix = `> ${question.question}`;
+      return `${prefix}\n\n${normalized}`;
     })
     .filter((value): value is string => !!value);
 
-  if (answerLines.length > 0) {
+  if (answerBlocks.length > 0) {
     return {
-      text: answerLines.join("\n"),
+      text: answerBlocks.join("\n\n"),
       resolution: "approved",
     };
   }
@@ -3041,6 +3039,13 @@ export class InstanceManager extends EventEmitter {
       instance.info.pendingPermission = undefined;
       this.emitPendingStateIfChanged(instance, pendingStateBefore);
       if (instance.process.respondToRequest?.(requestId, decision, response)) {
+        // The SDK consumed the answer internally — emit a visible user message so
+        // the answer appears in the chat (no re-send to the provider).
+        const reply = buildUserInputReply(pendingRequest, decision, response);
+        const userMessage: UserMessage = { type: "user", text: reply.text, instanceId: id };
+        this.noteManagedProcessActivity(instance);
+        this.pushHistory(instance, userMessage);
+        this.emit("instance:user", id, userMessage);
         this.setStatus(instance, "processing");
         return;
       }
