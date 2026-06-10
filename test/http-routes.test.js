@@ -291,6 +291,48 @@ describe("HTTP Routes — Additional Coverage", () => {
     });
   });
 
+  describe("POST /api/providers/update", () => {
+    it("requires authentication", async () => {
+      const res = await request(server, "POST", "/api/providers/update?provider=codex");
+      assert.equal(res.status, 401);
+    });
+
+    it("rejects unknown providers", async () => {
+      getAvailableProviders = () => [];
+      const session = auth.createSession();
+      const res = await request(server, "POST", "/api/providers/update?provider=bogus", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 400);
+      assert.equal(res.body.error, "Invalid provider");
+    });
+
+    it("returns a clear conflict when no automatic update is available", async () => {
+      getAvailableProviders = () => [
+        {
+          provider: "codex",
+          label: "Codex",
+          capabilities: {
+            supportsResume: true,
+            supportsTranscriptReplay: true,
+            supportsApprovals: true,
+            supportsUserInputRequests: true,
+            supportsReasoningEffort: true,
+            supportsFastMode: false,
+            supportsModelSelection: true,
+            supportsTitleUpdates: true,
+          },
+        },
+      ];
+      const session = auth.createSession();
+      const res = await request(server, "POST", "/api/providers/update?provider=codex", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error, "No automatic update is available for this provider");
+    });
+  });
+
   describe("GET /api/open-targets", () => {
     it("requires authentication", async () => {
       const res = await request(

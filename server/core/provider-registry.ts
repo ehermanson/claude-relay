@@ -30,7 +30,7 @@ import type {
 import { createSdkSessionSync, getSdkDiscoveredModels } from "#core/providers/claude-sdk.js";
 import { findClaudeBinary, isClaudeInstalled } from "#core/providers/claude-cli.js";
 import { findCodexBinary, isCodexInstalled } from "#core/providers/codex-cli.js";
-import { buildVersionAdvisory } from "#core/provider-versions.js";
+import { buildVersionAdvisory, executeUpdateCommand } from "#core/provider-versions.js";
 import type { ProviderVersionAdvisory } from "#core/types.js";
 import { discoverCodexModels, getCachedCodexModels } from "#core/providers/codex-models.js";
 import { CodexAppServerSession } from "#core/providers/codex-app-server.js";
@@ -883,6 +883,7 @@ const ADVISORY_REFRESH_INTERVAL_MS = 30 * 60 * 1_000;
 const versionAdvisoryCache = new Map<ProviderKind, ProviderVersionAdvisory>();
 let advisoryRefreshTimer: NodeJS.Timeout | null = null;
 const inflightProbes = new Map<ProviderKind, Promise<void>>();
+const probeGenerations = new Map<ProviderKind, number>();
 
 const PROVIDER_BINARY_LOCATORS: Partial<Record<ProviderKind, () => string | null>> = {
   claude: findClaudeBinary,
@@ -897,6 +898,7 @@ export function getCachedVersionAdvisory(
 
 async function probeProviderVersionAdvisory(
   provider: ProviderKind,
+  generation: number,
   options: { force?: boolean } = {},
 ): Promise<void> {
   const locator = PROVIDER_BINARY_LOCATORS[provider];
@@ -907,7 +909,12 @@ async function probeProviderVersionAdvisory(
     binaryPath,
     force: options.force,
   });
-  versionAdvisoryCache.set(provider, advisory);
+  // A force-refresh may be started while an older background probe is still in
+  // flight. Only the newest generation is allowed to publish so stale pre-update
+  // results cannot overwrite the post-update advisory.
+  if (probeGenerations.get(provider) === generation) {
+    versionAdvisoryCache.set(provider, advisory);
+  }
 }
 
 /**
@@ -933,13 +940,67 @@ export async function refreshProviderVersionAdvisories(
     candidates.map((provider) => {
       const existing = inflightProbes.get(provider);
       if (existing && !options.force) return existing;
-      const probe = probeProviderVersionAdvisory(provider, options).finally(() => {
-        inflightProbes.delete(provider);
+      const generation = (probeGenerations.get(provider) ?? 0) + 1;
+      probeGenerations.set(provider, generation);
+      const probe = probeProviderVersionAdvisory(provider, generation, options).finally(() => {
+        if (inflightProbes.get(provider) === probe) {
+          inflightProbes.delete(provider);
+        }
       });
       inflightProbes.set(provider, probe);
       return probe;
     }),
   );
+}
+
+export type ProviderUpdateOutcome =
+  | { status: "no_update" }
+  | { status: "failed"; output: string }
+  | { status: "updated"; output: string };
+
+const inflightUpdates = new Map<ProviderKind, Promise<ProviderUpdateOutcome>>();
+
+/**
+ * Run the cached advisory's update command for a provider, then force-refresh
+ * the advisory so callers see the post-update state. The command is always
+ * server-derived (from `buildUpdateCommand`), never client-supplied.
+ *
+ * Concurrent calls for the same provider share a single run — a second
+ * request while an update is in flight awaits the same result rather than
+ * spawning a second package-manager process.
+ */
+export function runProviderUpdate(provider: ProviderKind): Promise<ProviderUpdateOutcome> {
+  const existing = inflightUpdates.get(provider);
+  if (existing) return existing;
+
+  const run = (async (): Promise<ProviderUpdateOutcome> => {
+    const advisory = versionAdvisoryCache.get(provider);
+    if (
+      !advisory ||
+      advisory.status !== "behind_latest" ||
+      !advisory.updateCommand ||
+      !advisory.installMethod ||
+      advisory.installMethod === "manual"
+    ) {
+      return { status: "no_update" };
+    }
+    const providerBinaryPath =
+      advisory.installMethod === "native" ? PROVIDER_BINARY_LOCATORS[provider]?.() : null;
+    const result = await executeUpdateCommand(advisory.updateCommand, advisory.installMethod, {
+      providerBinaryPath,
+    });
+    // Re-probe regardless of outcome so the advisory reflects reality (the
+    // command may have partially succeeded, or failed after upgrading).
+    await refreshProviderVersionAdvisories({ provider, force: true });
+    return result.ok
+      ? { status: "updated", output: result.output }
+      : { status: "failed", output: result.output };
+  })().finally(() => {
+    inflightUpdates.delete(provider);
+  });
+
+  inflightUpdates.set(provider, run);
+  return run;
 }
 
 function ensureAdvisoryRefreshTimer(): void {

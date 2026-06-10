@@ -22,6 +22,7 @@ import {
   fetchProviders,
   fetchProviderModels,
   recheckProviderVersions,
+  runProviderUpdate,
 } from "../lib/api";
 import { useSystemUpdate, describeUpdateStage } from "@/hooks/use-system-update";
 import {
@@ -733,6 +734,7 @@ function ProviderVersionAdvisoryCard({
 }) {
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
+  const [confirmingUpdate, setConfirmingUpdate] = useState(false);
 
   const recheckMutation = useMutation({
     mutationFn: () => recheckProviderVersions(provider),
@@ -743,6 +745,24 @@ function ProviderVersionAdvisoryCard({
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Recheck failed");
     },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: () => runProviderUpdate(provider),
+    onSuccess: (providers) => {
+      queryClient.setQueryData(["providers"], providers);
+      const refreshed = providers.find((p) => p.provider === provider)?.capabilities
+        .versionAdvisory;
+      if (refreshed?.status === "current" && refreshed.currentVersion) {
+        toast.success(`Updated to ${formatVersion(refreshed.currentVersion)}`);
+      } else {
+        toast.success("Update finished");
+      }
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Update failed");
+    },
+    onSettled: () => setConfirmingUpdate(false),
   });
 
   const onCopy = async () => {
@@ -804,6 +824,7 @@ function ProviderVersionAdvisoryCard({
 
   // status === "behind_latest"
   const installLabel = advisory.installMethod ? INSTALL_METHOD_LABEL[advisory.installMethod] : null;
+  const canRunUpdate = !!advisory.updateCommand && advisory.installMethod !== "manual";
 
   return (
     <div className="rounded-md border border-warning/40 bg-warning/5 p-3">
@@ -835,14 +856,49 @@ function ProviderVersionAdvisoryCard({
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => recheckMutation.mutate()}
-            disabled={recheckMutation.isPending}
-            className="mt-2 text-[0.6875rem] text-muted hover:text-text disabled:opacity-50"
-          >
-            {recheckMutation.isPending ? "Checking…" : "Re-check now"}
-          </button>
+          <div className="mt-2 flex items-center gap-3">
+            {canRunUpdate &&
+              (updateMutation.isPending ? (
+                <span className="flex items-center gap-1.5 text-[0.6875rem] text-muted">
+                  <Loader2 size={11} className="animate-spin" />
+                  Updating… this can take a minute
+                </span>
+              ) : confirmingUpdate ? (
+                <>
+                  <span className="text-[0.6875rem] text-muted">Run this update now?</span>
+                  <button
+                    type="button"
+                    onClick={() => updateMutation.mutate()}
+                    className="text-[0.6875rem] font-medium text-warning hover:underline"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingUpdate(false)}
+                    className="text-[0.6875rem] text-muted hover:text-text"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingUpdate(true)}
+                  className="text-[0.6875rem] font-medium text-accent hover:underline"
+                >
+                  Update now
+                </button>
+              ))}
+            <button
+              type="button"
+              onClick={() => recheckMutation.mutate()}
+              disabled={recheckMutation.isPending || updateMutation.isPending}
+              className="text-[0.6875rem] text-muted hover:text-text disabled:opacity-50"
+            >
+              {recheckMutation.isPending ? "Checking…" : "Re-check now"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

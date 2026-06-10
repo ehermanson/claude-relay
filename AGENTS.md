@@ -152,8 +152,9 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - `ProviderCapabilities.versionAdvisory` carries the result of the provider-version probe: installed CLI version vs latest npm-published version, detected install method, and the recommended update command
 - Probe runs in `server/core/provider-versions.ts` (pure helpers + `buildVersionAdvisory`); `server/core/provider-registry.ts` caches the result in-memory and refreshes every 30 min
 - Latest-version lookup hits the npm registry with a 1h in-memory cache; `POST /api/providers/recheck-version` force-bypasses the cache (used by the settings "Re-check" button)
+- `POST /api/providers/update?provider=<kind>` runs the advisory's update command server-side (`runProviderUpdate` in `provider-registry.ts`): the command is always server-derived from `buildUpdateCommand` (never client-supplied), executed shell-less via `execFile` with a 10-min timeout; concurrent requests per provider share one run, and the advisory is force re-probed afterward. Automatic update is offered only for detected non-manual install methods; manual installs keep a copyable recommendation but are not run server-side.. Automatic update is offered only for detected non-manual install methods; manual installs keep a copyable recommendation but are not run server-side.
 - UI surfaces a one-shot sonner toast at app launch via `app/src/components/provider-update-notification.tsx`; dismissals persist per (provider, latestVersion) key in localStorage (`use-dismissed-provider-advisories.ts`)
-- The settings page renders a per-provider advisory card inside `ProviderDefaultsRow` with a copy-to-clipboard update command and a manual recheck button
+- The settings page renders a per-provider advisory card inside `ProviderDefaultsRow` with a copy-to-clipboard update command, an "Update now" button (inline confirm step → runs the update via the server), and a manual recheck button
 
 ### Claude Plan Rate Limits
 

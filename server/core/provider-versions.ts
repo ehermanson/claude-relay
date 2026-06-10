@@ -49,8 +49,8 @@ export const PROVIDER_PACKAGE_METADATA: Partial<Record<ProviderKind, ProviderPac
   },
   codex: {
     npmPackageName: CODEX_NPM_PACKAGE,
-    // Codex isn't (yet) in homebrew core; left null so install method falls back to "manual"
-    homebrewFormula: null,
+    // Ships as a homebrew cask; `brew upgrade codex` handles casks too
+    homebrewFormula: "codex",
     nativeUpdate: null,
   },
 };
@@ -338,6 +338,91 @@ export async function fetchNpmLatest(
   } finally {
     clearTimeout(timer);
   }
+}
+
+const UPDATE_COMMAND_TIMEOUT_MS = 10 * 60 * 1_000;
+const UPDATE_OUTPUT_MAX_BUFFER = 10 * 1024 * 1024;
+
+export interface UpdateCommandResult {
+  ok: boolean;
+  output: string;
+}
+
+export interface UpdateCommandInvocation {
+  binary: string;
+  args: string[];
+}
+
+export interface BuildUpdateInvocationOptions {
+  /**
+   * Absolute provider binary path discovered by Relay. Used for native updaters
+   * so we update the same CLI Relay probed instead of whichever shim is first
+   * on the server process PATH.
+   */
+  providerBinaryPath?: string | null;
+}
+
+/**
+ * Convert the server-derived display command into a shell-less execFile argv.
+ * Returns null when the command is empty or when a native updater cannot be
+ * safely tied to the provider binary Relay actually discovered.
+ */
+export function buildUpdateInvocation(
+  command: string,
+  method: ProviderInstallMethod,
+  options: BuildUpdateInvocationOptions = {},
+): UpdateCommandInvocation | null {
+  const [displayBinary, ...displayArgs] = command.trim().split(/\s+/);
+  if (!displayBinary) return null;
+  if (method === "native") {
+    const providerBinaryPath = options.providerBinaryPath?.trim();
+    if (!providerBinaryPath) return null;
+    return { binary: providerBinaryPath, args: displayArgs };
+  }
+  return { binary: displayBinary, args: displayArgs };
+}
+
+/**
+ * Execute a provider update command (e.g. `brew upgrade codex`). The command
+ * string must always come from `buildUpdateCommand()` — never from the client
+ * — so simple whitespace tokenization is safe (none of our commands need
+ * quoting or shell expansion). Runs without a shell via execFile. Never
+ * throws; failures (nonzero exit, timeout, missing binary) resolve with
+ * `ok: false` and whatever output the command produced.
+ */
+export function executeUpdateCommand(
+  command: string,
+  method: ProviderInstallMethod = "manual",
+  options: BuildUpdateInvocationOptions = {},
+): Promise<UpdateCommandResult> {
+  return new Promise((resolve) => {
+    const invocation = buildUpdateInvocation(command, method, options);
+    if (!invocation) {
+      resolve({
+        ok: false,
+        output: command.trim() ? "Unsafe update command" : "Empty update command",
+      });
+      return;
+    }
+    execFile(
+      invocation.binary,
+      invocation.args,
+      {
+        timeout: UPDATE_COMMAND_TIMEOUT_MS,
+        encoding: "utf8",
+        maxBuffer: UPDATE_OUTPUT_MAX_BUFFER,
+      },
+      (err: ExecFileException | null, stdout, stderr) => {
+        const output = `${stdout ?? ""}\n${stderr ?? ""}`.trim();
+        if (err) {
+          const reason = err.killed ? "Update command timed out" : err.message;
+          resolve({ ok: false, output: output || reason });
+          return;
+        }
+        resolve({ ok: true, output });
+      },
+    );
+  });
 }
 
 /**

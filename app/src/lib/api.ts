@@ -204,6 +204,25 @@ export async function recheckProviderVersions(
   return data.providers ?? [];
 }
 
+/**
+ * Run the provider CLI's update command server-side. Resolves once the update
+ * finishes and the server has re-probed the version advisory; returns the
+ * refreshed provider list so callers can update react-query in one shot.
+ */
+export async function runProviderUpdate(provider: ProviderKind): Promise<ProviderDescriptor[]> {
+  const res = await fetch(`/api/providers/update?provider=${encodeURIComponent(provider)}`, {
+    method: "POST",
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    providers?: ProviderDescriptor[];
+  };
+  if (!res.ok) {
+    throw new Error(data.error || "Update failed");
+  }
+  return data.providers ?? [];
+}
+
 export async function fetchUpdateStatus(): Promise<UpdateSnapshot> {
   const res = await fetch("/api/system/update");
   if (!res.ok) throw new Error("Failed to fetch update status");

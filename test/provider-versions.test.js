@@ -2,8 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildUpdateCommand,
+  buildUpdateInvocation,
   classifyInstallMethod,
   compareSemver,
+  executeUpdateCommand,
   PROVIDER_PACKAGE_METADATA,
 } from "../dist/server/core/provider-versions.js";
 
@@ -138,10 +140,7 @@ describe("buildUpdateCommand", () => {
 
   it("returns the brew command when a formula exists", () => {
     assert.equal(buildUpdateCommand("brew", claudeMeta), "brew upgrade claude-code");
-  });
-
-  it("returns null for brew when no formula is registered", () => {
-    assert.equal(buildUpdateCommand("brew", codexMeta), null);
+    assert.equal(buildUpdateCommand("brew", codexMeta), "brew upgrade codex");
   });
 
   it("returns the native command for providers that support it", () => {
@@ -157,5 +156,58 @@ describe("buildUpdateCommand", () => {
       buildUpdateCommand("manual", claudeMeta),
       "npm install -g @anthropic-ai/claude-code@latest",
     );
+  });
+});
+
+describe("buildUpdateInvocation", () => {
+  it("uses argv tokenization for package-manager commands", () => {
+    assert.deepEqual(buildUpdateInvocation("npm install -g @openai/codex@latest", "npm"), {
+      binary: "npm",
+      args: ["install", "-g", "@openai/codex@latest"],
+    });
+  });
+
+  it("uses the discovered provider binary for native updates", () => {
+    assert.deepEqual(
+      buildUpdateInvocation("claude update", "native", {
+        providerBinaryPath: "/Users/me/.local/bin/claude",
+      }),
+      { binary: "/Users/me/.local/bin/claude", args: ["update"] },
+    );
+  });
+
+  it("rejects native updates without a discovered provider binary", () => {
+    assert.equal(buildUpdateInvocation("claude update", "native"), null);
+  });
+});
+
+describe("executeUpdateCommand", () => {
+  it("resolves ok with captured output on success", async () => {
+    const result = await executeUpdateCommand("echo updated", "manual");
+    assert.equal(result.ok, true);
+    assert.equal(result.output, "updated");
+  });
+
+  it("resolves ok:false on nonzero exit without throwing", async () => {
+    const result = await executeUpdateCommand("false", "manual");
+    assert.equal(result.ok, false);
+  });
+
+  it("resolves ok:false for a missing binary", async () => {
+    const result = await executeUpdateCommand(
+      "definitely-not-a-real-binary-xyz --upgrade",
+      "manual",
+    );
+    assert.equal(result.ok, false);
+  });
+
+  it("rejects an empty command", async () => {
+    const result = await executeUpdateCommand("   ", "manual");
+    assert.equal(result.ok, false);
+  });
+
+  it("rejects native commands without a discovered provider binary", async () => {
+    const result = await executeUpdateCommand("claude update", "native");
+    assert.equal(result.ok, false);
   });
 });
