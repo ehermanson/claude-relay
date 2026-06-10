@@ -438,9 +438,11 @@ function ProviderStatusBlock({
       {/* Rate limit bars */}
       {globalState?.account?.rateLimits?.length ? (
         <div className="flex flex-col gap-2 mt-0.5">
-          {flattenRateLimitWindows(globalState.account.rateLimits).map(({ window, key }) => (
-            <RateLimitBar key={key} window={window} size="sm" />
-          ))}
+          {flattenRateLimitWindows(globalState.account.rateLimits).map(
+            ({ window, key, qualifier }) => (
+              <RateLimitBar key={key} window={window} size="sm" qualifier={qualifier} />
+            ),
+          )}
         </div>
       ) : null}
 

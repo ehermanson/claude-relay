@@ -1096,9 +1096,11 @@ function ProviderDefaultsRow({
           {runtimeState?.account?.rateLimits?.length ? (
             <div className="mt-3 space-y-2">
               <div className="text-[0.6875rem] text-muted">Rate Limits</div>
-              {flattenRateLimitWindows(runtimeState.account.rateLimits).map(({ window, key }) => (
-                <RateLimitBar key={key} window={window} size="md" />
-              ))}
+              {flattenRateLimitWindows(runtimeState.account.rateLimits).map(
+                ({ window, key, qualifier }) => (
+                  <RateLimitBar key={key} window={window} size="md" qualifier={qualifier} />
+                ),
+              )}
             </div>
           ) : null}
         </div>
