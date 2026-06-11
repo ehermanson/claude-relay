@@ -13,6 +13,7 @@
  */
 
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 
@@ -53,12 +54,18 @@ const wantVite = parseInt(process.env.VITE_PORT || "5173");
 const backendPort = await findFreePort(wantBackend);
 const vitePort = await findFreePort(wantVite);
 
+// Isolate dev state from the production install (~/.relay) so two servers
+// never share sessions.db / provider-state.json / worktrees. Overridable by
+// setting RELAY_HOME explicitly.
+const relayHome = process.env.RELAY_HOME || path.join(os.homedir(), ".relay-develop");
+
 const git = getGitContext();
 const context = git ? `${git.branch}${git.isWorktree ? " (worktree)" : ""}` : "unknown";
 console.log();
 console.log(`  Relay Dev  ─  ${context}`);
 console.log(`  Backend    →  http://localhost:${backendPort}`);
 console.log(`  UI         →  http://localhost:${vitePort}`);
+console.log(`  State      →  ${relayHome}`);
 console.log(`  Press 'r' to restart the server`);
 console.log();
 
@@ -67,6 +74,7 @@ console.log();
 const serverEnv = {
   ...process.env,
   DEV: "1",
+  RELAY_HOME: relayHome,
   PORT: String(backendPort),
   VITE_PORT: String(vitePort),
 };

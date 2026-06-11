@@ -5,7 +5,6 @@
  * instance orchestration) without any server-specific fields.
  */
 
-import { cpSync, existsSync, renameSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import { defaultLogger, type Logger } from "#core/logger.js";
@@ -44,32 +43,7 @@ function resolveRelayDir(): string {
   if (process.env.RELAY_HOME) {
     return resolve(process.env.RELAY_HOME);
   }
-
-  const home = homedir();
-  const defaultDir = join(home, ".relay");
-  const legacyDevDir = join(home, ".relay-dev");
-
-  if (!existsSync(legacyDevDir)) {
-    return defaultDir;
-  }
-
-  try {
-    if (!existsSync(defaultDir)) {
-      renameSync(legacyDevDir, defaultDir);
-    } else {
-      cpSync(legacyDevDir, defaultDir, { recursive: true, force: true });
-      rmSync(legacyDevDir, { recursive: true, force: true });
-    }
-    console.warn(`[Relay] Migrated legacy dev state from ${legacyDevDir} to ${defaultDir}`);
-  } catch (err) {
-    console.warn(
-      `[Relay] Failed to migrate legacy dev state from ${legacyDevDir} to ${defaultDir}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-
-  return defaultDir;
+  return join(homedir(), ".relay");
 }
 
 /** Base directory for Relay state: ~/.relay by default, or RELAY_HOME when explicitly set. */

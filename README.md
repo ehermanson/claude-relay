@@ -189,18 +189,18 @@ Helpful extras:
 
 Common environment variables:
 
-| Variable         | Default                  | What it does               |
-| ---------------- | ------------------------ | -------------------------- |
-| `RELAY_PASSWORD` | unset                    | Turns on login             |
-| `RELAY_HOME`     | `~/.relay`               | Relay state directory      |
-| `PORT`           | `7777`                   | Server port                |
-| `WORKING_DIR`    | current directory        | Default working directory  |
-| `MAX_PROCESSES`  | `15`                     | Max managed chats          |
-| `TUNNEL`         | `false`                  | Starts a Cloudflare tunnel |
-| `CLAUDE_DIR`     | `~/.claude`              | Claude data directory      |
-| `CODEX_DIR`      | `~/.codex`               | Codex data directory       |
-| `DB_PATH`        | `~/.relay/sessions.db`   | Relay SQLite path          |
-| `SESSION_FILE`   | `~/.relay/sessions.json` | Auth session file          |
+| Variable         | Default                  | What it does                                                      |
+| ---------------- | ------------------------ | ----------------------------------------------------------------- |
+| `RELAY_PASSWORD` | unset                    | Turns on login                                                    |
+| `RELAY_HOME`     | `~/.relay`               | Relay state directory (`pnpm dev` defaults to `~/.relay-develop`) |
+| `PORT`           | `7777`                   | Server port                                                       |
+| `WORKING_DIR`    | current directory        | Default working directory                                         |
+| `MAX_PROCESSES`  | `15`                     | Max managed chats                                                 |
+| `TUNNEL`         | `false`                  | Starts a Cloudflare tunnel                                        |
+| `CLAUDE_DIR`     | `~/.claude`              | Claude data directory                                             |
+| `CODEX_DIR`      | `~/.codex`               | Codex data directory                                              |
+| `DB_PATH`        | `~/.relay/sessions.db`   | Relay SQLite path                                                 |
+| `SESSION_FILE`   | `~/.relay/sessions.json` | Auth session file                                                 |
 
 ## Development
 

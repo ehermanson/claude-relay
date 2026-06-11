@@ -68,6 +68,8 @@ Always `pnpm build:server` before `pnpm test` — tests import from `dist/`.
 
 This avoids the "using the tool to work on the tool" problem — AI agents modifying server files won't trigger disruptive mid-operation restarts.
 
+Dev state is isolated: `pnpm dev` defaults `RELAY_HOME` to `~/.relay-develop` (override by setting `RELAY_HOME`), so a dev server never shares `sessions.db`, `provider-state.json`, or worktrees with a production install using `~/.relay`. Two servers writing the same home causes last-writer-wins state clobbering and schema-version DB rebuild ping-pong.
+
 ## Key Conventions
 
 ### Import Aliases
@@ -111,7 +113,7 @@ Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a ch
 
 ### Spaces
 
-Spaces group multiple concurrent agent chats within a shared git worktree/branch (`Project → Space[] → Chat[]`). Every project has an implicit "main" space (no worktree, default branch). Additional spaces create dedicated worktrees in `<RELAY_HOME>/worktrees/space-<id>/` (defaults to `~/.relay/worktrees/space-<id>/`; legacy `~/.relay-dev` state is migrated into `~/.relay` automatically).
+Spaces group multiple concurrent agent chats within a shared git worktree/branch (`Project → Space[] → Chat[]`). Every project has an implicit "main" space (no worktree, default branch). Additional spaces create dedicated worktrees in `<RELAY_HOME>/worktrees/space-<id>/` (defaults to `~/.relay/worktrees/space-<id>/`).
 
 - `SpaceManager` (`server/core/space-manager.ts`) owns space lifecycle: create, list, complete (merge + cleanup), delete (archive + cleanup)
 - Each space has a "brief" at `.relay/space-context.md` (git-excluded, seeded on creation). Its **contents** are injected into every chat's bootstrap context (the space-level analog of project custom instructions) via `buildSpaceBootstrapContextBlock` + `extractSpaceContextForInjection` — only when the file has authored content beyond the seed template, and only at session start (new/resumed chats).
