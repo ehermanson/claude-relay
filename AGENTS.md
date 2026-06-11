@@ -160,7 +160,8 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 
 ### Claude Plan Rate Limits
 
-- Plan utilization has two SDK sources: live `rate_limit_event` messages mid-session, and the experimental `get_usage` snapshot (SDK ≥ 0.3.169) probed at prewarm and session start (`probeUsageRateLimits` in `server/core/providers/claude-sdk.ts`). Always feature-detect the snapshot method (`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`) — it will be renamed at stabilization. Per window, live event data overrides snapshot data.
+- Plan utilization has two SDK sources: live `rate_limit_event` messages mid-session, and the experimental `get_usage` snapshot (SDK ≥ 0.3.169) probed at prewarm, session start, and after each completed turn (throttled, `refreshUsageRateLimits` in `server/core/providers/claude-sdk.ts`). Always feature-detect the snapshot method (`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`) — it will be renamed at stabilization.
+- Merging is field-level, never whole-window: live events carry `status` (and only sometimes `utilization` — `allowed` events have none), the snapshot carries authoritative `utilization` but no status. An event without utilization must not erase a known percentage, and a snapshot below 100% clears a stale `rejected` (both in `claude-sdk.ts` and in `mergeRateLimitWindows` in `instance-manager.ts`). The CLI replays cached rate-limit status at session start, so a latched `rejected` that snapshots can't override will stick for hours.
 
 ### Plan Review Abstraction
 

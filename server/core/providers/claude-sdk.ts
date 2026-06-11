@@ -349,6 +349,9 @@ type RateLimitWindowData = {
   status: string | undefined;
 };
 
+/** Minimum interval between get_usage snapshot probes (per session). */
+const USAGE_PROBE_MIN_INTERVAL_MS = 60_000;
+
 /** Known rateLimitType → window duration in minutes. */
 const RATE_LIMIT_WINDOW_MINUTES: Record<string, number> = {
   five_hour: 300,
@@ -1488,26 +1491,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // Plan rate-limit utilization via the experimental get_usage snapshot
     // (SDK >= 0.3.169) — surfaces the windows at session start instead of
     // waiting for a mid-session rate_limit_event.
-    void probeUsageRateLimits(this.query)
-      .then((windows) => {
-        if (!windows) return;
-        // Seed only windows not already populated by live rate_limit_event —
-        // event data is fresher than the snapshot.
-        for (const [type, data] of windows) {
-          if (!this.rateLimitWindows.has(type)) this.rateLimitWindows.set(type, data);
-        }
-        const rateLimits = this.buildRateLimitsSnapshot();
-        if (!rateLimits.length) return;
-        sdkDiscoveredRateLimits = rateLimits;
-        this.emit("systemEvent", {
-          type: "system_event",
-          event: "provider_status",
-          payload: { account: { rateLimits } },
-        } as SystemEventMessage);
-      })
-      .catch((err) => {
-        this.logger.debug(`[SdkSession] get_usage snapshot unavailable: ${err}`);
-      });
+    this.refreshUsageRateLimits();
   }
 
   // ===========================================================================
@@ -1578,13 +1562,85 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     const resetsAt = typeof info.resetsAt === "number" ? info.resetsAt : undefined;
     const status = typeof info.status === "string" ? info.status : "allowed";
 
-    this.rateLimitWindows.set(rateLimitType, { utilization, resetsAt, status });
+    // Field-level merge: an `allowed` event carries no utilization, and must
+    // not erase a percentage we already know from the get_usage snapshot or
+    // an earlier warning/rejected event. Status always reflects the latest
+    // event — it's the live signal.
+    const prev = this.rateLimitWindows.get(rateLimitType);
+    this.rateLimitWindows.set(rateLimitType, {
+      utilization: utilization ?? prev?.utilization,
+      resetsAt: resetsAt ?? prev?.resetsAt,
+      status,
+    });
 
+    this.emitRateLimitsStatus();
+  }
+
+  /**
+   * Merge get_usage snapshot windows into the accumulated map. The snapshot
+   * is fetched now, so its utilization is at least as fresh as any earlier
+   * event data — snapshot fields win, while live event `status` is preserved
+   * (the snapshot carries none). Exception: a stale `rejected` is cleared
+   * when the snapshot proves the window is below 100% — it cannot still be
+   * exhausted.
+   */
+  private seedUsageWindows(windows: Map<string, RateLimitWindowData>): void {
+    for (const [type, data] of windows) {
+      const existing = this.rateLimitWindows.get(type);
+      if (!existing) {
+        this.rateLimitWindows.set(type, { ...data });
+        continue;
+      }
+      const utilization = data.utilization ?? existing.utilization;
+      // utilization is a 0-1 fraction here (probeUsageRateLimits normalizes
+      // the snapshot's 0-100 values on ingest).
+      const status =
+        existing.status === "rejected" && typeof utilization === "number" && utilization < 1
+          ? undefined
+          : existing.status;
+      this.rateLimitWindows.set(type, {
+        utilization,
+        resetsAt: data.resetsAt ?? existing.resetsAt,
+        status,
+      });
+    }
+  }
+
+  private _usageProbeInflight = false;
+  private _lastUsageProbeAt = 0;
+
+  /**
+   * Probe the get_usage snapshot and fold it into the accumulated windows.
+   * Called at session start and after each completed turn (throttled) so the
+   * 5h window keeps a percentage even though live events rarely carry one,
+   * and so a stale `rejected` self-corrects instead of latching until reset.
+   */
+  private refreshUsageRateLimits(): void {
+    if (this._stopped || this._usageProbeInflight) return;
+    if (Date.now() - this._lastUsageProbeAt < USAGE_PROBE_MIN_INTERVAL_MS) return;
+    this._usageProbeInflight = true;
+    void probeUsageRateLimits(this.query)
+      .then((windows) => {
+        this._lastUsageProbeAt = Date.now();
+        if (!windows) return;
+        this.seedUsageWindows(windows);
+        this.emitRateLimitsStatus();
+      })
+      .catch((err) => {
+        this.logger.debug(`[SdkSession] get_usage snapshot unavailable: ${err}`);
+      })
+      .finally(() => {
+        this._usageProbeInflight = false;
+      });
+  }
+
+  /** Emit the accumulated rate-limit windows as a provider_status event. */
+  private emitRateLimitsStatus(): void {
     const rateLimits = this.buildRateLimitsSnapshot();
     if (!rateLimits.length) return;
 
     // Keep the module-level snapshot fresh so the boot-time fallback in
-    // instance-manager reflects the latest event data.
+    // instance-manager reflects the latest data.
     sdkDiscoveredRateLimits = rateLimits;
 
     this.emit("systemEvent", {
@@ -1869,6 +1925,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private finishTurn(): void {
     this.clearTimeout();
     this._isProcessing = false;
+    // Refresh plan rate-limit utilization after each completed turn
+    // (throttled) — live events rarely carry a percentage for the 5h window.
+    this.refreshUsageRateLimits();
     const done: OutputMessage = {
       type: "output",
       text: "",

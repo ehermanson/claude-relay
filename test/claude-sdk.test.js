@@ -432,6 +432,101 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
+    it("preserves snapshot utilization when an allowed event carries none", async () => {
+      const harness = makeHarness();
+      harness.fakeQuery.usageSnapshot = {
+        subscription_type: "max",
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: {
+            utilization: 42,
+            resets_at: "2026-06-09T21:30:00.000Z",
+          },
+        },
+      };
+      const session = createSdkSessionSync(
+        { cwd: "/test/project", logger: noopLogger },
+        harness.queryFn,
+      );
+      const systemEvents = collectEvents(session, "systemEvent");
+
+      await tick();
+
+      // Live `allowed` events carry no utilization — must not wipe the 42%.
+      harness.fakeQuery.emit({
+        type: "rate_limit_event",
+        rate_limit_info: {
+          rateLimitType: "five_hour",
+          status: "allowed",
+          resetsAt: 1781200000,
+        },
+      });
+
+      await tick();
+
+      const statuses = systemEvents
+        .map(([event]) => event)
+        .filter((event) => event.event === "provider_status");
+      assert.ok(statuses.length >= 2, "Expected snapshot + event provider_status");
+      const last = statuses[statuses.length - 1];
+      const fiveHour = last.payload.account.rateLimits.find((l) => l.scope === "five_hour");
+      assert.ok(fiveHour);
+      assert.equal(fiveHour.windows[0].usedPercent, 42);
+      assert.equal(fiveHour.windows[0].status, "allowed");
+      assert.equal(fiveHour.windows[0].resetAt, new Date(1781200000 * 1000).toISOString());
+      session.close();
+    });
+
+    it("snapshot fills utilization and clears stale rejected on event-occupied windows", async () => {
+      const harness = makeHarness();
+      // Defer the snapshot so the live event lands first (the real-world
+      // ordering: the CLI replays cached rate-limit status at session start).
+      let resolveSnapshot;
+      harness.fakeQuery.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET = () =>
+        new Promise((resolve) => {
+          resolveSnapshot = resolve;
+        });
+      const session = createSdkSessionSync(
+        { cwd: "/test/project", logger: noopLogger },
+        harness.queryFn,
+      );
+      const systemEvents = collectEvents(session, "systemEvent");
+
+      harness.fakeQuery.emit({
+        type: "rate_limit_event",
+        rate_limit_info: {
+          rateLimitType: "five_hour",
+          status: "rejected",
+          resetsAt: 1781200000,
+        },
+      });
+      await tick();
+
+      resolveSnapshot({
+        subscription_type: "max",
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: {
+            utilization: 42,
+            resets_at: "2026-06-09T21:30:00.000Z",
+          },
+        },
+      });
+      await tick();
+
+      const statuses = systemEvents
+        .map(([event]) => event)
+        .filter((event) => event.event === "provider_status");
+      const last = statuses[statuses.length - 1];
+      const fiveHour = last.payload.account.rateLimits.find((l) => l.scope === "five_hour");
+      assert.ok(fiveHour);
+      // Snapshot utilization fills the event-occupied window...
+      assert.equal(fiveHour.windows[0].usedPercent, 42);
+      // ...and below-100% utilization clears the stale rejected status.
+      assert.equal(fiveHour.windows[0].status, undefined);
+      session.close();
+    });
+
     it("emits output from assistant text blocks", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness);

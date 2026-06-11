@@ -397,16 +397,16 @@ function mergeRateLimitWindows(
     const prev = prevWindows?.[i];
     if (!prev) return { ...pw };
     if (rlSeverity(prev.status) > rlSeverity(pw.status)) {
-      // get_usage snapshot windows carry no status but authoritative
-      // utilization: below 100% the window cannot still be rejected.
-      const snapshotShowsCleared =
-        pw.status === undefined && typeof pw.usedPercent === "number" && pw.usedPercent < 100;
+      // A patch carrying real utilization below 100% (get_usage snapshot or
+      // a warning event) is affirmative evidence the window is no longer
+      // exhausted — the patch is already known to be less severe here.
+      const patchShowsCleared = typeof pw.usedPercent === "number" && pw.usedPercent < 100;
       // Otherwise keep the more severe status until its own reset time passes.
       // Carry prev.resetAt (not the patch's rolling next-window reset) so the
       // carried status can actually expire instead of sticking forever.
       const resetAt = prev.resetAt ? new Date(prev.resetAt).getTime() : null;
       const stillActive = resetAt !== null && Date.now() < resetAt;
-      if (!snapshotShowsCleared && stillActive) {
+      if (!patchShowsCleared && stillActive) {
         const hasFreshUsage = typeof pw.usedPercent === "number";
         return {
           ...pw,
@@ -415,6 +415,16 @@ function mergeRateLimitWindows(
           remaining: hasFreshUsage ? pw.remaining : prev.remaining,
           resetAt: prev.resetAt,
         };
+      }
+    }
+    // Field-level carry: a patch window without utilization (e.g. a live
+    // `allowed` event) must not erase a previously known percentage while
+    // the previous window is still current.
+    if (typeof pw.usedPercent !== "number" && typeof prev.usedPercent === "number") {
+      const prevResetAt = prev.resetAt ? new Date(prev.resetAt).getTime() : null;
+      const prevStillCurrent = prevResetAt !== null && Date.now() < prevResetAt;
+      if (prevStillCurrent) {
+        return { ...pw, usedPercent: prev.usedPercent, remaining: prev.remaining };
       }
     }
     return { ...pw };
