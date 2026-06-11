@@ -148,6 +148,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - Default space branch determines the base branch when creating new spaces (worktrees)
 - Settings page: `/projects/:id/settings` with textarea for instructions, branch picker, provider/model selectors
 - `SessionDB` creates the final schema directly; any DB whose `schema_version` does not match the current version is backed up and rebuilt from transcript discovery
+- Removing a project writes a tombstone to the `removed_projects` table; `recoverProjectsFromSessionDirectories()` skips tombstoned directories so removed projects don't resurrect from leftover session rows. Only explicit re-registration (`addProject`, including starting a chat in that directory) clears the tombstone
 
 ### Provider Version Advisories
 

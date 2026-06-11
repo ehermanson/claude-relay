@@ -10,7 +10,7 @@ import { dirname } from "path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Logger } from "#core/logger.js";
 
-const CURRENT_SCHEMA_VERSION = 25;
+const CURRENT_SCHEMA_VERSION = 26;
 type SQLiteBindValue = string | number | bigint | null | NodeJS.ArrayBufferView;
 type SQLiteBindParams = Record<string, SQLiteBindValue>;
 
@@ -433,9 +433,14 @@ export class SessionDB {
   private stmtGetProjectByDir!: StatementSync;
   private stmtGetAllProjects!: StatementSync;
   private stmtDeleteProject!: StatementSync;
+  private stmtAddRemovedProjectDir!: StatementSync;
+  private stmtClearRemovedProjectDir!: StatementSync;
+  private stmtGetRemovedProjectDirs!: StatementSync;
   private stmtUpdateProjectActivity!: StatementSync;
   private stmtUpdateSessionProjectId!: StatementSync;
   private stmtUpdateManagedSessionProjectId!: StatementSync;
+  private stmtClearSessionProjectId!: StatementSync;
+  private stmtClearManagedSessionProjectId!: StatementSync;
   private stmtUpdateSpaceProjectDirectoryById!: StatementSync;
   private stmtGetDistinctSessionDirs!: StatementSync;
   private stmtGetProjectModelStats!: StatementSync;
@@ -750,6 +755,11 @@ ${buildSearchIndexSchemaSql()},
         created_at INTEGER NOT NULL,
         last_activity_at INTEGER,
         suggestions_json TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS removed_projects (
+        directory TEXT PRIMARY KEY,
+        removed_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS spaces (
@@ -1203,6 +1213,13 @@ ${buildSearchIndexSchemaSql()},
       "SELECT * FROM projects ORDER BY last_activity_at DESC NULLS LAST, created_at DESC",
     );
     this.stmtDeleteProject = this.db.prepare("DELETE FROM projects WHERE id = ?");
+    this.stmtAddRemovedProjectDir = this.db.prepare(
+      "INSERT OR REPLACE INTO removed_projects (directory, removed_at) VALUES (?, ?)",
+    );
+    this.stmtClearRemovedProjectDir = this.db.prepare(
+      "DELETE FROM removed_projects WHERE directory = ?",
+    );
+    this.stmtGetRemovedProjectDirs = this.db.prepare("SELECT directory FROM removed_projects");
     this.stmtUpdateProjectActivity = this.db.prepare(
       "UPDATE projects SET last_activity_at = ? WHERE id = ?",
     );
@@ -1211,6 +1228,12 @@ ${buildSearchIndexSchemaSql()},
     );
     this.stmtUpdateManagedSessionProjectId = this.db.prepare(
       "UPDATE managed_sessions SET project_id = ? WHERE working_directory = ?",
+    );
+    this.stmtClearSessionProjectId = this.db.prepare(
+      "UPDATE sessions SET project_id = NULL WHERE project_id = ?",
+    );
+    this.stmtClearManagedSessionProjectId = this.db.prepare(
+      "UPDATE managed_sessions SET project_id = NULL WHERE project_id = ?",
     );
     this.stmtUpdateSpaceProjectDirectoryById = this.db.prepare(
       "UPDATE spaces SET project_directory = ? WHERE id = ?",
@@ -1674,6 +1697,22 @@ ${buildSearchIndexSchemaSql()},
     this.stmtDeleteProject.run(id);
   }
 
+  /** Tombstone a directory so session-history recovery won't re-create its project. */
+  addRemovedProjectDirectory(directory: string, removedAt: number): void {
+    this.stmtAddRemovedProjectDir.run(directory, removedAt);
+  }
+
+  clearRemovedProjectDirectory(directory: string): void {
+    this.stmtClearRemovedProjectDir.run(directory);
+  }
+
+  getRemovedProjectDirectories(): Set<string> {
+    const rows = this.stmtGetRemovedProjectDirs.all() as Array<{ directory?: unknown }>;
+    return new Set(
+      rows.map((row) => (typeof row.directory === "string" ? row.directory : "")).filter(Boolean),
+    );
+  }
+
   updateProjectActivity(id: string, timestamp: number): void {
     this.stmtUpdateProjectActivity.run(timestamp, id);
   }
@@ -1682,6 +1721,12 @@ ${buildSearchIndexSchemaSql()},
   assignSessionsToProject(projectId: string | null, directory: string): void {
     this.stmtUpdateSessionProjectId.run(projectId, directory);
     this.stmtUpdateManagedSessionProjectId.run(projectId, directory);
+  }
+
+  /** Clear project_id on every session (any directory) currently assigned to a project */
+  unassignSessionsFromProject(projectId: string): void {
+    this.stmtClearSessionProjectId.run(projectId);
+    this.stmtClearManagedSessionProjectId.run(projectId);
   }
 
   reassignSpacesToProjectDirectory(nextDirectory: string, previousDirectory: string): void {

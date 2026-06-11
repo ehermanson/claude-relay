@@ -227,23 +227,24 @@ export class ProjectManager extends EventEmitter {
       this.db.getAllProjects().map((project) => [project.directory, project] as const),
     );
     const assignedSlugs = this.collectExistingSlugs();
+    const removedDirectories = this.db.getRemovedProjectDirectories();
     let recovered = 0;
 
     for (const sessionDirectory of this.db.getDistinctSessionDirectories()) {
-      const repoRoot = getRepoRoot(sessionDirectory);
-      if (!repoRoot) {
+      const resolved = this.canonicalizeSessionDirectory(sessionDirectory);
+      if (!resolved) {
         continue;
       }
-
-      // Resolve worktree paths to the parent repo
-      const canonicalDirectory = isRelayWorktreePath(repoRoot)
-        ? (resolveWorktreeOrigin(repoRoot) ?? repoRoot)
-        : isGitWorktree(repoRoot)
-          ? (resolveAnyWorktreeOrigin(repoRoot) ?? repoRoot)
-          : repoRoot;
+      const { repoRoot, canonicalDirectory } = resolved;
 
       let project = existingByDirectory.get(canonicalDirectory);
       if (!project) {
+        // Explicitly removed by the user — only re-adding the project (addProject)
+        // may bring it back, never session-history recovery.
+        if (removedDirectories.has(canonicalDirectory)) {
+          continue;
+        }
+
         // For worktree-rooted sessions, don't auto-create a project for
         // the parent repo — only attach to an already-registered project.
         if (isGitWorktree(sessionDirectory) || isGitWorktree(repoRoot)) {
@@ -292,6 +293,26 @@ export class ProjectManager extends EventEmitter {
   }
 
   /**
+   * Resolve a session working directory to its repo root and the canonical
+   * project directory (worktree paths resolve to the parent repo).
+   * Returns null for directories outside any git repository.
+   */
+  private canonicalizeSessionDirectory(
+    sessionDirectory: string,
+  ): { repoRoot: string; canonicalDirectory: string } | null {
+    const repoRoot = getRepoRoot(sessionDirectory);
+    if (!repoRoot) {
+      return null;
+    }
+    const canonicalDirectory = isRelayWorktreePath(repoRoot)
+      ? (resolveWorktreeOrigin(repoRoot) ?? repoRoot)
+      : isGitWorktree(repoRoot)
+        ? (resolveAnyWorktreeOrigin(repoRoot) ?? repoRoot)
+        : repoRoot;
+    return { repoRoot, canonicalDirectory };
+  }
+
+  /**
    * Register a new project. Directory must be a git repository.
    * Returns the created project, or the existing one if already registered.
    */
@@ -313,6 +334,9 @@ export class ProjectManager extends EventEmitter {
       : isGitWorktree(repoRoot)
         ? (resolveAnyWorktreeOrigin(repoRoot) ?? repoRoot)
         : repoRoot;
+
+    // Explicit registration always clears a prior removal tombstone
+    this.db.clearRemovedProjectDirectory(canonicalDirectory);
 
     // Check for existing registration
     const existing = this.db.getProjectByDirectory(canonicalDirectory);
@@ -345,8 +369,18 @@ export class ProjectManager extends EventEmitter {
 
     this.db.upsertProject(row);
 
-    // Backfill project_id on any existing sessions for this directory
+    // Backfill project_id on any existing sessions rooted in this repo,
+    // including subdirectory and worktree sessions from before a removal
     this.db.assignSessionsToProject(row.id, canonicalDirectory);
+    for (const sessionDirectory of this.db.getDistinctSessionDirectories()) {
+      if (sessionDirectory === canonicalDirectory) continue;
+      if (
+        this.canonicalizeSessionDirectory(sessionDirectory)?.canonicalDirectory ===
+        canonicalDirectory
+      ) {
+        this.db.assignSessionsToProject(row.id, sessionDirectory);
+      }
+    }
 
     const project = rowToProject(row);
     this.logger.info(
@@ -385,7 +419,13 @@ export class ProjectManager extends EventEmitter {
     const existing = this.db.getProject(id);
     if (!existing) return false;
 
-    this.db.assignSessionsToProject(null, existing.directory);
+    // Clear by project_id so subdirectory/worktree sessions associated during
+    // recovery don't keep a dangling reference to the deleted project
+    this.db.unassignSessionsFromProject(id);
+
+    // Tombstone the directory so recoverProjectsFromSessionDirectories() doesn't
+    // resurrect the project from the orphaned session rows on the next scan.
+    this.db.addRemovedProjectDirectory(existing.directory, Date.now());
 
     this.db.deleteProject(id);
     this.logger.info(`[ProjectManager] Removed project: ${existing.name}`);
