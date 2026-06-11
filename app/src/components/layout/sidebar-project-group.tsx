@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
+import { getChatRecencyTimestamp } from "@/lib/utils";
 import { isAttachedReviewInstance } from "@/lib/review-session";
 import { isSpaceOwnedInstance } from "../../lib/space-membership";
 import { useSidebarActions } from "../../context/sidebar-actions-context";
@@ -35,6 +36,10 @@ import { SidebarItem } from "./sidebar-item";
 import { SidebarSpaceGroup } from "./sidebar-space-group";
 
 const MAX_SIDEBAR_SESSIONS = 10;
+// Stopped chats idle longer than this collapse into "+N more", except the
+// newest few which stay as an anchor so the group never renders empty.
+const STALE_SESSION_MS = 10 * 24 * 60 * 60 * 1000;
+const MIN_VISIBLE_STOPPED = 2;
 
 function ProjectInitialBadge({ initial }: { initial: string }) {
   return (
@@ -151,9 +156,16 @@ export function SidebarProjectGroup({
     const activeSessions = ordered.filter((entry) => entry.inst.status !== "stopped");
     const stoppedSessions = ordered.filter((entry) => entry.inst.status === "stopped");
     const slotsForStopped = Math.max(0, MAX_SIDEBAR_SESSIONS - activeSessions.length);
+    // Stopped chats are already sorted newest-first; drop stale ones beyond
+    // the anchor count before applying the slot cap.
+    const now = Date.now();
+    const recentStopped = stoppedSessions.filter(
+      (entry, index) =>
+        index < MIN_VISIBLE_STOPPED || now - getChatRecencyTimestamp(entry.inst) < STALE_SESSION_MS,
+    );
     const visibleIds = new Set([
       ...activeSessions.map((entry) => entry.inst.id),
-      ...stoppedSessions.slice(0, slotsForStopped).map((entry) => entry.inst.id),
+      ...recentStopped.slice(0, slotsForStopped).map((entry) => entry.inst.id),
     ]);
     if (currentId) visibleIds.add(currentId);
     visible = ordered.filter((entry) => visibleIds.has(entry.inst.id));
