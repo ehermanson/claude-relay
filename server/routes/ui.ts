@@ -12,7 +12,10 @@ export function registerUiRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
         pathname.startsWith("/assets/") ||
         pathname === "/favicon.svg" ||
         pathname === "/favicon.ico" ||
-        pathname === "/manifest.json"
+        pathname === "/manifest.json" ||
+        pathname === "/apple-touch-icon.png" ||
+        pathname === "/icon-192.png" ||
+        pathname === "/icon-512.png"
       ) {
         const filePath = path.join(deps.uiDistDir, pathname);
         const resolved = path.resolve(filePath);
