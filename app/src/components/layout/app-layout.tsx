@@ -109,7 +109,7 @@ export function AppLayout() {
         </div>
         {/* Mobile sidebar overlay */}
         {mobileSidebarOpen && (
-          <div className="fixed inset-0 z-50 flex p-2">
+          <div className="fixed inset-0 z-50 flex p-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)]">
             {/* Backdrop */}
             <div
               className="absolute inset-0 bg-black/50 animate-fade-in"

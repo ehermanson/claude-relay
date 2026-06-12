@@ -13,7 +13,10 @@ interface MobileSidecarOverlayProps {
 
 export function MobileSidecarOverlay({ onClose, children }: MobileSidecarOverlayProps) {
   return (
-    <div className="fixed inset-0 z-50 flex justify-end p-2" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex justify-end p-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)]"
+      onClick={onClose}
+    >
       <div className="animate-fade-in absolute inset-0 bg-black/50" />
       <div
         className="relative z-10 my-auto h-[calc(100%-16px)]"
