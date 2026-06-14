@@ -6,6 +6,7 @@ import type {
   TaskItem,
   FileChange,
   SystemEventMessage,
+  InstanceStatus,
 } from "@shared/types";
 import type { ChatItem, LiveActivity, MergedActivity } from "@/lib/chat-types";
 import { classifyLargeUserText } from "@/lib/message-rendering";
@@ -337,6 +338,7 @@ type Action =
   | { type: "error"; message: string }
   | { type: "notification"; message: string }
   | { type: "system_event"; message: SystemEventMessage }
+  | { type: "reconcile_status"; status: InstanceStatus }
   | { type: "show_thinking" };
 
 // Module-level cache — persists across mounts/unmounts within a page session.
@@ -812,6 +814,26 @@ function coreReducer(state: State, action: Action): State {
       };
     }
 
+    case "reconcile_status": {
+      // The server's instance status is authoritative for whether a turn is
+      // running. When it reports the turn is no longer active (idle/error/
+      // stopped) but we still think we're processing, clear the stuck flag.
+      // This is the recovery path for mobile/flaky links: if the turn-ending
+      // `output { isWaiting: true }` event was missed during a disconnect, the
+      // chat would otherwise stay wedged in "Working..." until a manual
+      // refresh. Only ever clears — never sets — so it can't race the
+      // optimistic just-sent indicator (the server reports "processing" after
+      // a send, not idle).
+      if (action.status === "processing" || !state.isProcessing) return state;
+      return {
+        ...state,
+        isProcessing: false,
+        showThinkingIndicator: false,
+        lastActivity: null,
+        processingStartedAt: null,
+      };
+    }
+
     case "show_thinking": {
       return {
         ...state,
@@ -1036,10 +1058,15 @@ export function useInstanceMessages() {
           }
           break;
         case "instance_status":
-          // When the server clears the message queue (turn ended or stop pressed),
-          // remove any queued placeholder bubbles that are still visible.
-          if (message.instanceId === instanceId && !message.instance.queuedMessageCount) {
-            dispatch({ type: "clear_queued" });
+          if (message.instanceId === instanceId) {
+            // When the server clears the message queue (turn ended or stop
+            // pressed), remove any queued placeholder bubbles still visible.
+            if (!message.instance.queuedMessageCount) {
+              dispatch({ type: "clear_queued" });
+            }
+            // Reconcile a stuck local processing flag against the authoritative
+            // server status (recovers from a missed turn-end event on reconnect).
+            dispatch({ type: "reconcile_status", status: message.instance.status });
           }
           break;
       }

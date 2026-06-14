@@ -600,6 +600,19 @@ export function createWebSocketServer(
                   sendMessage(ws, qm);
                 }
               }
+              // Always send the current authoritative status on (re)subscribe.
+              // On reconnect the client's per-chat processing flag is otherwise
+              // only cleared by a turn-end event in the replay — which can be
+              // missed on flaky mobile links, wedging the chat in "Working...".
+              // This lets the client reconcile against the real status.
+              const subscribedInstance = instanceManager.getInstance(message.instanceId);
+              if (subscribedInstance) {
+                sendMessage(ws, {
+                  type: "instance_status",
+                  instanceId: message.instanceId,
+                  instance: subscribedInstance,
+                });
+              }
             } catch {
               sendMessage(ws, {
                 type: "error",
