@@ -74,6 +74,7 @@ export interface GlobalSettingsRow {
   custom_instructions: string | null;
   project_order_json: string | null;
   suggestions_json: string | null;
+  max_processes: number | null;
 }
 
 export interface SessionRow {
@@ -795,7 +796,8 @@ ${buildSearchIndexSchemaSql()},
         provider_defaults_json TEXT,
         custom_instructions TEXT,
         project_order_json TEXT,
-        suggestions_json TEXT
+        suggestions_json TEXT,
+        max_processes INTEGER
       );
 
       INSERT OR IGNORE INTO global_settings (id) VALUES (1);
@@ -812,6 +814,9 @@ ${buildSearchIndexSchemaSql()},
 
     if (!columnNames.has("project_order_json")) {
       this.db.exec("ALTER TABLE global_settings ADD COLUMN project_order_json TEXT");
+    }
+    if (!columnNames.has("max_processes")) {
+      this.db.exec("ALTER TABLE global_settings ADD COLUMN max_processes INTEGER");
     }
   }
 
@@ -1363,7 +1368,8 @@ ${buildSearchIndexSchemaSql()},
         provider_defaults_json = @provider_defaults_json,
         custom_instructions = @custom_instructions,
         project_order_json = @project_order_json,
-        suggestions_json = @suggestions_json
+        suggestions_json = @suggestions_json,
+        max_processes = @max_processes
       WHERE id = 1
     `);
 
@@ -1919,6 +1925,7 @@ ${buildSearchIndexSchemaSql()},
           "project_order_json" in patch ? patch.project_order_json : current.project_order_json,
         suggestions_json:
           "suggestions_json" in patch ? patch.suggestions_json : current.suggestions_json,
+        max_processes: "max_processes" in patch ? patch.max_processes : current.max_processes,
       }),
     );
     return this.getGlobalSettings();

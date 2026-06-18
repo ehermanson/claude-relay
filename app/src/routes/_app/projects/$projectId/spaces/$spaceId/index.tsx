@@ -32,6 +32,7 @@ import {
   markSpinOffSent,
 } from "@/lib/api";
 import { getProjectName } from "@/lib/project-route";
+import { reportCreateInstanceError } from "@/stores/process-limit-store";
 import { aggregateSpaceStats, buildSpaceInstances, parseSpaceDiffFiles } from "@/lib/space-view";
 import { toastAsync } from "@/lib/async-toast";
 import { getChatRecencyTimestamp } from "@/lib/utils";
@@ -393,7 +394,9 @@ export function SpaceView() {
         setPendingNewChatActive(false);
         setPendingNewChatId(null);
         pendingCreatedChatIdRef.current = null;
-        toast.error(err instanceof Error ? err.message : "Failed to create chat");
+        if (!reportCreateInstanceError(err, () => handleCreateChat(options))) {
+          toast.error(err instanceof Error ? err.message : "Failed to create chat");
+        }
       }
     },
     [send, spaceId],

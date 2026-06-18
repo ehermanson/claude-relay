@@ -25,6 +25,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Thrown by createInstance when the server rejects with the concurrent-process
+ * cap (`code: "max_processes"`). Callers can catch this to open the
+ * "free up capacity" dialog instead of surfacing a bare toast.
+ */
+export class MaxProcessesError extends ApiError {
+  readonly limit: number;
+
+  constructor(message: string, limit: number) {
+    super(message, 400);
+    this.name = "MaxProcessesError";
+    this.limit = limit;
+  }
+}
+
 export interface HealthResponse {
   status: string;
   uptime: number;
@@ -267,6 +282,12 @@ export async function createInstance(
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: "Failed to create instance" }));
+    if (data.code === "max_processes") {
+      throw new MaxProcessesError(
+        data.error || "Maximum processes reached",
+        typeof data.limit === "number" ? data.limit : 0,
+      );
+    }
     throw new Error(data.error || "Failed to create instance");
   }
 

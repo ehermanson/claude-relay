@@ -66,7 +66,11 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   customInstructions: null,
   projectOrder: null,
   suggestions: null,
+  maxProcesses: null,
 };
+
+/** Server fallback when no explicit cap is set (mirrors the backend default). */
+const DEFAULT_MAX_PROCESSES = 15;
 
 const REMOTE_ACCESS_ENDPOINT_KEY = "relay.remoteAccess.endpoint";
 
@@ -132,9 +136,54 @@ export function GeneralSettingsSection() {
       <SettingRow label="Theme" description="Choose between light, dark, or system appearance.">
         <ThemeToggle value={themeStore.preference} onChange={handleThemeChange} />
       </SettingRow>
+      <MaxProcessesSettingsRow />
       <UpdateSettingsRow />
       <RemoteAccessSettingsRow />
     </SettingsSection>
+  );
+}
+
+function MaxProcessesSettingsRow() {
+  const { data: settings } = useGlobalSettings();
+  const save = useAutoSave();
+
+  const commit = (raw: string) => {
+    const trimmed = raw.trim();
+    // Empty resets to the server default.
+    if (trimmed === "") {
+      if (settings?.maxProcesses != null) save.mutate({ maxProcesses: null });
+      return;
+    }
+    const n = Math.floor(Number(trimmed));
+    if (!Number.isFinite(n) || n < 1) {
+      toast.error("Enter a whole number of 1 or more");
+      return;
+    }
+    const clamped = Math.min(n, 100);
+    if (clamped !== (settings?.maxProcesses ?? null)) {
+      save.mutate({ maxProcesses: clamped });
+    }
+  };
+
+  return (
+    <SettingRow
+      label="Max Concurrent Sessions"
+      description="Upper limit on running agent sessions at once. A resource guardrail — high values can strain your machine and hit provider rate limits. Leave blank for the default."
+    >
+      <Input
+        type="number"
+        min={1}
+        max={100}
+        key={`max-processes-${settings?.maxProcesses ?? "default"}`}
+        defaultValue={settings?.maxProcesses ?? ""}
+        placeholder={`${DEFAULT_MAX_PROCESSES} (default)`}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className="w-32"
+      />
+    </SettingRow>
   );
 }
 

@@ -14,6 +14,7 @@ import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AuthManager } from "#server/auth.js";
 import type { InstanceManager } from "#core/instance-manager.js";
+import { MaxProcessesError } from "#core/instance-manager.js";
 import type { TerminalManager } from "#core/terminal-manager.js";
 import type { InstanceInfo } from "#core/types.js";
 import { getPrimaryRemote } from "#core/git.js";
@@ -501,10 +502,33 @@ export function createWebSocketServer(
                 review: message.review,
               });
             } catch (err) {
-              sendMessage(ws, {
-                type: "error",
-                message: err instanceof Error ? err.message : "Failed to create instance",
-              });
+              if (err instanceof MaxProcessesError) {
+                // Structured so the client can open the capacity dialog and
+                // retry this exact create once the user frees a slot.
+                sendMessage(ws, {
+                  type: "error",
+                  message: err.message,
+                  code: "max_processes",
+                  limit: err.limit,
+                  createRequest: {
+                    provider: message.provider,
+                    name: message.name,
+                    workingDirectory: message.workingDirectory,
+                    runtimeMode: message.runtimeMode,
+                    resumeSessionId: message.resumeSessionId,
+                    model: message.model,
+                    spaceId: message.spaceId,
+                    modelOptions: message.modelOptions,
+                    parentSessionId: message.parentSessionId,
+                    review: message.review,
+                  },
+                });
+              } else {
+                sendMessage(ws, {
+                  type: "error",
+                  message: err instanceof Error ? err.message : "Failed to create instance",
+                });
+              }
             }
             break;
           }
@@ -537,6 +561,19 @@ export function createWebSocketServer(
               sendMessage(ws, {
                 type: "error",
                 message: `Instance ${message.instanceId} not found`,
+              });
+            }
+            break;
+          }
+
+          case "stop_instance": {
+            // Frees a process slot without removing the chat. Status change is
+            // broadcast via the instance:status listener (setStatus → "stopped").
+            const stopped = instanceManager.stopInstance(message.instanceId);
+            if (!stopped) {
+              sendMessage(ws, {
+                type: "error",
+                message: `Could not stop ${message.instanceId}`,
               });
             }
             break;

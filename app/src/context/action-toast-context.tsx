@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from "react";
 import { toast } from "sonner";
 import type { InstanceInfo, ServerMessage } from "@shared/types";
 import { useWSMethods, useWSState } from "../context/websocket-context";
+import { useProcessLimitStore } from "@/stores/process-limit-store";
 
 // HTTP mutations can toast directly at the call site because they resolve or
 // reject locally. These websocket mutations are fire-and-forget: the caller
@@ -19,11 +20,18 @@ const ActionToastContext = createContext<ActionToastContextValue | null>(null);
 
 export function ActionToastProvider({ children }: { children: ReactNode }) {
   const { instances } = useWSState();
-  const { addMessageHandler } = useWSMethods();
+  const { addMessageHandler, send } = useWSMethods();
   const pendingCreatesRef = useRef(new Map<string, number>());
   const pendingRemovalsRef = useRef(new Map<string, string>());
   const pendingMergesRef = useRef(new Map<string, string>());
   const prevInstanceIdsRef = useRef(new Set<string>());
+
+  const trackInstanceCreate = useCallback((workingDirectory: string) => {
+    pendingCreatesRef.current.set(
+      workingDirectory,
+      (pendingCreatesRef.current.get(workingDirectory) ?? 0) + 1,
+    );
+  }, []);
 
   useEffect(() => {
     const currentIds = new Set(instances.map((instance) => instance.id));
@@ -58,6 +66,27 @@ export function ActionToastProvider({ children }: { children: ReactNode }) {
 
         if (message.type !== "error") return;
 
+        // Concurrent-session cap hit on the WS create path: open the capacity
+        // dialog (and auto-retry this exact create once a slot frees) instead of
+        // a dead-end toast. The original create's pending state stays armed, so
+        // navigation to the new chat still fires once the retry succeeds.
+        if (message.code === "max_processes") {
+          pendingCreatesRef.current.clear();
+          const createRequest = message.createRequest;
+          useProcessLimitStore.getState().openDialog({
+            limit: message.limit ?? 0,
+            retry: createRequest
+              ? () => {
+                  if (createRequest.workingDirectory) {
+                    trackInstanceCreate(createRequest.workingDirectory);
+                  }
+                  send({ type: "create_instance", ...createRequest });
+                }
+              : undefined,
+          });
+          return;
+        }
+
         if (message.instanceId && pendingMergesRef.current.has(message.instanceId)) {
           pendingMergesRef.current.delete(message.instanceId);
           toast.error(message.message);
@@ -81,18 +110,13 @@ export function ActionToastProvider({ children }: { children: ReactNode }) {
           toast.error(message.message);
         }
       }),
-    [addMessageHandler],
+    [addMessageHandler, send, trackInstanceCreate],
   );
 
   return (
     <ActionToastContext.Provider
       value={{
-        trackInstanceCreate: (workingDirectory: string) => {
-          pendingCreatesRef.current.set(
-            workingDirectory,
-            (pendingCreatesRef.current.get(workingDirectory) ?? 0) + 1,
-          );
-        },
+        trackInstanceCreate,
         trackInstanceRemove: (instance: Pick<InstanceInfo, "id" | "name">) => {
           pendingRemovalsRef.current.set(instance.id, instance.name);
         },

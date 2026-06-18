@@ -23,6 +23,7 @@ function rowToSettings(row: {
   custom_instructions: string | null;
   project_order_json: string | null;
   suggestions_json: string | null;
+  max_processes: number | null;
 }): GlobalSettings {
   let providerDefaults: Record<string, unknown> = {};
   if (row.provider_defaults_json) {
@@ -47,8 +48,13 @@ function rowToSettings(row: {
     customInstructions: row.custom_instructions,
     projectOrder,
     suggestions: parseJson<SuggestionsConfig>(row.suggestions_json),
+    maxProcesses:
+      typeof row.max_processes === "number" && row.max_processes > 0 ? row.max_processes : null,
   };
 }
+
+/** Hard ceiling on the configurable cap — a guardrail against absurd values. */
+const MAX_PROCESSES_CEILING = 100;
 
 export function registerSettingsRoutes(app: Hono<AppEnv>, deps: HttpDeps): void {
   const { instanceManager } = deps;
@@ -72,6 +78,18 @@ export function registerSettingsRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
     if (body.spaceBranchSource !== undefined) dbPatch.space_branch_source = body.spaceBranchSource;
     if (body.customInstructions !== undefined)
       dbPatch.custom_instructions = body.customInstructions;
+
+    if (body.maxProcesses !== undefined) {
+      if (body.maxProcesses === null) {
+        dbPatch.max_processes = null;
+      } else {
+        const n = Math.floor(Number(body.maxProcesses));
+        if (!Number.isFinite(n) || n < 1) {
+          return c.json({ error: "maxProcesses must be a positive integer" }, 400);
+        }
+        dbPatch.max_processes = Math.min(n, MAX_PROCESSES_CEILING);
+      }
+    }
 
     if (body.projectOrder !== undefined)
       dbPatch.project_order_json =

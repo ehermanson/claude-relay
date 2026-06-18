@@ -9,6 +9,7 @@ import {
   gitPush,
   isWorktreeDirty,
 } from "#core/git.js";
+import { MaxProcessesError } from "#core/instance-manager.js";
 import type { ProviderKind, ProviderModelOptions, ProviderRuntimeMode } from "#core/types.js";
 import { readJsonBody } from "#server/hono-utils.js";
 import type { AppEnv, HttpDeps } from "#server/route-types.js";
@@ -48,6 +49,9 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
       });
       return c.json(info, 201);
     } catch (err) {
+      if (err instanceof MaxProcessesError) {
+        return c.json({ error: err.message, code: "max_processes", limit: err.limit }, 400);
+      }
       return c.json(
         { error: err instanceof Error ? err.message : "Failed to create instance" },
         400,

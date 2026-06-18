@@ -44,6 +44,7 @@ import {
   searchChats,
 } from "@/lib/api";
 import { getInstanceChatRoute, getSpaceRoute } from "@/lib/project-route";
+import { reportCreateInstanceError } from "@/stores/process-limit-store";
 import { buildTaskReference } from "@/lib/task-links";
 import { formatTimeAgo, getChatRecencyTimestamp } from "@/lib/utils";
 import { patchTasksSearch } from "@/routes/_app/projects/$projectId/tasks/-search";
@@ -299,8 +300,7 @@ function TaskDrawerBody({
     queryFn: async () => {
       const results = await searchChats(`@task:${task.id}`, { projectId, limit: 50 });
       return results.sort(
-        (a, b) =>
-          (b.lastMessageAt ?? b.lastActivityAt) - (a.lastMessageAt ?? a.lastActivityAt),
+        (a, b) => (b.lastMessageAt ?? b.lastActivityAt) - (a.lastMessageAt ?? a.lastActivityAt),
       );
     },
     enabled: Boolean(projectId),
@@ -470,9 +470,7 @@ function TaskDrawerBody({
                     className="flex items-start justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[0.8125rem] text-text-bright">
-                        {chat.title}
-                      </div>
+                      <div className="truncate text-[0.8125rem] text-text-bright">{chat.title}</div>
                       <div className="truncate font-mono text-[0.625rem] text-muted">
                         {chat.instanceId}
                       </div>
@@ -515,7 +513,6 @@ function TaskDrawerBody({
         ) : (
           <p className="text-sm text-muted italic">No description</p>
         )}
-
       </Drawer.Body>
       <ConfirmActionDialog
         open={confirmDelete}
@@ -920,22 +917,36 @@ export function TasksPage() {
       await maybePromoteTaskToInProgress(task);
       await navigate(getInstanceChatRoute(created));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to start chat");
+      if (!reportCreateInstanceError(e, () => handleStartChat(task))) {
+        toast.error(e instanceof Error ? e.message : "Failed to start chat");
+      }
     }
   };
 
   const handleStartSpace = async (task: Task) => {
+    // Create the chat for an existing space. Capacity-only failures retry just
+    // this step so we don't create a second space for the one already made.
+    const startChatInSpace = async (spaceId: string) => {
+      try {
+        const created = await createInstance({ spaceId });
+        const draft = buildTaskReference(task);
+        sessionStorage.setItem(`relay:draft:${created.id}`, draft);
+        await maybePromoteTaskToInProgress(task);
+        await queryClient.invalidateQueries({ queryKey: ["spaces", projectId] });
+        await navigate(getSpaceRoute(projectId, spaceId, created.id));
+      } catch (e) {
+        if (!reportCreateInstanceError(e, () => startChatInSpace(spaceId))) {
+          toast.error(e instanceof Error ? e.message : "Failed to start space");
+        }
+      }
+    };
+
     try {
       const space = await createSpace(projectId, {
         name: task.title,
         description: task.description || undefined,
       });
-      const created = await createInstance({ spaceId: space.id });
-      const draft = buildTaskReference(task);
-      sessionStorage.setItem(`relay:draft:${created.id}`, draft);
-      await maybePromoteTaskToInProgress(task);
-      await queryClient.invalidateQueries({ queryKey: ["spaces", projectId] });
-      await navigate(getSpaceRoute(projectId, space.id, created.id));
+      await startChatInSpace(space.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to start space");
     }

@@ -187,6 +187,31 @@ describe("WebSocket Server", () => {
       assert.equal(msg.instance.name, "Codex Test");
       assert.equal(msg.instance.provider, "codex");
     });
+
+    it("returns a structured max_processes error when the cap is reached", async () => {
+      // Tighten the cap to 1 and fill it, so the WS create hits the limit.
+      manager.sessionDb.updateGlobalSettings({ max_processes: 1 });
+      manager.createInstance({ name: "Filler" });
+
+      const session = auth.createSession();
+      const ws = await connect(session.id);
+      await ws.waitForHandshake();
+
+      ws.send(
+        JSON.stringify({
+          type: "create_instance",
+          name: "Over Cap",
+          workingDirectory: tempDir,
+        }),
+      );
+
+      const msg = await ws.nextMessageOfType("error", 10000);
+      assert.equal(msg.code, "max_processes");
+      assert.equal(msg.limit, 1);
+      // The failed request is echoed so the client can retry after freeing a slot.
+      assert.equal(msg.createRequest.workingDirectory, tempDir);
+      assert.equal(msg.createRequest.name, "Over Cap");
+    });
   });
 
   describe("subscribe", () => {

@@ -261,6 +261,48 @@ describe("InstanceManager", () => {
       assert.throws(() => manager.createInstance(), /Maximum processes/);
     });
 
+    it("stopInstance frees a process slot for a resumable session", () => {
+      const a = manager.createInstance();
+      manager.createInstance();
+      manager.createInstance();
+      // Give the first instance a resumable session id so it can be paused.
+      const internal = manager.instances.get(a.id);
+      internal.sessionId = "resume-1";
+      internal.info.sessionId = "resume-1";
+
+      assert.equal(manager.stopInstance(a.id), true);
+      assert.equal(internal.process, null);
+      assert.equal(internal.info.status, "stopped");
+      // Slot is freed — a new instance can now be created.
+      assert.doesNotThrow(() => manager.createInstance());
+    });
+
+    it("honors the global max_processes setting live, overriding config", () => {
+      // Config default is 3; tighten to 1 via the global setting.
+      manager.sessionDb.updateGlobalSettings({ max_processes: 1 });
+      manager.createInstance();
+      assert.throws(() => manager.createInstance(), /Maximum processes \(1\)/);
+
+      // Raising it live takes effect immediately — no restart.
+      manager.sessionDb.updateGlobalSettings({ max_processes: 3 });
+      assert.doesNotThrow(() => manager.createInstance());
+      assert.doesNotThrow(() => manager.createInstance());
+      assert.throws(() => manager.createInstance(), /Maximum processes \(3\)/);
+
+      // Clearing it falls back to the config default (still 3).
+      manager.sessionDb.updateGlobalSettings({ max_processes: null });
+      assert.throws(() => manager.createInstance(), /Maximum processes \(3\)/);
+    });
+
+    it("stopInstance refuses a session with no resumable id", () => {
+      const a = manager.createInstance();
+      // Fresh instance has no captured session id yet.
+      assert.equal(manager.stopInstance(a.id), false);
+      const internal = manager.instances.get(a.id);
+      assert.ok(internal.process);
+      assert.notEqual(internal.info.status, "stopped");
+    });
+
     it("does not persist an empty managed instance before it has resumable state", () => {
       const info = manager.createInstance({ name: "Unsaved Draft" });
       const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);

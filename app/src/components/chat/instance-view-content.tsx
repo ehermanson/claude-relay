@@ -27,6 +27,7 @@ import { useInstanceViewContext } from "@/components/chat/instance-view-context"
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
 import { createSpinOff, createInstance, markSpinOffSent } from "@/lib/api";
+import { reportCreateInstanceError } from "@/stores/process-limit-store";
 import { toast } from "sonner";
 import { useNavigate } from "@tanstack/react-router";
 import { getProjectName } from "@/lib/project-route";
@@ -465,7 +466,9 @@ export function InstanceViewContent() {
       setSpinOffEdits({ currentState: "" });
       toast.success("Spin-off draft ready");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create spin-off");
+      if (!reportCreateInstanceError(err)) {
+        toast.error(err instanceof Error ? err.message : "Failed to create spin-off");
+      }
     } finally {
       setSpinOffSubmitting(false);
     }

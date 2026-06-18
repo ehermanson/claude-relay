@@ -15,6 +15,7 @@ import { useTerminalMessages } from "@/hooks/use-terminal-messages";
 import { useTerminalShortcut } from "@/hooks/use-terminal-shortcut";
 import { useVerticalResize } from "@/hooks/use-vertical-resize";
 import { createInstance, fetchInstanceHistory, fetchInstanceSummary } from "@/lib/api";
+import { reportCreateInstanceError } from "@/stores/process-limit-store";
 import { getInstanceChatRoute, getInstanceProjectRouteId } from "@/lib/project-route";
 import {
   buildReviewDraft,
@@ -26,6 +27,7 @@ import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
 import { toast } from "sonner";
 import type {
   FileChange,
+  InstanceInfo,
   ProviderModelOptions,
   ProviderRuntimeMode,
   ReviewSessionInfo,
@@ -282,14 +284,20 @@ export function InstanceView({
   ): Promise<void> => {
     if (!id || !resolvedInstance || targetProvider === resolvedInstance.provider) return;
 
-    const nextInstance = await createInstance({
-      provider: targetProvider,
-      name: resolvedInstance.customTitle ? resolvedInstance.name : undefined,
-      workingDirectory: resolvedInstance.workingDirectory,
-      spaceId: resolvedInstance.spaceId,
-      runtimeMode: resolvedInstance.runtimeMode,
-      model: model ?? undefined,
-    });
+    let nextInstance: InstanceInfo;
+    try {
+      nextInstance = await createInstance({
+        provider: targetProvider,
+        name: resolvedInstance.customTitle ? resolvedInstance.name : undefined,
+        workingDirectory: resolvedInstance.workingDirectory,
+        spaceId: resolvedInstance.spaceId,
+        runtimeMode: resolvedInstance.runtimeMode,
+        model: model ?? undefined,
+      });
+    } catch (e) {
+      if (reportCreateInstanceError(e)) return;
+      throw e;
+    }
 
     if (carryContext) {
       const history = await fetchInstanceHistory(id);
@@ -364,7 +372,9 @@ export function InstanceView({
         setSidecarMobileOpen(true);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create review");
+      if (!reportCreateInstanceError(err)) {
+        toast.error(err instanceof Error ? err.message : "Failed to create review");
+      }
     } finally {
       setCreatingReview(false);
     }

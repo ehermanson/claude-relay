@@ -1228,6 +1228,21 @@ function statsChanged(before: SessionStats, after: SessionStats): boolean {
   );
 }
 
+/**
+ * Thrown by createInstance when the concurrent managed-process cap is reached.
+ * Carries the limit so callers (HTTP route → UI) can surface a structured
+ * "free up capacity" affordance instead of a bare error string.
+ */
+export class MaxProcessesError extends Error {
+  readonly limit: number;
+
+  constructor(limit: number) {
+    super(`Maximum processes (${limit}) reached`);
+    this.name = "MaxProcessesError";
+    this.limit = limit;
+  }
+}
+
 export class InstanceManager extends EventEmitter {
   private providerGlobalState = new Map<
     import("#core/types.js").ProviderKind,
@@ -1909,6 +1924,23 @@ export class InstanceManager extends EventEmitter {
   // Managed instances (read-write, spawned by relay)
   // ===========================================================================
 
+  /**
+   * Effective concurrent-process cap, resolved live from the global setting and
+   * falling back to the server default (MAX_PROCESSES env / config). Reading it
+   * per-create means changes apply immediately, no restart. Also keeps the
+   * process listener ceiling in sync so a raised cap doesn't trip Node's
+   * max-listeners warning (mirrors bin.ts's `setMaxListeners(max + 20)`).
+   */
+  private resolveMaxProcesses(): number {
+    const configured = this.db.getGlobalSettings().max_processes;
+    const max =
+      typeof configured === "number" && configured > 0 ? configured : this.baseConfig.maxProcesses;
+    if (process.getMaxListeners() < max + 20) {
+      process.setMaxListeners(max + 20);
+    }
+    return max;
+  }
+
   createInstance(options?: {
     provider?: ProviderKind;
     name?: string;
@@ -1924,8 +1956,9 @@ export class InstanceManager extends EventEmitter {
     const activeCount = [...this.instances.values()].filter(
       (i) => i.process && !i.info.external,
     ).length;
-    if (activeCount >= this.baseConfig.maxProcesses) {
-      throw new Error(`Maximum processes (${this.baseConfig.maxProcesses}) reached`);
+    const maxProcesses = this.resolveMaxProcesses();
+    if (activeCount >= maxProcesses) {
+      throw new MaxProcessesError(maxProcesses);
     }
 
     const id = randomUUID();
@@ -2345,6 +2378,51 @@ export class InstanceManager extends EventEmitter {
 
     this.baseConfig.logger.info(
       `[InstanceManager] ${purge ? "Purged" : "Removed"} instance "${instance.info.name}" (${id})`,
+    );
+    return true;
+  }
+
+  /**
+   * Stop a managed session's process without removing the chat. This frees a
+   * process slot (the cap counts `i.process && !external`) while keeping the
+   * session in the sidebar and resumable: the next user message cold-boots it
+   * again via bootManagedInstance (resume from sessionId).
+   *
+   * Returns false (no-op) when the instance is unknown, external, lacks a live
+   * process, or has no resumable session id yet — a brand-new chat that has
+   * never produced a session id cannot be revived, so stopping it would strand
+   * it; such chats should be removed instead.
+   */
+  stopInstance(id: string): boolean {
+    const instance = this.instances.get(id);
+    if (!instance) return false;
+    if (instance.info.external) return false;
+    if (!instance.process) return false;
+    // Must be resumable — bootManagedInstance needs a session id to revive.
+    const resumable =
+      instance.sessionId ?? instance.info.sessionId ?? instance.providerBinding?.providerSessionId;
+    if (!resumable) return false;
+
+    try {
+      instance.process.close();
+    } catch (err) {
+      this.baseConfig.logger.warn(`[InstanceManager] Failed to close process during stop: ${err}`);
+    }
+    // Drop the binding so the active-process count frees a slot.
+    instance.process = null;
+
+    // Stop the JSONL watcher; it is re-established on revive.
+    const watchInterval = this.watchIntervals.get(id);
+    if (watchInterval) {
+      clearInterval(watchInterval);
+      this.watchIntervals.delete(id);
+    }
+    this.staleCounts.delete(id);
+
+    this.setStatus(instance, "stopped");
+    this.dbSave(instance);
+    this.baseConfig.logger.info(
+      `[InstanceManager] Stopped instance "${instance.info.name}" (${id})`,
     );
     return true;
   }

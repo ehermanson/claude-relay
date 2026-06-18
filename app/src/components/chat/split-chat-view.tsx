@@ -9,7 +9,9 @@ import { Input } from "@/components/ui/input";
 import { ResizableHandle } from "@/components/ui/resizable-handle";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useWSState } from "@/context/websocket-context";
+import { toast } from "sonner";
 import { createInstance } from "@/lib/api";
+import { reportCreateInstanceError } from "@/stores/process-limit-store";
 import { isAttachedReviewInstance } from "@/lib/review-session";
 import { deriveInstanceStatusPresentation, formatTimeAgo } from "@/lib/utils";
 import type { InstanceInfo } from "@shared/types";
@@ -209,10 +211,16 @@ export function SplitChatView({ splitId }: SplitChatViewProps) {
   const handleNewChat = async () => {
     const dir = primaryInstance?.workingDirectory;
     if (!dir) return;
-    const inst = await createInstance({
-      workingDirectory: dir,
-    });
-    selectSplit(inst.id);
+    try {
+      const inst = await createInstance({
+        workingDirectory: dir,
+      });
+      selectSplit(inst.id);
+    } catch (e) {
+      if (!reportCreateInstanceError(e, handleNewChat)) {
+        toast.error(e instanceof Error ? e.message : "Failed to start chat");
+      }
+    }
   };
 
   return (

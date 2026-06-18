@@ -444,6 +444,11 @@ export interface GlobalSettings {
   customInstructions: string | null;
   projectOrder: string[] | null;
   suggestions: SuggestionsConfig | null;
+  /**
+   * Max concurrent managed sessions. `null` falls back to the server default
+   * (MAX_PROCESSES env or 15). Applied live — no restart required.
+   */
+  maxProcesses: number | null;
 }
 
 export interface SessionStats {
@@ -594,6 +599,11 @@ export interface RemoveInstancePayload {
 
 export interface PurgeInstancePayload {
   type: "purge_instance";
+  instanceId: string;
+}
+
+export interface StopInstancePayload {
+  type: "stop_instance";
   instanceId: string;
 }
 
@@ -773,6 +783,7 @@ export type ClientMessage =
   | CreateInstancePayload
   | RemoveInstancePayload
   | PurgeInstancePayload
+  | StopInstancePayload
   | SubscribePayload
   | UnsubscribePayload
   | InstanceMessagePayload
@@ -845,6 +856,16 @@ export interface ErrorMessage {
   type: "error";
   message: string;
   instanceId?: string;
+  /** Machine-readable error discriminator (e.g. "max_processes"). */
+  code?: string;
+  /** Resolved concurrent-process cap when `code === "max_processes"`. */
+  limit?: number;
+  /**
+   * Echo of the create request that failed, so the client can retry it after
+   * the user frees capacity. Present on `code === "max_processes"` errors from
+   * the `create_instance` WS path.
+   */
+  createRequest?: Omit<CreateInstancePayload, "type">;
 }
 
 export interface NotificationMessage {
