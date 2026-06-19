@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InstanceInfo } from "@shared/types";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -30,39 +30,56 @@ export function ProcessLimitDialog() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [stopping, setStopping] = useState(false);
-  // Guards the auto-retry effect so the pending create only fires once.
+  // The sessions the user asked to pause; we wait for these to leave the active
+  // set before retrying the create.
+  const stopTargetsRef = useRef<Set<string>>(new Set());
+  // Ensures the pending create fires at most once per pause action.
   const firedRef = useRef(false);
-  // Active count captured when the dialog opened — the effective cap to clear,
-  // used as a fallback when the server-reported limit is unknown.
-  const baselineRef = useRef(0);
 
   const active = useMemo(() => selectActive(instances), [instances]);
   const activeCount = active.length;
   // Only sessions with a saved session id can be paused & later resumed.
   const isStoppable = (i: InstanceInfo) => Boolean(i.sessionId);
 
-  // Reset transient state each time the dialog opens.
+  // Reset transient state each time the dialog opens. Crucially, the dialog
+  // never auto-retries on open: it opens precisely because the server is at the
+  // cap, so retrying before the user frees a slot would always re-fail and, on
+  // reopen, loop. Retry is driven only by an explicit pause action below.
   useEffect(() => {
     if (open) {
       setSelected(new Set());
       setStopping(false);
       firedRef.current = false;
-      baselineRef.current = activeCount;
+      stopTargetsRef.current = new Set();
     }
-    // Intentionally only on `open` toggle — `activeCount` is sampled once here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Once a slot frees, close and auto-run the create that hit the cap.
-  useEffect(() => {
-    if (!open || firedRef.current) return;
-    const cap = limit > 0 ? limit : baselineRef.current;
-    if (cap > 0 && activeCount >= cap) return;
+  // Close and run the create that hit the cap — at most once per pause action.
+  const proceed = useCallback(() => {
+    if (firedRef.current) return;
     firedRef.current = true;
     const retry = pendingRetry;
     close();
     if (retry) void retry();
-  }, [open, activeCount, limit, pendingRetry, close]);
+  }, [pendingRetry, close]);
+
+  // After the user pauses sessions, retry once they've actually left the active
+  // set (the server has released their process slots by then).
+  useEffect(() => {
+    if (!stopping || firedRef.current || stopTargetsRef.current.size === 0) return;
+    const stillActive = active.some((i) => stopTargetsRef.current.has(i.id));
+    if (!stillActive) proceed();
+  }, [active, stopping, proceed]);
+
+  // Safety valve: never hang on the spinner if a pause doesn't reflect (e.g. a
+  // session that had no live process to stop). Proceed after a short grace;
+  // if the create still fails the dialog simply reopens — it cannot loop
+  // because nothing retries without another explicit pause action.
+  useEffect(() => {
+    if (!stopping) return;
+    const t = setTimeout(proceed, 4000);
+    return () => clearTimeout(t);
+  }, [stopping, proceed]);
 
   if (!open) return null;
 
@@ -76,12 +93,13 @@ export function ProcessLimitDialog() {
 
   const handleStop = () => {
     if (selected.size === 0) return;
+    stopTargetsRef.current = new Set(selected);
     setStopping(true);
     for (const id of selected) {
       send({ type: "stop_instance", instanceId: id });
     }
-    // The dialog closes via the auto-retry effect once the stops land and the
-    // active count drops below the cap.
+    // The dialog closes (and the create retries) via the effect above once the
+    // paused sessions leave the active set.
   };
 
   return (
