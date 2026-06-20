@@ -233,8 +233,8 @@ export function DiffDrawer({
         className="diff-drawer animate-slide-in-right relative ml-auto flex h-full w-full max-w-full md:max-w-[90vw] flex-col overflow-hidden border-l border-border bg-surface pt-[env(safe-area-inset-top,0px)] shadow-2xl lg:max-w-[80vw]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
-          <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-4 py-3">
+          <div className="flex shrink-0 items-center gap-3">
             <h2 className="text-[0.9375rem] font-semibold text-text-bright">Changes</h2>
             {visibleFiles.length > 0 && (
               <span className="text-[0.75rem] text-muted">
@@ -242,9 +242,9 @@ export function DiffDrawer({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex min-w-0 items-center gap-2 overflow-x-auto">
             {hasScope && (
-              <div className="flex overflow-hidden rounded-md border border-border/60 text-[0.75rem]">
+              <div className="flex shrink-0 overflow-hidden rounded-md border border-border/60 text-[0.75rem]">
                 <button
                   type="button"
                   onClick={() => setDiffScope("chat")}
@@ -270,7 +270,7 @@ export function DiffDrawer({
               </div>
             )}
 
-            <div className="flex overflow-hidden rounded-md border border-border/60 text-[0.75rem]">
+            <div className="flex shrink-0 overflow-hidden rounded-md border border-border/60 text-[0.75rem]">
               <button
                 type="button"
                 onClick={() => setDiffStyle("unified")}
@@ -299,18 +299,18 @@ export function DiffDrawer({
               <button
                 type="button"
                 onClick={() => setWordWrap((prev) => !prev)}
-                className={`rounded-md border border-border/60 p-1.5 transition-colors ${
+                className={`shrink-0 rounded-md border border-border/60 p-1.5 transition-colors ${
                   wordWrap ? "bg-surface-hover text-text-bright" : "text-muted hover:text-text"
                 }`}
               >
                 <WrapText size={14} />
               </button>
             </Tooltip>
-
-            <Button variant="icon" size="icon-sm" onClick={onClose}>
-              <X size={16} />
-            </Button>
           </div>
+
+          <Button className="shrink-0" variant="icon" size="icon-sm" onClick={onClose}>
+            <X size={16} />
+          </Button>
         </div>
 
         <div className="flex min-h-0 flex-1">
