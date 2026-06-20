@@ -4447,26 +4447,105 @@ export class InstanceManager extends EventEmitter {
     return null;
   }
 
+  /**
+   * Read a web app manifest (PWA `site.webmanifest`/`manifest.json` or browser
+   * extension manifest) in `dir` and return the path to its largest declared
+   * icon that exists on disk. Returns null if none found.
+   */
+  private readWebManifest(dir: string): string | null {
+    const MANIFEST_NAMES = ["site.webmanifest", "manifest.webmanifest", "manifest.json"];
+    for (const name of MANIFEST_NAMES) {
+      const manifestPath = join(dir, name);
+      if (!existsSync(manifestPath)) continue;
+      try {
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+        const icons = manifest?.icons;
+        // Collect (src, size) candidates from both shapes:
+        //  - PWA: icons is an array of { src, sizes: "192x192" }
+        //  - Extensions: icons is an object of { "48": "icon48.png" }
+        const candidates: Array<{ src: string; size: number }> = [];
+        if (Array.isArray(icons)) {
+          for (const icon of icons) {
+            if (icon?.src && typeof icon.src === "string") {
+              const size = parseInt(String(icon.sizes ?? "").split("x")[0] ?? "", 10) || 0;
+              candidates.push({ src: icon.src, size });
+            }
+          }
+        } else if (icons && typeof icons === "object") {
+          for (const [key, val] of Object.entries(icons)) {
+            if (typeof val === "string") {
+              candidates.push({ src: val, size: parseInt(key, 10) || 0 });
+            }
+          }
+        }
+        // Prefer the largest icon that actually exists on disk. Manifest `src`
+        // is relative to the manifest's directory (a leading `/` means web root,
+        // which for our purposes is that same directory).
+        let best: { path: string; size: number } | null = null;
+        for (const { src, size } of candidates) {
+          if (src.startsWith("http://") || src.startsWith("https://")) continue;
+          const fullPath = join(dir, src.replace(/^\.?\//, ""));
+          if (!existsSync(fullPath)) continue;
+          if (!best || size > best.size) best = { path: fullPath, size };
+        }
+        if (best) return best.path;
+      } catch {
+        /* parse error */
+      }
+    }
+    return null;
+  }
+
   private scanProjectIcon(dir: string): string | null {
     // Only scan git repos
     if (!existsSync(join(dir, ".git"))) return null;
 
+    // Ordered best → worst. Scalable vectors first, then high-res
+    // home-screen / PWA icons, then generic rasters, with legacy .ico last.
     const ICON_NAMES = [
+      // Scalable — crispest at any size
       "favicon.svg",
-      "favicon.png",
-      "apple-touch-icon.png",
       "icon.svg",
+      "logo.svg",
+      // Apple touch icons — high-res, designed for home-screen
+      "apple-touch-icon.png",
+      "apple-touch-icon-precomposed.png",
+      "apple-touch-icon-180x180.png",
+      "apple-touch-icon-167x167.png",
+      "apple-touch-icon-152x152.png",
+      "apple-touch-icon-120x120.png",
+      // PWA / Android home-screen icons
+      "android-chrome-512x512.png",
+      "android-chrome-192x192.png",
+      "pwa-512x512.png",
+      "pwa-192x192.png",
+      "icon-512x512.png",
+      "icon-512.png",
+      "icon-192x192.png",
+      "icon-192.png",
+      "maskable-icon.png",
+      // Microsoft tile
+      "mstile-150x150.png",
+      // Generic rasters
+      "favicon.png",
       "icon.png",
+      "logo.png",
+      "favicon-96x96.png",
+      "favicon-32x32.png",
+      // Legacy multi-res container — lowest priority
       "favicon.ico",
     ];
 
     // Standard locations (covers most frameworks)
     const PREFIXES = ["public", "static", "assets", "src/app", "app", ""];
     for (const prefix of PREFIXES) {
+      const base = prefix ? join(dir, prefix) : dir;
       for (const name of ICON_NAMES) {
-        const fullPath = prefix ? join(dir, prefix, name) : join(dir, name);
+        const fullPath = join(base, name);
         if (existsSync(fullPath)) return fullPath;
       }
+      const manifestIcon = this.readWebManifest(base);
+      if (manifestIcon) return manifestIcon;
     }
 
     // For monorepos or deeply nested app dirs, walk the tree looking for
@@ -4491,12 +4570,15 @@ export class InstanceManager extends EventEmitter {
       } catch {
         return null;
       }
-      // Check icon files at this level first (public/static/src/app prefixes)
-      for (const sub of ["public", "static", "src/app"]) {
+      // Check icon files at this level first (root + public/static/src/app)
+      for (const sub of ["", "public", "static", "src/app"]) {
+        const subBase = sub ? join(base, sub) : base;
         for (const name of ICON_NAMES) {
-          const fullPath = join(base, sub, name);
+          const fullPath = join(subBase, name);
           if (existsSync(fullPath)) return fullPath;
         }
+        const manifestIcon = this.readWebManifest(subBase);
+        if (manifestIcon) return manifestIcon;
       }
       // Xcode: Assets.xcassets/AppIcon.appiconset/
       const appIconSet = join(base, "Assets.xcassets", "AppIcon.appiconset");
