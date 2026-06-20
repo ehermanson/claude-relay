@@ -23,9 +23,10 @@ import {
   readSync,
   closeSync,
 } from "fs";
-import { extname, join, resolve } from "path";
+import { join, resolve } from "path";
 import { homedir } from "os";
 import { execFileSync } from "child_process";
+import { findProjectIcon } from "#core/favicon-scanner.js";
 import type { ProviderSession } from "#core/provider.js";
 import {
   resolveQueryFn,
@@ -4420,238 +4421,15 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Scan a project directory for a favicon/icon file.
-   * Returns the absolute path of the first match, or null.
+   * Scan a project directory for an icon. Thin wrapper around the pure
+   * `findProjectIcon` scanner — passes through the project name/slug so the
+   * scanner can apply path-aware bias in monorepos (where multiple apps may
+   * all have equally-scored icons).
    */
-  /**
-   * Read an Xcode AppIcon.appiconset directory and return the path to the
-   * first image file referenced in Contents.json.
-   */
-  private readAppIconSet(appIconSetDir: string): string | null {
-    try {
-      const contentsPath = join(appIconSetDir, "Contents.json");
-      if (!existsSync(contentsPath)) return null;
-      const contents = JSON.parse(readFileSync(contentsPath, "utf-8"));
-      const images = contents?.images;
-      if (!Array.isArray(images)) return null;
-      // Pick the first entry that has a filename
-      for (const img of images) {
-        if (img.filename) {
-          const fullPath = join(appIconSetDir, img.filename);
-          if (existsSync(fullPath)) return fullPath;
-        }
-      }
-    } catch {
-      /* parse error or missing */
-    }
-    return null;
-  }
-
-  /**
-   * Read a web app manifest (PWA `site.webmanifest`/`manifest.json` or browser
-   * extension manifest) in `dir` and return the path to its largest declared
-   * icon that exists on disk. Returns null if none found.
-   */
-  private readWebManifest(dir: string): string | null {
-    const MANIFEST_NAMES = ["site.webmanifest", "manifest.webmanifest", "manifest.json"];
-    for (const name of MANIFEST_NAMES) {
-      const manifestPath = join(dir, name);
-      if (!existsSync(manifestPath)) continue;
-      try {
-        const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-        const icons = manifest?.icons;
-        // Collect (src, size) candidates from both shapes:
-        //  - PWA: icons is an array of { src, sizes: "192x192" }
-        //  - Extensions: icons is an object of { "48": "icon48.png" }
-        const candidates: Array<{ src: string; size: number }> = [];
-        if (Array.isArray(icons)) {
-          for (const icon of icons) {
-            if (icon?.src && typeof icon.src === "string") {
-              const size = parseInt(String(icon.sizes ?? "").split("x")[0] ?? "", 10) || 0;
-              candidates.push({ src: icon.src, size });
-            }
-          }
-        } else if (icons && typeof icons === "object") {
-          for (const [key, val] of Object.entries(icons)) {
-            if (typeof val === "string") {
-              candidates.push({ src: val, size: parseInt(key, 10) || 0 });
-            }
-          }
-        }
-        // Prefer the largest icon that actually exists on disk. Manifest `src`
-        // is relative to the manifest's directory (a leading `/` means web root,
-        // which for our purposes is that same directory).
-        let best: { path: string; size: number } | null = null;
-        for (const { src, size } of candidates) {
-          if (src.startsWith("http://") || src.startsWith("https://")) continue;
-          const fullPath = join(dir, src.replace(/^\.?\//, ""));
-          if (!existsSync(fullPath)) continue;
-          if (!best || size > best.size) best = { path: fullPath, size };
-        }
-        if (best) return best.path;
-      } catch {
-        /* parse error */
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Score a filename as a candidate project icon. Higher = better.
-   * Returns null if the file doesn't look like an icon at all.
-   *
-   * The scoring is deliberately category-dominated so format/category beats
-   * any size differences within reason:
-   *   apple-touch (~9k)  > pwa/android-chrome (~8.5k)  > favicon (~7k)
-   *   > maskable (~6.5k) > app-icon (~6k) > mstile (~5.5k) > icon (~5k)
-   *   > logo (~3k, last resort)
-   * SVG adds +2500 (scales perfectly); .ico subtracts 500 (legacy).
-   * Raster size in the filename (`-512`, `-192x192`, `-180`) is added,
-   * capped at 1024.
-   */
-  private scoreIconCandidate(name: string): number | null {
-    const lower = name.toLowerCase();
-    const ext = extname(lower);
-    if (![".svg", ".png", ".webp", ".jpg", ".jpeg", ".ico"].includes(ext)) {
-      return null;
-    }
-    const stem = lower.slice(0, lower.length - ext.length);
-
-    // Keyword detection. Some are mutually exclusive in practice; order of
-    // the if-chain below decides ties (apple-touch beats favicon, etc.)
-    const isAppleTouch = /apple[-_]?(touch[-_]?)?icon/.test(stem);
-    const isAndroidChrome = /android[-_]?chrome/.test(stem);
-    const isPwa = /(^|[-_.])pwa[-_]/.test(stem);
-    const isMaskable = /maskable/.test(stem);
-    const isFavicon = /(^|[-_.])favicon(\b|[-_.\d]|$)/.test(stem);
-    const isAppIcon = /(^|[-_.])app[-_.]?icon/.test(stem);
-    const isMstile = /mstile/.test(stem);
-    const isIcon = stem === "icon" || /(^|[-_.])icon(\b|[-_.\d]|$)/.test(stem);
-    const isLogo = stem === "logo" || /(^|[-_.])logo(\b|[-_.\d]|$)/.test(stem);
-
-    if (
-      !isAppleTouch &&
-      !isAndroidChrome &&
-      !isPwa &&
-      !isMaskable &&
-      !isFavicon &&
-      !isAppIcon &&
-      !isMstile &&
-      !isIcon &&
-      !isLogo
-    ) {
-      return null;
-    }
-
-    // Explicitly reject things that are NOT app icons even though they may
-    // contain the word "icon" (e.g. opengraph-image, twitter-image).
-    if (/opengraph|twitter[-_]image/.test(stem)) return null;
-
-    // Pick the dominant category for the base score. Order matters: more
-    // specific / higher-quality categories win.
-    let base = 0;
-    if (isAppleTouch) base = 9000;
-    else if (isAndroidChrome || isPwa) base = 8500;
-    else if (isFavicon) base = 7000;
-    else if (isMaskable) base = 6500;
-    else if (isAppIcon) base = 6000;
-    else if (isMstile) base = 5500;
-    else if (isIcon) base = 5000;
-    else if (isLogo) base = 3000;
-
-    if (ext === ".svg") base += 2500;
-    else if (ext === ".ico") base -= 500;
-
-    // Resolution hint: -512, -192x192, _180, .180 etc. Cap to avoid letting a
-    // gigantic raster dwarf the category signal.
-    if (ext !== ".svg") {
-      const sizeMatch = stem.match(/(\d{2,4})(?:x\d{2,4})?(?:[-_.]|$)/);
-      if (sizeMatch && sizeMatch[1]) {
-        base += Math.min(parseInt(sizeMatch[1], 10), 1024);
-      }
-    }
-
-    return base;
-  }
-
   private scanProjectIcon(dir: string): string | null {
-    // Only scan git repos
-    if (!existsSync(join(dir, ".git"))) return null;
-
-    const SKIP_DIRS = new Set([
-      ".git",
-      "node_modules",
-      ".next",
-      "dist",
-      "build",
-      ".turbo",
-      ".cache",
-      "coverage",
-      "__pycache__",
-      ".build", // Swift Package Manager build output
-      ".vercel",
-      ".svelte-kit",
-      "out",
-      "target", // Rust / some Java
-      ".relay",
-      ".agents", // skills bundled with the project; not the project icon
-    ]);
-    const MAX_DEPTH = 5;
-    const MAX_FILES = 5000; // safety cap for huge monorepos
-
-    let best: { path: string; score: number } | null = null;
-    let manifestFallback: string | null = null;
-    let filesScanned = 0;
-
-    const consider = (path: string, score: number) => {
-      if (!best || score > best.score) best = { path, score };
-    };
-
-    const walk = (base: string, depth: number): void => {
-      if (depth > MAX_DEPTH || filesScanned > MAX_FILES) return;
-      let entries: import("node:fs").Dirent[];
-      try {
-        entries = readdirSync(base, { withFileTypes: true });
-      } catch {
-        return;
-      }
-
-      // Score every plausible icon file in this directory.
-      for (const entry of entries) {
-        if (filesScanned > MAX_FILES) return;
-        if (!entry.isFile()) continue;
-        filesScanned++;
-        const score = this.scoreIconCandidate(entry.name);
-        if (score !== null) consider(join(base, entry.name), score);
-      }
-
-      // Web manifest (PWA / extension) — first one wins, used only if no
-      // file-based candidate beats it.
-      if (!manifestFallback) {
-        const m = this.readWebManifest(base);
-        if (m) manifestFallback = m;
-      }
-
-      // Recurse, handling Xcode AppIcon.appiconset specially.
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        if (entry.name.startsWith(".") || SKIP_DIRS.has(entry.name)) continue;
-        const childPath = join(base, entry.name);
-        if (entry.name.endsWith(".appiconset")) {
-          const xc = this.readAppIconSet(childPath);
-          // Treat a resolved Xcode AppIcon as a strong app-icon signal —
-          // between favicon and apple-touch-icon.
-          if (xc) consider(xc, 7500);
-          continue;
-        }
-        walk(childPath, depth + 1);
-      }
-    };
-
-    walk(dir, 0);
-
-    if (best) return (best as { path: string; score: number }).path;
-    return manifestFallback;
+    const project = this._projectManager.getProjectByDirectory(dir);
+    const projectNames = project ? [project.name, project.slug] : [];
+    return findProjectIcon(dir, { projectNames });
   }
 
   /**
