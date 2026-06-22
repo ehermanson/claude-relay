@@ -157,6 +157,7 @@ function scanDirectory(
  * - ~/.claude/skills/, <project>/.claude/skills/ → claude
  * - ~/.codex/skills/ (incl. .system/) → codex
  * - ~/.agents/skills/ → codex (and other non-Claude providers)
+ * - <project>/.agents/skills/ → claude + codex (shared, cross-provider convention)
  *
  * When the same skill name appears in multiple directories, the highest-priority
  * entry's path/source is kept, but providers are merged (union).
@@ -186,9 +187,11 @@ export function discoverSkills(projectDir?: string): SkillInfo[] {
     }
   };
 
-  // 1. Project-level Claude skills (highest priority)
+  // 1. Project-level skills (highest priority)
   if (projectDir) {
     addSkills(scanDirectory(join(projectDir, ".claude", "skills"), "project", ["claude"]));
+    // .agents/skills is a shared, cross-provider convention — scanned by Claude and Codex alike.
+    addSkills(scanDirectory(join(projectDir, ".agents", "skills"), "project", ["claude", "codex"]));
   }
 
   // 2. User-level Claude skills
