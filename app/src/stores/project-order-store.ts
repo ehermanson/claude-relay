@@ -36,12 +36,26 @@ interface ProjectOrderState {
   setOrder: (next: string[] | ((prev: string[]) => string[])) => void;
   hydrateFromServer: (order: string[]) => void;
   moveToTop: (dir: string) => void;
-  moveUp: (dir: string) => void;
-  moveDown: (dir: string) => void;
+  moveUp: (dir: string, visibleDirs: string[]) => void;
+  moveDown: (dir: string, visibleDirs: string[]) => void;
   moveToBottom: (dir: string) => void;
   collapsed: Set<string>;
   toggleCollapsed: (dir: string) => void;
   setCollapsed: (dir: string, collapsed: boolean) => void;
+}
+
+/**
+ * Swap the canonical positions of two dirs within `order`. Returns a new array,
+ * or null if either dir is missing. Any dirs between them keep their slots, so
+ * the swap only flips the relative order of `a` and `b`.
+ */
+function swapInOrder(order: string[], a: string, b: string): string[] | null {
+  const ai = order.indexOf(a);
+  const bi = order.indexOf(b);
+  if (ai === -1 || bi === -1) return null;
+  const next = [...order];
+  [next[ai], next[bi]] = [next[bi], next[ai]];
+  return next;
 }
 
 /** Wrapper that persists after every mutation. */
@@ -74,22 +88,27 @@ const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
       return { order: next };
     }),
 
-  moveUp: (dir) =>
+  // moveUp/moveDown swap `dir` with its adjacent *visible* neighbor. The stored
+  // `order` can contain hidden dirs (removed projects, projects without chats)
+  // interleaved with visible ones, so swapping raw-array neighbors may swap
+  // against a hidden dir and produce no visible change. We swap the canonical
+  // positions of the two visible dirs instead, leaving hidden dirs untouched.
+  moveUp: (dir, visibleDirs) =>
     persistSet(set, ({ order }) => {
-      const idx = order.indexOf(dir);
-      if (idx <= 0) return { order };
-      const next = [...order];
-      [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+      const vIdx = visibleDirs.indexOf(dir);
+      if (vIdx <= 0) return { order };
+      const next = swapInOrder(order, dir, visibleDirs[vIdx - 1]);
+      if (!next) return { order };
       syncOrderToServer(next);
       return { order: next };
     }),
 
-  moveDown: (dir) =>
+  moveDown: (dir, visibleDirs) =>
     persistSet(set, ({ order }) => {
-      const idx = order.indexOf(dir);
-      if (idx === -1 || idx >= order.length - 1) return { order };
-      const next = [...order];
-      [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+      const vIdx = visibleDirs.indexOf(dir);
+      if (vIdx === -1 || vIdx >= visibleDirs.length - 1) return { order };
+      const next = swapInOrder(order, dir, visibleDirs[vIdx + 1]);
+      if (!next) return { order };
       syncOrderToServer(next);
       return { order: next };
     }),

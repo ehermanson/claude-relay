@@ -292,8 +292,18 @@ export function Sidebar({
                   isFirst={index === 0}
                   isLast={index === projectEntries.length - 1}
                   onMoveToTop={() => moveToTop(entry.dir)}
-                  onMoveUp={() => moveUp(entry.dir)}
-                  onMoveDown={() => moveDown(entry.dir)}
+                  onMoveUp={() =>
+                    moveUp(
+                      entry.dir,
+                      projectEntries.map((e) => e.dir),
+                    )
+                  }
+                  onMoveDown={() =>
+                    moveDown(
+                      entry.dir,
+                      projectEntries.map((e) => e.dir),
+                    )
+                  }
                   onMoveToBottom={() => moveToBottom(entry.dir)}
                   spaces={entry.spaces}
                   latestChatIdBySpace={latestChatIdBySpace}
