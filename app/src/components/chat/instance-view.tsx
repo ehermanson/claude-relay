@@ -6,6 +6,7 @@ import { InstanceViewShell } from "@/components/chat/instance-view-shell";
 import { useWSMethods, useWSState } from "@/context/websocket-context";
 import { useInstanceMessages } from "@/hooks/use-instance-messages";
 import { useConnectionBanner } from "@/hooks/use-connection-banner";
+import { useDismissedBranchChanges } from "@/hooks/use-dismissed-branch-changes";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { useSidecarPanels, useSidecarStore } from "@/stores/sidecar-store";
@@ -433,7 +434,8 @@ export function InstanceView({
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [showDebugPaste, setShowDebugPaste] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [dismissedBranchChangeKey, setDismissedBranchChangeKey] = useState<string | null>(null);
+  const { dismissed: dismissedBranchChanges, dismiss: dismissBranchChange } =
+    useDismissedBranchChanges();
   const connectionBanner = useConnectionBanner({
     isConnected,
     connectionId,
@@ -455,16 +457,11 @@ export function InstanceView({
   const hasFilesContent = filesCount > 0;
   const hasPlanContent = !!resolvedInstance?.planContent;
   const hasReviewContent = !!resolvedInstance?.reviewInstanceId || hasFilesContent;
-  const branchChangeKey = resolvedInstance?.branchChanged
-    ? `${resolvedInstance.branchChanged.originalBranch}->${resolvedInstance.branchChanged.currentBranch}`
-    : null;
-  const showBranchChangeBanner = !!branchChangeKey && dismissedBranchChangeKey !== branchChangeKey;
-
-  useEffect(() => {
-    if (!branchChangeKey) {
-      setDismissedBranchChangeKey(null);
-    }
-  }, [branchChangeKey]);
+  const branchChangeKey =
+    resolvedInstance?.branchChanged && resolvedInstance.id
+      ? `${resolvedInstance.id}:${resolvedInstance.branchChanged.originalBranch}->${resolvedInstance.branchChanged.currentBranch}`
+      : null;
+  const showBranchChangeBanner = !!branchChangeKey && !dismissedBranchChanges.has(branchChangeKey);
 
   const {
     activeTab,
@@ -742,7 +739,9 @@ export function InstanceView({
       setConfirmDelete,
       handleRespondToRequest,
       handleApproveTool,
-      dismissBranchChangeBanner: () => setDismissedBranchChangeKey(branchChangeKey),
+      dismissBranchChangeBanner: () => {
+        if (branchChangeKey) dismissBranchChange(branchChangeKey);
+      },
       selectTab,
       closeSidecar,
       setSidecarMobileOpen,
