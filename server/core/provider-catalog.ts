@@ -180,6 +180,7 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsModelSelection: true,
     supportsTitleUpdates: false,
     reasoningEffortLevels: EXTENDED_EFFORTS,
+    composerHints: { helpText: "Use @ for files and / for commands and skills" },
     runtimeModes: {
       "approval-required": {
         label: "Ask Permission",
@@ -205,6 +206,7 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsModelSelection: true,
     supportsTitleUpdates: true,
     reasoningEffortLevels: STANDARD_EFFORTS,
+    composerHints: { helpText: "Use @ for files, / for commands, and $ for skills" },
     fastModes: {
       off: { label: "Standard", description: "Default speed with normal credit usage" },
       on: { label: "Fast", description: "About 1.5x faster, with credits used at 2x" },
@@ -233,6 +235,7 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsFastMode: false,
     supportsModelSelection: true,
     supportsTitleUpdates: false,
+    composerHints: { helpText: "Use @ for files and / for commands" },
     runtimeModes: {
       "approval-required": {
         label: "Ask Permission",

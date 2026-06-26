@@ -4,6 +4,7 @@ import {
   getProviderDisplayName,
   getBuiltinProviderModels,
   findProviderModelLabel,
+  getDefaultProviderCapabilities,
 } from "../dist/server/core/provider-catalog.js";
 
 describe("getProviderDisplayName", () => {
@@ -89,5 +90,15 @@ describe("findProviderModelLabel", () => {
   it("returns null for provider with no models", () => {
     const label = findProviderModelLabel("gemini", "gemini-pro");
     assert.equal(label, null);
+  });
+});
+
+describe("getDefaultProviderCapabilities", () => {
+  it("every provider defines composer hints", () => {
+    for (const provider of ["claude", "codex", "gemini"]) {
+      const caps = getDefaultProviderCapabilities(provider);
+      assert.equal(typeof caps.composerHints?.helpText, "string");
+      assert.ok(caps.composerHints.helpText.length > 0);
+    }
   });
 });

@@ -370,6 +370,12 @@ export interface ProviderCapabilities {
    * (or failed). UI uses this to surface a launch toast + settings card.
    */
   versionAdvisory?: ProviderVersionAdvisory;
+  /**
+   * Hint text shown under the chat composer describing the input affordances
+   * (@ mentions, / commands, $ skills) this provider supports. Rendered by the
+   * UI verbatim — the UI must NOT branch on provider name to derive it.
+   */
+  composerHints?: { helpText: string };
 }
 
 export type ProviderInstallMethod = "npm" | "brew" | "bun" | "pnpm" | "native" | "manual";

@@ -623,11 +623,7 @@ export function InputArea({
   const disabled = !isConnected;
   const composerDisabled = disabled || (hasPendingPrompt && !allowPromptTextInput);
   const composerHelpText =
-    displayedProvider === "codex"
-      ? "Use @ for files, / for commands, and $ for skills"
-      : displayedProvider === "claude"
-        ? "Use @ for files and / for commands and skills"
-        : "Use @ for files and / for commands";
+    capabilities?.composerHints?.helpText ?? "Use @ for files and / for commands";
 
   const hasPlanFeedback = planFeedbackText.trim().length > 0 || planComments.length > 0;
   const composerPlaceholder = !isConnected
