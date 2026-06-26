@@ -1680,7 +1680,7 @@ describe("InstanceManager", () => {
         },
       });
 
-      assert.deepEqual(sentMessages, ["Tea"]);
+      assert.deepEqual(sentMessages, ["> Which do you prefer?\n\nTea"]);
       assert.equal(instance.info.pendingPermission, undefined);
       const lastHistory = instance.history[instance.history.length - 2];
       assert.equal(lastHistory.message.type, "activity");
