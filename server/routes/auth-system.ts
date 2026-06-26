@@ -140,7 +140,7 @@ export function registerPublicSystemRoutes(app: Hono<AppEnv>, deps: HttpDeps): v
       return c.json({ error: "Invalid JSON" }, 400);
     }
 
-    if (body.password === config.password) {
+    if (auth.verifyPassword(body.password)) {
       const session = auth.createSession();
       c.header("Set-Cookie", auth.serializeSessionCookie(session.id));
       return c.json({ success: true }, 200);

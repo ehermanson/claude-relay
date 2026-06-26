@@ -5,7 +5,7 @@
  * Includes IP-based rate limiting on login attempts.
  */
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as cookie from "cookie";
@@ -105,6 +105,20 @@ export class AuthManager {
     }
 
     return true;
+  }
+
+  /**
+   * Constant-time password check. Compares SHA-256 digests so the comparison
+   * is fixed-length (no length side channel) and timing-independent of how many
+   * leading characters match. Returns false when no password is configured.
+   */
+  verifyPassword(candidate: string | undefined): boolean {
+    const expected = this.config.password;
+    if (expected === undefined || expected === "") return false;
+    if (typeof candidate !== "string") return false;
+    const a = createHash("sha256").update(candidate).digest();
+    const b = createHash("sha256").update(expected).digest();
+    return timingSafeEqual(a, b);
   }
 
   /**

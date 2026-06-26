@@ -139,6 +139,38 @@ describe("AuthManager", () => {
     });
   });
 
+  describe("verifyPassword", () => {
+    it("returns true for the correct password", () => {
+      assert.equal(auth.verifyPassword("test"), true);
+    });
+
+    it("returns false for a wrong password of the same length", () => {
+      assert.equal(auth.verifyPassword("tset"), false);
+    });
+
+    it("returns false for a wrong password of a different length", () => {
+      assert.equal(auth.verifyPassword("a-much-longer-password"), false);
+      assert.equal(auth.verifyPassword(""), false);
+    });
+
+    it("returns false for an undefined candidate", () => {
+      assert.equal(auth.verifyPassword(undefined), false);
+    });
+
+    it("returns false when no password is configured", () => {
+      const noPwConfig = resolveConfig({
+        password: "",
+        rateLimitMax: 3,
+        rateLimitWindow: 60_000,
+        sessionMaxAge: 60_000,
+        sessionFile: join(tempDir, "sessions-nopw.json"),
+      });
+      const noPwAuth = new AuthManager(noPwConfig);
+      assert.equal(noPwAuth.verifyPassword("anything"), false);
+      assert.equal(noPwAuth.verifyPassword(""), false);
+    });
+  });
+
   describe("session persistence", () => {
     it("survives a restart by loading from file", () => {
       const session = auth.createSession();
