@@ -55,9 +55,9 @@
     "@hono/node-server": "^1.19.4",
     "cookie": "^0.6.0",
     "diff": "^8.0.4",
-    "hono": "^4.10.1",
+    "hono": "^4.12.25",
     "node-pty": "^1.1.0",
-    "ws": "^8.18.0"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/cookie": "^0.6.0",
