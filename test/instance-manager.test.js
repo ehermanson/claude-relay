@@ -2528,4 +2528,25 @@ describe("InstanceManager", () => {
       assert.equal(instance.info.planContent, "# Plan v2\n- Step B");
     });
   });
+
+  describe("stopAllGracefully", () => {
+    it("completes shutdown even if one instance throws on close", async () => {
+      const a = manager.createInstance();
+      const b = manager.createInstance();
+      const internalA = manager.instances.get(a.id);
+      const internalB = manager.instances.get(b.id);
+      // Force instance A's close to throw; give B a harmless fake process.
+      internalA.process = {
+        close() {
+          throw new Error("boom");
+        },
+      };
+      internalB.process = { close() {} };
+
+      await assert.doesNotReject(() => manager.stopAllGracefully());
+
+      // Cleanup continued past the failing instance.
+      assert.equal(internalB.info.status, "stopped");
+    });
+  });
 });

@@ -4514,12 +4514,18 @@ export class InstanceManager extends EventEmitter {
 
     await Promise.all(
       instances.map(async (instance) => {
-        if (instance.process) {
-          await Promise.resolve(instance.process.close());
-        }
-        instance.info.status = "stopped";
-        if (instance.sessionId) {
-          this.db.updateLastActivity(instance.sessionId, instance.info.lastActivityAt);
+        try {
+          if (instance.process) {
+            await Promise.resolve(instance.process.close());
+          }
+          instance.info.status = "stopped";
+          if (instance.sessionId) {
+            this.db.updateLastActivity(instance.sessionId, instance.info.lastActivityAt);
+          }
+        } catch (err) {
+          this.baseConfig.logger.warn(
+            `[InstanceManager] Error closing instance ${instance.info.id} during shutdown: ${String(err)}`,
+          );
         }
       }),
     );
