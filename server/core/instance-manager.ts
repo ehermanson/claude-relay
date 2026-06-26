@@ -379,7 +379,7 @@ const COMPACT_COMMAND_RE = /^\s*\/compact\s*$/i;
 
 /** Severity ordering: rejected > allowed_warning > allowed */
 const RL_SEVERITY: Record<string, number> = { rejected: 2, allowed_warning: 1, allowed: 0 };
-function rlSeverity(status?: string): number {
+export function rlSeverity(status?: string): number {
   return RL_SEVERITY[status ?? "allowed"] ?? 0;
 }
 
@@ -389,7 +389,7 @@ function rlSeverity(status?: string): number {
  * passed. This prevents a new session's opening "allowed" event from
  * wiping out a "rejected" status that is still active.
  */
-function mergeRateLimitWindows(
+export function mergeRateLimitWindows(
   prevWindows: import("#core/types.js").ProviderRateLimitWindow[] | undefined,
   patchWindows: import("#core/types.js").ProviderRateLimitWindow[] | undefined,
 ): import("#core/types.js").ProviderRateLimitWindow[] | undefined {
@@ -437,7 +437,7 @@ function mergeRateLimitWindows(
  * matching limits by scope/name and delegating window merging to
  * mergeRateLimitWindows.
  */
-function mergeRateLimits(
+export function mergeRateLimits(
   prev: import("#core/types.js").ProviderRateLimitStatus[] | undefined,
   patch: import("#core/types.js").ProviderRateLimitStatus[] | undefined,
 ): import("#core/types.js").ProviderRateLimitStatus[] | undefined {
