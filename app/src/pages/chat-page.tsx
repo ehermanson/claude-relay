@@ -15,6 +15,9 @@ import {
   getChatRecencyTimestamp,
   getDisplayTokenBreakdown,
 } from "../lib/utils";
+import { isAttachedReviewInstance } from "../lib/review-session";
+import { useMediaQuery } from "../hooks/use-media-query";
+import { ChatListRow } from "../components/chat/chat-list-row";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { useProjectOrder } from "../stores/project-order-store";
 import { useProjectsQuery } from "../hooks/use-projects-query";
@@ -88,6 +91,113 @@ function ProjectCard({
   const taskCount = artifacts?.tasks?.length ?? 0;
   const openTasks =
     artifacts?.tasks?.filter((t) => t.status === "open" || t.status === "in_progress").length ?? 0;
+
+  // Mobile surfaces recent chats instead of stats — phones are for starting or
+  // continuing a chat, not reading token breakdowns (the sidebar covers desktop).
+  const isMobile = useMediaQuery("(max-width: 768px)");
+  const recentChats = [...instances]
+    .filter((i) => !isAttachedReviewInstance(i))
+    .sort((a, b) => getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a))
+    .slice(0, 5);
+
+  // Tag space-owned chats with their branch (default "main" space stays untagged).
+  const spacesById = new Map((artifacts?.spaces ?? []).map((s) => [s.id, s]));
+  const spaceLabelFor = (inst: InstanceInfo): string | undefined => {
+    if (!inst.spaceId) return undefined;
+    const space = spacesById.get(inst.spaceId);
+    if (!space || space.isDefault) return undefined;
+    return space.gitBranch ?? space.name;
+  };
+
+  const iconNode = showIcon ? (
+    <img
+      src={`/api/file?path=${encodeURIComponent(iconPath)}`}
+      alt=""
+      className="h-9 w-9 rounded-lg object-contain"
+      onError={() => setImgError(true)}
+    />
+  ) : (
+    dirName.charAt(0).toUpperCase()
+  );
+
+  if (isMobile) {
+    return (
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
+        {/* Header — taps through to the project */}
+        <div className="flex items-center gap-3 px-3 pt-3 pb-2">
+          <Link
+            to="/projects/$projectId"
+            params={{ projectId }}
+            className="flex min-w-0 flex-1 items-center gap-3"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-bg text-[0.8125rem] font-semibold text-muted">
+              {iconNode}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[0.875rem] font-semibold text-text-bright">
+                {dirName}
+              </div>
+              {activeCount > 0 ? (
+                <div className="flex items-center gap-1 text-[0.6875rem] text-accent">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+                  {activeCount} active
+                </div>
+              ) : lastActivity ? (
+                <div className="text-[0.6875rem] text-muted">{formatTimeAgo(lastActivity)}</div>
+              ) : null}
+            </div>
+          </Link>
+          <Tooltip content={`New chat in ${dirName}`}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onNewSession(directory);
+              }}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <Plus size={14} />
+            </button>
+          </Tooltip>
+        </div>
+
+        {/* Recent chats */}
+        {recentChats.length > 0 ? (
+          <div className="flex flex-col border-t border-border/50">
+            {recentChats.map((inst) => (
+              <ChatListRow key={inst.id} instance={inst} spaceLabel={spaceLabelFor(inst)} />
+            ))}
+            {instances.length > recentChats.length && (
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId }}
+                className="px-3 py-2 text-[0.6875rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              >
+                View all {instances.length} chats →
+              </Link>
+            )}
+          </div>
+        ) : sessionCount > 0 ? (
+          <Link
+            to="/projects/$projectId"
+            params={{ projectId }}
+            className="border-t border-border/50 px-3 py-2.5 text-[0.6875rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            View {sessionCount} chat{sessionCount !== 1 ? "s" : ""} →
+          </Link>
+        ) : !artifactsLoading ? (
+          <div className="border-t border-border/50 px-3 py-3">
+            <EmptyProjectActions
+              size="compact"
+              onNewChat={() => onNewSession(directory)}
+              onNewSpace={() => onCreateSpace(directory)}
+            />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <Link

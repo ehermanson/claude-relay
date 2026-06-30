@@ -111,6 +111,15 @@ Zero relative path navigation (`../`) in any server/cli import.
 
 Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a chat triggers lazy hydration of transcript/task/file state and git info, but history reads stay passive: Relay does not boot/resume a stopped managed session until the user explicitly sends a message (or otherwise takes over/resumes it).
 
+### Entry Screens & Project View
+
+Phone users open Relay to start or continue a chat, so the entry screens lead with chats, not stats.
+
+- **Project view IA is identical on mobile and desktop**: tabs are `Overview · Plans · [Tasks] · [Skills] · [Spaces] · Settings` — there is **no Chats tab**. **Overview _is_ the chat list** (`ProjectChatList` in `app/src/pages/chats-page.tsx`) with an expandable "Project stats" strip above it (token cards + model breakdown + docs, collapsed by default). The Overview tab carries the chat count + active badge.
+- The chat list is **one flat list** of standalone + space chats; space chats are tagged with their branch via the shared `ChatListRow` (`app/src/components/chat/chat-list-row.tsx`). Only row density adapts: dense `ChatListRow`s on mobile, rich `SessionCard`s on desktop.
+- The legacy `/projects/:id/chats` list route now **redirects to Overview** (`/projects/:id`); link there for "all chats", not to a separate page. The `chats/$chatId` individual chat view is unchanged.
+- **Home/dashboard cards intentionally diverge by viewport** (the one justified split, driven by the desktop sidebar already listing chats): desktop cards show stats + model chips; mobile cards show the project's recent chats (top 5, via `ChatListRow`). Gate with `useMediaQuery("(max-width: 768px)")`.
+
 ### Spaces
 
 Spaces group multiple concurrent agent chats within a shared git worktree/branch (`Project → Space[] → Chat[]`). Every project has an implicit "main" space (no worktree, default branch). Additional spaces create dedicated worktrees in `<RELAY_HOME>/worktrees/space-<id>/` (defaults to `~/.relay/worktrees/space-<id>/`).

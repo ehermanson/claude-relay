@@ -172,11 +172,15 @@ function ProjectLayout() {
 
         {/* Sub-nav */}
         <nav className="scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/70 px-2">
+          {/* Overview IS the chat list (+ expandable stats). No separate Chats
+              tab on any viewport; the chat count/active badge live here. */}
           <NavTab
             to="/projects/$projectId"
             params={{ projectId }}
-            active={isOverviewTab}
+            active={isOverviewTab || isChatsTab}
             label="Overview"
+            count={sessionStats.total}
+            badge={chatBadge}
           />
           <NavTab
             to="/projects/$projectId/plans"
@@ -212,14 +216,6 @@ function ProjectLayout() {
               count={spaceCount}
             />
           )}
-          <NavTab
-            to="/projects/$projectId/chats"
-            params={{ projectId }}
-            active={isChatsTab}
-            label="Chats"
-            count={sessionStats.total}
-            badge={chatBadge}
-          />
           <NavTab
             to="/projects/$projectId/settings"
             params={{ projectId }}

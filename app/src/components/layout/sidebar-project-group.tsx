@@ -442,7 +442,7 @@ export function SidebarProjectGroup({
 
             {hiddenCount > 0 && (
               <Link
-                to="/projects/$projectId/chats"
+                to="/projects/$projectId"
                 params={{ projectId: routeProjectId }}
                 className="flex w-full items-center gap-1 rounded-md py-1.5 pl-8 pr-3 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
               >

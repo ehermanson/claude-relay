@@ -723,7 +723,7 @@ export function InstanceView({
       navigateToSplitPicker: () => navigate({ search: { split: "pick" } }),
       navigateAfterDelete: () =>
         navigate({
-          to: "/projects/$projectId/chats",
+          to: "/projects/$projectId",
           params: { projectId: getInstanceProjectRouteId(resolvedInstance) },
         }),
       sendRemoveInstance: () => send({ type: "remove_instance", instanceId: resolvedInstance.id }),

@@ -15,7 +15,6 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { fetchProjectChats, fetchAllSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
 import { isAttachedReviewInstance } from "@/lib/review-session";
-import { isSpaceOwnedInstance } from "@/lib/space-membership";
 import {
   deriveInstanceStatusPresentation,
   formatModel,
@@ -24,8 +23,8 @@ import {
   getChatRecencyTimestamp,
   getDisplaySessionStats,
 } from "@/lib/utils";
-import { PageShell } from "@/components/ui/page-shell";
 import { StatusDot } from "@/components/ui/status-dot";
+import { ChatListRow } from "@/components/chat/chat-list-row";
 import type { InstanceInfo } from "@shared/types";
 
 function SessionCard({
@@ -130,7 +129,13 @@ function SessionCard({
   );
 }
 
-export function ChatsPage() {
+/**
+ * Self-contained chat list (search + cards + empty states) for a project.
+ * Reads the active project from route params + ProjectContext, so it can be
+ * dropped into any padded container. Rendered by the project Overview tab
+ * (Overview IS the chat list); rows are dense on mobile, rich cards on desktop.
+ */
+export function ProjectChatList() {
   const { projectId: routeProjectId } = useParams({ strict: false }) as { projectId: string };
   const isMobile = useMediaQuery("(max-width: 768px)");
   const queryClient = useQueryClient();
@@ -179,9 +184,19 @@ export function ChatsPage() {
   const projectInstances = Array.from(projectInstancesMap.values()).sort(
     (a, b) => getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a),
   );
-  const standaloneInstances = projectInstances.filter(
-    (inst) => !isSpaceOwnedInstance(inst, spaces) && !isAttachedReviewInstance(inst),
-  );
+  // Resolve a chat's space tag (branch, falling back to space name). Default
+  // ("main") space chats are untagged standalone chats.
+  const spacesById = new Map(spaces.map((s) => [s.id, s]));
+  const spaceLabelFor = (inst: InstanceInfo): string | undefined => {
+    if (!inst.spaceId) return undefined;
+    const space = spacesById.get(inst.spaceId);
+    if (!space || space.isDefault) return undefined;
+    return space.gitBranch ?? space.name;
+  };
+
+  // One flat list on every viewport — standalone + space chats together, each
+  // space chat tagged with its branch. The Spaces tab handles space lifecycle.
+  const listInstances = projectInstances.filter((inst) => !isAttachedReviewInstance(inst));
 
   // Build a lookup for parent session names
   const parentNames = new Map<string, string>();
@@ -198,14 +213,15 @@ export function ChatsPage() {
     }
   }
 
-  const filteredStandalone = searchQuery
-    ? standaloneInstances.filter(
+  const filtered = searchQuery
+    ? listInstances.filter(
         (inst) =>
           inst.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           inst.gitBranch?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          spaceLabelFor(inst)?.toLowerCase().includes(searchQuery.toLowerCase()) ||
           inst.lastMessage?.text?.toLowerCase().includes(searchQuery.toLowerCase()),
       )
-    : standaloneInstances;
+    : listInstances;
 
   const handleNewChat = () => {
     if (artifacts.directory) {
@@ -220,23 +236,21 @@ export function ChatsPage() {
     }
   };
 
-  const searchToolbar =
-    standaloneInstances.length > 0 ? (
-      <div className="relative">
-        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
-        <Input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search chats..."
-          className="h-8 !rounded-md !bg-surface !py-1.5 pl-8 pr-3"
-        />
-      </div>
-    ) : undefined;
-
   return (
-    <PageShell maxWidth="wide" toolbar={searchToolbar}>
-      {standaloneInstances.length === 0 ? (
+    <>
+      {listInstances.length > 0 && (
+        <div className="relative mb-3">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+          <Input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search chats..."
+            className="h-8 !rounded-md !bg-surface !py-1.5 pl-8 pr-3"
+          />
+        </div>
+      )}
+      {listInstances.length === 0 ? (
         <EmptyState
           icon={<MessageSquare size={24} strokeWidth={1.5} />}
           title="No chats yet"
@@ -246,13 +260,19 @@ export function ChatsPage() {
             <EmptyProjectActions onNewChat={handleNewChat} onNewSpace={handleNewSpace} />
           </div>
         </EmptyState>
-      ) : filteredStandalone.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <p className="text-sm text-muted">No chats match &quot;{searchQuery}&quot;</p>
         </div>
+      ) : isMobile ? (
+        <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/80 bg-surface">
+          {filtered.map((inst) => (
+            <ChatListRow key={inst.id} instance={inst} showModel spaceLabel={spaceLabelFor(inst)} />
+          ))}
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {filteredStandalone.map((inst, index) => (
+          {filtered.map((inst, index) => (
             <div
               key={inst.id}
               className="opacity-0 animate-stagger-fade-in"
@@ -274,6 +294,6 @@ export function ChatsPage() {
         projectId={projectId}
         onOpenChange={(open) => !open && spaceDialog.close()}
       />
-    </PageShell>
+    </>
   );
 }
