@@ -36,6 +36,13 @@ process.env.GIT_TERMINAL_PROMPT = "0";
 process.env.GIT_ASKPASS = "true";
 process.env.GIT_LFS_SKIP_SMUDGE = "1";
 process.env.RELAY_GIT_TIMEOUT_MS = process.env.RELAY_GIT_TIMEOUT_MS || "5000";
+
+// Make the Claude provider appear installed without requiring the real CLI on
+// PATH. The managed-session tests construct provider sessions but never spawn
+// the binary (sends are stubbed), so a sentinel path is enough to pass the
+// provider-availability gate. Keeps the suite hermetic — e.g. on CI runners
+// and clean contributor machines where the Claude CLI isn't installed.
+process.env.RELAY_CLAUDE_CLI_PATH = process.env.RELAY_CLAUDE_CLI_PATH || "/usr/bin/true";
 process.env.GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME || "Relay Test";
 process.env.GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL || "relay-test@example.com";
 process.env.GIT_COMMITTER_NAME = process.env.GIT_COMMITTER_NAME || process.env.GIT_AUTHOR_NAME;

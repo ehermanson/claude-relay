@@ -12,6 +12,14 @@ let cachedClaudeBinary: string | null | undefined;
 export function findClaudeBinary(): string | null {
   if (cachedClaudeBinary !== undefined) return cachedClaudeBinary;
 
+  // Explicit override for non-standard install locations (and for tests, which
+  // must not depend on the host having the Claude CLI installed on PATH).
+  const override = process.env.RELAY_CLAUDE_CLI_PATH;
+  if (override) {
+    cachedClaudeBinary = override;
+    return cachedClaudeBinary;
+  }
+
   const candidates = [
     `${process.env.HOME}/.local/bin/claude`,
     "/usr/local/bin/claude",
