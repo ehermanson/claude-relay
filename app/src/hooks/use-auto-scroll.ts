@@ -5,11 +5,18 @@ const SHOW_SCROLL_TO_BOTTOM_PX = 500;
 const FORCE_SCROLL_MAX_FRAMES = 48;
 const FORCE_SCROLL_STABLE_FRAMES = 3;
 
-export function useAutoScroll<T extends HTMLElement>() {
+export function useAutoScroll<T extends HTMLElement>(options?: { onUserScroll?: () => void }) {
   const ref = useRef<T>(null);
+  // Keep the latest callback without re-subscribing the scroll listeners.
+  const onUserScrollRef = useRef(options?.onUserScroll);
+  onUserScrollRef.current = options?.onUserScroll;
   const stickToBottom = useRef(true);
   const forceScrollRunId = useRef(0);
   const forceScrollUntil = useRef(0);
+  // "Framed" = we've parked a specific turn near the top of the viewport and
+  // want the answer to stream into the space below WITHOUT auto-following the
+  // live edge. Stays on until the reader actually interacts (wheel/touch/etc).
+  const framed = useRef(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const showScrollToBottomRef = useRef(false);
 
@@ -39,6 +46,7 @@ export function useAutoScroll<T extends HTMLElement>() {
   const forceStickToBottom = useCallback(
     (smooth?: boolean) => {
       stickToBottom.current = true;
+      framed.current = false;
       setShowScrollToBottomIfChanged(false);
 
       // Smooth scroll for user-initiated clicks — let the browser animate
@@ -102,7 +110,7 @@ export function useAutoScroll<T extends HTMLElement>() {
       const nearBottom = remainingDistance <= NEAR_BOTTOM_PX;
       const forcingBottom = performance.now() < forceScrollUntil.current;
 
-      if (nearBottom) {
+      if (nearBottom && !framed.current) {
         stickToBottom.current = true;
       } else if (!forcingBottom && userInteracting.current && scrollTop < lastScrollTop - 1) {
         // Only detach when the user actually scrolled (wheel / touch / pointer).
@@ -121,6 +129,12 @@ export function useAutoScroll<T extends HTMLElement>() {
 
     const onUserIntent = () => {
       cancelForcedScroll();
+      // Real interaction ends framing — normal stick-to-bottom logic resumes,
+      // so scrolling back to the live edge re-engages following.
+      if (framed.current) {
+        framed.current = false;
+        onUserScrollRef.current?.();
+      }
       userInteracting.current = true;
       clearTimeout(userInteractingTimer.current);
       userInteractingTimer.current = setTimeout(() => {
@@ -171,6 +185,15 @@ export function useAutoScroll<T extends HTMLElement>() {
     cancelForcedScroll();
   }, [cancelForcedScroll]);
 
+  // Park a turn near the top of the viewport: stop following the live edge and
+  // suppress the near-bottom re-engage so the streamed answer can grow into the
+  // space below without yanking the reader down. Cleared on user interaction.
+  const beginFramed = useCallback(() => {
+    framed.current = true;
+    stickToBottom.current = false;
+    cancelForcedScroll();
+  }, [cancelForcedScroll]);
+
   return {
     ref,
     scrollToBottom,
@@ -178,5 +201,6 @@ export function useAutoScroll<T extends HTMLElement>() {
     onContentChange,
     showScrollToBottom,
     detachFromBottom,
+    beginFramed,
   };
 }

@@ -662,6 +662,7 @@ export function InstanceViewContent() {
           <MaybeRelayProvider value={relayValue}>
             <MessageList
               key={shared.id}
+              persistKey={shared.id}
               items={shared.items}
               searchFocus={shared.searchFocus}
               isProcessing={shared.isActive}

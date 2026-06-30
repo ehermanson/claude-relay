@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -29,6 +29,8 @@ const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 
 interface MessageListProps {
   items: ChatItem[];
+  /** Stable per-chat id used to persist and restore scroll position on reopen. */
+  persistKey?: string;
   searchFocus?: {
     query: string;
     snippet?: string;
@@ -52,6 +54,7 @@ interface MessageListProps {
 
 export function MessageList({
   items,
+  persistKey,
   searchFocus,
   isProcessing,
   showThinkingIndicator,
@@ -69,13 +72,27 @@ export function MessageList({
   planChildName,
   onInterruptAndSend,
 }: MessageListProps) {
+  // When a new turn is sent we "frame" it: park the message near the top and
+  // reserve space below (spacerHeight) so the answer can stream into the gap,
+  // then hand off to normal following once it fills the viewport.
+  const [framedTurnId, setFramedTurnId] = useState<string | null>(null);
+  const [spacerHeight, setSpacerHeight] = useState(0);
+  const spacerHeightRef = useRef(0);
+  // Set once the reader scrolls during a framed turn: we stop pinning/following,
+  // but leave the spacer in place (removing it would yank the scroll position).
+  // It shrinks on its own as the answer grows into the gap.
+  const userTookOverRef = useRef(false);
+  const releaseFraming = useCallback(() => {
+    userTookOverRef.current = true;
+  }, []);
   const {
     ref: scrollRef,
     forceStickToBottom,
     onContentChange,
     showScrollToBottom,
     detachFromBottom,
-  } = useAutoScroll<HTMLDivElement>();
+    beginFramed,
+  } = useAutoScroll<HTMLDivElement>({ onUserScroll: releaseFraming });
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [activeSearchRowId, setActiveSearchRowId] = useState<string | null>(null);
   const consumedSearchFocusRef = useRef<string | null>(null);
@@ -157,17 +174,139 @@ export function MessageList({
   }, [isMobile, rowVirtualizer]);
 
   // ── Scroll management ────────────────────────────────────────────
-  const hadItems = useRef(false);
-  useEffect(() => {
-    if (items.length > 0 && !hadItems.current) {
-      hadItems.current = true;
-      forceStickToBottom();
-    } else if (items.length === 0) {
-      hadItems.current = false;
-    } else {
-      onContentChange();
+  // The last non-queued user turn — the "meaningful" anchor we park near the
+  // top of the viewport on open (reopen position) and when a new turn is sent.
+  const lastUserRow = useMemo(() => {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].kind === "user") return { index: i, id: rows[i].id };
     }
-  }, [items, forceStickToBottom, onContentChange]);
+    return null;
+  }, [rows]);
+
+  const hadItems = useRef(false);
+  const lastUserRowIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (items.length === 0) {
+      hadItems.current = false;
+      lastUserRowIdRef.current = null;
+      return;
+    }
+    if (!hadItems.current) {
+      // Reopen position: restore the reader's last scroll offset for this chat
+      // if we have one; otherwise go to the bottom (the live edge).
+      hadItems.current = true;
+      lastUserRowIdRef.current = lastUserRow?.id ?? null;
+      const saved = persistKey ? readSavedScroll(persistKey) : null;
+      if (saved && !saved.atBottom) {
+        detachFromBottom();
+        const apply = () => {
+          const el = scrollRef.current;
+          if (!el) return;
+          el.scrollTop = Math.min(saved.scrollTop, el.scrollHeight - el.clientHeight);
+        };
+        apply();
+        requestAnimationFrame(() => requestAnimationFrame(apply));
+      } else {
+        forceStickToBottom();
+      }
+      return;
+    }
+    if (lastUserRow && lastUserRow.id !== lastUserRowIdRef.current) {
+      // A new turn was sent — frame it near the top so the answer has room to
+      // stream into. (Queued sends aren't in `rows`, so they don't trigger this
+      // until they actually start.) The layout effect below positions it and
+      // reserves the space; following resumes once the answer fills the screen.
+      lastUserRowIdRef.current = lastUserRow.id;
+      userTookOverRef.current = false;
+      beginFramed();
+      setFramedTurnId(lastUserRow.id);
+      return;
+    }
+    onContentChange();
+  }, [
+    items,
+    lastUserRow,
+    beginFramed,
+    forceStickToBottom,
+    onContentChange,
+    detachFromBottom,
+    persistKey,
+    scrollRef,
+  ]);
+
+  // While a turn is framed: reserve a spacer below so the message can sit near
+  // the top, keep it pinned there as the answer streams into the gap. Once the
+  // answer fills the viewport, hand off to normal stick-to-bottom following so
+  // the live edge stays visible.
+  useLayoutEffect(() => {
+    if (!framedTurnId) return;
+    const el = scrollRef.current;
+    const container = containerRef.current;
+    if (!el || !container) return;
+    const node = el.querySelector<HTMLElement>(`[data-row-id="${framedTurnId}"]`);
+    if (!node) return;
+
+    // Offset of the framed message within the scroll content (scroll-independent).
+    const messageTop = node.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    const viewport = el.clientHeight;
+    const realContentHeight = el.scrollHeight - spacerHeightRef.current;
+    const belowMessage = realContentHeight - messageTop;
+
+    if (belowMessage >= viewport) {
+      // The answer has filled the space below the message. Collapse the spacer
+      // and, unless the reader has scrolled away, start following the live edge.
+      spacerHeightRef.current = 0;
+      setSpacerHeight(0);
+      setFramedTurnId(null);
+      if (!userTookOverRef.current) forceStickToBottom();
+      return;
+    }
+
+    // Shrink the spacer as the answer grows into the gap. Safe to do even after
+    // the reader has taken over: the spacer is below their viewport, so the
+    // scroll position doesn't move.
+    const nextSpacer = Math.max(0, viewport - belowMessage);
+    if (Math.abs(nextSpacer - spacerHeightRef.current) > 1) {
+      spacerHeightRef.current = nextSpacer;
+      setSpacerHeight(nextSpacer);
+      return; // re-run once the spacer lands, then position the message
+    }
+
+    // Spacer is stable — pin the message to the top of the viewport. Streaming
+    // content grows below it, so the position holds without re-scrolling; this
+    // only fires to set the initial top and correct any drift. Skip once the
+    // reader takes control of the scroll.
+    if (!userTookOverRef.current && Math.abs(el.scrollTop - messageTop) > 1) {
+      el.scrollTop = messageTop;
+    }
+  });
+
+  // Persist the reader's scroll offset for this chat so reopening lands where
+  // they left off (throttled to once per frame).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !persistKey) return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        // While framing, scrollTop is spacer-relative and not meaningful to
+        // restore later — skip persisting those positions.
+        if (spacerHeightRef.current > 0) return;
+        const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+        writeSavedScroll(persistKey, {
+          scrollTop: el.scrollTop,
+          atBottom: remaining <= 64,
+        });
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [persistKey, scrollRef]);
 
   // ── Thinking indicator ───────────────────────────────────────────
   const showThinking =
@@ -374,6 +513,12 @@ export function MessageList({
                 )}
               </div>
             )}
+
+            {/* Framing spacer — lets the newest turn sit near the top while its
+                answer streams into the gap below. Collapses as the answer grows. */}
+            {spacerHeight > 0 && (
+              <div aria-hidden="true" style={{ height: spacerHeight }} className="shrink-0" />
+            )}
           </div>
         </div>
 
@@ -384,7 +529,14 @@ export function MessageList({
             {showScrollToBottom && (
               <motion.button
                 type="button"
-                onClick={() => forceStickToBottom(true)}
+                onClick={() => {
+                  // Drop any framing spacer first so we land on the live edge,
+                  // not in the reserved empty space below it.
+                  spacerHeightRef.current = 0;
+                  setSpacerHeight(0);
+                  setFramedTurnId(null);
+                  forceStickToBottom(true);
+                }}
                 aria-label="Scroll to bottom"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -401,6 +553,38 @@ export function MessageList({
       </div>
     </div>
   );
+}
+
+// ── Scroll-position persistence ──────────────────────────────────────
+// Stored per chat in sessionStorage so reopening a chat within the same tab
+// session lands where the reader left off. Session-scoped on purpose: stale
+// offsets from a prior browser session would be unreliable after the
+// transcript has grown.
+const SCROLL_STORE_PREFIX = "relay:chat-scroll:";
+
+interface SavedScroll {
+  scrollTop: number;
+  atBottom: boolean;
+}
+
+function readSavedScroll(key: string): SavedScroll | null {
+  try {
+    const raw = sessionStorage.getItem(SCROLL_STORE_PREFIX + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedScroll>;
+    if (typeof parsed.scrollTop !== "number" || typeof parsed.atBottom !== "boolean") return null;
+    return { scrollTop: parsed.scrollTop, atBottom: parsed.atBottom };
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedScroll(key: string, value: SavedScroll): void {
+  try {
+    sessionStorage.setItem(SCROLL_STORE_PREFIX + key, JSON.stringify(value));
+  } catch {
+    // Ignore quota / unavailable storage — persistence is best-effort.
+  }
 }
 
 function findSearchTargetRowIndex(
