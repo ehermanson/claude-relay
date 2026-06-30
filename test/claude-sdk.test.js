@@ -997,6 +997,53 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
+    it("emits AskUserQuestion as a user_input request with isOther freeform enabled", async () => {
+      const fakeQuery = new FakeQuery();
+      let canUseToolFn;
+      const session = await createSdkSession({
+        cwd: "/test",
+        logger: noopLogger,
+        queryFn: ({ _prompt, options }) => {
+          canUseToolFn = options.canUseTool;
+          return fakeQuery;
+        },
+      });
+
+      const requests = collectEvents(session, "permissionRequest");
+
+      // AskUserQuestion always blocks for user input. The Claude harness lets the
+      // user write their own answer ("Other") even when options are offered, so
+      // every question must be flagged isOther to enable the freeform composer.
+      const resultPromise = canUseToolFn(
+        "AskUserQuestion",
+        {
+          questions: [
+            { question: "Which do you prefer?", options: [{ label: "Coffee" }, { label: "Tea" }] },
+            { id: "fixed", question: "Pick a number", options: [{ label: "1" }] },
+          ],
+        },
+        { signal: new AbortController().signal, toolUseID: "tu-ask-1" },
+      );
+
+      await tick();
+
+      assert.ok(requests.length >= 1);
+      const request = requests[0][0];
+      assert.equal(request.kind, "user_input");
+      assert.equal(request.tool, "AskUserQuestion");
+      assert.equal(request.questions.length, 2);
+      assert.ok(
+        request.questions.every((q) => q.isOther === true),
+        "every question should be flagged isOther",
+      );
+      // Generated ids by index where absent, preserved where present.
+      assert.equal(request.questions[0].id, "q_0");
+      assert.equal(request.questions[1].id, "fixed");
+
+      session.close();
+      await resultPromise.catch(() => {});
+    });
+
     it("suppresses stale stream-closed permission errors after auto-approving via bypass", async () => {
       const fakeQuery = new FakeQuery();
       let canUseToolFn;

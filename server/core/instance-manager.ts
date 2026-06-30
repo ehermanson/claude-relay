@@ -719,6 +719,10 @@ function extractUserInputRequest(activity: ActivityMessage): ProviderRequest | n
             ({
               ...question,
               id: typeof question.id === "string" ? question.id : `q_${index}`,
+              // The Claude harness always offers a freeform "Other" answer; the
+              // tool input has no flag for it, so mark it here so replayed/restored
+              // AskUserQuestion prompts enable the composer (see claude-sdk.ts).
+              isOther: true,
             }) as UserInputQuestion,
         )
     : [];

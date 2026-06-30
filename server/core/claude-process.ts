@@ -271,13 +271,17 @@ export class ClaudeProcess extends EventEmitter implements ProviderSession {
 
     if (toolName === "AskUserQuestion" && toolUseId) {
       const questions = Array.isArray(input?.questions)
-        ? input.questions.filter(
-            (question): question is UserInputQuestion =>
-              typeof question === "object" &&
-              question !== null &&
-              typeof (question as UserInputQuestion).id === "string" &&
-              typeof (question as UserInputQuestion).question === "string",
-          )
+        ? input.questions
+            .filter(
+              (question): question is UserInputQuestion =>
+                typeof question === "object" &&
+                question !== null &&
+                typeof (question as UserInputQuestion).id === "string" &&
+                typeof (question as UserInputQuestion).question === "string",
+            )
+            // The Claude harness always offers a freeform "Other" answer; flag it
+            // so the UI enables the composer (see claude-sdk.ts / instance-manager.ts).
+            .map((question) => ({ ...question, isOther: true }))
         : [];
       if (questions.length > 0) {
         const request: ProviderRequest = {

@@ -971,6 +971,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
                   ...question,
                   // AskUserQuestion tool input doesn't include `id` — generate one
                   id: typeof question.id === "string" ? question.id : `q_${index}`,
+                  // The Claude Code harness always lets the user write their own
+                  // answer ("Other") regardless of the offered options. The tool
+                  // input carries no flag for this, so mark it here to enable the
+                  // freeform composer (matches the Codex driver's explicit isOther).
+                  isOther: true,
                 }) as UserInputQuestion,
             )
         : [];
