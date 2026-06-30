@@ -2111,6 +2111,71 @@
       "blockedBy": [],
       "createdAt": "2026-06-30T00:00:00.000Z",
       "updatedAt": "2026-06-30T00:00:00.000Z"
+    },
+    {
+      "id": "b9c34e12",
+      "title": "Claude SDK: plan @anthropic-ai/sdk upgrade from 0.100.1 to 0.109.0",
+      "description": "We pin `@anthropic-ai/sdk` at exactly `0.100.1`; the library is now at `0.109.0` (9 minor versions). The upgrade path needs explicit planning because several streaming-surface changes land in this range:\n\n- **v0.106.0**: `system.message` streaming event type added. If our streaming handler throws on unknown event types rather than silently skipping, this will surface as an error in the streaming pipeline (`server/core/providers/claude-sdk.ts`).\n- **v0.106.0**: new refusal category — our refusal handling may need updating.\n- **v0.109.0**: Managed Agents event delta streaming — new streaming event shapes for agent deltas that could alter what we receive in the Claude API stream.\n- **v0.105.0 / v0.107.0**: `code_execution_20260120` and `20260318` web fetch/support tools — new tool types in the stream; verify we render them gracefully.\n- **`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`**: AGENTS.md flags this method will be renamed at stabilization. Verify it is still present under the same name in 0.109.0 before upgrading — silent degradation of rate-limit reporting if renamed without a feature-detect update.\n\nRef: https://github.com/anthropics/anthropic-sdk-typescript/blob/main/CHANGELOG.md\n\nScope: audit streaming event handler in `claude-sdk.ts` against the 0.100.1→0.109.0 delta, check experimental method stability, then bump the pin.\n\nBucket 0 — priority 1.",
+      "status": "open",
+      "priority": 1,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-0"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-06-30T00:00:00.000Z",
+      "updatedAt": "2026-06-30T00:00:00.000Z"
+    },
+    {
+      "id": "f2a7d091",
+      "title": "Claude: surface model-scoped weekly rate-limit windows in rate-limit UI",
+      "description": "Claude Agent SDK v0.3.191 added a `model_scoped` array to the usage response: per-model weekly limit windows each carrying `utilization`, `resetAt`, and `windowLabel`. This is separate from the existing flat `five_hour`/`seven_day` windows we already display.\n\nCurrently, our rate-limit display in the sidecar and settings page shows aggregate windows (`ProviderRateLimitStatus.windows[]`). The new `model_scoped` data would let us show per-model weekly headroom — useful for users running multiple models in the same project.\n\nAlso added: `seven_day_overage_included` on `SDKRateLimitInfo.rateLimitType` for per-model weekly usage limits. This field tells us whether the seven-day overage is included in the displayed utilization, improving the accuracy of how we label the bar.\n\nTouches: `server/core/providers/claude-sdk.ts` (rate limit parsing), `ProviderRateLimitStatus` type, and the sidecar rate-limit UI (`app/src/components/...`).\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.191\n\nBucket 2 — priority 2.",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-06-30T00:00:00.000Z",
+      "updatedAt": "2026-06-30T00:00:00.000Z"
+    },
+    {
+      "id": "8e6b4a27",
+      "title": "Claude: surface agent_id in permission prompts from background agents",
+      "description": "Claude Agent SDK v0.3.186 added `agent_id` to `can_use_tool` control requests and changed background-agent behavior: background agents now forward permission prompts to `canUseTool` instead of auto-denying.\n\nThis has two effects on Relay:\n1. Our permission-prompt UI will now receive `can_use_tool` requests from background agents that previously never surfaced. Volume of interactive permission requests may increase for multi-agent sessions.\n2. The `agent_id` field lets us identify which subagent is requesting a permission, enabling a richer permission UI (e.g. \"Agent `abc123` wants to use the bash tool\").\n\n`ProviderCapabilities` currently has no concept of agent identity on permission requests. Relay should:\n- Map `agent_id` through the permission control request flow in `claude-sdk.ts` and the `PermissionRequest` type.\n- Surface it in the `AskUserQuestionPanel` / permission banner so users see which agent is asking.\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.186\n\nBucket 2 — priority 2.",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-06-30T00:00:00.000Z",
+      "updatedAt": "2026-06-30T00:00:00.000Z"
+    },
+    {
+      "id": "3c1f9d48",
+      "title": "Codex: handle safety-buffering visibility and faster-model metadata from app-server",
+      "description": "Codex CLI v0.142.2 release note: \"Apps can display richer safety-buffering UI using server-provided visibility and faster-model metadata.\" This means the Codex app-server now emits additional fields — safety-buffering visibility state and the identity/metadata of the faster model used for safety checks — that clients can surface in their UI.\n\nOur `server/core/providers/codex-app-server.ts` integrates directly with the Codex app-server JSON-RPC stream. We should:\n1. Identify the new message type(s) or new fields on existing messages carrying this data (inspect Codex source or wait for app-server protocol docs).\n2. Map any new capability fields through `ProviderCapabilities` (a `safetyBufferingVisible` flag and/or a `safetyModel` field) and expose them in the provider state broadcast.\n3. Optionally surface a subtle UI indicator when safety-buffering is active (similar to how we show pending-tool state).\n\nScope is small if the fields simply arrive on an existing event; larger if a new notification type is required.\n\nRef: github.com/openai/codex releases v0.142.2\n\nBucket 2 — priority 2.",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "codex", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-06-30T00:00:00.000Z",
+      "updatedAt": "2026-06-30T00:00:00.000Z"
+    },
+    {
+      "id": "a5d82c63",
+      "title": "Claude: design session branching via rewind_conversation primitive",
+      "description": "Claude Agent SDK v0.3.186 added a `rewind_conversation` control request that rewinds a conversation to a previous point with durable resume-anchor support. This is a genuine new session-management primitive.\n\n**Would've been bucket-2 if Relay had a provider-agnostic session-branching abstraction.** This is the flag: if Relay defined a provider-neutral \"branch session\" concept (a capability-shaped `sessionBranching` flag in `ProviderCapabilities`, a `branchSession(anchorId)` method on the provider driver contract), this would be a near-mechanical implementation task. Today it's bucket-3 because that abstraction doesn't exist.\n\nScope of this design task:\n1. Define what \"session branching\" means in Relay terms: user picks a point in history, Relay creates a sibling managed session resumed from that anchor.\n2. Decide where the branch entry-point lives in the UI (message context menu? chat header action?).\n3. Map `rewind_conversation` onto a provider-neutral `ProviderCapabilities.sessionBranching` flag so the UI only renders the control when the active provider supports it.\n4. Define the Codex equivalent if any (or mark as Claude-only pending Codex support).\n5. Consider whether this overlaps with the existing Spin Off flow (tasks `8092b659`, `6e0e1f44`).\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.186\n\nBucket 3 (passes chase test: new primitive to generalize across providers) — priority 3.",
+      "status": "open",
+      "priority": 3,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-3"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-06-30T00:00:00.000Z",
+      "updatedAt": "2026-06-30T00:00:00.000Z"
     }
   ]
 }
