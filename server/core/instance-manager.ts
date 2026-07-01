@@ -6726,6 +6726,15 @@ export class InstanceManager extends EventEmitter {
       if (!row.working_directory) continue;
       const isTempDir = /^(\/private)?\/tmp(\/|$)/.test(row.working_directory);
       if (isTempDir) {
+        // Only sweep genuinely orphaned scratch sessions. A session tied to a
+        // registered project (or a still-present worktree origin) is not
+        // ephemeral clutter and must survive. This guard also fixes an
+        // OS-dependent inconsistency: on Linux the temp root is /tmp, so
+        // legitimate sessions under a temp-rooted project would otherwise be
+        // archived here — macOS never tripped it because its temp lives under
+        // /var/folders, not /tmp.
+        if (row.project_id) continue;
+        if (row.original_directory && existsSync(row.original_directory)) continue;
         this.db.archive(row.session_id);
         archived++;
       } else if (!existsSync(row.working_directory)) {
