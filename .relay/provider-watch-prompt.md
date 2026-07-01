@@ -65,14 +65,15 @@ noisy task. A clean backlog is the goal.
 
 Always deliver results as a pull request — never push to the default branch directly.
 
-1. Create a branch off the default branch.
+1. Create a branch named `provider-watch/triage-<YYYY-MM-DD>` off the default branch.
 2. Commit ONLY `.relay/` data files: the updated `changelog-watch-state.json` and
    `tasks.json` (and `provider-strategy.md` only if you were explicitly asked to revise it).
    Never commit source changes. Keep the commit message brief.
-3. Open a PR against the default branch. The PR description must mirror the summary message:
-   bucket-0 items at the top, tasks filed (titles + bucket), bucket-1 "free" notes,
-   out-of-lane/skipped reasons, and any "would've been bucket-2 if we had abstraction X"
-   flags. Title it something like `provider-watch: triage <date range>`.
+3. Open a PR against the default branch, titled `provider-watch: triage <date range>`. Apply
+   the `provider-watch` label (create it first if missing: `gh label create provider-watch
+--color BFD4F2 || true`). The PR description must mirror the summary message: bucket-0
+   items at the top, tasks filed (titles + bucket), bucket-1 "free" notes, out-of-lane/skipped
+   reasons, and any "would've been bucket-2 if we had abstraction X" flags.
 
 If there is nothing to file (no bucket-0/2/3 items and no watermark advance), skip the PR
 and just report the summary — don't open an empty PR.

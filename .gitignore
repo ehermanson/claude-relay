@@ -29,6 +29,8 @@ Thumbs.db
 !.relay/instructions.md
 !.relay/provider-strategy.md
 !.relay/provider-watch-prompt.md
+!.relay/provider-watch-review-prompt.md
+!.relay/provider-watch-implement-prompt.md
 !.relay/changelog-watch-state.json
 
 # Logs
