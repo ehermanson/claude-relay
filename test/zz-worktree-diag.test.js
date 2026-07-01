@@ -122,8 +122,31 @@ describe("worktree scan diagnostic", () => {
         ),
       );
       manager.restoreAndScan();
+
+      // --- inspect DB row created by the scan ---
+      const row = manager.sessionDb.getBySessionId(sessionId);
+      if (!row) {
+        log("DB row", "MISSING (scan did not create it)");
+      } else {
+        log("DB row.type", row.type);
+        log("DB row.project_id", JSON.stringify(row.project_id));
+        log("DB row.archived", row.archived);
+        log("DB row.working_directory", row.working_directory);
+        log("DB row.original_directory", JSON.stringify(row.original_directory));
+        log("DB row.worktree_path", JSON.stringify(row.worktree_path));
+      }
+
+      // --- inspect the in-memory instances Map (what listInstances reads) ---
+      log("instances Map size", manager.instances.size);
+      for (const inst of manager.instances.values()) {
+        log(
+          "  map entry",
+          `projectId=${JSON.stringify(inst.info.projectId)} external=${inst.info.external} wd=${inst.info.workingDirectory}`,
+        );
+      }
+
       const instances = manager.listInstances();
-      log("DISCOVERED instances", instances.length);
+      log("DISCOVERED instances (listInstances)", instances.length);
       if (instances[0]) log("instance.workingDirectory", instances[0].workingDirectory);
       manager.stopAll();
     } catch (err) {
