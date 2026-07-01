@@ -1382,6 +1382,13 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
       this.initialized = false;
       this.emitExit(1, String(err));
     });
+
+    // Swallow stdin EPIPE: if the app-server dies mid-write the writable stream
+    // emits 'error', which would otherwise crash the process as an
+    // uncaughtException. The 'close' handler above drives the real lifecycle.
+    child.stdin?.on("error", (err) => {
+      this.logger.debug?.(`[CodexAppServer] stdin error (non-fatal): ${err}`);
+    });
   }
 
   private handleLine(line: string): void {
@@ -2537,6 +2544,11 @@ export async function fetchCodexProviderGlobalStateSnapshot({
     if (pending.size > 0) {
       rejectAll(new Error(`Codex app-server exited (${code ?? signal ?? "unknown"})`));
     }
+  });
+  // Guard against EPIPE when the app-server dies mid-write (e.g. a broken binary
+  // that exits immediately). An unhandled stdin 'error' would crash the process.
+  stdin.on("error", (err) => {
+    rejectAll(err instanceof Error ? err : new Error(String(err)));
   });
 
   stdout.on("data", (chunk: Buffer | string) => {

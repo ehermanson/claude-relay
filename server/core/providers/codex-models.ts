@@ -208,6 +208,11 @@ export async function discoverCodexModels(
     child.stderr?.on("data", onStderr);
     child.on("error", onError);
     child.on("close", onClose);
+    // A codex binary that exits immediately (e.g. missing/broken install) turns
+    // the initialize write below into an EPIPE on stdin. Without this listener
+    // that surfaces as an unhandled 'error' → uncaughtException that crashes the
+    // process; route it through the normal settle path instead.
+    child.stdin?.on("error", onError);
 
     sendRequest(1, "initialize", {
       clientInfo: {
