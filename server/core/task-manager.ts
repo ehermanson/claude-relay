@@ -110,6 +110,23 @@ function toStoredTask(task: Task): Task {
   return stored;
 }
 
+function normalizeTasksSafely(rawTasks: unknown[]): Task[] {
+  const tasks: Task[] = [];
+  for (const value of rawTasks) {
+    if (!value || typeof value !== "object") continue;
+    try {
+      tasks.push(normalizeTask(value as Record<string, unknown>));
+    } catch (err) {
+      // Skip a single malformed task rather than discarding the entire list — one
+      // bad entry (e.g. an agent-authored non-hex id) must not blank out the UI.
+      console.warn(
+        `Skipping malformed task in .relay/tasks.json: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  return tasks;
+}
+
 function loadStoredTasks(dir: string): Task[] {
   const filePath = tasksPath(dir);
   if (!existsSync(filePath)) return [];
@@ -120,18 +137,13 @@ function loadStoredTasks(dir: string): Task[] {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (Array.isArray(parsed)) {
-      return parsed
-        .filter((value): value is Record<string, unknown> => !!value && typeof value === "object")
-        .map((task) => normalizeTask(task));
+      return normalizeTasksSafely(parsed);
     }
 
     if (parsed && typeof parsed === "object") {
       const snapshot = parsed as Partial<TaskSnapshot> & { tasks?: unknown };
       if (Array.isArray(snapshot.tasks)) {
-        const rawTasks = snapshot.tasks as unknown[];
-        return rawTasks
-          .filter((value): value is Record<string, unknown> => !!value && typeof value === "object")
-          .map((task) => normalizeTask(task));
+        return normalizeTasksSafely(snapshot.tasks as unknown[]);
       }
     }
   } catch {
