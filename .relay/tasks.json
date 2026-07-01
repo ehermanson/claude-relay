@@ -283,7 +283,7 @@
       "type": "task",
       "tags": [],
       "parent": "befb4eea",
-      "blockedBy": ["lay36e.1"],
+      "blockedBy": [],
       "createdAt": "2026-03-08T16:02:55.71269-04:00",
       "updatedAt": "2026-03-08T20:03:46.81461-04:00"
     },
@@ -296,7 +296,7 @@
       "type": "task",
       "tags": [],
       "parent": "befb4eea",
-      "blockedBy": ["lay36e.1", "0a13e811", "lay36e.2"],
+      "blockedBy": ["0a13e811"],
       "createdAt": "2026-03-08T16:02:59.980668-04:00",
       "updatedAt": "2026-03-12T20:30:13.336845-04:00"
     },
@@ -309,7 +309,7 @@
       "type": "task",
       "tags": [],
       "parent": "befb4eea",
-      "blockedBy": ["lay36e.1", "lay36e.2", "dd5b26bc", "0a13e811"],
+      "blockedBy": ["dd5b26bc", "0a13e811"],
       "createdAt": "2026-03-08T16:03:04.240735-04:00",
       "updatedAt": "2026-03-12T20:30:13.348738-04:00"
     },
@@ -1694,125 +1694,158 @@
     {
       "id": "1f5b0cd2",
       "title": "Fix toolbar tooltips",
+      "description": "",
       "status": "done",
-      "createdAt": "2026-04-14T00:00:00-04:00",
-      "updatedAt": "2026-04-14T00:00:04-04:00",
+      "priority": 2,
+      "type": "task",
+      "tags": [],
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T00:00:00-04:00",
+      "updatedAt": "2026-04-14T00:00:04-04:00"
     },
     {
       "id": "7c6baf41",
       "title": "Move handoff entry to composer",
+      "description": "",
       "status": "done",
-      "createdAt": "2026-04-14T00:00:05-04:00",
-      "updatedAt": "2026-04-14T00:00:07-04:00",
+      "priority": 2,
+      "type": "task",
+      "tags": [],
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T00:00:05-04:00",
+      "updatedAt": "2026-04-14T00:00:07-04:00"
     },
     {
       "id": "a7d41f3e",
       "title": "Fix handoff-created session UX",
+      "description": "",
       "status": "done",
-      "createdAt": "2026-04-14T00:00:08-04:00",
-      "updatedAt": "2026-04-14T00:00:10-04:00",
+      "priority": 2,
+      "type": "task",
+      "tags": [],
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T00:00:08-04:00",
+      "updatedAt": "2026-04-14T00:00:10-04:00"
     },
     {
       "id": "d4e6a9b1",
       "title": "Prototype handoff pre-send form",
+      "description": "",
       "status": "done",
-      "createdAt": "2026-04-14T00:00:11-04:00",
-      "updatedAt": "2026-04-14T00:00:13-04:00",
+      "priority": 2,
+      "type": "task",
+      "tags": [],
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T00:00:11-04:00",
+      "updatedAt": "2026-04-14T00:00:13-04:00"
     },
     {
       "id": "9d27c0a5",
       "title": "Trim handoff prep fields",
+      "description": "",
       "status": "done",
-      "createdAt": "2026-04-14T00:00:14-04:00",
-      "updatedAt": "2026-04-14T00:00:16-04:00",
+      "priority": 2,
+      "type": "task",
+      "tags": [],
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T00:00:14-04:00",
+      "updatedAt": "2026-04-14T00:00:16-04:00"
     },
     {
       "id": "f24ab91c",
       "title": "Clear sent handoff banner",
+      "description": "",
       "status": "done",
-      "createdAt": "2026-04-14T00:00:17-04:00",
-      "updatedAt": "2026-04-14T00:00:19-04:00",
+      "priority": 2,
+      "type": "task",
+      "tags": [],
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T00:00:17-04:00",
+      "updatedAt": "2026-04-14T00:00:19-04:00"
     },
     {
       "id": "b8f2c4a1",
       "title": "Document spin off direction",
+      "description": "",
       "status": "done",
-      "createdAt": "2026-04-14T00:00:20-04:00",
-      "updatedAt": "2026-04-14T00:00:22-04:00",
+      "priority": 2,
+      "type": "task",
+      "tags": [],
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T00:00:20-04:00",
+      "updatedAt": "2026-04-14T00:00:22-04:00"
     },
     {
       "id": "6e0e1f44",
-      "status": "done",
-      "updatedAt": "2026-04-14T00:00:02-04:00",
       "title": "Rework handoff into lightweight spin-off flow",
+      "description": "",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["handoff", "ux"],
-      "createdAt": "2026-04-14T00:00:00-04:00",
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T00:00:00-04:00",
+      "updatedAt": "2026-04-14T00:00:02-04:00"
     },
     {
       "id": "986253e3",
       "title": "Move spin off to message scope",
+      "description": "",
       "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["spin-off", "ux"],
-      "createdAt": "2026-04-14T19:39:21.755Z",
-      "updatedAt": "2026-04-14T19:42:12Z",
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T19:39:21.755Z",
+      "updatedAt": "2026-04-14T19:42:12Z"
     },
     {
       "id": "296bcbee",
       "title": "Add selected-text spin off",
+      "description": "",
       "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["spin-off", "selection", "ux"],
-      "createdAt": "2026-04-14T19:43:11.405Z",
-      "updatedAt": "2026-04-14T19:45:44Z",
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T19:43:11.405Z",
+      "updatedAt": "2026-04-14T19:45:44Z"
     },
     {
       "id": "1507d942",
       "title": "Polish spin off selection and form",
+      "description": "",
       "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["spin-off", "ux"],
-      "createdAt": "2026-04-14T19:49:26.051Z",
-      "updatedAt": "2026-04-14T19:50:08Z",
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T19:49:26.051Z",
+      "updatedAt": "2026-04-14T19:50:08Z"
     },
     {
       "id": "1c1a5cab",
       "title": "Rename handoff feature to spin off",
+      "description": "",
       "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["spin-off", "rename"],
-      "createdAt": "2026-04-14T20:00:11.986Z",
-      "updatedAt": "2026-04-14T20:08:04Z",
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-14T20:00:11.986Z",
+      "updatedAt": "2026-04-14T20:08:04Z"
     },
     {
       "id": "c3a7e910",
@@ -1908,14 +1941,15 @@
     {
       "id": "c1d2e3f4",
       "title": "Fix terminal reconnect auth race",
+      "description": "",
       "status": "done",
       "priority": 2,
       "type": "bug",
       "tags": ["terminal", "websocket"],
-      "createdAt": "2026-04-18T00:00:00.000Z",
-      "updatedAt": "2026-04-18T00:00:02.000Z",
       "parent": null,
-      "blockedBy": []
+      "blockedBy": [],
+      "createdAt": "2026-04-18T00:00:00.000Z",
+      "updatedAt": "2026-04-18T00:00:02.000Z"
     },
     {
       "id": "445a5ea5",
@@ -2116,19 +2150,19 @@
       "id": "b9c34e12",
       "title": "Claude SDK: plan @anthropic-ai/sdk upgrade from 0.100.1 to 0.109.0",
       "description": "We pin `@anthropic-ai/sdk` at exactly `0.100.1`; the library is now at `0.109.0` (9 minor versions). The upgrade path needs explicit planning because several streaming-surface changes land in this range:\n\n- **v0.106.0**: `system.message` streaming event type added. If our streaming handler throws on unknown event types rather than silently skipping, this will surface as an error in the streaming pipeline (`server/core/providers/claude-sdk.ts`).\n- **v0.106.0**: new refusal category — our refusal handling may need updating.\n- **v0.109.0**: Managed Agents event delta streaming — new streaming event shapes for agent deltas that could alter what we receive in the Claude API stream.\n- **v0.105.0 / v0.107.0**: `code_execution_20260120` and `20260318` web fetch/support tools — new tool types in the stream; verify we render them gracefully.\n- **`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`**: AGENTS.md flags this method will be renamed at stabilization. Verify it is still present under the same name in 0.109.0 before upgrading — silent degradation of rate-limit reporting if renamed without a feature-detect update.\n\nRef: https://github.com/anthropics/anthropic-sdk-typescript/blob/main/CHANGELOG.md\n\nScope: audit streaming event handler in `claude-sdk.ts` against the 0.100.1→0.109.0 delta, check experimental method stability, then bump the pin.\n\nBucket 0 — priority 1.",
-      "status": "open",
+      "status": "done",
       "priority": 1,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-0"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-06-30T00:00:00.000Z",
-      "updatedAt": "2026-06-30T00:00:00.000Z"
+      "updatedAt": "2026-07-01T12:52:14.447Z"
     },
     {
       "id": "f2a7d091",
       "title": "Claude: surface model-scoped weekly rate-limit windows in rate-limit UI",
-      "description": "Claude Agent SDK v0.3.191 added a `model_scoped` array to the usage response: per-model weekly limit windows each carrying `utilization`, `resetAt`, and `windowLabel`. This is separate from the existing flat `five_hour`/`seven_day` windows we already display.\n\nCurrently, our rate-limit display in the sidecar and settings page shows aggregate windows (`ProviderRateLimitStatus.windows[]`). The new `model_scoped` data would let us show per-model weekly headroom — useful for users running multiple models in the same project.\n\nAlso added: `seven_day_overage_included` on `SDKRateLimitInfo.rateLimitType` for per-model weekly usage limits. This field tells us whether the seven-day overage is included in the displayed utilization, improving the accuracy of how we label the bar.\n\nTouches: `server/core/providers/claude-sdk.ts` (rate limit parsing), `ProviderRateLimitStatus` type, and the sidecar rate-limit UI (`app/src/components/...`).\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.191\n\nBucket 2 — priority 2.",
+      "description": "Claude Agent SDK v0.3.191 added a `model_scoped` array to the usage response: per-model weekly limit windows each carrying `utilization`, `resetAt`, and `windowLabel`. This is separate from the existing flat `five_hour`/`seven_day` windows we already display.\n\nCurrently, our rate-limit display in the sidecar and settings page shows aggregate windows (`ProviderRateLimitStatus.windows[]`). The new `model_scoped` data would let us show per-model weekly headroom — useful for users running multiple models in the same project.\n\nAlso added: `seven_day_overage_included` on `SDKRateLimitInfo.rateLimitType` for per-model weekly usage limits. This field tells us whether the seven-day overage is included in the displayed utilization, improving the accuracy of how we label the bar.\n\nTouches: `server/core/providers/claude-sdk.ts` (rate limit parsing), `ProviderRateLimitStatus` type, and the sidecar rate-limit UI (`app/src/components/...`).\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.191\n\nBucket 2 — priority 2.\n\n---\n\n**Post-upgrade note (2026-07-01, commit `23aa4c0`):** The agent SDK is now bumped to 0.3.197, so `model_scoped` and `seven_day_overage_included` are present in the installed `sdk.d.ts` — no SDK bump needed to start this. **Field names in the paragraph above are wrong.** The actual installed shape is:\n```\nmodel_scoped?: { display_name: string; utilization: number | null; resets_at: string | null }[]\n```\ni.e. `display_name` (not `windowLabel`) and `resets_at` (not `resetAt`). It lives on `SDKControlGetUsageResponse.rate_limits` alongside `five_hour`/`seven_day` (also note the sibling `extra_usage` field). Our parser reads `resets_at`/`utilization` (0-100, divided by 100) in `probeUsageRateLimits`; extend `USAGE_RATE_LIMIT_WINDOW_KEYS`/that parser for the model_scoped array.",
       "status": "open",
       "priority": 2,
       "type": "task",
@@ -2136,12 +2170,12 @@
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-06-30T00:00:00.000Z",
-      "updatedAt": "2026-06-30T00:00:00.000Z"
+      "updatedAt": "2026-07-01T13:00:22.274Z"
     },
     {
       "id": "8e6b4a27",
       "title": "Claude: surface agent_id in permission prompts from background agents",
-      "description": "Claude Agent SDK v0.3.186 added `agent_id` to `can_use_tool` control requests and changed background-agent behavior: background agents now forward permission prompts to `canUseTool` instead of auto-denying.\n\nThis has two effects on Relay:\n1. Our permission-prompt UI will now receive `can_use_tool` requests from background agents that previously never surfaced. Volume of interactive permission requests may increase for multi-agent sessions.\n2. The `agent_id` field lets us identify which subagent is requesting a permission, enabling a richer permission UI (e.g. \"Agent `abc123` wants to use the bash tool\").\n\n`ProviderCapabilities` currently has no concept of agent identity on permission requests. Relay should:\n- Map `agent_id` through the permission control request flow in `claude-sdk.ts` and the `PermissionRequest` type.\n- Surface it in the `AskUserQuestionPanel` / permission banner so users see which agent is asking.\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.186\n\nBucket 2 — priority 2.",
+      "description": "Claude Agent SDK v0.3.186 added `agent_id` to `can_use_tool` control requests and changed background-agent behavior: background agents now forward permission prompts to `canUseTool` instead of auto-denying.\n\nThis has two effects on Relay:\n1. Our permission-prompt UI will now receive `can_use_tool` requests from background agents that previously never surfaced. Volume of interactive permission requests may increase for multi-agent sessions.\n2. The `agent_id` field lets us identify which subagent is requesting a permission, enabling a richer permission UI (e.g. \"Agent `abc123` wants to use the bash tool\").\n\n`ProviderCapabilities` currently has no concept of agent identity on permission requests. Relay should:\n- Map `agent_id` through the permission control request flow in `claude-sdk.ts` and the `PermissionRequest` type.\n- Surface it in the `AskUserQuestionPanel` / permission banner so users see which agent is asking.\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.186\n\nBucket 2 — priority 2.\n\n---\n\n**Post-upgrade note (2026-07-01, commit `23aa4c0`):** The agent SDK is now bumped to 0.3.197, so effect #1 is **already live in production** — background-agent permission prompts now flow to `canUseTool` (no longer auto-denied) as of this commit, independent of any UI work here. Reframe: this is no longer 'enable a new path' but 'prompts are already surfacing untagged — add `agent_id` attribution.' `agent_id` is confirmed present on the can_use_tool control request (`sdk.d.ts`); our `CanUseTool` options type in `claude-sdk.ts` already declares an `agentID?` slot, so plumbing is partly wired. Bumping priority worth considering given the behavior is active.",
       "status": "open",
       "priority": 2,
       "type": "task",
@@ -2149,7 +2183,7 @@
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-06-30T00:00:00.000Z",
-      "updatedAt": "2026-06-30T00:00:00.000Z"
+      "updatedAt": "2026-07-01T13:00:22.274Z"
     },
     {
       "id": "3c1f9d48",
