@@ -13,6 +13,7 @@ const LIMIT_QUALIFIERS: Record<string, string | null> = {
   seven_day_sonnet: "Sonnet",
   seven_day_opus: "Opus",
   seven_day_oauth_apps: "OAuth apps",
+  seven_day_overage_included: "Overage incl.",
   overage: "Overage",
 };
 

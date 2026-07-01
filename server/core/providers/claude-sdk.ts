@@ -359,6 +359,7 @@ const RATE_LIMIT_WINDOW_MINUTES: Record<string, number> = {
   seven_day_opus: 10080,
   seven_day_sonnet: 10080,
   seven_day_oauth_apps: 10080,
+  seven_day_overage_included: 10080,
   overage: 10080,
 };
 
@@ -371,14 +372,18 @@ const USAGE_RATE_LIMIT_WINDOW_KEYS = [
   "seven_day_oauth_apps",
 ] as const;
 
+const MODEL_SCOPED_PREFIX = "model_scoped/";
+
 /** Build the normalized ProviderRateLimitStatus array from accumulated windows. */
 function buildRateLimitsFromWindows(
   windows: Map<string, RateLimitWindowData>,
 ): ProviderRateLimitStatus[] {
   return [...windows.entries()].map(([type, data]) => {
     const usedPercent = typeof data.utilization === "number" ? data.utilization * 100 : undefined;
+    const isModelScoped = type.startsWith(MODEL_SCOPED_PREFIX);
+    const displayName = isModelScoped ? type.slice(MODEL_SCOPED_PREFIX.length) : undefined;
     return {
-      name: type,
+      name: displayName ?? type,
       scope: type,
       windows: [
         {
@@ -387,7 +392,7 @@ function buildRateLimitsFromWindows(
             typeof usedPercent === "number"
               ? Math.max(0, Math.round(100 - usedPercent))
               : undefined,
-          windowMinutes: RATE_LIMIT_WINDOW_MINUTES[type],
+          windowMinutes: isModelScoped ? 10080 : RATE_LIMIT_WINDOW_MINUTES[type],
           resetAt: data.resetsAt ? new Date(data.resetsAt * 1000).toISOString() : undefined,
           status: data.status,
         },
@@ -424,6 +429,24 @@ async function probeUsageRateLimits(
       status: undefined, // snapshot has no allowed/warning/rejected signal
     });
   }
+
+  // Per-model weekly windows: model_scoped is an array of { display_name, utilization, resets_at }
+  // where utilization is 0-100 and display_name is a server-assigned label (e.g. "Fable").
+  const modelScopedRaw = (limits as Record<string, unknown>).model_scoped;
+  if (Array.isArray(modelScopedRaw)) {
+    for (const entry of modelScopedRaw) {
+      if (!entry || typeof entry !== "object") continue;
+      const { display_name, utilization, resets_at: resetsAt } = entry as Record<string, unknown>;
+      if (typeof display_name !== "string" || !display_name) continue;
+      const resetsAtEpoch = typeof resetsAt === "string" ? Date.parse(resetsAt) / 1000 : NaN;
+      windows.set(`${MODEL_SCOPED_PREFIX}${display_name}`, {
+        utilization: typeof utilization === "number" ? utilization / 100 : undefined,
+        resetsAt: Number.isFinite(resetsAtEpoch) ? resetsAtEpoch : undefined,
+        status: undefined,
+      });
+    }
+  }
+
   return windows.size ? windows : null;
 }
 
