@@ -432,6 +432,68 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
+    it("surfaces per-model weekly windows from the model_scoped snapshot array", async () => {
+      const harness = makeHarness();
+      harness.fakeQuery.usageSnapshot = {
+        subscription_type: "max",
+        rate_limits_available: true,
+        rate_limits: {
+          five_hour: {
+            utilization: 10,
+            resets_at: "2026-06-09T21:30:00.000Z",
+          },
+          model_scoped: [
+            { display_name: "Fable", utilization: 60, resets_at: "2026-06-15T12:00:00.000Z" },
+            // null utilization / null resets_at must degrade gracefully, not throw.
+            { display_name: "Claude Sonnet 4.5", utilization: null, resets_at: null },
+            // Malformed entries are dropped: empty name, missing name, non-object.
+            { display_name: "", utilization: 5, resets_at: "2026-06-15T12:00:00.000Z" },
+            { utilization: 5, resets_at: "2026-06-15T12:00:00.000Z" },
+            null,
+          ],
+        },
+      };
+      const session = createSdkSessionSync(
+        {
+          cwd: "/test/project",
+          logger: noopLogger,
+        },
+        harness.queryFn,
+      );
+      const systemEvents = collectEvents(session, "systemEvent");
+
+      await tick();
+
+      const providerStatus = systemEvents
+        .map(([event]) => event)
+        .find((event) => event.event === "provider_status");
+      assert.ok(providerStatus, "Expected provider_status from usage snapshot");
+      const rateLimits = providerStatus.payload.account.rateLimits;
+
+      // five_hour + two valid model_scoped entries; three malformed ones dropped.
+      assert.equal(rateLimits.length, 3);
+
+      const fable = rateLimits.find((l) => l.scope === "model_scoped/Fable");
+      assert.ok(fable, "Expected a model_scoped/Fable window");
+      // name is the bare display name so the UI renders it as the qualifier ("Weekly · Fable").
+      assert.equal(fable.name, "Fable");
+      assert.equal(fable.windows[0].usedPercent, 60);
+      assert.equal(fable.windows[0].remaining, 40);
+      assert.equal(fable.windows[0].windowMinutes, 10080);
+      assert.equal(fable.windows[0].resetAt, "2026-06-15T12:00:00.000Z");
+
+      const sonnet = rateLimits.find((l) => l.scope === "model_scoped/Claude Sonnet 4.5");
+      assert.ok(sonnet, "Expected a model_scoped/Claude Sonnet 4.5 window");
+      assert.equal(sonnet.name, "Claude Sonnet 4.5");
+      // null utilization / resets_at → undefined fields, but still a weekly window.
+      assert.equal(sonnet.windows[0].usedPercent, undefined);
+      assert.equal(sonnet.windows[0].remaining, undefined);
+      assert.equal(sonnet.windows[0].resetAt, undefined);
+      assert.equal(sonnet.windows[0].windowMinutes, 10080);
+
+      session.close();
+    });
+
     it("preserves snapshot utilization when an allowed event carries none", async () => {
       const harness = makeHarness();
       harness.fakeQuery.usageSnapshot = {
