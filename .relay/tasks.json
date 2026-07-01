@@ -2210,6 +2210,19 @@
       "blockedBy": [],
       "createdAt": "2026-06-30T00:00:00.000Z",
       "updatedAt": "2026-06-30T00:00:00.000Z"
+    },
+    {
+      "id": "803fe57b",
+      "title": "Nested subagent activity view (provider-agnostic: Claude + Codex)",
+      "description": "Surface nested subagent activity — a parent agent's spawned children — under the parent tool-use/turn, provider-agnostically. Both providers now support the concept via different mechanisms, so this is cross-provider normalization, not a Claude-only feature.\n\nApproach: add a `ProviderCapabilities.nestedAgentActivity` flag; the UI renders a nested/collapsible activity+transcript view only when the active provider declares it. No provider-specific logic in the UI (capability-driven, per architecture invariants).\n\nClaude (claude-agent-sdk): set `forwardSubagentText: true` (default false) to forward subagent text/thinking as messages tagged `parent_tool_use_id`; `SDKPartialAssistantMessage` already carries `parent_tool_use_id`. Group streaming state by it in `claude-sdk.ts` (today it builds one flat pending message). Transcript fallback: `listSubagents()` / `getSubagentMessages()` read `~/.claude/projects/<dir>/<sessionId>/subagents/agent-<id>.jsonl`.\n\nCodex (app-server): subagents are separate threads linked by `parentThreadId` / `ancestorThreadId` (with `agentNickname`/`agentRole` on subagent threads, under `sessionId` as tree root). Live + historical activity via the `subAgentActivity` thread item (PR #27007, merged 2026-06-09, completion-only: toolCallId, timestamp, affected thread, canonical agent path, kind = started|interacted|interrupted). Full child content read via `thread/read`. `multiAgentMode` (explicitRequestOnly|proactive; PR #28792, @experimental) gates proactive spawning.\n\nDesign cost / caveats:\n- Mechanism mismatch is the real work: Claude gives inline forwarded text; Codex gives lifecycle activity + a separate thread to fetch. The shared abstraction must accommodate both an 'inline stream' and a 'go read the child' model.\n- Experimental flags: Codex `ancestorThreadId` needs `capabilities.experimentalApi`; `multiAgentMode` is @experimental. `subAgentActivity` itself is not flagged.\n- Version check: Relay pins Codex 0.142.4; confirm these PRs (merged 2026-06-09 / 2026-06-19) are in that build before scoping.\n\nData plumbing (parent_tool_use_id threading, thread reads) largely exists; the new part is the nested-view UI — would've been bucket-2 if Relay already had a nested-transcript UI component.\n\nSources: codex app-server README; openai/codex PR #27007 (subAgentActivity), #28792 (multiAgentMode). Claude: claude-agent-sdk sdk.d.ts — forwardSubagentText, SDKPartialAssistantMessage.parent_tool_use_id, getSubagentMessages/listSubagents.\n\nBucket 3 — priority 3.",
+      "status": "open",
+      "priority": 3,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "codex", "bucket-3"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-07-01T16:15:00.000Z",
+      "updatedAt": "2026-07-01T16:15:00.000Z"
     }
   ]
 }
