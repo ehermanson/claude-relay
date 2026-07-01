@@ -43,6 +43,7 @@ process.env.RELAY_GIT_TIMEOUT_MS = process.env.RELAY_GIT_TIMEOUT_MS || "5000";
 // provider-availability gate. Keeps the suite hermetic — e.g. on CI runners
 // and clean contributor machines where the Claude CLI isn't installed.
 process.env.RELAY_CLAUDE_CLI_PATH = process.env.RELAY_CLAUDE_CLI_PATH || "/usr/bin/true";
+process.env.RELAY_CODEX_CLI_PATH = process.env.RELAY_CODEX_CLI_PATH || "/usr/bin/true";
 process.env.GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME || "Relay Test";
 process.env.GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL || "relay-test@example.com";
 process.env.GIT_COMMITTER_NAME = process.env.GIT_COMMITTER_NAME || process.env.GIT_AUTHOR_NAME;

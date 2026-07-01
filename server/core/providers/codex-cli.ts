@@ -12,6 +12,14 @@ let cachedCodexBinary: string | null | undefined;
 export function findCodexBinary(): string | null {
   if (cachedCodexBinary !== undefined) return cachedCodexBinary;
 
+  // Explicit override for non-standard install locations (and for tests, which
+  // must not depend on the host having the Codex CLI installed on PATH).
+  const override = process.env.RELAY_CODEX_CLI_PATH;
+  if (override) {
+    cachedCodexBinary = override;
+    return cachedCodexBinary;
+  }
+
   const candidates = [
     `${process.env.HOME}/.local/bin/codex`,
     "/usr/local/bin/codex",
