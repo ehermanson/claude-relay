@@ -1,13 +1,12 @@
-import { useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { useWSState } from "@/context/websocket-context";
 import { groupInstancesByProject } from "@/lib/project-groups";
 import { useProjectChatSummaries } from "./use-project-chat-summaries";
 import { useProjectOrder } from "../stores/project-order-store";
+import { useProjectOrderHydration } from "./use-project-order-hydration";
 import { useProjectsQuery } from "./use-projects-query";
 import { useProjectSpaces } from "./use-project-spaces";
 import { getChatRecencyTimestamp } from "@/lib/utils";
-import { fetchGlobalSettings } from "@/lib/api";
 import type { InstanceInfo, Project } from "@shared/types";
 
 export function useProjectNavigationModel() {
@@ -16,22 +15,8 @@ export function useProjectNavigationModel() {
   const { spacesByDir: projectSpaces, spacesLoadingByDir } = useProjectSpaces(projects);
   const { chatsByProjectId, chatsLoadingByProjectId } = useProjectChatSummaries(projects);
   const projectOrder = useProjectOrder();
-  const { hydrateFromServer, syncVisibleDirs } = projectOrder;
-
-  const { data: globalSettings } = useQuery({
-    queryKey: ["global-settings"],
-    queryFn: fetchGlobalSettings,
-    staleTime: 60_000,
-  });
-  const lastServerOrderJson = useRef<string | null>(null);
-  useEffect(() => {
-    if (!globalSettings) return;
-    const nextOrder = globalSettings.projectOrder ?? [];
-    const nextOrderJson = JSON.stringify(nextOrder);
-    if (lastServerOrderJson.current === nextOrderJson) return;
-    lastServerOrderJson.current = nextOrderJson;
-    hydrateFromServer(nextOrder);
-  }, [globalSettings, hydrateFromServer]);
+  const { syncVisibleDirs } = projectOrder;
+  useProjectOrderHydration();
 
   const mergedInstances = new Map<string, InstanceInfo>();
   for (const project of projects) {

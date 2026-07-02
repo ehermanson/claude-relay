@@ -20,6 +20,7 @@ import { useMediaQuery } from "../hooks/use-media-query";
 import { ChatListRow } from "../components/chat/chat-list-row";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { useProjectOrder } from "../stores/project-order-store";
+import { useProjectOrderHydration } from "../hooks/use-project-order-hydration";
 import { useProjectsQuery } from "../hooks/use-projects-query";
 import { useActionToasts } from "@/context/action-toast-context";
 import { fetchProjectIcons, fetchProjectArtifacts } from "../lib/api";
@@ -344,6 +345,9 @@ export function Dashboard() {
   const { send } = useWSMethods();
   const { trackInstanceCreate } = useActionToasts();
   const { sortEntries, syncVisibleDirs } = useProjectOrder();
+  // Hydrate the shared order directly — on mobile the sidebar (the other
+  // hydration site) isn't mounted, so the dashboard must trigger it itself.
+  useProjectOrderHydration();
   const { data: projects = [] } = useProjectsQuery();
   const navigate = useNavigate();
   const pendingCreate = useRef(false);

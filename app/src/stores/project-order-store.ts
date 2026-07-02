@@ -13,7 +13,28 @@ function syncOrderToServer(order: string[]): void {
 
 // ── Store ────────────────────────────────────────────────────────────────────
 
+const ORDER_CACHE_KEY = "relay:project-order";
 const COLLAPSED_KEY = "relay:project-collapsed";
+
+// The server-backed settings row is the canonical order; localStorage is only a
+// bootstrap cache so the first paint renders in the last known order instead of
+// flashing an alphabetical fallback while `/api/settings` is in flight.
+function loadOrderCache(): string[] {
+  try {
+    const raw = localStorage.getItem(ORDER_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOrderCache(order: string[]): void {
+  try {
+    localStorage.setItem(ORDER_CACHE_KEY, JSON.stringify(order));
+  } catch {
+    // quota exceeded — silently ignore
+  }
+}
 
 function loadCollapsed(): string[] {
   try {
@@ -63,21 +84,27 @@ function persistSet(
   set: (fn: (s: ProjectOrderState) => Partial<ProjectOrderState>) => void,
   fn: (s: ProjectOrderState) => Partial<ProjectOrderState>,
 ) {
-  set((state) => fn(state));
+  set((state) => {
+    const patch = fn(state);
+    if (patch.order) saveOrderCache(patch.order);
+    return patch;
+  });
 }
 
 const useProjectOrderStore = create<ProjectOrderState>()((set, get) => ({
-  order: [],
+  order: loadOrderCache(),
   hydrated: false,
 
   setOrder: (next) => {
     const order = typeof next === "function" ? next(get().order) : next;
+    saveOrderCache(order);
     syncOrderToServer(order);
     set({ order });
   },
 
   /** Apply the server-backed canonical order without echoing it back. */
   hydrateFromServer: (order) => {
+    saveOrderCache(order);
     set({ order, hydrated: true });
   },
 
@@ -235,8 +262,9 @@ export function useProjectOrder() {
 }
 
 export function resetProjectOrderStoreForTests(): void {
+  // Mirror initial-load behavior: bootstrap from the local cache, unhydrated.
   useProjectOrderStore.setState({
-    order: [],
+    order: loadOrderCache(),
     hydrated: false,
     collapsed: new Set(),
   });

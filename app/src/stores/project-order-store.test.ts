@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { resetProjectOrderStoreForTests, useProjectOrder } from "./project-order-store";
 
+const ORDER_CACHE_KEY = "relay:project-order";
 const COLLAPSED_KEY = "relay:project-collapsed";
 
 function createFetchResponse() {
@@ -22,7 +23,7 @@ describe("useProjectOrder", () => {
     );
   });
 
-  it("hydrates ordering from the server and does not persist order locally", () => {
+  it("hydrates ordering from the server and caches it locally for bootstrap", () => {
     const { result } = renderHook(() => useProjectOrder());
 
     act(() => {
@@ -30,7 +31,41 @@ describe("useProjectOrder", () => {
     });
 
     expect(result.current.order).toEqual(["/b", "/a"]);
-    expect(localStorage.getItem("relay:project-order")).toBeNull();
+    expect(localStorage.getItem(ORDER_CACHE_KEY)).toBe(JSON.stringify(["/b", "/a"]));
+  });
+
+  it("bootstraps the initial order from the local cache before server hydration", () => {
+    localStorage.setItem(ORDER_CACHE_KEY, JSON.stringify(["/b", "/a"]));
+    resetProjectOrderStoreForTests();
+
+    const { result } = renderHook(() => useProjectOrder());
+
+    expect(result.current.hydrated).toBe(false);
+    expect(result.current.order).toEqual(["/b", "/a"]);
+    expect(
+      result.current.sortEntries([
+        ["/a", 1],
+        ["/b", 2],
+      ]),
+    ).toEqual([
+      ["/b", 2],
+      ["/a", 1],
+    ]);
+    // Bootstrap alone must not echo anything to the server.
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("caches reorders locally so the next load boots in the new order", () => {
+    const { result } = renderHook(() => useProjectOrder());
+
+    act(() => {
+      result.current.hydrateFromServer(["/a", "/b"]);
+    });
+    act(() => {
+      result.current.moveToTop("/b");
+    });
+
+    expect(localStorage.getItem(ORDER_CACHE_KEY)).toBe(JSON.stringify(["/b", "/a"]));
   });
 
   it("persists collapsed state per device", () => {
