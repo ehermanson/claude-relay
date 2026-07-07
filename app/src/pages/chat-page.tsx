@@ -19,12 +19,9 @@ import { isAttachedReviewInstance } from "../lib/review-session";
 import { useMediaQuery } from "../hooks/use-media-query";
 import { ChatListRow } from "../components/chat/chat-list-row";
 import { ProviderLogo } from "@/components/ui/provider-logo";
-import { useProjectOrder } from "../stores/project-order-store";
-import { useProjectOrderHydration } from "../hooks/use-project-order-hydration";
-import { useProjectsQuery } from "../hooks/use-projects-query";
+import { useProjectNavigationModel } from "../hooks/use-project-navigation-model";
 import { useActionToasts } from "@/context/action-toast-context";
 import { fetchProjectIcons, fetchProjectArtifacts } from "../lib/api";
-import { groupInstancesByProject } from "../lib/project-groups";
 import type { InstanceInfo, ProjectArtifacts, ProviderKind } from "@shared/types";
 
 // ─── Project Card ────────────────────────────────────────────────────────────
@@ -48,6 +45,41 @@ function ModelChipsSkeleton() {
   );
 }
 
+/** Placeholder rows matching ChatListRow's dimensions so the card doesn't grow when chats land. */
+function ChatRowsSkeleton({ rows = 3 }: { rows?: number }) {
+  const widths = ["70%", "55%", "62%"];
+  return (
+    <div className="flex flex-col border-t border-border/50">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-center gap-2.5 px-3 py-2">
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-surface-hover" />
+          <span
+            className="h-[1.05rem] animate-pulse rounded bg-surface-hover"
+            style={{ width: widths[i % widths.length] }}
+          />
+          <span className="ml-auto h-3 w-8 shrink-0 animate-pulse rounded bg-surface-hover" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Full-card skeleton for the first-ever load, before the projects query resolves. */
+function ProjectCardSkeleton() {
+  return (
+    <div className="flex flex-col rounded-xl border border-border bg-surface">
+      <div className="flex items-start gap-3 px-4 pt-4 pb-3">
+        <span className="h-9 w-9 shrink-0 animate-pulse rounded-lg bg-surface-hover" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5 pt-0.5">
+          <span className="h-4 w-28 animate-pulse rounded bg-surface-hover" />
+          <span className="h-3 w-36 animate-pulse rounded bg-surface-hover" />
+        </div>
+      </div>
+      <StatsSkeleton />
+    </div>
+  );
+}
+
 function ProjectCard({
   directory,
   instances,
@@ -55,6 +87,7 @@ function ProjectCard({
   iconPath,
   artifacts,
   artifactsLoading,
+  chatsLoading,
   onNewSession,
   onCreateSpace,
 }: {
@@ -64,6 +97,7 @@ function ProjectCard({
   iconPath?: string;
   artifacts?: ProjectArtifacts;
   artifactsLoading?: boolean;
+  chatsLoading?: boolean;
   onNewSession: (dir: string) => void;
   onCreateSpace: (dir: string) => void;
 }) {
@@ -179,6 +213,8 @@ function ProjectCard({
               </Link>
             )}
           </div>
+        ) : chatsLoading ? (
+          <ChatRowsSkeleton />
         ) : sessionCount > 0 ? (
           <Link
             to="/projects/$projectId"
@@ -187,7 +223,7 @@ function ProjectCard({
           >
             View {sessionCount} chat{sessionCount !== 1 ? "s" : ""} →
           </Link>
-        ) : !artifactsLoading ? (
+        ) : !artifactsLoading && !chatsLoading ? (
           <div className="border-t border-border/50 px-3 py-3">
             <EmptyProjectActions
               size="compact"
@@ -228,7 +264,7 @@ function ProjectCard({
           <div className="text-[0.6875rem] text-muted">
             {lastActivity
               ? `last message: ${formatTimeAgo(lastActivity)}`
-              : artifactsLoading
+              : artifactsLoading || chatsLoading
                 ? "\u00A0"
                 : "No chats yet"}
           </div>
@@ -250,8 +286,8 @@ function ProjectCard({
         </Tooltip>
       </div>
 
-      {/* Getting started actions (no chats or history) — only after artifacts have loaded */}
-      {instances.length === 0 && sessionCount === 0 && !artifactsLoading && (
+      {/* Getting started actions (no chats or history) — only after chats + artifacts have loaded */}
+      {instances.length === 0 && sessionCount === 0 && !artifactsLoading && !chatsLoading && (
         <div
           className="border-t border-border/50 px-4 py-3"
           onClick={(e) => {
@@ -344,11 +380,17 @@ export function Dashboard() {
   const { instances } = useWSState();
   const { send } = useWSMethods();
   const { trackInstanceCreate } = useActionToasts();
-  const { sortEntries, syncVisibleDirs } = useProjectOrder();
-  // Hydrate the shared order directly — on mobile the sidebar (the other
-  // hydration site) isn't mounted, so the dashboard must trigger it itself.
-  useProjectOrderHydration();
-  const { data: projects = [] } = useProjectsQuery();
+  // Same merged model as the sidebar: REST chat summaries (react-query cached,
+  // persisted across loads) merged with live WS instances, in the shared
+  // user-defined project order. Keeps the dashboard from waiting on the
+  // WebSocket and guarantees it always matches the sidebar.
+  const {
+    groups: projectGroups,
+    projectByDir,
+    projects,
+    projectsLoading,
+    chatsLoadingByProjectId,
+  } = useProjectNavigationModel();
   const navigate = useNavigate();
   const pendingCreate = useRef(false);
   const prevInstanceIds = useRef(new Set<string>());
@@ -384,16 +426,9 @@ export function Dashboard() {
     send({ type: "create_instance", workingDirectory });
   };
 
-  const projectByDir = new Map(projects.map((project) => [project.directory, project]));
-
   const handleCreateSpace = (dir: string) => {
     spaceDialog.open(dir);
   };
-
-  const projectGroups = sortEntries(groupInstancesByProject(instances, projects));
-  useEffect(() => {
-    syncVisibleDirs(projectGroups.map(([dir]) => dir));
-  }, [instances, projects, syncVisibleDirs]);
 
   // Fetch artifacts for each project (for stats)
   const projectEntries = useMemo(
@@ -471,8 +506,9 @@ export function Dashboard() {
           {projectGroups.length > 0 && (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {projectGroups.map(([dir, groupInstances]) => {
+                const project = projectByDir.get(dir);
                 const pid =
-                  projectByDir.get(dir)?.id ??
+                  project?.id ??
                   (groupInstances[0] ? getInstanceProjectRouteId(groupInstances[0]) : dir);
                 return (
                   <ProjectCard
@@ -483,6 +519,7 @@ export function Dashboard() {
                     iconPath={projectIcons[dir]}
                     artifacts={artifactsByDir.get(dir)}
                     artifactsLoading={artifactsLoadingByDir.get(dir)}
+                    chatsLoading={project ? chatsLoadingByProjectId[project.id] : false}
                     onNewSession={handleNewSession}
                     onCreateSpace={handleCreateSpace}
                   />
@@ -491,8 +528,17 @@ export function Dashboard() {
             </div>
           )}
 
+          {/* First-ever load — no cached projects yet */}
+          {projectGroups.length === 0 && projectsLoading && (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <ProjectCardSkeleton />
+              <ProjectCardSkeleton />
+              <ProjectCardSkeleton />
+            </div>
+          )}
+
           {/* Empty state */}
-          {projectGroups.length === 0 && (
+          {projectGroups.length === 0 && !projectsLoading && (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-center">
               {projects.length === 0 ? (
                 <>

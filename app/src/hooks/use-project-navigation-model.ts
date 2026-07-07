@@ -11,7 +11,7 @@ import type { InstanceInfo, Project } from "@shared/types";
 
 export function useProjectNavigationModel() {
   const { instances } = useWSState();
-  const { data: projects = [] } = useProjectsQuery();
+  const { data: projects = [], isLoading: projectsLoading } = useProjectsQuery();
   const { spacesByDir: projectSpaces, spacesLoadingByDir } = useProjectSpaces(projects);
   const { chatsByProjectId, chatsLoadingByProjectId } = useProjectChatSummaries(projects);
   const projectOrder = useProjectOrder();
@@ -65,6 +65,7 @@ export function useProjectNavigationModel() {
     projectByDir,
     projectSpaces,
     projects,
+    projectsLoading,
     registeredDirs,
     ...projectOrder,
   };

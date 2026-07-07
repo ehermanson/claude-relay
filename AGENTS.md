@@ -119,6 +119,8 @@ Phone users open Relay to start or continue a chat, so the entry screens lead wi
 - The chat list is **one flat list** of standalone + space chats; space chats are tagged with their branch via the shared `ChatListRow` (`app/src/components/chat/chat-list-row.tsx`). Only row density adapts: dense `ChatListRow`s on mobile, rich `SessionCard`s on desktop.
 - The legacy `/projects/:id/chats` list route now **redirects to Overview** (`/projects/:id`); link there for "all chats", not to a separate page. The `chats/$chatId` individual chat view is unchanged.
 - **Home/dashboard cards intentionally diverge by viewport** (the one justified split, driven by the desktop sidebar already listing chats): desktop cards show stats + model chips; mobile cards show the project's recent chats (top 5, via `ChatListRow`). Gate with `useMediaQuery("(max-width: 768px)")`.
+- **Dashboard uses the same data model as the sidebar** (`useProjectNavigationModel`): REST chat summaries merged with live WS instances in the shared user-defined project order — never render entry-screen chat lists from WS state alone (it's empty until `instance_list` arrives).
+- **The react-query cache is persisted to localStorage** (`relay:query-cache`, wired in `app/src/routes/__root.tsx`) for an allowlist of read-mostly entry-screen queries (`projects`, `projectChats`, `projectArtifacts`, `projectIcons`, `global-settings`, `spaces`), so revisits paint from last-known data and refetch in the background. Bump the `buster` string there when a persisted query's data shape changes incompatibly.
 
 ### Spaces
 
