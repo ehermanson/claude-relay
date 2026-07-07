@@ -89,25 +89,37 @@ export function useVisualViewportSize() {
     };
 
     // Anticipate the keyboard: shrink the shell before it opens so WebKit
-    // never needs to push the page.
-    const onFocusIn = (e: FocusEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target?.closest?.(FOCUSABLE)) return;
+    // never needs to push the page. Runs at pointerdown — before focus — so
+    // the shrunk layout gets PAINTED before iOS snapshots the page and
+    // freezes compositing for the keyboard presentation; shrinking at focusin
+    // commits the layout in time but the paint is deferred until the keyboard
+    // animation settles (perceived as a ~1s stall). focusin stays as backup
+    // for keyboard-initiated focus (tab key, programmatic .focus()).
+    const preShrink = (src: string, el: Element | null) => {
+      if (!el?.closest?.(FOCUSABLE)) return;
       const cached = readCachedInset();
-      const preShrink = cached > 50 && window.innerHeight - vv.height <= 1;
-      if (preShrink) setBodyHeight(window.innerHeight - cached);
-      logEvent(`focusin cache=${cached} pre=${preShrink ? "y" : "n"}`);
-      updateDebugReadout(vv, window.innerHeight - vv.height, maxOffset, maxScrollY, true);
-      // If no keyboard actually appears (hardware keyboard, iPad), undo —
-      // apply() sees inset ≈ 0 and restores CSS sizing.
+      const engage = cached > 50 && window.innerHeight - vv.height <= 1;
+      if (engage) setBodyHeight(window.innerHeight - cached);
+      logEvent(`${src} cache=${cached} pre=${engage ? "y" : "n"}`);
+      updateDebugReadout(vv, window.innerHeight - vv.height, maxOffset, maxScrollY, engage);
+      // If no keyboard actually appears (pointer drag-away, hardware
+      // keyboard, iPad), undo — apply() sees inset ≈ 0 and restores.
       clearTimeout(verifyTimer);
       verifyTimer = setTimeout(() => apply("verify-timer"), 700);
     };
 
-    const onFocusOut = () => {
-      // Let the vv resize handle restoration; this is a fallback for cases
-      // where the blur doesn't produce a geometry event.
+    const onPointerDown = (e: PointerEvent) => preShrink("pointerdown", e.target as Element);
+    const onFocusIn = (e: FocusEvent) => preShrink("focusin", e.target as Element);
+
+    const onFocusOut = (e: FocusEvent) => {
       clearTimeout(verifyTimer);
+      // Focus moving between inputs keeps the keyboard up — don't flicker.
+      if ((e.relatedTarget as Element | null)?.closest?.(FOCUSABLE)) return;
+      // Restore immediately on blur — the keyboard is on its way down and
+      // waiting for its geometry event leaves the shell squished with dead
+      // space below. A trailing apply() re-syncs to whatever really happened.
+      setBodyHeight(null);
+      logEvent("focusout restore");
       verifyTimer = setTimeout(() => apply("focusout-timer"), 250);
     };
 
@@ -119,12 +131,14 @@ export function useVisualViewportSize() {
     vv.addEventListener("resize", onVvResize);
     vv.addEventListener("scroll", onVvScroll);
     window.addEventListener("scroll", onWinScroll, { passive: true });
+    document.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
     return () => {
       vv.removeEventListener("resize", onVvResize);
       vv.removeEventListener("scroll", onVvScroll);
       window.removeEventListener("scroll", onWinScroll);
+      document.removeEventListener("pointerdown", onPointerDown, { capture: true });
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
       clearTimeout(verifyTimer);
