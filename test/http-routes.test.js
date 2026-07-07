@@ -517,13 +517,8 @@ describe("HTTP Routes — Additional Coverage", () => {
       const res = await request(server, "GET", `/api/file?path=${encodeURIComponent(imgPath)}`, {
         headers: { Cookie: `session=${session.id}` },
       });
-      // tempDir is under system temp which may not be under homedir,
-      // so this might return 403 depending on platform
-      if (imgPath.startsWith(homedir())) {
-        assert.equal(res.status, 200);
-      } else {
-        assert.equal(res.status, 403);
-      }
+      // Home and system temp dirs are both allowed roots.
+      assert.equal(res.status, 200);
     });
 
     it("rejects files outside home directory", async () => {

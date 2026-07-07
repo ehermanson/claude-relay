@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import type { Hono } from "hono";
 import { relayDir } from "#core/config.js";
 import { getMimeType, readBodyBuffer } from "#server/hono-utils.js";
@@ -104,9 +104,14 @@ export function registerUploadRoutes(app: Hono<AppEnv>, _: HttpDeps): void {
     }
 
     const resolved = path.resolve(filePath);
-    const home = homedir();
-    if (!resolved.startsWith(home + path.sep) && resolved !== home) {
-      return c.json({ error: "Access denied: file must be under home directory" }, 403);
+    // Allow files under the home directory or the system temp dirs (agents
+    // commonly write screenshots to /tmp).
+    const allowedRoots = [homedir(), tmpdir(), "/tmp", "/private/tmp"];
+    const allowed = allowedRoots.some(
+      (root) => resolved === root || resolved.startsWith(root + path.sep),
+    );
+    if (!allowed) {
+      return c.json({ error: "Access denied: file must be under home or temp directory" }, 403);
     }
 
     const ext = path.extname(resolved).toLowerCase();
