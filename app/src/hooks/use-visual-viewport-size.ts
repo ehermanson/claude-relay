@@ -22,6 +22,15 @@ import { useEffect } from "react";
  * the cache. The very first focus on a device (no cache yet) still gets the
  * legacy push-then-settle; every focus after that is clean.
  *
+ * Known wart, accepted: iOS freezes web-content compositing while the
+ * keyboard presentation transition runs, so the shrunk layout — although
+ * committed within milliseconds of focus — is *painted* only once the
+ * transition settles (~0.5–1s perceived stall). There is no web-platform
+ * escape hatch: pre-shrinking at pointerdown paints in time but moves the
+ * tap target mid-gesture, which makes iOS abandon the tap entirely (no
+ * focus, no keyboard). Do not "fix" this by reacting to visualViewport
+ * changes with transforms/scroll corrections — see the history of this file.
+ *
  * On platforms where the layout viewport already resizes with the keyboard
  * (interactive-widget=resizes-content, Android), innerHeight tracks
  * visualViewport.height and this is a no-op — CSS `height: 100%` stays in
@@ -54,62 +63,37 @@ export function useVisualViewportSize() {
     if (!vv) return;
 
     let verifyTimer: ReturnType<typeof setTimeout> | undefined;
-    // Diagnostic maxima — survive the settle so a screenshot after the fact
-    // still shows which mechanism WebKit used. Reset when the keyboard closes.
-    let maxOffset = 0;
-    let maxScrollY = 0;
 
     const setBodyHeight = (px: number | null) => {
       document.body.style.height = px === null ? "" : `${px}px`;
     };
 
     // Sync to the *actual* visual viewport — runs on every vv geometry event.
-    const apply = (src: string) => {
+    const apply = () => {
       const inset = window.innerHeight - vv.height;
       const keyboardOpen = inset > 1;
-      if (!keyboardOpen) {
-        maxOffset = 0;
-        maxScrollY = 0;
-      }
-      maxOffset = Math.max(maxOffset, vv.offsetTop);
-      maxScrollY = Math.max(maxScrollY, window.scrollY);
-
       setBodyHeight(keyboardOpen ? vv.height : null);
       if (keyboardOpen) writeCachedInset(inset);
-      // Residual document-level push (should be rare once the anticipated
-      // sizing is in effect) can be cancelled directly. Must be "instant" —
-      // html has scroll-behavior:smooth, which would animate the correction.
+      // Residual document-level push (rare once the anticipated sizing is in
+      // effect) can be cancelled directly. Must be "instant" — html has
+      // scroll-behavior:smooth, which would animate the correction.
       if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: "instant" });
-
-      logEvent(
-        `${src} vvh=${Math.round(vv.height)} off=${Math.round(vv.offsetTop)} ` +
-          `sy=${Math.round(window.scrollY)}`,
-      );
-      updateDebugReadout(vv, inset, maxOffset, maxScrollY);
     };
 
     // Anticipate the keyboard: shrink the shell before it opens so WebKit
-    // never needs to push the page. Runs at pointerdown — before focus — so
-    // the shrunk layout gets PAINTED before iOS snapshots the page and
-    // freezes compositing for the keyboard presentation; shrinking at focusin
-    // commits the layout in time but the paint is deferred until the keyboard
-    // animation settles (perceived as a ~1s stall). focusin stays as backup
-    // for keyboard-initiated focus (tab key, programmatic .focus()).
-    const preShrink = (src: string, el: Element | null) => {
-      if (!el?.closest?.(FOCUSABLE)) return;
+    // never needs to push the page.
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest?.(FOCUSABLE)) return;
       const cached = readCachedInset();
-      const engage = cached > 50 && window.innerHeight - vv.height <= 1;
-      if (engage) setBodyHeight(window.innerHeight - cached);
-      logEvent(`${src} cache=${cached} pre=${engage ? "y" : "n"}`);
-      updateDebugReadout(vv, window.innerHeight - vv.height, maxOffset, maxScrollY, engage);
-      // If no keyboard actually appears (pointer drag-away, hardware
-      // keyboard, iPad), undo — apply() sees inset ≈ 0 and restores.
+      if (cached > 50 && window.innerHeight - vv.height <= 1) {
+        setBodyHeight(window.innerHeight - cached);
+      }
+      // If no keyboard actually appears (hardware keyboard, iPad), undo —
+      // apply() sees inset ≈ 0 and restores CSS sizing.
       clearTimeout(verifyTimer);
-      verifyTimer = setTimeout(() => apply("verify-timer"), 700);
+      verifyTimer = setTimeout(apply, 700);
     };
-
-    const onPointerDown = (e: PointerEvent) => preShrink("pointerdown", e.target as Element);
-    const onFocusIn = (e: FocusEvent) => preShrink("focusin", e.target as Element);
 
     const onFocusOut = (e: FocusEvent) => {
       clearTimeout(verifyTimer);
@@ -119,100 +103,23 @@ export function useVisualViewportSize() {
       // waiting for its geometry event leaves the shell squished with dead
       // space below. A trailing apply() re-syncs to whatever really happened.
       setBodyHeight(null);
-      logEvent("focusout restore");
-      verifyTimer = setTimeout(() => apply("focusout-timer"), 250);
+      verifyTimer = setTimeout(apply, 250);
     };
 
-    const onVvResize = () => apply("vv-resize");
-    const onVvScroll = () => apply("vv-scroll");
-    const onWinScroll = () => apply("win-scroll");
-
-    apply("init");
-    vv.addEventListener("resize", onVvResize);
-    vv.addEventListener("scroll", onVvScroll);
-    window.addEventListener("scroll", onWinScroll, { passive: true });
-    document.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    window.addEventListener("scroll", apply, { passive: true });
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
     return () => {
-      vv.removeEventListener("resize", onVvResize);
-      vv.removeEventListener("scroll", onVvScroll);
-      window.removeEventListener("scroll", onWinScroll);
-      document.removeEventListener("pointerdown", onPointerDown, { capture: true });
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+      window.removeEventListener("scroll", apply);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
       clearTimeout(verifyTimer);
       setBodyHeight(null);
-      removeDebugReadout();
     };
   }, []);
-}
-
-// ── Temporary diagnostic ──────────────────────────────────────────────
-// TODO(remove): on-device readout for debugging the iOS keyboard push.
-// Top-right, visible while the keyboard is up or a push is detected. Shows
-// live geometry plus a timestamped trace of the last handful of events
-// (+ms since the burst started) so a screenshot reveals event ordering.
-let debugEl: HTMLDivElement | null = null;
-
-const eventLog: string[] = [];
-let burstStart = 0;
-let lastEventKey = "";
-let lastEventCount = 0;
-
-function logEvent(entry: string) {
-  const now = performance.now();
-  // New burst after 3s of quiet — keeps the trace scoped to one interaction.
-  if (eventLog.length === 0 || now - burstStart > 3000) {
-    eventLog.length = 0;
-    burstStart = now;
-    lastEventKey = "";
-  }
-  const src = entry.split(" ")[0];
-  if (src === lastEventKey) {
-    // Collapse consecutive same-source events (vv-scroll storms) into one
-    // line with a counter, updating the payload and timestamp.
-    lastEventCount += 1;
-    eventLog[eventLog.length - 1] = `+${Math.round(now - burstStart)} ${entry} x${lastEventCount}`;
-    return;
-  }
-  lastEventKey = src;
-  lastEventCount = 1;
-  eventLog.push(`+${Math.round(now - burstStart)} ${entry}`);
-  if (eventLog.length > 8) eventLog.shift();
-}
-
-function updateDebugReadout(
-  vv: VisualViewport,
-  keyboardInset: number,
-  maxOffset: number,
-  maxScrollY: number,
-  force = false,
-) {
-  const pushed = vv.offsetTop > 1 || window.scrollY > 1;
-  const show = force || keyboardInset > 1 || pushed;
-  if (!show) {
-    removeDebugReadout();
-    return;
-  }
-  if (!debugEl) {
-    debugEl = document.createElement("div");
-    debugEl.style.cssText =
-      "position:fixed;right:8px;top:calc(env(safe-area-inset-top,0px) + 8px);" +
-      "z-index:99999;pointer-events:none;" +
-      "font:10px/1.4 monospace;color:#4ade80;background:rgba(0,0,0,0.75);" +
-      "padding:4px 6px;border-radius:6px;white-space:pre;";
-    document.body.appendChild(debugEl);
-  }
-  debugEl.textContent =
-    `ih:${Math.round(window.innerHeight)} vvh:${Math.round(vv.height)}\n` +
-    `off:${Math.round(vv.offsetTop)} (max ${Math.round(maxOffset)})\n` +
-    `sy:${Math.round(window.scrollY)} (max ${Math.round(maxScrollY)})\n` +
-    `bodyH:${document.body.style.height || "css"}\n` +
-    `── trace ──\n${eventLog.join("\n")}`;
-}
-
-function removeDebugReadout() {
-  debugEl?.remove();
-  debugEl = null;
 }

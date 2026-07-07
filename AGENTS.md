@@ -107,6 +107,15 @@ Zero relative path navigation (`../`) in any server/cli import.
 - `decodeProjectDir()` uses greedy filesystem-validated decode (not naive `-` → `/`) to handle dashed project names
 - JSONL watchers track incremental changes with dedup: suppressed while process is active, offset advanced to EOF when process finishes
 
+### iOS Keyboard Handling
+
+`useVisualViewportSize` (wired in `app/src/routes/__root.tsx`) keeps the app shell inside the visual viewport when the iOS keyboard opens: it pre-shrinks `<body>` on `focusin` using a localStorage-cached keyboard inset, so WebKit never page-pushes the shell (header included) off-screen. Hard-won constraints — don't relearn them:
+
+- iOS standalone PWAs do **not** resize the layout viewport for the keyboard (and ignore `interactive-widget=resizes-content`); they shrink the visual viewport and push the page via `visualViewport.offsetTop` + window scroll
+- Reactive countermeasures fail: `scrollTo(0,0)` fights an animated push (and `html { scroll-behavior: smooth }` animates the correction), transform-following the offset moves the focused input and re-triggers WebKit's reveal (jitter feedback loop)
+- Pre-shrinking at `pointerdown` paints in time but moves the tap target mid-gesture — iOS abandons the tap (no focus, no keyboard). `focusin` is the earliest safe moment
+- iOS freezes web-content compositing during the keyboard presentation, so the focusin pre-shrink is painted only after the transition settles (~0.5–1s perceived stall). This is accepted and web-unfixable; the alternative (accept native push, make message-framing math visualViewport-aware) is documented in the hook
+
 ### Lazy Hydration
 
 Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a chat triggers lazy hydration of transcript/task/file state and git info, but history reads stay passive: Relay does not boot/resume a stopped managed session until the user explicitly sends a message (or otherwise takes over/resumes it).
