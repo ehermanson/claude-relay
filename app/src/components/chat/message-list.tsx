@@ -248,7 +248,18 @@ export function MessageList({
 
     // Offset of the framed message within the scroll content (scroll-independent).
     const messageTop = node.getBoundingClientRect().top - container.getBoundingClientRect().top;
-    const viewport = el.clientHeight;
+    // With the iOS keyboard up, WebKit pushes the page (visualViewport.offsetTop)
+    // instead of resizing the layout viewport, so the top of the scroll container
+    // can sit off-screen above. Frame against the *visible* portion of the
+    // container: pin below the hidden strip, size the spacer and handoff to the
+    // height the reader can actually see. On desktop (and with the keyboard
+    // closed) hiddenTop is 0 and viewport === clientHeight — this is inert.
+    const rect = el.getBoundingClientRect();
+    const vv = window.visualViewport;
+    const visibleTop = vv ? Math.max(rect.top, vv.offsetTop) : rect.top;
+    const visibleBottom = vv ? Math.min(rect.bottom, vv.offsetTop + vv.height) : rect.bottom;
+    const hiddenTop = visibleTop - rect.top;
+    const viewport = Math.max(0, visibleBottom - visibleTop);
     const realContentHeight = el.scrollHeight - spacerHeightRef.current;
     const belowMessage = realContentHeight - messageTop;
 
@@ -264,20 +275,23 @@ export function MessageList({
 
     // Shrink the spacer as the answer grows into the gap. Safe to do even after
     // the reader has taken over: the spacer is below their viewport, so the
-    // scroll position doesn't move.
-    const nextSpacer = Math.max(0, viewport - belowMessage);
+    // scroll position doesn't move. Sized from clientHeight − hiddenTop (not the
+    // visible height) so the pin position below stays exactly reachable even
+    // when the keyboard covers part of the container's bottom.
+    const nextSpacer = Math.max(0, el.clientHeight - hiddenTop - belowMessage);
     if (Math.abs(nextSpacer - spacerHeightRef.current) > 1) {
       spacerHeightRef.current = nextSpacer;
       setSpacerHeight(nextSpacer);
       return; // re-run once the spacer lands, then position the message
     }
 
-    // Spacer is stable — pin the message to the top of the viewport. Streaming
-    // content grows below it, so the position holds without re-scrolling; this
-    // only fires to set the initial top and correct any drift. Skip once the
-    // reader takes control of the scroll.
-    if (!userTookOverRef.current && Math.abs(el.scrollTop - messageTop) > 1) {
-      el.scrollTop = messageTop;
+    // Spacer is stable — pin the message to the top of the *visible* area.
+    // Streaming content grows below it, so the position holds without
+    // re-scrolling; this only fires to set the initial top and correct any
+    // drift. Skip once the reader takes control of the scroll.
+    const targetTop = Math.max(0, messageTop - hiddenTop);
+    if (!userTookOverRef.current && Math.abs(el.scrollTop - targetTop) > 1) {
+      el.scrollTop = targetTop;
     }
   });
 

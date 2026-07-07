@@ -109,12 +109,12 @@ Zero relative path navigation (`../`) in any server/cli import.
 
 ### iOS Keyboard Handling
 
-`useVisualViewportSize` (wired in `app/src/routes/__root.tsx`) keeps the app shell inside the visual viewport when the iOS keyboard opens: it pre-shrinks `<body>` on `focusin` using a localStorage-cached keyboard inset, so WebKit never page-pushes the shell (header included) off-screen. Hard-won constraints — don't relearn them:
+The iOS keyboard is handled by **accepting** WebKit's native page push (the header slides off-screen while typing — standard iOS webapp behavior) and making scroll math visual-viewport-aware instead of mutating layout. The message-framing effect in `message-list.tsx` intersects the scroll container with `window.visualViewport` to compute the pin position (`messageTop − hiddenTop`), spacer size, and handoff threshold. Dead ends — tried and reverted (see git history), don't relearn them:
 
 - iOS standalone PWAs do **not** resize the layout viewport for the keyboard (and ignore `interactive-widget=resizes-content`); they shrink the visual viewport and push the page via `visualViewport.offsetTop` + window scroll
-- Reactive countermeasures fail: `scrollTo(0,0)` fights an animated push (and `html { scroll-behavior: smooth }` animates the correction), transform-following the offset moves the focused input and re-triggers WebKit's reveal (jitter feedback loop)
-- Pre-shrinking at `pointerdown` paints in time but moves the tap target mid-gesture — iOS abandons the tap (no focus, no keyboard). `focusin` is the earliest safe moment
-- iOS freezes web-content compositing during the keyboard presentation, so the focusin pre-shrink is painted only after the transition settles (~0.5–1s perceived stall). This is accepted and web-unfixable; the alternative (accept native push, make message-framing math visualViewport-aware) is documented in the hook
+- Reactive countermeasures jitter: `scrollTo(0,0)` fights an animated push (and `html { scroll-behavior: smooth }` animates the correction); transform-following the offset moves the focused input and re-triggers WebKit's reveal (feedback loop)
+- Pre-shrinking `<body>` on `focusin` prevents the push, but iOS freezes web-content compositing during the keyboard presentation, so the shrink paints only after the transition settles (~1s perceived stall) — web-unfixable
+- Pre-shrinking at `pointerdown` paints in time but moves the tap target mid-gesture — iOS abandons the tap (no focus, no keyboard)
 
 ### Lazy Hydration
 
