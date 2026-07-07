@@ -111,6 +111,18 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
+  // The app viewport disables pinch-zoom (user-scalable=no) for an app-like
+  // feel, which also blocks zoom gestures on the fullscreen image. Relax it
+  // while the lightbox is open so native pinch-zoom works; restoring the
+  // original content on close also snaps the page back to scale 1.
+  useEffect(() => {
+    const viewport = document.querySelector('meta[name="viewport"]');
+    const original = viewport?.getAttribute("content");
+    if (!viewport || !original) return;
+    viewport.setAttribute("content", "width=device-width, initial-scale=1.0, viewport-fit=cover");
+    return () => viewport.setAttribute("content", original);
+  }, []);
+
   // Portal to document.body so it escapes overflow-hidden / transform parents
   return createPortal(
     <div
@@ -124,12 +136,22 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
       >
         <X size={18} />
       </button>
-      <img
-        src={src}
-        alt={alt}
-        className="max-w-[90vw] max-h-[90vh] rounded-xl object-contain shadow-2xl"
+      {/* Link to the raw image: the lightbox fits the image to the viewport
+          (so browser page-zoom just re-fits it), while the browser's native
+          image viewer in a new tab gives real zoom with no custom UI. */}
+      <a
+        href={src}
+        target="_blank"
+        rel="noreferrer"
+        title="Open full size in new tab"
         onClick={(e) => e.stopPropagation()}
-      />
+      >
+        <img
+          src={src}
+          alt={alt}
+          className="max-w-[90vw] max-h-[90vh] rounded-xl object-contain shadow-2xl"
+        />
+      </a>
     </div>,
     document.body,
   );
