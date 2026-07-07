@@ -5,6 +5,7 @@ import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persist
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { AuthProvider } from "../context/auth-context";
 import { DevTools } from "../components/dev-tools";
+import { useVisualViewportSize } from "../hooks/use-visual-viewport-size";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,14 +69,20 @@ function RootErrorComponent({ error }: { error: Error }) {
   );
 }
 
-export const Route = createRootRoute({
-  errorComponent: RootErrorComponent,
-  component: () => (
+function RootComponent() {
+  useVisualViewportSize();
+
+  return (
     <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
       <AuthProvider>
         <Outlet />
         {import.meta.env.DEV ? <DevTools /> : null}
       </AuthProvider>
     </PersistQueryClientProvider>
-  ),
+  );
+}
+
+export const Route = createRootRoute({
+  errorComponent: RootErrorComponent,
+  component: RootComponent,
 });
