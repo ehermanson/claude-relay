@@ -338,6 +338,9 @@ body {
 
 html {
   scroll-behavior: smooth;
+  /* Matches body — shows through briefly below the shell when the keyboard
+     hook pre-shrinks <body> before the iOS keyboard covers the gap. */
+  background: var(--color-bg-deep);
 }
 
 /* Bump root font-size on mobile so all rem-based UI chrome (buttons,
