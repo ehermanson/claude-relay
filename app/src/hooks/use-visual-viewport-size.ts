@@ -13,8 +13,8 @@ import { useEffect } from "react";
  *
  * On platforms where the layout viewport already resizes with the keyboard
  * (interactive-widget=resizes-content, Android), innerHeight tracks
- * visualViewport.height and this is a no-op — CSS `height: 100%` stays in
- * charge.
+ * visualViewport.height and the sizing is a no-op — CSS `height: 100%` stays
+ * in charge.
  */
 export function useVisualViewportSize() {
   useEffect(() => {
@@ -27,19 +27,58 @@ export function useVisualViewportSize() {
       // than the layout viewport (keyboard up on a non-resizing platform).
       document.body.style.height = keyboardInset > 1 ? `${vv.height}px` : "";
       // Cancel WebKit's focus-reveal page push — with the shell shrunk to the
-      // visual viewport, the focused composer is visible without it.
-      if (keyboardInset > 1 && (window.scrollY > 0 || vv.offsetTop > 0)) {
+      // visual viewport, the focused composer is visible without it. Checked
+      // independently of the inset: some standalone-mode iOS versions resize
+      // innerHeight AND still push the page.
+      if (window.scrollY > 0 || vv.offsetTop > 0) {
         window.scrollTo(0, 0);
       }
+      updateDebugReadout(vv, keyboardInset);
     };
 
     apply();
     vv.addEventListener("resize", apply);
     vv.addEventListener("scroll", apply);
+    window.addEventListener("scroll", apply, { passive: true });
     return () => {
       vv.removeEventListener("resize", apply);
       vv.removeEventListener("scroll", apply);
+      window.removeEventListener("scroll", apply);
       document.body.style.height = "";
+      removeDebugReadout();
     };
   }, []);
+}
+
+// ── Temporary diagnostic ──────────────────────────────────────────────
+// TODO(remove): on-device readout for debugging the iOS keyboard push.
+// Appears (bottom-right, green mono text) only while the keyboard is up or a
+// page push is detected — if the shell still slides off-screen, the numbers
+// tell us which mechanism WebKit used (vv offset vs window scroll vs neither).
+let debugEl: HTMLDivElement | null = null;
+
+function updateDebugReadout(vv: VisualViewport, keyboardInset: number) {
+  const pushed = vv.offsetTop > 1 || window.scrollY > 1;
+  const show = keyboardInset > 1 || pushed;
+  if (!show) {
+    removeDebugReadout();
+    return;
+  }
+  if (!debugEl) {
+    debugEl = document.createElement("div");
+    debugEl.style.cssText =
+      "position:fixed;right:8px;bottom:8px;z-index:99999;pointer-events:none;" +
+      "font:10px/1.4 monospace;color:#4ade80;background:rgba(0,0,0,0.75);" +
+      "padding:4px 6px;border-radius:6px;white-space:pre;";
+    document.body.appendChild(debugEl);
+  }
+  debugEl.textContent =
+    `ih:${Math.round(window.innerHeight)} vvh:${Math.round(vv.height)}\n` +
+    `off:${Math.round(vv.offsetTop)} sy:${Math.round(window.scrollY)}\n` +
+    `bodyH:${document.body.style.height || "css"}`;
+}
+
+function removeDebugReadout() {
+  debugEl?.remove();
+  debugEl = null;
 }
