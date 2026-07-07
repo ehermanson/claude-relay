@@ -64,7 +64,7 @@ export function useVisualViewportSize() {
     };
 
     // Sync to the *actual* visual viewport — runs on every vv geometry event.
-    const apply = () => {
+    const apply = (src: string) => {
       const inset = window.innerHeight - vv.height;
       const keyboardOpen = inset > 1;
       if (!keyboardOpen) {
@@ -81,6 +81,10 @@ export function useVisualViewportSize() {
       // html has scroll-behavior:smooth, which would animate the correction.
       if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: "instant" });
 
+      logEvent(
+        `${src} vvh=${Math.round(vv.height)} off=${Math.round(vv.offsetTop)} ` +
+          `sy=${Math.round(window.scrollY)}`,
+      );
       updateDebugReadout(vv, inset, maxOffset, maxScrollY);
     };
 
@@ -90,32 +94,37 @@ export function useVisualViewportSize() {
       const target = e.target as HTMLElement | null;
       if (!target?.closest?.(FOCUSABLE)) return;
       const cached = readCachedInset();
-      if (cached > 50 && window.innerHeight - vv.height <= 1) {
-        setBodyHeight(window.innerHeight - cached);
-      }
+      const preShrink = cached > 50 && window.innerHeight - vv.height <= 1;
+      if (preShrink) setBodyHeight(window.innerHeight - cached);
+      logEvent(`focusin cache=${cached} pre=${preShrink ? "y" : "n"}`);
+      updateDebugReadout(vv, window.innerHeight - vv.height, maxOffset, maxScrollY, true);
       // If no keyboard actually appears (hardware keyboard, iPad), undo —
       // apply() sees inset ≈ 0 and restores CSS sizing.
       clearTimeout(verifyTimer);
-      verifyTimer = setTimeout(apply, 700);
+      verifyTimer = setTimeout(() => apply("verify-timer"), 700);
     };
 
     const onFocusOut = () => {
       // Let the vv resize handle restoration; this is a fallback for cases
       // where the blur doesn't produce a geometry event.
       clearTimeout(verifyTimer);
-      verifyTimer = setTimeout(apply, 250);
+      verifyTimer = setTimeout(() => apply("focusout-timer"), 250);
     };
 
-    apply();
-    vv.addEventListener("resize", apply);
-    vv.addEventListener("scroll", apply);
-    window.addEventListener("scroll", apply, { passive: true });
+    const onVvResize = () => apply("vv-resize");
+    const onVvScroll = () => apply("vv-scroll");
+    const onWinScroll = () => apply("win-scroll");
+
+    apply("init");
+    vv.addEventListener("resize", onVvResize);
+    vv.addEventListener("scroll", onVvScroll);
+    window.addEventListener("scroll", onWinScroll, { passive: true });
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
     return () => {
-      vv.removeEventListener("resize", apply);
-      vv.removeEventListener("scroll", apply);
-      window.removeEventListener("scroll", apply);
+      vv.removeEventListener("resize", onVvResize);
+      vv.removeEventListener("scroll", onVvScroll);
+      window.removeEventListener("scroll", onWinScroll);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
       clearTimeout(verifyTimer);
@@ -127,19 +136,47 @@ export function useVisualViewportSize() {
 
 // ── Temporary diagnostic ──────────────────────────────────────────────
 // TODO(remove): on-device readout for debugging the iOS keyboard push.
-// Top-right (the bottom of the layout viewport hides behind the keyboard),
-// visible only while the keyboard is up or a push is detected. `off`/`sy`
-// show current (max-seen) values since the keyboard opened.
+// Top-right, visible while the keyboard is up or a push is detected. Shows
+// live geometry plus a timestamped trace of the last handful of events
+// (+ms since the burst started) so a screenshot reveals event ordering.
 let debugEl: HTMLDivElement | null = null;
+
+const eventLog: string[] = [];
+let burstStart = 0;
+let lastEventKey = "";
+let lastEventCount = 0;
+
+function logEvent(entry: string) {
+  const now = performance.now();
+  // New burst after 3s of quiet — keeps the trace scoped to one interaction.
+  if (eventLog.length === 0 || now - burstStart > 3000) {
+    eventLog.length = 0;
+    burstStart = now;
+    lastEventKey = "";
+  }
+  const src = entry.split(" ")[0];
+  if (src === lastEventKey) {
+    // Collapse consecutive same-source events (vv-scroll storms) into one
+    // line with a counter, updating the payload and timestamp.
+    lastEventCount += 1;
+    eventLog[eventLog.length - 1] = `+${Math.round(now - burstStart)} ${entry} x${lastEventCount}`;
+    return;
+  }
+  lastEventKey = src;
+  lastEventCount = 1;
+  eventLog.push(`+${Math.round(now - burstStart)} ${entry}`);
+  if (eventLog.length > 8) eventLog.shift();
+}
 
 function updateDebugReadout(
   vv: VisualViewport,
   keyboardInset: number,
   maxOffset: number,
   maxScrollY: number,
+  force = false,
 ) {
   const pushed = vv.offsetTop > 1 || window.scrollY > 1;
-  const show = keyboardInset > 1 || pushed;
+  const show = force || keyboardInset > 1 || pushed;
   if (!show) {
     removeDebugReadout();
     return;
@@ -157,7 +194,8 @@ function updateDebugReadout(
     `ih:${Math.round(window.innerHeight)} vvh:${Math.round(vv.height)}\n` +
     `off:${Math.round(vv.offsetTop)} (max ${Math.round(maxOffset)})\n` +
     `sy:${Math.round(window.scrollY)} (max ${Math.round(maxScrollY)})\n` +
-    `bodyH:${document.body.style.height || "css"}`;
+    `bodyH:${document.body.style.height || "css"}\n` +
+    `── trace ──\n${eventLog.join("\n")}`;
 }
 
 function removeDebugReadout() {
