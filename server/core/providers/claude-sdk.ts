@@ -967,6 +967,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       signal: AbortSignal;
       suggestions?: Array<{ type: string; [key: string]: unknown }>;
       toolUseID: string;
+      agentID?: string;
+      decisionReason?: string;
     },
   ): Promise<
     | {
@@ -1065,6 +1067,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       kind: "approval",
       tool: toolName,
       description: describeToolUse(toolName, input),
+      agentId: callbackOptions.agentID,
     };
     this.emit("permissionRequest", request);
 

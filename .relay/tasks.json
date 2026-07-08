@@ -2176,19 +2176,19 @@
       "id": "8e6b4a27",
       "title": "Claude: surface agent_id in permission prompts from background agents",
       "description": "Claude Agent SDK v0.3.186 added `agent_id` to `can_use_tool` control requests and changed background-agent behavior: background agents now forward permission prompts to `canUseTool` instead of auto-denying.\n\nThis has two effects on Relay:\n1. Our permission-prompt UI will now receive `can_use_tool` requests from background agents that previously never surfaced. Volume of interactive permission requests may increase for multi-agent sessions.\n2. The `agent_id` field lets us identify which subagent is requesting a permission, enabling a richer permission UI (e.g. \"Agent `abc123` wants to use the bash tool\").\n\n`ProviderCapabilities` currently has no concept of agent identity on permission requests. Relay should:\n- Map `agent_id` through the permission control request flow in `claude-sdk.ts` and the `PermissionRequest` type.\n- Surface it in the `AskUserQuestionPanel` / permission banner so users see which agent is asking.\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.186\n\nBucket 2 — priority 2.\n\n---\n\n**Post-upgrade note (2026-07-01, commit `23aa4c0`):** The agent SDK is now bumped to 0.3.197, so effect #1 is **already live in production** — background-agent permission prompts now flow to `canUseTool` (no longer auto-denied) as of this commit, independent of any UI work here. Reframe: this is no longer 'enable a new path' but 'prompts are already surfacing untagged — add `agent_id` attribution.' `agent_id` is confirmed present on the can_use_tool control request (`sdk.d.ts`); our `CanUseTool` options type in `claude-sdk.ts` already declares an `agentID?` slot, so plumbing is partly wired. Bumping priority worth considering given the behavior is active.",
-      "status": "open",
+      "status": "in_progress",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-06-30T00:00:00.000Z",
-      "updatedAt": "2026-07-01T13:00:22.274Z"
+      "updatedAt": "2026-07-08T00:00:00.000Z"
     },
     {
       "id": "3c1f9d48",
       "title": "Codex: handle safety-buffering visibility and faster-model metadata from app-server",
-      "description": "Codex CLI v0.142.2 release note: \"Apps can display richer safety-buffering UI using server-provided visibility and faster-model metadata.\" This means the Codex app-server now emits additional fields — safety-buffering visibility state and the identity/metadata of the faster model used for safety checks — that clients can surface in their UI.\n\nOur `server/core/providers/codex-app-server.ts` integrates directly with the Codex app-server JSON-RPC stream. We should:\n1. Identify the new message type(s) or new fields on existing messages carrying this data (inspect Codex source or wait for app-server protocol docs).\n2. Map any new capability fields through `ProviderCapabilities` (a `safetyBufferingVisible` flag and/or a `safetyModel` field) and expose them in the provider state broadcast.\n3. Optionally surface a subtle UI indicator when safety-buffering is active (similar to how we show pending-tool state).\n\nScope is small if the fields simply arrive on an existing event; larger if a new notification type is required.\n\nRef: github.com/openai/codex releases v0.142.2\n\nBucket 2 — priority 2.",
+      "description": "Codex CLI v0.142.2 release note: \"Apps can display richer safety-buffering UI using server-provided visibility and faster-model metadata.\" This means the Codex app-server now emits additional fields — safety-buffering visibility state and the identity/metadata of the faster model used for safety checks — that clients can surface in their UI.\n\nOur `server/core/providers/codex-app-server.ts` integrates directly with the Codex app-server JSON-RPC stream. We should:\n1. Identify the new message type(s) or new fields on existing messages carrying this data (inspect Codex source or wait for app-server protocol docs).\n2. Map any new capability fields through `ProviderCapabilities` (a `safetyBufferingVisible` flag and/or a `safetyModel` field) and expose them in the provider state broadcast.\n3. Optionally surface a subtle UI indicator when safety-buffering is active (similar to how we show pending-tool state).\n\nScope is small if the fields simply arrive on an existing event; larger if a new notification type is required.\n\nRef: github.com/openai/codex releases v0.142.2\n\nBucket 2 — priority 2.\n\n---\n\n**Kickback note (2026-07-08):** Not mechanical. The Codex app-server protocol for safety-buffering fields is not documented in the Relay codebase and the Codex binary is not available in the dev environment for inspection. The task step 1 ('identify the new message type(s)') requires research into Codex app-server source or release docs before any ProviderCapabilities wiring can be scoped. Needs human design/research before re-queuing as bucket-2.",
       "status": "open",
       "priority": 2,
       "type": "task",
@@ -2196,7 +2196,7 @@
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-06-30T00:00:00.000Z",
-      "updatedAt": "2026-06-30T00:00:00.000Z"
+      "updatedAt": "2026-07-08T00:00:00.000Z"
     },
     {
       "id": "a5d82c63",
