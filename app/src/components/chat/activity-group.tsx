@@ -13,6 +13,7 @@ interface ActivityGroupProps {
   onAnswerUserInput?: (
     requestId: string,
     answers: Record<string, import("@shared/types").UserInputAnswer>,
+    text?: string,
   ) => void;
   isInteractive?: boolean;
   onApproveTool?: (tool: string) => void;

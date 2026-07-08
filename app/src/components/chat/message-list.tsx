@@ -41,7 +41,11 @@ interface MessageListProps {
   lastActivity?: LiveActivity | null;
   processingStartedAt?: number | null;
   onSendMessage?: (text: string) => void;
-  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
+  onAnswerUserInput?: (
+    requestId: string,
+    answers: Record<string, UserInputAnswer>,
+    text?: string,
+  ) => void;
   isInteractive?: boolean;
   onApproveTool?: (tool: string) => void;
   approvedTools?: Set<string>;

@@ -45,7 +45,11 @@ import {
 
 interface InputAreaProps {
   onSend: (text: string, images?: string[], internal?: boolean, attachments?: string[]) => void;
-  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
+  onAnswerUserInput?: (
+    requestId: string,
+    answers: Record<string, UserInputAnswer>,
+    text?: string,
+  ) => void;
   onCancel: () => void;
   onSwitchProvider?: (
     provider: ProviderKind,
@@ -300,6 +304,7 @@ export function InputArea({
   const [promptText, setPromptText] = useState("");
   const [selectedPromptAnswers, setSelectedPromptAnswers] = useState<Record<string, string>>({});
   const [isQuestionPanelCollapsed, setIsQuestionPanelCollapsed] = useState(false);
+  const [promptReplyMode, setPromptReplyMode] = useState(false);
   const [planComments, setPlanComments] = useState<PlanComment[]>([]);
   const [planFeedbackText, setPlanFeedbackText] = useState("");
   const hasPendingPlan = !!pendingPlan;
@@ -341,6 +346,7 @@ export function InputArea({
     setPromptText("");
     setSelectedPromptAnswers({});
     setIsQuestionPanelCollapsed(false);
+    setPromptReplyMode(false);
     if (promptRequestId) {
       composerRef.current?.focus();
     }
@@ -508,11 +514,29 @@ export function InputArea({
     setSelectedPromptAnswers({});
   };
 
-  const handleDismissPrompt = () => {
-    if (!promptRequestId || !onAnswerUserInput) return;
-    onAnswerUserInput(promptRequestId, {});
+  const promptReplyText = promptText.trim();
+
+  // Declining the offered options doesn't send a canned message — it drops into a
+  // free-text reply so the user writes what actually goes back to the model.
+  const handleEnterPromptReplyMode = () => {
+    if (!promptRequestId) return;
+    setPromptReplyMode(true);
+    setIsQuestionPanelCollapsed(false);
+    setPromptText("");
+    composerRef.current?.focus();
+  };
+
+  const handleExitPromptReplyMode = () => {
+    setPromptReplyMode(false);
+    setPromptText("");
+  };
+
+  const handleSendPromptReply = () => {
+    if (!promptRequestId || !onAnswerUserInput || !promptReplyText) return;
+    onAnswerUserInput(promptRequestId, {}, promptReplyText);
     setPromptText("");
     setSelectedPromptAnswers({});
+    setPromptReplyMode(false);
   };
 
   const handleApprovePlan = () => {
@@ -621,7 +645,8 @@ export function InputArea({
   };
 
   const disabled = !isConnected;
-  const composerDisabled = disabled || (hasPendingPrompt && !allowPromptTextInput);
+  const composerDisabled =
+    disabled || (hasPendingPrompt && !allowPromptTextInput && !promptReplyMode);
   const composerHelpText =
     capabilities?.composerHints?.helpText ?? "Use @ for files and / for commands";
 
@@ -629,7 +654,9 @@ export function InputArea({
   const composerPlaceholder = !isConnected
     ? "Reconnecting to Relay..."
     : hasPendingPrompt
-      ? buildPromptPlaceholder(primaryPromptQuestion, allowPromptTextInput)
+      ? promptReplyMode
+        ? "Write your reply to send back to the agent..."
+        : buildPromptPlaceholder(primaryPromptQuestion, allowPromptTextInput)
       : hasPendingPlan
         ? "Add feedback to refine the plan, or leave blank to approve"
         : isStopped
@@ -644,26 +671,27 @@ export function InputArea({
     : hasPendingPlan
       ? planFeedbackText
       : draftText;
-  const composerTopContent = hasPendingPrompt ? (
-    <AskUserQuestionPanel
-      questions={promptQuestions}
-      selectedAnswers={selectedPromptAnswers}
-      onSelectOption={(questionId, answer) =>
-        setSelectedPromptAnswers((prev) => ({
-          ...prev,
-          [questionId]: answer,
-        }))
-      }
-      collapsed={isQuestionPanelCollapsed}
-      onToggleCollapse={() => setIsQuestionPanelCollapsed((v) => !v)}
-    />
-  ) : hasPendingPlan ? (
-    <PlanReviewPanel
-      plan={pendingPlan}
-      comments={planComments}
-      onCommentsChange={setPlanComments}
-    />
-  ) : null;
+  const composerTopContent =
+    hasPendingPrompt && !promptReplyMode ? (
+      <AskUserQuestionPanel
+        questions={promptQuestions}
+        selectedAnswers={selectedPromptAnswers}
+        onSelectOption={(questionId, answer) =>
+          setSelectedPromptAnswers((prev) => ({
+            ...prev,
+            [questionId]: answer,
+          }))
+        }
+        collapsed={isQuestionPanelCollapsed}
+        onToggleCollapse={() => setIsQuestionPanelCollapsed((v) => !v)}
+      />
+    ) : hasPendingPlan ? (
+      <PlanReviewPanel
+        plan={pendingPlan}
+        comments={planComments}
+        onCommentsChange={setPlanComments}
+      />
+    ) : null;
   const composerTopSlot = (
     <>
       {!isInSpecialMode && inlineReplyFragments.length > 0 && onRemoveInlineReply ? (
@@ -673,18 +701,22 @@ export function InputArea({
     </>
   );
   const sendLabel = hasPendingPrompt
-    ? isQuestionPanelCollapsed
-      ? "Show Questions"
-      : `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
+    ? promptReplyMode
+      ? "Send Reply"
+      : isQuestionPanelCollapsed
+        ? "Show Questions"
+        : `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
     : hasPendingPlan
       ? hasPlanFeedback
         ? "Send Feedback"
         : "Approve Plan"
       : undefined;
   const sendTooltip = hasPendingPrompt
-    ? isQuestionPanelCollapsed
-      ? "Show questions to submit"
-      : `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
+    ? promptReplyMode
+      ? "Send your reply (Enter)"
+      : isQuestionPanelCollapsed
+        ? "Show questions to submit"
+        : `Submit answer${promptQuestions.length > 1 ? "s" : ""}`
     : hasPendingPlan
       ? hasPlanFeedback
         ? "Send feedback (Enter)"
@@ -944,7 +976,9 @@ export function InputArea({
                 if (hasPendingPrompt) {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    if (isQuestionPanelCollapsed) {
+                    if (promptReplyMode) {
+                      handleSendPromptReply();
+                    } else if (isQuestionPanelCollapsed) {
                       setIsQuestionPanelCollapsed(false);
                     } else {
                       handleSubmitPrompt();
@@ -953,7 +987,11 @@ export function InputArea({
                   }
                   if (event.key === "Escape") {
                     event.preventDefault();
-                    handleDismissPrompt();
+                    if (promptReplyMode) {
+                      handleExitPromptReplyMode();
+                    } else {
+                      handleEnterPromptReplyMode();
+                    }
                     return;
                   }
                 }
@@ -989,9 +1027,11 @@ export function InputArea({
                   onAttach={() => fileInputRef.current?.click()}
                   onSend={
                     hasPendingPrompt
-                      ? isQuestionPanelCollapsed
-                        ? () => setIsQuestionPanelCollapsed(false)
-                        : handleSubmitPrompt
+                      ? promptReplyMode
+                        ? handleSendPromptReply
+                        : isQuestionPanelCollapsed
+                          ? () => setIsQuestionPanelCollapsed(false)
+                          : handleSubmitPrompt
                       : hasPendingPlan
                         ? handleApprovePlan
                         : handleSend
@@ -999,11 +1039,19 @@ export function InputArea({
                   sendLabel={sendLabel}
                   sendTooltip={sendTooltip}
                   secondaryActionLabel={
-                    hasPendingPrompt ? "Dismiss" : hasPendingPlan ? "Dismiss" : undefined
+                    hasPendingPrompt
+                      ? promptReplyMode
+                        ? "Back"
+                        : "Dismiss"
+                      : hasPendingPlan
+                        ? "Dismiss"
+                        : undefined
                   }
                   onSecondaryAction={
                     hasPendingPrompt
-                      ? handleDismissPrompt
+                      ? promptReplyMode
+                        ? handleExitPromptReplyMode
+                        : handleEnterPromptReplyMode
                       : hasPendingPlan
                         ? handleDismissPlan
                         : undefined
@@ -1011,9 +1059,11 @@ export function InputArea({
                   isSecondaryActionDisabled={disabled}
                   isSendDisabled={
                     hasPendingPrompt
-                      ? isQuestionPanelCollapsed
-                        ? disabled
-                        : disabled || !canSubmitPrompt
+                      ? promptReplyMode
+                        ? disabled || !promptReplyText
+                        : isQuestionPanelCollapsed
+                          ? disabled
+                          : disabled || !canSubmitPrompt
                       : disabled ||
                         uploading ||
                         (!hasPendingPlan &&

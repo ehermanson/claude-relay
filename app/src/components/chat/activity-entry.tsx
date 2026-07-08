@@ -18,7 +18,11 @@ interface ActivityEntryProps {
   inputDescription?: string;
   collapsed?: boolean;
   onSendMessage?: (text: string) => void;
-  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
+  onAnswerUserInput?: (
+    requestId: string,
+    answers: Record<string, UserInputAnswer>,
+    text?: string,
+  ) => void;
   isInteractive?: boolean;
   permissionDenied?: string;
   onApproveTool?: (tool: string) => void;

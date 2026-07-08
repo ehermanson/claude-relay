@@ -48,7 +48,11 @@ function ImagePreview({ path }: { path: string }) {
 interface AskUserQuestionContentProps {
   input: Record<string, unknown>;
   onSendMessage?: (text: string) => void;
-  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
+  onAnswerUserInput?: (
+    requestId: string,
+    answers: Record<string, UserInputAnswer>,
+    text?: string,
+  ) => void;
   isInteractive?: boolean;
   resolution?: "approved" | "dismissed" | "feedback";
 }
@@ -63,6 +67,8 @@ export function AskUserQuestionContent({
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [otherAnswers, setOtherAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [replyMode, setReplyMode] = useState(false);
+  const [replyText, setReplyText] = useState("");
   const requestId = typeof input.requestId === "string" ? input.requestId : null;
   const questions = input.questions as
     | Array<{
@@ -206,45 +212,81 @@ export function AskUserQuestionContent({
           </div>
         );
       })}
-      {isManagedPrompt && (canRespond || submitted) && (
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled={!canSubmit}
-            onClick={() => {
-              if (!requestId || !onAnswerUserInput) return;
-              const answers = Object.fromEntries(
-                questions.map((question, index) => {
-                  const questionId = question.id || `question-${index}`;
-                  return [questionId, { answers: answerForQuestion(questionId) }];
-                }),
-              ) as Record<string, UserInputAnswer>;
-              setSubmitted(true);
-              onAnswerUserInput(requestId, answers);
-            }}
-            className="rounded-lg bg-accent/10 px-3.5 py-1.5 text-[0.8125rem] font-medium text-accent transition-colors hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-30"
-          >
-            Submit
-          </button>
-          <button
-            type="button"
-            disabled={!canRespond}
-            onClick={() => {
-              if (!requestId || !onAnswerUserInput) return;
-              setSubmitted(true);
-              onAnswerUserInput(requestId, {});
-            }}
-            className="rounded-lg px-3.5 py-1.5 text-[0.8125rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-30"
-          >
-            Dismiss
-          </button>
-          {submitted && (
-            <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[0.6875rem] font-medium text-accent">
-              sent
-            </span>
-          )}
-        </div>
-      )}
+      {isManagedPrompt &&
+        (canRespond || submitted) &&
+        (replyMode ? (
+          <div className="flex flex-col gap-2">
+            <textarea
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              placeholder="Write your reply to send back to the agent…"
+              rows={2}
+              autoFocus
+              disabled={!canRespond}
+              className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[0.8125rem] text-text placeholder:text-muted focus:border-accent focus:ring-1 focus:ring-accent-dim focus:outline-none disabled:opacity-50"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={!canRespond || !replyText.trim()}
+                onClick={() => {
+                  if (!requestId || !onAnswerUserInput) return;
+                  setSubmitted(true);
+                  onAnswerUserInput(requestId, {}, replyText.trim());
+                }}
+                className="rounded-lg bg-accent/10 px-3.5 py-1.5 text-[0.8125rem] font-medium text-accent transition-colors hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                Send
+              </button>
+              <button
+                type="button"
+                onClick={() => setReplyMode(false)}
+                className="rounded-lg px-3.5 py-1.5 text-[0.8125rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              >
+                Back
+              </button>
+              {submitted && (
+                <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[0.6875rem] font-medium text-accent">
+                  sent
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={!canSubmit}
+              onClick={() => {
+                if (!requestId || !onAnswerUserInput) return;
+                const answers = Object.fromEntries(
+                  questions.map((question, index) => {
+                    const questionId = question.id || `question-${index}`;
+                    return [questionId, { answers: answerForQuestion(questionId) }];
+                  }),
+                ) as Record<string, UserInputAnswer>;
+                setSubmitted(true);
+                onAnswerUserInput(requestId, answers);
+              }}
+              className="rounded-lg bg-accent/10 px-3.5 py-1.5 text-[0.8125rem] font-medium text-accent transition-colors hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              Submit
+            </button>
+            <button
+              type="button"
+              disabled={!canRespond}
+              onClick={() => setReplyMode(true)}
+              className="rounded-lg px-3.5 py-1.5 text-[0.8125rem] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              Dismiss
+            </button>
+            {submitted && (
+              <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[0.6875rem] font-medium text-accent">
+                sent
+              </span>
+            )}
+          </div>
+        ))}
     </div>
   );
 }
@@ -296,7 +338,11 @@ interface ToolContentProps {
   input: Record<string, unknown>;
   resultDetail?: string;
   onSendMessage?: (text: string) => void;
-  onAnswerUserInput?: (requestId: string, answers: Record<string, UserInputAnswer>) => void;
+  onAnswerUserInput?: (
+    requestId: string,
+    answers: Record<string, UserInputAnswer>,
+    text?: string,
+  ) => void;
   isInteractive?: boolean;
   resolution?: "approved" | "dismissed" | "feedback";
 }

@@ -35,6 +35,7 @@ In the backend, Relay manages providers through a provider-driver registry (`ser
 
 **Key architectural invariants:**
 
+- Relay is multi-provider. Never assume a behavior is Claude-only or Codex-only without checking the provider contract and the sibling driver(s). For provider-facing changes, either update every affected provider path or document why the behavior is genuinely provider-specific.
 - `ProviderCapabilities` is the single source of truth for what controls the UI should render — never hardcode provider-specific logic in the UI
 - SQLite has two distinct roles: `sessions` is a rebuildable Claude transcript index, while `managed_sessions` is the source of truth for managed-session provider bindings and restore metadata
 - JSONL files on disk are the canonical transcript source — the DB is a cache/index that can be rebuilt by scanning `~/.claude/projects/`

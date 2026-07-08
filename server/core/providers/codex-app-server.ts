@@ -938,7 +938,15 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this.pendingRequests.delete(requestId);
 
     if (pending.kind === "user_input") {
-      const answers = decision === "accept" ? (response?.answers ?? {}) : {};
+      const answers = decision === "accept" ? { ...(response?.answers ?? {}) } : {};
+      const authored = decision === "accept" ? response?.text?.trim() : undefined;
+      if (Object.keys(answers).length === 0 && authored) {
+        const questions = Array.isArray((pending.params as RequestUserInputParams).questions)
+          ? (pending.params as RequestUserInputParams).questions
+          : [];
+        const firstQuestionId = questions.find((question) => typeof question.id === "string")?.id;
+        if (firstQuestionId) answers[firstQuestionId] = { answers: [authored] };
+      }
       const hasAnswers = Object.keys(answers).length > 0;
       if (pending.rpcId !== undefined) {
         this.sendRpcResponse(pending.rpcId, { answers });

@@ -1299,6 +1299,75 @@ describe("CodexAppServerSession", () => {
     assert.equal(resolution[0].resolution, "approved");
   });
 
+  it("routes request_user_input free-text replies as an answer", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const activities = collectEvents(session, "activity");
+
+    session.send("ask me a question");
+    const child = harness.children[0];
+    autoRespond(child);
+
+    await tick(50);
+
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 7,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread-001",
+          turnId: "turn-1",
+          itemId: "call-1",
+          questions: [
+            {
+              id: "color",
+              header: "Palette",
+              question: "Pick a color",
+              isOther: true,
+              options: [
+                { label: "Blue", description: "Recommended" },
+                { label: "Green", description: "Alternative" },
+              ],
+            },
+          ],
+        },
+      }) + "\n",
+    );
+
+    await tick();
+
+    const responded = session.respondToRequest("codex-input-call-1", "accept", {
+      answers: {},
+      text: "Use purple instead.",
+    });
+    assert.equal(responded, true);
+
+    await tick();
+
+    const msgs = child.getStdinMessages();
+    const rpcResponse = msgs.find((m) => m.id === 7 && m.result !== undefined && !m.method);
+    assert.ok(rpcResponse, "Expected an RPC response for request_user_input");
+    assert.deepEqual(rpcResponse.result, {
+      answers: {
+        color: {
+          answers: ["Use purple instead."],
+        },
+      },
+    });
+
+    const resolution = activities.find(
+      ([a]) => a.activity === "tool_result" && a.tool === "AskUserQuestion",
+    );
+    assert.ok(resolution, "Expected a tool_result activity for request_user_input");
+    assert.equal(resolution[0].resolution, "approved");
+  });
+
   it("maps generic permission approvals into Relay approval categories", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({

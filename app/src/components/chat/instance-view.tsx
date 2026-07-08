@@ -525,7 +525,11 @@ export function InstanceView({
     });
   };
 
-  const handleAnswerUserInput = (requestId: string, answers: Record<string, UserInputAnswer>) => {
+  const handleAnswerUserInput = (
+    requestId: string,
+    answers: Record<string, UserInputAnswer>,
+    text?: string,
+  ) => {
     if (!id) return;
     send({
       type: "respond_to_request",
@@ -533,6 +537,7 @@ export function InstanceView({
       requestId,
       decision: "accept",
       answers,
+      ...(text ? { text } : {}),
     });
     showThinking();
   };

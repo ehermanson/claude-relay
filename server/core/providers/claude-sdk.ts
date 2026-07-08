@@ -914,7 +914,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
     let updatedInput = this.pendingPermission.input;
 
-    if (toolName === "AskUserQuestion" && response?.answers) {
+    if (toolName === "AskUserQuestion") {
       // The SDK's built-in AskUserQuestion handler keys answers by the question
       // TEXT ("question text -> answer string", see AskUserQuestionOutput in
       // sdk-tools.d.ts) — NOT by the synthetic q_<index> ids Relay generates
@@ -931,10 +931,21 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         const questionText = question?.question;
         if (typeof questionText !== "string") return;
         const answerKey = typeof question?.id === "string" ? question.id : `q_${index}`;
-        const answer = response.answers?.[answerKey] ?? response.answers?.[`q_${index}`];
+        const answer = response?.answers?.[answerKey] ?? response?.answers?.[`q_${index}`];
         const values = answer?.answers?.filter((v) => typeof v === "string" && v.trim());
         if (values?.length) flatAnswers[questionText] = values.join(", ");
       });
+      // The user declined the offered options and authored a free-text reply instead
+      // (no structured answers). Deliver their message to the model as the answer to
+      // the first question so their words actually reach the model, rather than an
+      // empty tool result.
+      const authored = response?.text?.trim();
+      if (Object.keys(flatAnswers).length === 0 && authored) {
+        const firstQuestionText = inputQuestions.find(
+          (question) => typeof question?.question === "string",
+        )?.question as string | undefined;
+        if (firstQuestionText) flatAnswers[firstQuestionText] = authored;
+      }
       updatedInput = { ...updatedInput, answers: flatAnswers };
     } else {
       // Only add non-interactive tools to the pre-approved set.

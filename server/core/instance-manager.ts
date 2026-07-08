@@ -650,6 +650,16 @@ function buildUserInputReply(
     };
   }
 
+  // The user declined the options but authored their own reply — send it verbatim
+  // rather than a canned message.
+  const authored = response?.text?.trim();
+  if (authored) {
+    return {
+      text: authored,
+      resolution: "approved",
+    };
+  }
+
   return {
     text: "I prefer not to answer that question. Please continue without it if possible.",
     resolution: "dismissed",
