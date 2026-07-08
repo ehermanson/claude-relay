@@ -4,7 +4,9 @@ import {
   buildTaskListActivityFromPlan,
   describeToolUse,
   describeToolDetail,
+  extractAskQuestionTexts,
   isPermissionDenial,
+  parseAskUserQuestionAnswerText,
   parsePlanUpdate,
 } from "../dist/server/core/tools.js";
 
@@ -90,6 +92,66 @@ describe("isPermissionDenial", () => {
   it("returns false for generic errors", () => {
     assert.equal(isPermissionDenial("No files found"), false);
     assert.equal(isPermissionDenial("Command failed with exit code 1"), false);
+  });
+});
+
+describe("extractAskQuestionTexts", () => {
+  it("pulls question texts from AskUserQuestion input", () => {
+    assert.deepEqual(
+      extractAskQuestionTexts({
+        questions: [{ question: "Pick a color" }, { question: "Pick a size" }],
+      }),
+      ["Pick a color", "Pick a size"],
+    );
+  });
+
+  it("returns empty for malformed input", () => {
+    assert.deepEqual(extractAskQuestionTexts(undefined), []);
+    assert.deepEqual(extractAskQuestionTexts({ questions: "nope" }), []);
+    assert.deepEqual(extractAskQuestionTexts({ questions: [{}, { question: "" }] }), []);
+  });
+});
+
+describe("parseAskUserQuestionAnswerText", () => {
+  const questions = [
+    "Should blast-radius block commits, or just report?",
+    "Where should it run in the hook?",
+  ];
+  const content =
+    "Your questions have been answered: " +
+    '"Should blast-radius block commits, or just report?"="Informational only (Recommended)", ' +
+    '"Where should it run in the hook?"="lint-staged entry (Recommended)". ' +
+    "You can now continue with these answers in mind.";
+
+  it("reconstructs multi-question answers as > Q / A blocks", () => {
+    assert.equal(
+      parseAskUserQuestionAnswerText(content, questions),
+      "> Should blast-radius block commits, or just report?\n\nInformational only (Recommended)\n\n" +
+        "> Where should it run in the hook?\n\nlint-staged entry (Recommended)",
+    );
+  });
+
+  it("handles a single question", () => {
+    const single =
+      'Your questions have been answered: "Pick a color"="Purple". You can now continue with these answers in mind.';
+    assert.equal(
+      parseAskUserQuestionAnswerText(single, ["Pick a color"]),
+      "> Pick a color\n\nPurple",
+    );
+  });
+
+  it("handles a free-text answer keyed to the first question", () => {
+    const authored =
+      'Your questions have been answered: "Pick a color"="Use a custom teal, hex #0a7". You can now continue with these answers in mind.';
+    assert.equal(
+      parseAskUserQuestionAnswerText(authored, ["Pick a color"]),
+      "> Pick a color\n\nUse a custom teal, hex #0a7",
+    );
+  });
+
+  it("returns null when the content is not an answer sentence", () => {
+    assert.equal(parseAskUserQuestionAnswerText("some other tool output", questions), null);
+    assert.equal(parseAskUserQuestionAnswerText(content, []), null);
   });
 });
 

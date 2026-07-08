@@ -90,6 +90,56 @@ export function classifyInteractiveResult(
   return "dismissed";
 }
 
+/** Extract the question texts from an AskUserQuestion tool input. */
+export function extractAskQuestionTexts(input: unknown): string[] {
+  const questions = (input as { questions?: unknown } | undefined)?.questions;
+  if (!Array.isArray(questions)) return [];
+  return questions
+    .map((q) => (q && typeof q === "object" ? (q as { question?: unknown }).question : undefined))
+    .filter((q): q is string => typeof q === "string" && q.trim().length > 0);
+}
+
+const ASK_ANSWER_MARKER = "Your questions have been answered:";
+const ASK_ANSWER_TAIL = '". You can now';
+
+/**
+ * Reconstruct the answer text from an AskUserQuestion tool_result on JSONL replay.
+ *
+ * The Claude harness records answers only in the tool_result content as an English
+ * sentence — `Your questions have been answered: "Q1"="A1", "Q2"="A2". You can now
+ * continue with these answers in mind.` — keyed by question TEXT. We anchor on the
+ * known question texts (from the tool_use input) to extract each answer robustly, and
+ * format the result to match the live `buildUserInputReply` output (`> Q\n\nA` blocks)
+ * so the answer renders identically whether streamed live or rebuilt from transcript.
+ */
+export function parseAskUserQuestionAnswerText(
+  content: string,
+  questions: string[],
+): string | null {
+  if (!content.includes(ASK_ANSWER_MARKER) || questions.length === 0) return null;
+  const blocks: string[] = [];
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const startToken = `"${q}"="`;
+    const startPos = content.indexOf(startToken);
+    if (startPos === -1) continue;
+    const answerStart = startPos + startToken.length;
+    let endPos = content.length;
+    for (let j = 0; j < questions.length; j++) {
+      if (j === i) continue;
+      const p = content.indexOf(`", "${questions[j]}"="`, answerStart);
+      if (p !== -1 && p < endPos) endPos = p;
+    }
+    const tail = content.indexOf(ASK_ANSWER_TAIL, answerStart);
+    if (tail !== -1 && tail < endPos) endPos = tail;
+    let answer = content.slice(answerStart, endPos);
+    if (answer.endsWith('"')) answer = answer.slice(0, -1);
+    answer = answer.trim();
+    if (answer) blocks.push(`> ${q}\n\n${answer}`);
+  }
+  return blocks.length > 0 ? blocks.join("\n\n") : null;
+}
+
 /**
  * Build an ActivityMessage for a tool_result event.
  * Shared by ClaudeProcess (live streaming, two code paths) and InstanceManager (JSONL replay).

@@ -177,6 +177,8 @@ import {
   describeToolDetail,
   extractInputDescription,
   extractToolResultText,
+  extractAskQuestionTexts,
+  parseAskUserQuestionAnswerText,
   INTERACTIVE_TOOLS,
   buildToolResultActivity,
   capDetail,
@@ -5276,6 +5278,7 @@ export class InstanceManager extends EventEmitter {
 
     const ctx: {
       pendingTools: Map<string, string>;
+      pendingAskInputs: Map<string, string[]>;
       pendingTaskCreates: Map<string, { subject: string; activeForm?: string }>;
       tasks: Map<string, TaskItem>;
       files: Map<string, FileChange>;
@@ -5283,6 +5286,7 @@ export class InstanceManager extends EventEmitter {
       cwd?: string;
     } = {
       pendingTools: new Map<string, string>(),
+      pendingAskInputs: new Map<string, string[]>(),
       pendingTaskCreates: new Map<string, { subject: string; activeForm?: string }>(),
       tasks: new Map<string, TaskItem>(),
       files: new Map<string, FileChange>(),
@@ -5421,6 +5425,7 @@ export class InstanceManager extends EventEmitter {
     timestamp: number,
     ctx: {
       pendingTools?: Map<string, string>;
+      pendingAskInputs?: Map<string, string[]>;
       pendingTaskCreates?: Map<string, { subject: string; activeForm?: string }>;
       tasks?: Map<string, TaskItem>;
     },
@@ -5457,6 +5462,21 @@ export class InstanceManager extends EventEmitter {
       // Other task tool results — skip
     } else {
       const toolName = ctx.pendingTools?.get(block.tool_use_id || "");
+      // The live answer path emits the user's AskUserQuestion answer as a visible
+      // chat message (see resolveRequestLocked). That message is in-memory only —
+      // it's never written to the JSONL — so rebuild it from the tool_result on
+      // replay to keep the answer visible after reload. The tool_result activity is
+      // still emitted below so pending-state clears (syncPendingInteractiveState).
+      if (toolName === "AskUserQuestion" && !block.is_error) {
+        const questions = ctx.pendingAskInputs?.get(block.tool_use_id || "") ?? [];
+        const answerText = parseAskUserQuestionAnswerText(blockContent, questions);
+        if (answerText) {
+          results.push({
+            timestamp,
+            message: { type: "user", text: answerText } as UserMessage,
+          });
+        }
+      }
       results.push({
         timestamp,
         message: buildToolResultActivity(block.is_error, toolName, blockContent),
@@ -5555,6 +5575,7 @@ export class InstanceManager extends EventEmitter {
     timestamp: number,
     ctx?: {
       pendingTools?: Map<string, string>;
+      pendingAskInputs?: Map<string, string[]>;
       pendingTaskCreates?: Map<string, { subject: string; activeForm?: string }>;
       tasks?: Map<string, TaskItem>;
     },
@@ -5687,6 +5708,7 @@ export class InstanceManager extends EventEmitter {
     timestamp: number,
     ctx?: {
       pendingTools?: Map<string, string>;
+      pendingAskInputs?: Map<string, string[]>;
       pendingTaskCreates?: Map<string, { subject: string; activeForm?: string }>;
       tasks?: Map<string, TaskItem>;
       files?: Map<string, FileChange>;
@@ -5722,6 +5744,10 @@ export class InstanceManager extends EventEmitter {
           textParts = [];
           if (block.id && block.name && ctx?.pendingTools) {
             ctx.pendingTools.set(block.id, block.name);
+            if (block.name === "AskUserQuestion" && ctx.pendingAskInputs) {
+              const askQuestions = extractAskQuestionTexts(block.input);
+              if (askQuestions.length) ctx.pendingAskInputs.set(block.id, askQuestions);
+            }
           }
           this.convertToolUseBlock(block, timestamp, ctx, results);
         } else if (block.type === "tool_result" && ctx) {

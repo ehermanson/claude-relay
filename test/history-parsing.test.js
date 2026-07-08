@@ -177,6 +177,87 @@ describe("History Parsing via DB Restore", () => {
     });
   });
 
+  describe("AskUserQuestion answer replay", () => {
+    it("reconstructs the answer as a chat message from the transcript", () => {
+      const jsonlPath = join(tempDir, "ask-session.jsonl");
+      const lines = [
+        {
+          type: "system",
+          subtype: "init",
+          cwd: "/Users/test/projects/my-app",
+          timestamp: "2026-02-10T10:00:00.000Z",
+          slug: "my-app",
+        },
+        {
+          type: "user",
+          message: { role: "user", content: "Set up the pre-commit hook." },
+          timestamp: "2026-02-10T10:00:01.000Z",
+        },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_ask_1",
+                name: "AskUserQuestion",
+                input: {
+                  questions: [
+                    { question: "Block commits or just report?", header: "Mode" },
+                    { question: "Where should it run?", header: "Wiring" },
+                  ],
+                },
+              },
+            ],
+          },
+          timestamp: "2026-02-10T10:00:05.000Z",
+        },
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_ask_1",
+                content:
+                  'Your questions have been answered: "Block commits or just report?"="Just report", ' +
+                  '"Where should it run?"="lint-staged entry". You can now continue with these answers in mind.',
+              },
+            ],
+          },
+          timestamp: "2026-02-10T10:00:06.000Z",
+        },
+      ];
+      writeFileSync(jsonlPath, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+
+      seedDB(tempDir, [makeExternalEntry({ id: "ask-id", sessionId: "ask-session", jsonlPath })]);
+
+      const manager = makeManager(tempDir);
+      manager.restoreAndScan();
+      const history = manager.getHistory("ask-id");
+
+      const answer = history.find(
+        (h) => h.message.type === "user" && h.message.text?.startsWith(">"),
+      );
+      assert.ok(answer, "Expected the answer reconstructed as a user message");
+      assert.equal(
+        answer.message.text,
+        "> Block commits or just report?\n\nJust report\n\n> Where should it run?\n\nlint-staged entry",
+      );
+
+      // The tool_result activity must still be present so pending state clears on reload.
+      const toolResult = history.find(
+        (h) => h.message.type === "activity" && h.message.activity === "tool_result",
+      );
+      assert.ok(toolResult, "Expected the AskUserQuestion tool_result activity to remain");
+      assert.equal(toolResult.message.resolution, "approved");
+
+      manager.stopAll();
+    });
+  });
+
   describe("persisted model restore", () => {
     it("restores persisted model metadata for external and managed sessions before hydration", () => {
       seedDB(tempDir, [
