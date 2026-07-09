@@ -2458,10 +2458,11 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
   private resolveApprovalPolicy(): string {
     if (this._runtimeMode === "full-access") return "never";
-    // Plan and approval-required both use the same approval policy: approve
-    // commands, ask on failure. ("untrusted" would ask for everything; "never"
-    // is reserved for full-access.)
-    return "on-failure";
+    // Plan and approval-required both use the same approval policy: let the
+    // model decide when to escalate for approval. ("untrusted" would ask for
+    // everything; "never" is reserved for full-access.) Note: Codex dropped the
+    // old "on-failure" variant; valid values are untrusted/on-request/granular/never.
+    return "on-request";
   }
 
   private resolveSandboxMode(): string {
