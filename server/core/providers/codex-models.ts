@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { Logger } from "#core/logger.js";
 import type { ProviderModelOption } from "#core/types.js";
-import { findCodexBinary } from "#core/providers/codex-cli.js";
+import { findCodexBinary, buildCodexSpawnEnv } from "#core/providers/codex-cli.js";
 
 type SpawnFn = typeof spawn;
 
@@ -92,7 +92,7 @@ export async function discoverCodexModels(
 
   return new Promise((resolve, reject) => {
     const child = spawnProcess(codexPath, ["app-server", "--listen", "stdio://"], {
-      env: process.env,
+      env: buildCodexSpawnEnv(),
       stdio: ["pipe", "pipe", "pipe"],
     });
 

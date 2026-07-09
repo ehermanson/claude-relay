@@ -44,7 +44,7 @@ import { buildSessionInitEvent } from "#core/session-init.js";
 import { buildTaskListActivityFromPlan } from "#core/tools.js";
 import { ProposedPlanStreamParser } from "#core/proposed-plan.js";
 import { isPathWithinWorkspace } from "#core/workspace-paths.js";
-import { findCodexBinary } from "#core/providers/codex-cli.js";
+import { findCodexBinary, buildCodexSpawnEnv } from "#core/providers/codex-cli.js";
 import { resolveProviderDefaultModelOption } from "#core/provider-catalog.js";
 import { getCachedCodexModels } from "#core/providers/codex-models.js";
 import { extFromPath } from "#core/paths.js";
@@ -1001,7 +1001,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this._closingIntentionally = false;
     this.process = this.spawnProcess(this.codexPath, ["app-server", "--listen", "stdio://"], {
       cwd: this.cwd,
-      env: process.env,
+      env: buildCodexSpawnEnv(),
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -1021,7 +1021,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
     this._closingIntentionally = false;
     this.process = this.spawnProcess(this.codexPath, ["app-server", "--listen", "stdio://"], {
       cwd: this.cwd,
-      env: process.env,
+      env: buildCodexSpawnEnv(),
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -2512,7 +2512,7 @@ export async function fetchCodexProviderGlobalStateSnapshot({
 }: CodexProviderGlobalStateSnapshotOptions): Promise<import("#core/types.js").ProviderGlobalState> {
   const child = spawnProcess(codexPath, ["app-server", "--listen", "stdio://"], {
     cwd,
-    env: process.env,
+    env: buildCodexSpawnEnv(),
     stdio: ["pipe", "pipe", "pipe"],
   });
   const stdin = child.stdin;

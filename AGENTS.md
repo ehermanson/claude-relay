@@ -190,6 +190,11 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - Provider-specific plan output should normalize onto Relay's shared `ExitPlanMode` / `pendingPlan` / `planContent` flow instead of inventing a separate UI path
 - Codex `<proposed_plan>...</proposed_plan>` blocks are treated as plan-review events, not plain assistant markdown, in both live app-server streaming and transcript replay
 
+### Codex Process Spawning
+
+- Every `codex app-server` spawn must build its environment with `buildCodexSpawnEnv()` (`server/core/providers/codex-cli.ts`), never raw `process.env`. It inherits the process env and, when unset, injects `CODEX_CODE_MODE_HOST_PATH` pointing at the `codex-code-mode-host` binary bundled inside ChatGPT.app. Codex "code mode" shells out to that helper but it isn't on PATH, so without this injection `turn/start` fails with `failed to spawn code-mode host ...: No such file or directory`. A user-provided `CODEX_CODE_MODE_HOST_PATH` always wins.
+- `resolveApprovalPolicy()` maps `full-access` → `never` and everything else → `on-request`. Codex dropped the old `on-failure` variant; valid values are `untrusted`/`on-request`/`granular`/`never`.
+
 ### Model Options
 
 `ProviderModelOptions` (`reasoningEffort`, `fastMode`) is the canonical contract for provider-agnostic model tuning. Provider drivers map these to provider-specific session args.
