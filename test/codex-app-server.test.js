@@ -599,9 +599,9 @@ describe("CodexAppServerSession", () => {
     const msgs = child.getStdinMessages();
     const threadStart = msgs.find((m) => m.method === "thread/start");
     const turnStart = msgs.find((m) => m.method === "turn/start");
-    assert.equal(threadStart.params.approvalPolicy, "on-failure");
+    assert.equal(threadStart.params.approvalPolicy, "on-request");
     assert.equal(threadStart.params.sandbox, "workspace-write");
-    assert.equal(turnStart.params.approvalPolicy, "on-failure");
+    assert.equal(turnStart.params.approvalPolicy, "on-request");
     assert.equal(turnStart.params.collaborationMode.mode, "plan");
 
     session.close();
