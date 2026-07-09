@@ -63,6 +63,8 @@ pnpm dev            # server from TS source (no tsc) + vite dev
 
 Always `pnpm build:server` before `pnpm test` — tests import from `dist/`.
 
+`pnpm ci-check` runs the full CI gate locally in order (`build → typecheck → lint → test`; build first so tests see fresh `dist/`). A Husky `pre-push` hook (`.husky/pre-push`) runs it automatically, but **skips** when the pushed commits touch only docs/non-code files (`*.md`, `*.txt`, `docs/`, etc.) — any other changed path forces the full check. Bypass with `git push --no-verify` only when you know CI will pass.
+
 ### Dev Mode
 
 `pnpm dev` runs the server directly from TypeScript source via Node's native type stripping (`--conditions=relay-dev` remaps `#` imports to `.ts` files). No `tsc --watch`, no `dist/` dependency, no auto-restart. Press `r` to manually restart the server.

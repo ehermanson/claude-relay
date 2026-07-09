@@ -46,6 +46,7 @@
     "lint": "oxlint server/ cli/ app/src/",
     "lint:fix": "oxlint --fix server/ cli/ app/src/",
     "knip": "knip",
+    "ci-check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test",
     "prepare": "husky"
   },
   "dependencies": {
