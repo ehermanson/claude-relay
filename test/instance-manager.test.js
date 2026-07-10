@@ -2100,61 +2100,121 @@ describe("InstanceManager", () => {
   });
 
   describe("model switch events", () => {
-    it("setModel records a model_switched event mid-conversation", async () => {
+    // A minimal running process so sendMessage dispatches immediately instead
+    // of queueing (isProcessing: false) or booting a real provider.
+    function attachFakeProcess(instance) {
+      const sent = [];
+      instance.process = {
+        isProcessing: false,
+        provider: "claude",
+        pid: undefined,
+        stats: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+        send(text) {
+          sent.push(text);
+        },
+        interrupt() {},
+        close() {},
+        setModel() {},
+        addAllowedTool() {},
+        setRuntimeMode() {},
+        getRuntimeBinding() {
+          return { provider: "claude" };
+        },
+        respondToRequest() {
+          return false;
+        },
+      };
+      return sent;
+    }
+
+    it("switching the model in the UI records nothing until a message is sent", async () => {
       const config = makeConfig();
       const mgr = trackManager(new InstanceManager(config));
       const info = mgr.createInstance();
       const instance = mgr.instances.get(info.id);
       assert.ok(instance);
-      // Seed a user message so the switch counts as mid-conversation
-      instance.history.push({
-        timestamp: Date.now(),
-        message: { type: "user", text: "hello", instanceId: info.id },
-      });
-
-      const events = [];
-      mgr.on("instance:system_event", (id, msg) => events.push({ id, msg }));
-
-      await mgr.setModel(info.id, "claude-sonnet-4-5");
-
-      assert.equal(events.length, 1);
-      assert.equal(events[0].id, info.id);
-      assert.equal(events[0].msg.event, "model_switched");
-      assert.equal(events[0].msg.payload.toModel, "claude-sonnet-4-5");
-      // Fresh instance had no preference → from resolves to the catalog default
-      assert.equal(events[0].msg.payload.fromModel, "claude-opus-4-7");
-
-      const historyEntry = instance.history.find(
-        (e) => e.message.type === "system_event" && e.message.event === "model_switched",
-      );
-      assert.ok(historyEntry);
-
-      // Persisted so hydration can re-merge it after history rebuilds
-      const db = new SessionDB(config.dbPath, noopLogger);
-      try {
-        const rows = db.getSessionEvents(info.id);
-        assert.equal(rows.length, 1);
-        assert.equal(rows[0].event, "model_switched");
-        assert.equal(JSON.parse(rows[0].payload_json).toModel, "claude-sonnet-4-5");
-      } finally {
-        db.close();
-      }
-
-      // Re-selecting the same model records nothing new
-      await mgr.setModel(info.id, "claude-sonnet-4-5");
-      assert.equal(events.length, 1);
-    });
-
-    it("does not record a switch before the first user message", async () => {
-      const config = makeConfig();
-      const mgr = trackManager(new InstanceManager(config));
-      const info = mgr.createInstance();
 
       const events = [];
       mgr.on("instance:system_event", (id, msg) => events.push(msg));
 
+      // Toggle a few times without sending — like the user's screenshot.
+      await mgr.setModel(info.id, "claude-sonnet-4-5");
+      await mgr.setModel(info.id, "claude-opus-4-7");
       await mgr.setModel(info.id, "claude-sonnet-4-5");
 
+      assert.equal(events.length, 0);
+      const db = new SessionDB(config.dbPath, noopLogger);
+      try {
+        assert.equal(db.getSessionEvents(info.id).length, 0);
+      } finally {
+        db.close();
+      }
+    });
+
+    it("records a divider at send time when the model changed since the previous turn", async () => {
+      const config = makeConfig();
+      const mgr = trackManager(new InstanceManager(config));
+      const info = mgr.createInstance();
+      const instance = mgr.instances.get(info.id);
+      assert.ok(instance);
+      attachFakeProcess(instance);
+
+      const events = [];
+      mgr.on("instance:system_event", (id, msg) => events.push(msg));
+
+      // First turn establishes the baseline (sonnet) with no divider.
+      await mgr.setModel(info.id, "claude-sonnet-4-5");
+      await mgr.sendMessage(info.id, "first");
+      assert.equal(events.length, 0);
+
+      // Switch to opus, then send: divider sonnet → opus, above the second turn.
+      await mgr.setModel(info.id, "claude-opus-4-7");
+      await mgr.sendMessage(info.id, "second");
+
+      assert.equal(events.length, 1);
+      assert.equal(events[0].event, "model_switched");
+      assert.equal(events[0].payload.fromModel, "claude-sonnet-4-5");
+      assert.equal(events[0].payload.toModel, "claude-opus-4-7");
+
+      // Divider sits directly above the "second" user message in history.
+      const idxSwitch = instance.history.findIndex(
+        (e) => e.message.type === "system_event" && e.message.event === "model_switched",
+      );
+      assert.ok(idxSwitch >= 0);
+      const next = instance.history[idxSwitch + 1];
+      assert.equal(next.message.type, "user");
+      assert.equal(next.message.text, "second");
+
+      // Persisted so hydration re-merges it after history rebuilds.
+      const db = new SessionDB(config.dbPath, noopLogger);
+      try {
+        const rows = db.getSessionEvents(info.id);
+        assert.equal(rows.length, 1);
+        assert.equal(JSON.parse(rows[0].payload_json).toModel, "claude-opus-4-7");
+      } finally {
+        db.close();
+      }
+    });
+
+    it("nets to nothing when the model is toggled and restored before sending", async () => {
+      const config = makeConfig();
+      const mgr = trackManager(new InstanceManager(config));
+      const info = mgr.createInstance();
+      const instance = mgr.instances.get(info.id);
+      assert.ok(instance);
+      attachFakeProcess(instance);
+
+      const events = [];
+      mgr.on("instance:system_event", (id, msg) => events.push(msg));
+
+      // Baseline turn on the default model (opus).
+      await mgr.sendMessage(info.id, "first");
+      // Toggle away and back before sending again.
+      await mgr.setModel(info.id, "claude-sonnet-4-5");
+      await mgr.setModel(info.id, "claude-opus-4-7");
+      await mgr.sendMessage(info.id, "second");
+
+      // Net model is unchanged from the previous turn → no divider.
       assert.equal(events.length, 0);
       const db = new SessionDB(config.dbPath, noopLogger);
       try {

@@ -206,7 +206,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - `set_model_options` WS message does sparse merge (omitted = untouched, `null` = clear)
 - `ProviderCapabilities` includes control metadata (`reasoningEffortLevels`, `runtimeModes`, `fastModes`) — UI renders labels/descriptions from these, never hardcodes provider-specific text
 - `ReasoningEffort` uses `"max"` as the Relay-canonical highest effort; provider drivers map to native values (e.g. Codex `"xhigh"`); unknown strings pass through
-- Mid-session model switches emit a `model_switched` system event (divider in chat + timeline). Relay-level events like this never appear in provider transcripts, so they're persisted in the `session_events` table and re-merged into history by `mergeSessionEvents()` on every hydrate/getHistory
+- Mid-session model switches emit a `model_switched` system event (divider in chat + timeline). It's recorded at **message-dispatch time** (`recordModelSwitchOnDispatch`), not when the user picks a model in the UI — only when the resolved model differs from the previous turn's (`instance.lastTurnModel`). So toggling the picker without sending, or switching away and back before sending, produces no divider; the divider always sits directly above the first turn the new model ran. Relay-level events like this never appear in provider transcripts, so they're persisted in the `session_events` table and re-merged into history by `mergeSessionEvents()` on every hydrate/getHistory. `lastTurnModel` is in-memory only, so the first send after a server restart re-establishes the baseline without a divider
 
 ### Task Tracking
 

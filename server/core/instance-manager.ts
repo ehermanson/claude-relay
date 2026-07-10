@@ -323,6 +323,14 @@ interface Instance {
   refreshingGitBranch?: boolean;
   /** True when the user explicitly cancelled — suppresses error exit messages */
   cancelledByUser?: boolean;
+  /**
+   * Resolved model id that the most recent user-visible turn was dispatched
+   * under. Used to emit a `model_switched` divider at send time only when the
+   * model actually changed between turns (so pre-send toggling produces no
+   * noise). In-memory only — reset to undefined on restore, so the first send
+   * after a server restart re-establishes the baseline without a divider.
+   */
+  lastTurnModel?: string;
 }
 
 export interface InstanceManagerEvents {
@@ -3100,6 +3108,10 @@ export class InstanceManager extends EventEmitter {
       internal,
     };
     this.noteManagedProcessActivity(instance);
+    // Emit a model-switch divider above this turn if the model changed since the
+    // previous user turn. Skipped for internal (system-injected) messages, which
+    // aren't user-visible turns. Must precede the user message pushHistory below.
+    if (!internal) this.recordModelSwitchOnDispatch(instance);
     this.pushHistory(instance, userMessage);
     this.emit("instance:user", id, userMessage);
 
@@ -8253,15 +8265,16 @@ export class InstanceManager extends EventEmitter {
     return this.enqueueInstanceMutation(id, async (instance) => {
       if (instance.info.external) return false;
 
+      instance.info.preferredModel = model ?? undefined;
       // When clearing to "Default", resolve the catalog default so the SDK
       // doesn't silently fall back to its own internal default (e.g. Sonnet).
-      const resolveModel = (m: string | null | undefined) =>
-        m ?? BUILTIN_PROVIDER_MODELS[instance.info.provider].find((x) => x.isDefault)?.id ?? null;
-      const previousModel = resolveModel(instance.info.preferredModel);
-      instance.info.preferredModel = model ?? undefined;
-      const effectiveModel = resolveModel(model);
+      const effectiveModel = this.resolveEffectiveModel(instance);
       instance.process?.setModel(effectiveModel);
-      this.recordModelSwitch(instance, previousModel, effectiveModel);
+      // NB: the model_switched divider is intentionally NOT recorded here.
+      // Switching in the UI without sending a message has no effect on the
+      // conversation, so the divider is emitted at message-dispatch time
+      // (recordModelSwitchOnDispatch) only when the model actually differs
+      // from the previous turn's — pre-send toggling produces no noise.
       this.emitInstanceStatus(instance);
       this.dbSave(instance);
       const sid = instance.sessionId || instance.info.sessionId;
@@ -8274,35 +8287,49 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
-   * Record a mid-conversation model switch as a Relay-level system event so
-   * the chat UI can render a divider (like the compaction line). The event is
-   * pushed to live history, broadcast to subscribers, and persisted to the
-   * session_events table — provider transcripts never contain it, so
-   * mergeSessionEvents() re-inserts it on every hydrate.
+   * Resolve the effective model id for an instance — the explicit preference,
+   * or the provider's catalog default when cleared to "Default" (so we compare
+   * against a concrete id rather than undefined).
    */
-  private recordModelSwitch(
-    instance: Instance,
-    fromModel: string | null,
-    toModel: string | null,
-  ): void {
-    if (fromModel === toModel) return;
-    // Only meaningful mid-conversation; picking a model before the first
-    // message shouldn't leave a divider at the top of the chat.
-    if (!instance.history.some((e) => e.message.type === "user")) return;
+  private resolveEffectiveModel(instance: Instance): string | null {
+    return (
+      instance.info.preferredModel ??
+      BUILTIN_PROVIDER_MODELS[instance.info.provider].find((x) => x.isDefault)?.id ??
+      null
+    );
+  }
 
-    const labelFor = (m: string | null) =>
-      m
-        ? BUILTIN_PROVIDER_MODELS[instance.info.provider].find((x) => x.id === m)?.label
-        : undefined;
+  /**
+   * At user-message dispatch, emit a `model_switched` divider iff the resolved
+   * model differs from the one the previous turn ran under. This is the only
+   * place the divider is recorded: switching in the UI is a no-op until a
+   * message is actually sent, and switching back and forth before sending nets
+   * to nothing. The first turn establishes the baseline without a divider.
+   *
+   * The event is a Relay-level system event — provider transcripts never
+   * contain it, so it is persisted to session_events and re-merged into history
+   * by mergeSessionEvents() on every hydrate. Must be called BEFORE the user
+   * message is pushed to history so the divider sits above the turn it labels.
+   */
+  private recordModelSwitchOnDispatch(instance: Instance): void {
+    const current = this.resolveEffectiveModel(instance);
+    const previous = instance.lastTurnModel;
+    instance.lastTurnModel = current ?? undefined;
+
+    // No baseline yet (first turn), unresolved model, or unchanged → nothing.
+    if (!previous || !current || previous === current) return;
+
+    const labelFor = (m: string) =>
+      BUILTIN_PROVIDER_MODELS[instance.info.provider].find((x) => x.id === m)?.label;
     const message: SystemEventMessage = {
       type: "system_event",
       event: "model_switched",
       instanceId: instance.info.id,
       payload: {
-        fromModel: fromModel ?? undefined,
-        toModel: toModel ?? undefined,
-        fromModelLabel: labelFor(fromModel),
-        toModelLabel: labelFor(toModel),
+        fromModel: previous,
+        toModel: current,
+        fromModelLabel: labelFor(previous),
+        toModelLabel: labelFor(current),
       },
     };
     this.pushHistory(instance, message);
