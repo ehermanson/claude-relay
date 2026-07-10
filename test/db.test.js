@@ -359,6 +359,36 @@ describe("SessionDB", () => {
     });
   });
 
+  describe("session events", () => {
+    it("inserts and reads events ordered by timestamp", () => {
+      db.insertSessionEvent("i1", 2000, "model_switched", JSON.stringify({ toModel: "b" }));
+      db.insertSessionEvent("i1", 1000, "model_switched", JSON.stringify({ toModel: "a" }));
+      db.insertSessionEvent("i2", 1500, "model_switched", null);
+
+      const rows = db.getSessionEvents("i1");
+      assert.equal(rows.length, 2);
+      assert.equal(rows[0].timestamp, 1000);
+      assert.equal(JSON.parse(rows[0].payload_json).toModel, "a");
+      assert.equal(rows[1].timestamp, 2000);
+      assert.equal(db.getSessionEvents("i2").length, 1);
+      assert.equal(db.getSessionEvents("missing").length, 0);
+    });
+
+    it("deleteManagedByInstanceId removes the instance's events", () => {
+      db.insertSessionEvent("i1", 1000, "model_switched", null);
+      db.insertSessionEvent("i2", 1000, "model_switched", null);
+      db.deleteManagedByInstanceId("i1");
+      assert.equal(db.getSessionEvents("i1").length, 0);
+      assert.equal(db.getSessionEvents("i2").length, 1);
+    });
+
+    it("clear removes all events", () => {
+      db.insertSessionEvent("i1", 1000, "model_switched", null);
+      db.clear();
+      assert.equal(db.getSessionEvents("i1").length, 0);
+    });
+  });
+
   describe("upsertMany", () => {
     it("inserts multiple rows in a transaction", () => {
       db.upsertMany([

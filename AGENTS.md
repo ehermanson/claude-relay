@@ -206,6 +206,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - `set_model_options` WS message does sparse merge (omitted = untouched, `null` = clear)
 - `ProviderCapabilities` includes control metadata (`reasoningEffortLevels`, `runtimeModes`, `fastModes`) — UI renders labels/descriptions from these, never hardcodes provider-specific text
 - `ReasoningEffort` uses `"max"` as the Relay-canonical highest effort; provider drivers map to native values (e.g. Codex `"xhigh"`); unknown strings pass through
+- Mid-session model switches emit a `model_switched` system event (divider in chat + timeline). Relay-level events like this never appear in provider transcripts, so they're persisted in the `session_events` table and re-merged into history by `mergeSessionEvents()` on every hydrate/getHistory
 
 ### Task Tracking
 

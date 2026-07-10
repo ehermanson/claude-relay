@@ -22,7 +22,7 @@ import type { RenderRow } from "@/lib/chat-types";
 interface TimelineMarker {
   timestamp: number;
   rowIndex: number;
-  kind: "user" | "assistant" | "boundary" | "transcript";
+  kind: "user" | "assistant" | "boundary" | "model" | "transcript";
   label: string;
 }
 
@@ -48,6 +48,12 @@ function extractLabel(row: RenderRow): string {
       return row.text.slice(0, 100);
     case "compact-boundary":
       return "Context compacted";
+    case "model-switch": {
+      const from = row.fromModelLabel ?? row.fromModel;
+      const to = row.toModelLabel ?? row.toModel;
+      if (from && to) return `${from} → ${to}`;
+      return to ? `Changed to ${to}` : "Model changed";
+    }
     case "agent-transcript":
       return row.title;
     default:
@@ -59,6 +65,7 @@ const KIND_LABELS: Record<TimelineMarker["kind"], string> = {
   user: "You",
   assistant: "Agent",
   boundary: "Compaction",
+  model: "Model switch",
   transcript: "Transcript",
 };
 
@@ -69,6 +76,7 @@ function getRowTimestamp(row: RenderRow): number | undefined {
     case "user":
     case "assistant":
     case "compact-boundary":
+    case "model-switch":
     case "agent-transcript":
       return row.timestamp;
     default:
@@ -92,6 +100,9 @@ function buildMarkers(rows: RenderRow[]): TimelineMarker[] {
         break;
       case "compact-boundary":
         kind = "boundary";
+        break;
+      case "model-switch":
+        kind = "model";
         break;
       case "agent-transcript":
         kind = "transcript";
@@ -296,10 +307,11 @@ export function ChatTimeline({ rows, onScrollToRow, isLive }: ChatTimelineProps)
           const x = positions[i];
           const isActive = i === activeMarkerIdx;
 
-          // Compaction boundaries render as a full-height dashed vertical
-          // line so they read as a divider between context windows rather
-          // than another point-event marker.
-          if (m.kind === "boundary") {
+          // Compaction boundaries and model switches render as full-height
+          // vertical lines so they read as dividers between conversation
+          // phases rather than another point-event marker. Compaction is a
+          // dashed warning line; a model switch is a solid accent line.
+          if (m.kind === "boundary" || m.kind === "model") {
             return (
               <Tooltip
                 key={`${m.kind}-${i}`}
@@ -313,7 +325,13 @@ export function ChatTimeline({ rows, onScrollToRow, isLive }: ChatTimelineProps)
                   }`}
                   style={{ left: `${x}%` }}
                 >
-                  <div className="h-full w-0.5 border-l-2 border-dashed border-warning/60" />
+                  <div
+                    className={
+                      m.kind === "boundary"
+                        ? "h-full w-0.5 border-l-2 border-dashed border-warning/60"
+                        : "h-full w-0.5 border-l-2 border-solid border-accent/50"
+                    }
+                  />
                 </div>
               </Tooltip>
             );

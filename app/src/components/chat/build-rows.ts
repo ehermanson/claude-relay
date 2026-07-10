@@ -180,6 +180,17 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
             timestamp: item.timestamp,
           });
           break;
+        case "model-switch":
+          rows.push({
+            id: `model-switch-${i}`,
+            kind: "model-switch",
+            fromModel: item.fromModel,
+            toModel: item.toModel,
+            fromModelLabel: item.fromModelLabel,
+            toModelLabel: item.toModelLabel,
+            timestamp: item.timestamp,
+          });
+          break;
         case "thinking-block":
           rows.push({
             id: `thinking-${i}`,
@@ -220,6 +231,7 @@ export function estimateRowHeight(row: RenderRow, containerWidth?: number): numb
     case "system":
       return 44;
     case "compact-boundary":
+    case "model-switch":
       return 48;
     case "thinking-block":
       return Math.min(420, 60 + Math.ceil(row.text.length / 80) * 16);

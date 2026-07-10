@@ -41,7 +41,7 @@ import { fetchCodexProviderGlobalStateSnapshot } from "#core/providers/codex-app
 import { getCachedCodexModels, prewarmCodexModels } from "#core/providers/codex-models.js";
 import { isCodexInstalled } from "#core/providers/codex-cli.js";
 import { SessionDB } from "#core/db.js";
-import type { SessionRow, ManagedInstanceRow } from "#core/db.js";
+import type { SessionRow, ManagedInstanceRow, SessionEventRow } from "#core/db.js";
 import {
   BUILTIN_PROVIDER_MODELS,
   resolveProviderDefaultModelOption,
@@ -142,6 +142,7 @@ import type {
   ProviderModelOption,
   UserInputQuestion,
   SystemEventMessage,
+  SystemEventType,
   EditToolInput,
 } from "#core/types.js";
 import {
@@ -3614,8 +3615,10 @@ export class InstanceManager extends EventEmitter {
       `[InstanceManager] Read passive history for ${id} from ${transcriptPath} in ${Date.now() - hydrateStartedAt}ms (${cacheHit ? "cache hit" : "cache miss"}, ${parsed.history.length} history entries)`,
     );
 
+    const history = this.mergeSessionEvents(id, parsed.history);
+
     if (instance.hydrated) {
-      instance.history = parsed.history;
+      instance.history = history;
       instance.tasks = parsed.tasks.size > 0 ? parsed.tasks : undefined;
       instance.files = parsed.files.size > 0 ? parsed.files : undefined;
 
@@ -3632,7 +3635,7 @@ export class InstanceManager extends EventEmitter {
       this.rebuildPendingInteractiveState(instance);
     }
 
-    return this.buildHistoryView(parsed.history, parsed.files.size > 0 ? parsed.files : undefined);
+    return this.buildHistoryView(history, parsed.files.size > 0 ? parsed.files : undefined);
   }
 
   /**
@@ -3695,7 +3698,7 @@ export class InstanceManager extends EventEmitter {
         `[InstanceManager] Hydrated ${id} from ${transcriptPath} in ${Date.now() - hydrateStartedAt}ms (${cacheHit ? "cache hit" : "cache miss"}, ${parsed.history.length} history entries)`,
       );
 
-      instance.history = parsed.history;
+      instance.history = this.mergeSessionEvents(id, parsed.history);
       instance.tasks = parsed.tasks.size > 0 ? parsed.tasks : undefined;
       instance.files = parsed.files.size > 0 ? parsed.files : undefined;
       instance.fileStateRevision += 1;
@@ -3734,6 +3737,55 @@ export class InstanceManager extends EventEmitter {
     this.enrichGitDataAsync(id, instance).catch((err) => {
       this.baseConfig.logger.debug(`[InstanceManager] Git enrichment failed for ${id}: ${err}`);
     });
+  }
+
+  /**
+   * Merge persisted Relay-level session events (e.g. model switches) into a
+   * transcript-parsed history by timestamp. Provider transcripts never contain
+   * these events, so without this merge they would vanish whenever history is
+   * rebuilt from the JSONL (hydration, reconnect, server restart).
+   */
+  private mergeSessionEvents(instanceId: string, history: HistoryEntry[]): HistoryEntry[] {
+    let rows: SessionEventRow[];
+    try {
+      rows = this.db.getSessionEvents(instanceId);
+    } catch {
+      return history;
+    }
+    if (rows.length === 0) return history;
+
+    const merged = [...history];
+    for (const row of rows) {
+      let payload: Record<string, unknown> | undefined;
+      if (row.payload_json) {
+        try {
+          payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+        } catch {
+          payload = undefined;
+        }
+      }
+      const entry: HistoryEntry = {
+        timestamp: row.timestamp,
+        message: {
+          type: "system_event",
+          event: row.event as SystemEventType,
+          instanceId,
+          payload,
+        },
+      };
+      // Insert after the last entry at or before the event's timestamp so the
+      // divider lands between the turns it actually separates.
+      let insertAt = merged.length;
+      for (let i = merged.length - 1; i >= 0; i--) {
+        if (merged[i].timestamp <= row.timestamp) {
+          insertAt = i + 1;
+          break;
+        }
+        insertAt = i;
+      }
+      merged.splice(insertAt, 0, entry);
+    }
+    return merged;
   }
 
   private buildHistoryView(
@@ -8201,14 +8253,15 @@ export class InstanceManager extends EventEmitter {
     return this.enqueueInstanceMutation(id, async (instance) => {
       if (instance.info.external) return false;
 
-      instance.info.preferredModel = model ?? undefined;
       // When clearing to "Default", resolve the catalog default so the SDK
       // doesn't silently fall back to its own internal default (e.g. Sonnet).
-      const effectiveModel =
-        model ??
-        BUILTIN_PROVIDER_MODELS[instance.info.provider].find((m) => m.isDefault)?.id ??
-        null;
+      const resolveModel = (m: string | null | undefined) =>
+        m ?? BUILTIN_PROVIDER_MODELS[instance.info.provider].find((x) => x.isDefault)?.id ?? null;
+      const previousModel = resolveModel(instance.info.preferredModel);
+      instance.info.preferredModel = model ?? undefined;
+      const effectiveModel = resolveModel(model);
       instance.process?.setModel(effectiveModel);
+      this.recordModelSwitch(instance, previousModel, effectiveModel);
       this.emitInstanceStatus(instance);
       this.dbSave(instance);
       const sid = instance.sessionId || instance.info.sessionId;
@@ -8218,6 +8271,48 @@ export class InstanceManager extends EventEmitter {
       if (this.isInstanceNotFoundError(err)) return false;
       throw err;
     });
+  }
+
+  /**
+   * Record a mid-conversation model switch as a Relay-level system event so
+   * the chat UI can render a divider (like the compaction line). The event is
+   * pushed to live history, broadcast to subscribers, and persisted to the
+   * session_events table — provider transcripts never contain it, so
+   * mergeSessionEvents() re-inserts it on every hydrate.
+   */
+  private recordModelSwitch(
+    instance: Instance,
+    fromModel: string | null,
+    toModel: string | null,
+  ): void {
+    if (fromModel === toModel) return;
+    // Only meaningful mid-conversation; picking a model before the first
+    // message shouldn't leave a divider at the top of the chat.
+    if (!instance.history.some((e) => e.message.type === "user")) return;
+
+    const labelFor = (m: string | null) =>
+      m
+        ? BUILTIN_PROVIDER_MODELS[instance.info.provider].find((x) => x.id === m)?.label
+        : undefined;
+    const message: SystemEventMessage = {
+      type: "system_event",
+      event: "model_switched",
+      instanceId: instance.info.id,
+      payload: {
+        fromModel: fromModel ?? undefined,
+        toModel: toModel ?? undefined,
+        fromModelLabel: labelFor(fromModel),
+        toModelLabel: labelFor(toModel),
+      },
+    };
+    this.pushHistory(instance, message);
+    this.db.insertSessionEvent(
+      instance.info.id,
+      Date.now(),
+      "model_switched",
+      JSON.stringify(message.payload),
+    );
+    this.emit("instance:system_event", instance.info.id, message);
   }
 
   /**

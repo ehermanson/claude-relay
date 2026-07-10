@@ -150,6 +150,19 @@ export interface ManagedInstanceRow {
   original_git_branch: string | null;
 }
 
+/**
+ * Relay-level session event (e.g. a user-initiated model switch). These never
+ * appear in the provider's transcript JSONL, so they are persisted here and
+ * merged into history at hydrate time by timestamp.
+ */
+export interface SessionEventRow {
+  id: number;
+  instance_id: string;
+  timestamp: number;
+  event: string;
+  payload_json: string | null;
+}
+
 export interface SpinOffRow {
   id: string;
   source_chat_id: string;
@@ -422,6 +435,9 @@ export class SessionDB {
   private stmtDeleteBySessionId!: StatementSync;
   private stmtDeleteByInstanceId!: StatementSync;
   private stmtDeleteManagedByInstanceId!: StatementSync;
+  private stmtInsertSessionEvent!: StatementSync;
+  private stmtGetSessionEvents!: StatementSync;
+  private stmtDeleteSessionEvents!: StatementSync;
   private stmtUpdateAllowedTools!: StatementSync;
   private stmtUpdateWorkingDirectory!: StatementSync;
   private stmtUpdateSessionModel!: StatementSync;
@@ -739,6 +755,16 @@ ${buildSearchIndexSchemaSql()},
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_working_directory ON managed_sessions(working_directory);
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_provider_session_id ON managed_sessions(provider_session_id);
       CREATE INDEX IF NOT EXISTS idx_managed_sessions_project_id ON managed_sessions(project_id);
+
+      CREATE TABLE IF NOT EXISTS session_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        instance_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        event TEXT NOT NULL,
+        payload_json TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_session_events_instance_id ON session_events(instance_id);
 
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
@@ -1118,6 +1144,18 @@ ${buildSearchIndexSchemaSql()},
 
     this.stmtDeleteManagedByInstanceId = this.db.prepare(
       "DELETE FROM managed_sessions WHERE instance_id = ?",
+    );
+
+    this.stmtInsertSessionEvent = this.db.prepare(
+      "INSERT INTO session_events (instance_id, timestamp, event, payload_json) VALUES (?, ?, ?, ?)",
+    );
+
+    this.stmtGetSessionEvents = this.db.prepare(
+      "SELECT * FROM session_events WHERE instance_id = ? ORDER BY timestamp ASC, id ASC",
+    );
+
+    this.stmtDeleteSessionEvents = this.db.prepare(
+      "DELETE FROM session_events WHERE instance_id = ?",
     );
 
     this.stmtUpdateAllowedTools = this.db.prepare(
@@ -1669,10 +1707,30 @@ ${buildSearchIndexSchemaSql()},
 
   deleteManagedByInstanceId(instanceId: string): void {
     this.stmtDeleteManagedByInstanceId.run(instanceId);
+    this.stmtDeleteSessionEvents.run(instanceId);
     this.syncSearchIndexForInstance(instanceId);
     if (!this.getByInstanceId(instanceId)) {
       this.stmtDeleteSearchContent.run(instanceId);
     }
+  }
+
+  // =========================================================================
+  // Session events (Relay-level events merged into history at hydrate time)
+  // =========================================================================
+
+  insertSessionEvent(
+    instanceId: string,
+    timestamp: number,
+    event: string,
+    payloadJson: string | null,
+  ): void {
+    this.stmtInsertSessionEvent.run(instanceId, timestamp, event, payloadJson);
+  }
+
+  getSessionEvents(instanceId: string): SessionEventRow[] {
+    return asRows<SessionEventRow>(
+      this.stmtGetSessionEvents.all(instanceId) as Record<string, unknown>[],
+    );
   }
 
   // =========================================================================
@@ -2152,6 +2210,7 @@ ${buildSearchIndexSchemaSql()},
     this.db.exec("DELETE FROM sessions");
     this.db.exec("DELETE FROM managed_sessions");
     this.db.exec("DELETE FROM spaces");
+    this.db.exec("DELETE FROM session_events");
   }
 
   checkpointWal(): void {

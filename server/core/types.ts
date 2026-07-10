@@ -885,7 +885,8 @@ export type SystemEventType =
   | "session_init"
   | "provider_status"
   | "provider_notice"
-  | "model_rerouted";
+  | "model_rerouted"
+  | "model_switched";
 
 export interface SystemEventMessage {
   type: "system_event";

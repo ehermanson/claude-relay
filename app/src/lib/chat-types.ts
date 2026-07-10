@@ -54,6 +54,15 @@ export interface CompactBoundaryChatItem {
   timestamp?: number;
 }
 
+export interface ModelSwitchChatItem {
+  kind: "model-switch";
+  fromModel?: string;
+  toModel?: string;
+  fromModelLabel?: string;
+  toModelLabel?: string;
+  timestamp?: number;
+}
+
 export interface ThinkingBlockChatItem {
   kind: "thinking-block";
   text: string;
@@ -76,6 +85,7 @@ export type ChatItem =
   | AssistantChatItem
   | SystemChatItem
   | CompactBoundaryChatItem
+  | ModelSwitchChatItem
   | ThinkingBlockChatItem
   | ActivityGroupChatItem
   | AgentTranscriptChatItem;
@@ -109,6 +119,16 @@ export interface SystemRow {
 export interface CompactBoundaryRow {
   id: string;
   kind: "compact-boundary";
+  timestamp?: number;
+}
+
+export interface ModelSwitchRow {
+  id: string;
+  kind: "model-switch";
+  fromModel?: string;
+  toModel?: string;
+  fromModelLabel?: string;
+  toModelLabel?: string;
   timestamp?: number;
 }
 
@@ -152,6 +172,7 @@ export type RenderRow =
   | AssistantRow
   | SystemRow
   | CompactBoundaryRow
+  | ModelSwitchRow
   | ThinkingBlockRow
   | AgentTranscriptRow
   | ResponseDividerRow

@@ -7,6 +7,7 @@ import { ChatTimeline } from "@/components/chat/chat-timeline";
 import { ChatTOC } from "@/components/chat/chat-toc";
 import { AgentMessage } from "@/components/chat/agent-message";
 import { CompactBoundary } from "@/components/chat/compact-boundary";
+import { ModelSwitchDivider } from "@/components/chat/model-switch-divider";
 import { LiveStatusStrip } from "@/components/chat/live-status-strip";
 import { ResponseDivider } from "@/components/chat/response-divider";
 import { SystemMessage } from "@/components/chat/system-message";
@@ -425,6 +426,16 @@ export function MessageList({
         return <SystemMessage text={row.text} isError={row.isError} />;
       case "compact-boundary":
         return <CompactBoundary timestamp={row.timestamp} />;
+      case "model-switch":
+        return (
+          <ModelSwitchDivider
+            fromModel={row.fromModel}
+            toModel={row.toModel}
+            fromModelLabel={row.fromModelLabel}
+            toModelLabel={row.toModelLabel}
+            timestamp={row.timestamp}
+          />
+        );
       case "thinking-block":
         return <ThinkingBlock text={row.text} />;
       case "agent-transcript":

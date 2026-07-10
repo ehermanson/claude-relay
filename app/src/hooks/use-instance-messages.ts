@@ -122,6 +122,21 @@ function mergeToolResult(activities: MergedActivity[], result: ActivityMessage):
   return false;
 }
 
+function buildModelSwitchItem(
+  payload: Record<string, unknown> | undefined,
+  timestamp?: number,
+): Extract<ChatItem, { kind: "model-switch" }> {
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  return {
+    kind: "model-switch",
+    fromModel: str(payload?.fromModel),
+    toModel: str(payload?.toModel),
+    fromModelLabel: str(payload?.fromModelLabel),
+    toModelLabel: str(payload?.toModelLabel),
+    timestamp,
+  };
+}
+
 function buildUserChatItem(
   text: string,
   timestamp?: number,
@@ -249,6 +264,8 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
         flushAssistant();
         if (msg.event === "compact_boundary") {
           items.push({ kind: "compact-boundary", timestamp: entry.timestamp });
+        } else if (msg.event === "model_switched") {
+          items.push(buildModelSwitchItem(msg.payload, entry.timestamp));
         }
         break;
       }
@@ -801,6 +818,11 @@ function coreReducer(state: State, action: Action): State {
     }
 
     case "system_event": {
+      if (action.message.event === "model_switched") {
+        const items = [...state.items];
+        items.push(buildModelSwitchItem(action.message.payload, Date.now()));
+        return { ...state, items };
+      }
       if (action.message.event !== "compact_boundary") return state;
       const items = [...state.items];
       items.push({ kind: "compact-boundary", timestamp: Date.now() });

@@ -2099,6 +2099,72 @@ describe("InstanceManager", () => {
     });
   });
 
+  describe("model switch events", () => {
+    it("setModel records a model_switched event mid-conversation", async () => {
+      const config = makeConfig();
+      const mgr = trackManager(new InstanceManager(config));
+      const info = mgr.createInstance();
+      const instance = mgr.instances.get(info.id);
+      assert.ok(instance);
+      // Seed a user message so the switch counts as mid-conversation
+      instance.history.push({
+        timestamp: Date.now(),
+        message: { type: "user", text: "hello", instanceId: info.id },
+      });
+
+      const events = [];
+      mgr.on("instance:system_event", (id, msg) => events.push({ id, msg }));
+
+      await mgr.setModel(info.id, "claude-sonnet-4-5");
+
+      assert.equal(events.length, 1);
+      assert.equal(events[0].id, info.id);
+      assert.equal(events[0].msg.event, "model_switched");
+      assert.equal(events[0].msg.payload.toModel, "claude-sonnet-4-5");
+      // Fresh instance had no preference → from resolves to the catalog default
+      assert.equal(events[0].msg.payload.fromModel, "claude-opus-4-7");
+
+      const historyEntry = instance.history.find(
+        (e) => e.message.type === "system_event" && e.message.event === "model_switched",
+      );
+      assert.ok(historyEntry);
+
+      // Persisted so hydration can re-merge it after history rebuilds
+      const db = new SessionDB(config.dbPath, noopLogger);
+      try {
+        const rows = db.getSessionEvents(info.id);
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].event, "model_switched");
+        assert.equal(JSON.parse(rows[0].payload_json).toModel, "claude-sonnet-4-5");
+      } finally {
+        db.close();
+      }
+
+      // Re-selecting the same model records nothing new
+      await mgr.setModel(info.id, "claude-sonnet-4-5");
+      assert.equal(events.length, 1);
+    });
+
+    it("does not record a switch before the first user message", async () => {
+      const config = makeConfig();
+      const mgr = trackManager(new InstanceManager(config));
+      const info = mgr.createInstance();
+
+      const events = [];
+      mgr.on("instance:system_event", (id, msg) => events.push(msg));
+
+      await mgr.setModel(info.id, "claude-sonnet-4-5");
+
+      assert.equal(events.length, 0);
+      const db = new SessionDB(config.dbPath, noopLogger);
+      try {
+        assert.equal(db.getSessionEvents(info.id).length, 0);
+      } finally {
+        db.close();
+      }
+    });
+  });
+
   describe("modelOptions", () => {
     it("restores modelOptions from model_options_json on managed session restore", () => {
       const config = makeConfig();
