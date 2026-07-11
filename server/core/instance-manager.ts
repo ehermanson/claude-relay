@@ -25,7 +25,8 @@ import {
 } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import { execFileSync } from "child_process";
+import { execFile, execFileSync } from "child_process";
+import { promisify } from "util";
 import { findProjectIcon } from "#core/favicon-scanner.js";
 import type { ProviderSession } from "#core/provider.js";
 import {
@@ -375,6 +376,8 @@ const DISCOVERY_INTERVAL = 30_000; // 30s
 const SLOW_DISCOVERY_WARN_MS = 1_000;
 /** Git branch refresh runs at most this often (multiple of discovery interval) */
 const GIT_REFRESH_INTERVAL = 30_000; // 30s
+const execFileAsync = promisify(execFile);
+
 const WATCH_POLL_INTERVAL = 2_000; // 2s
 const WATCH_DEDUP_GRACE_MS = 2_000; // Allow JSONL writes to catch up to managed process output
 /** Number of consecutive discovery misses before marking an external session as ended */
@@ -3017,20 +3020,20 @@ export class InstanceManager extends EventEmitter {
     return filePath ? getFileDiff(cwd, filePath, opts) : getFullDiff(cwd, opts);
   }
 
-  private dispatchUserMessageLocked(
+  private async dispatchUserMessageLocked(
     id: string,
     instance: Instance,
     text: string,
     images?: string[],
     internal?: boolean,
     attachments?: string[],
-  ): InstanceInfo | undefined {
+  ): Promise<InstanceInfo | undefined> {
     this.hydrateInstance(id, instance);
     this.assertSpaceWritable(instance);
 
     let resumed: InstanceInfo | undefined;
     if (instance.info.external) {
-      resumed = this.resumeInstanceLocked(id, instance);
+      resumed = await this.resumeInstanceLocked(id, instance);
     } else if (!instance.process) {
       this.bootManagedInstance(id, instance);
     } else if (instance.info.status === "stopped" && instance.sessionId) {
@@ -3180,7 +3183,7 @@ export class InstanceManager extends EventEmitter {
       this.noteManagedProcessActivity(instance);
       this.pushHistory(instance, activity);
       this.emit("instance:activity", id, activity);
-      this.dispatchUserMessageLocked(id, instance, reply.text);
+      await this.dispatchUserMessageLocked(id, instance, reply.text);
       return;
     }
 
@@ -3195,7 +3198,7 @@ export class InstanceManager extends EventEmitter {
 
       const text = decision === "accept" ? (response?.text?.trim() ?? "") : "";
       if (text) {
-        this.dispatchUserMessageLocked(id, instance, text);
+        await this.dispatchUserMessageLocked(id, instance, text);
       }
       return;
     }
@@ -3319,11 +3322,11 @@ export class InstanceManager extends EventEmitter {
    * without sending any user message. Returns the updated InstanceInfo.
    */
   async takeoverInstance(id: string): Promise<InstanceInfo | undefined> {
-    return this.enqueueInstanceMutation(id, (instance) => {
+    return this.enqueueInstanceMutation(id, async (instance) => {
       if (!instance.info.external) throw new Error("Instance is not external");
       this.hydrateInstance(id, instance);
       this.assertSpaceWritable(instance);
-      const resumed = this.resumeInstanceLocked(id, instance);
+      const resumed = await this.resumeInstanceLocked(id, instance);
       return resumed;
     });
   }
@@ -3400,11 +3403,7 @@ export class InstanceManager extends EventEmitter {
     });
   }
 
-  private sleepMs(ms: number): void {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-  }
-
-  private waitForPidExit(pid: number, timeoutMs = 5000): boolean {
+  private async waitForPidExit(pid: number, timeoutMs = 5000): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       try {
@@ -3422,16 +3421,33 @@ export class InstanceManager extends EventEmitter {
         }
         return true;
       }
-      this.sleepMs(100);
+      // kill(pid, 0) succeeds on zombies — processes that exited but haven't
+      // been reaped by their parent. Treat zombies as exited: they can't hold
+      // the session, and they may never disappear if the parent isn't reaping.
+      if (await this.isZombieProcess(pid)) return true;
+      await new Promise((resolve) => setTimeout(resolve, 150));
     }
     return false;
+  }
+
+  private async isZombieProcess(pid: number): Promise<boolean> {
+    try {
+      const { stdout } = await execFileAsync("ps", ["-o", "stat=", "-p", String(pid)], {
+        encoding: "utf-8",
+        timeout: 2000,
+      });
+      return stdout.trim().startsWith("Z");
+    } catch {
+      // ps failed or PID is gone — the kill(pid, 0) probe handles existence
+      return false;
+    }
   }
 
   /**
    * Resume an external session — converts it from read-only monitoring
    * to an interactive managed instance.
    */
-  private resumeInstanceLocked(id: string, instance: Instance): InstanceInfo {
+  private async resumeInstanceLocked(id: string, instance: Instance): Promise<InstanceInfo> {
     this.assertSpaceWritable(instance);
     const sessionId = instance.externalState?.sessionId ?? instance.sessionId;
     const jsonlPath = instance.externalState?.jsonlPath ?? instance.jsonlPath;
@@ -3440,16 +3456,28 @@ export class InstanceManager extends EventEmitter {
 
     // SIGINT the external CLI process so it exits cleanly before we take over
     if (instance.externalState?.pid) {
+      const externalPid = instance.externalState.pid;
       try {
-        process.kill(instance.externalState.pid, "SIGINT");
-        this.baseConfig.logger.info(
-          `[InstanceManager] Sent SIGINT to external CLI process (PID ${instance.externalState.pid})`,
-        );
-        if (!this.waitForPidExit(instance.externalState.pid)) {
+        let alreadyExited = false;
+        try {
+          process.kill(externalPid, "SIGINT");
+          this.baseConfig.logger.info(
+            `[InstanceManager] Sent SIGINT to external CLI process (PID ${externalPid})`,
+          );
+        } catch (err) {
+          // ESRCH: the tracked PID is already gone (stale discovery data) —
+          // there's nothing to stop, so proceed with the resume.
+          if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
+          alreadyExited = true;
+          this.baseConfig.logger.info(
+            `[InstanceManager] External CLI process (PID ${externalPid}) already exited — resuming without signals`,
+          );
+        }
+        if (!alreadyExited && !(await this.waitForPidExit(externalPid))) {
           try {
-            process.kill(instance.externalState.pid, osConstants.signals.SIGKILL);
+            process.kill(externalPid, osConstants.signals.SIGKILL);
             this.baseConfig.logger.warn(
-              `[InstanceManager] External PID ${instance.externalState.pid} did not exit after SIGINT; sent SIGKILL before resuming`,
+              `[InstanceManager] External PID ${externalPid} did not exit after SIGINT; sent SIGKILL before resuming`,
             );
           } catch (err) {
             const code = (err as NodeJS.ErrnoException).code;
@@ -3457,15 +3485,15 @@ export class InstanceManager extends EventEmitter {
               throw err;
             }
           }
-          if (!this.waitForPidExit(instance.externalState.pid, 2000)) {
+          if (!(await this.waitForPidExit(externalPid, 2000))) {
             throw new Error(
-              `External CLI process (PID ${instance.externalState.pid}) did not exit after shutdown signals`,
+              `External CLI process (PID ${externalPid}) did not exit after shutdown signals`,
             );
           }
         }
       } catch (err) {
         this.baseConfig.logger.warn(
-          `[InstanceManager] Failed to stop external PID ${instance.externalState.pid} before resume: ${err}`,
+          `[InstanceManager] Failed to stop external PID ${externalPid} before resume: ${err}`,
         );
         throw err;
       }
@@ -7551,7 +7579,7 @@ export class InstanceManager extends EventEmitter {
 
   private wireProcessEvents(id: string, proc: ProviderSession): void {
     proc.on("output", (message) => {
-      void this.enqueueInstanceMutation(id, (live) => {
+      void this.enqueueInstanceMutation(id, async (live) => {
         if (this.shuttingDown || live.process !== proc) return;
         this.noteManagedProcessActivity(live);
         live.providerBinding = mergeProviderBinding(live.providerBinding, proc.getRuntimeBinding());
@@ -7588,7 +7616,7 @@ export class InstanceManager extends EventEmitter {
             live.pendingMessages = undefined;
             live.info.queuedMessageCount = undefined;
             this.emitInstanceStatus(live);
-            this.dispatchUserMessageLocked(
+            await this.dispatchUserMessageLocked(
               id,
               live,
               coalesced.text,
@@ -7948,7 +7976,7 @@ export class InstanceManager extends EventEmitter {
     });
 
     proc.on("exit", (message) => {
-      void this.enqueueInstanceMutation(id, (live) => {
+      void this.enqueueInstanceMutation(id, async (live) => {
         if (this.shuttingDown || live.process !== proc) return;
         live.providerBinding = mergeProviderBinding(live.providerBinding, proc.getRuntimeBinding());
         const wasCancelledByUser = live.cancelledByUser;
@@ -7965,7 +7993,7 @@ export class InstanceManager extends EventEmitter {
           this.setStatus(live, "stopped");
           this.emitInstanceStatus(live);
           this.dbSave(live);
-          this.dispatchUserMessageLocked(
+          await this.dispatchUserMessageLocked(
             id,
             live,
             coalesced.text,

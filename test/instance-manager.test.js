@@ -874,6 +874,93 @@ describe("InstanceManager", () => {
       assert.equal(instance.process, fakeProc);
     });
 
+    it("proceeds with takeover when the external pid is already gone (ESRCH)", async () => {
+      const projectDir = manager.baseConfig.workingDirectory;
+      const transcriptPath = join(projectDir, "external-takeover-esrch.jsonl");
+      writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: "init",
+          cwd: projectDir,
+          sessionId: "external-1",
+          timestamp: new Date().toISOString(),
+        })}\n`,
+      );
+
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsert(
+          makeExternalRow({
+            working_directory: projectDir,
+            jsonl_path: transcriptPath,
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      const restored = trackManager(new InstanceManager(manager.baseConfig));
+      restored.projectManager.addProject(projectDir);
+      restored.restoreInstances();
+      restored.discoverExternalSessions = async () => [
+        {
+          provider: "claude",
+          cwd: projectDir,
+          transcriptPath,
+          sessionId: "external-1",
+          pid: 4321,
+        },
+      ];
+      await restored.discoverExistingInner();
+
+      const order = [];
+      const fakeProc = new FakeProviderSession("claude");
+      const originalKill = process.kill;
+
+      restored.waitForPidExit = async (_pid, timeoutMs = 5000) => {
+        order.push(`wait:${timeoutMs}`);
+        return true;
+      };
+      restored.createProviderSession = () => {
+        order.push("create");
+        return fakeProc;
+      };
+      process.kill = (pid, signal) => {
+        order.push(`kill:${pid}:${String(signal)}`);
+        const err = new Error("kill ESRCH");
+        err.code = "ESRCH";
+        throw err;
+      };
+
+      try {
+        const info = await restored.takeoverInstance("external-instance-1");
+        assert.ok(info);
+      } finally {
+        process.kill = originalKill;
+      }
+
+      // SIGINT hit a dead PID — no waiting or SIGKILL, straight to resume
+      assert.deepEqual(order, ["kill:4321:SIGINT", "create"]);
+
+      const instance = restored.instances.get("external-instance-1");
+      assert.ok(instance);
+      assert.equal(instance.info.external, false);
+      assert.equal(instance.externalState, undefined);
+      assert.equal(instance.process, fakeProc);
+    });
+
+    it("treats a zombie external pid as exited while waiting", async () => {
+      const originalKill = process.kill;
+      // kill(pid, 0) always "succeeds" — the process table entry still exists
+      process.kill = () => true;
+      manager.isZombieProcess = async () => true;
+      try {
+        assert.equal(await manager.waitForPidExit(999999, 1000), true);
+      } finally {
+        process.kill = originalKill;
+      }
+    });
+
     it("refreshes the live git branch without waiting for a new message", async () => {
       const repoDir = makeRepoDir();
 

@@ -242,20 +242,42 @@ async function findRunningProcessCwdsByCommandAsync(
   try {
     if (names.size === 0) return grouped;
 
-    const { stdout: psOutput } = await execFileAsync("ps", ["-eo", "pid=,comm="], {
+    const { stdout: psOutput } = await execFileAsync("ps", ["-eo", "pid=,ppid=,comm="], {
       encoding: "utf-8",
       timeout: 5000,
     });
 
-    const pids: number[] = [];
-    const commandByPid = new Map<number, string>();
+    const ppidByPid = new Map<number, number>();
+    const candidates: Array<{ pid: number; command: string }> = [];
     for (const line of psOutput.split("\n")) {
-      const match = line.trim().match(/^(\d+)\s+(.+)$/);
+      const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
       if (!match) continue;
       const pid = parseInt(match[1], 10);
-      const command = match[2].split("/").pop() ?? match[2];
+      ppidByPid.set(pid, parseInt(match[2], 10));
+      const command = match[3].split("/").pop() ?? match[3];
       if (!names.has(command)) continue;
       if (excludePids.has(pid)) continue;
+      candidates.push({ pid, command });
+    }
+
+    // Exclude descendants of this Relay server process. SDK-managed provider
+    // CLIs are spawned as children of Relay but don't expose their PID
+    // (ProviderSession.pid is undefined for SDK sessions), so excludePids
+    // can't cover them. Without this check they get mispaired with external
+    // sessions' JSONLs, and takeover then SIGKILLs a managed session's process.
+    const isRelayDescendant = (pid: number): boolean => {
+      let current = ppidByPid.get(pid);
+      for (let depth = 0; current !== undefined && current > 1 && depth < 64; depth++) {
+        if (current === process.pid) return true;
+        current = ppidByPid.get(current);
+      }
+      return false;
+    };
+
+    const pids: number[] = [];
+    const commandByPid = new Map<number, string>();
+    for (const { pid, command } of candidates) {
+      if (isRelayDescendant(pid)) continue;
       pids.push(pid);
       commandByPid.set(pid, command);
     }
