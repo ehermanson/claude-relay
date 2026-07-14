@@ -12,6 +12,15 @@ Work from the root of the checked-out `ehermanson/relay` repo (default branch).
 - `.relay/provider-strategy.md` — bucket definitions.
 - `.relay/tasks.json` — the task list.
 
+## Close out merged work (do this first, every run)
+
+Sweep `.relay/tasks.json` for tasks tagged `provider-watch` with status `in_progress`. For
+each, check whether its impl PR merged (`gh pr list --state merged --search "<taskId>"` or
+look for branch `provider-watch/impl-<taskId>`). If merged, the work shipped but the task
+was never closed: set its status to `done` (update `updatedAt`). If any flips were made,
+deliver them as one small PR on branch `provider-watch/close-out-<YYYY-MM-DD>` — plain-language
+body listing which tasks were closed and the merged PR each one shipped in. Then continue.
+
 ## Select the eligible tasks
 
 An eligible task has status `open`, tags including **both** `provider-watch` and `bucket-2`,
