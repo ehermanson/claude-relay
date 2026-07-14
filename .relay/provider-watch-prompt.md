@@ -55,11 +55,24 @@ noisy task. A clean backlog is the goal.
 
 ## Output a single summary message
 
-- **Breaking / deprecation (bucket 0)** — at the very top.
-- Tasks filed (titles + bucket).
-- Bucket-1 "free" changes (one line each).
-- Out-of-lane / skipped, with the one-line reason.
-- "Would've been bucket-2 if we had abstraction X" flags — call these out near the top.
+**Write for a reader who has NOT read `provider-strategy.md` and doesn't know the bucket
+jargon.** Plain words only: no "bucket 0/1/2/3", "watermark", "out-of-lane", or
+"capability-declaration-shaped" without a plain-English translation right next to it.
+Bucket numbers may appear in parentheses after a plain label, never as the label itself.
+
+Structure:
+
+- **Open with one short paragraph saying what this is**: the weekly sweep of Claude/Codex
+  release notes; it files to-dos for changes that affect Relay and moves the "last checked"
+  marker forward; it changes no app code.
+- **"Needs attention before upgrading"** (bucket 0) — at the very top. For each: what changed
+  upstream and what could break in Relay, in one or two plain sentences.
+- **"To-dos filed"** — for each task: one plain sentence on what changed upstream, one on what
+  Relay could do about it. Task id + priority in parentheses.
+- **"No action needed"** (bucket 1) — one plain line each.
+- **"Skipped — not Relay's concern"** — one-line reason each.
+- **"Blocked on missing groundwork"** flags (would-be bucket 2 if we had abstraction X) — near
+  the top, with the missing piece explained plainly.
 
 ## Commit & open a PR
 
@@ -71,9 +84,10 @@ Always deliver results as a pull request — never push to the default branch di
    Never commit source changes. Keep the commit message brief.
 3. Open a PR against the default branch, titled `provider-watch: triage <date range>`. Apply
    the `provider-watch` label (create it first if missing: `gh label create provider-watch
---color BFD4F2 || true`). The PR description must mirror the summary message: bucket-0
-   items at the top, tasks filed (titles + bucket), bucket-1 "free" notes, out-of-lane/skipped
-   reasons, and any "would've been bucket-2 if we had abstraction X" flags.
+--color BFD4F2 || true`). The PR description mirrors the summary message and follows the
+   same plain-language rule. **The first paragraph must make the PR's purpose unmissable to
+   someone skimming**: this is the automated weekly release-notes sweep, merging it accepts
+   the filed to-dos and the new "last checked" marker, and it touches zero app code.
 
 If there is nothing to file (no bucket-0/2/3 items and no watermark advance), skip the PR
 and just report the summary — don't open an empty PR.

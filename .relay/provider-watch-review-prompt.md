@@ -28,6 +28,11 @@ A triage PR should only touch `.relay/tasks.json` and `.relay/changelog-watch-st
 3. Check the watermark advance is reasonable — it should not skip unprocessed entries.
 4. Sanity-check titles/descriptions: do they name the right `ProviderCapabilities` field /
    UI control / abstraction?
+5. Check the PR description meets the plain-language rule from the triage/implementer
+   prompts: it must open with a plain-English statement of what the PR is and what merging
+   it does, readable by someone who knows none of the bucket jargon. Flag bare jargon
+   ("bucket 0", "watermark", "out-of-lane" with no translation) or a buried purpose — under
+   Nits if cosmetic, under CHANGES if the purpose is genuinely unclear.
 
 ## Post ONE verdict comment (`gh pr comment`)
 

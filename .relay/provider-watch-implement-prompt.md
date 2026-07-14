@@ -50,5 +50,12 @@ ship first if the run is interrupted. If none are eligible, do nothing and repor
 - Branch: `provider-watch/impl-<taskId>`; title `provider-watch: implement <taskId> — <task title>`.
 - Apply the `provider-watch` label (create if missing: `gh label create provider-watch
 --color BFD4F2 || true`).
-- Body: what changed, the task (id + title), the bucket-2 rationale, the verification output,
-  and anything a reviewer should double-check. Link the original changelog source.
+- Body — **plain language first, technical detail second**. Write the opening for a reader
+  who has NOT read `provider-strategy.md` and doesn't know the bucket jargon. Structure:
+  1. **Purpose, in one or two sentences a non-expert can follow** — what a user sees before
+     vs. after this change. Do not open with SDK versions, type names, or "bucket-2".
+  2. What changed, file by file, briefly.
+  3. The task (id + title) and why it was near-mechanical. Translate any jargon you use —
+     say "routine plumbing of data the SDK already sends" rather than bare "bucket-2".
+  4. Verification output and anything a reviewer should double-check.
+  5. Link the original changelog source.
