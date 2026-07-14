@@ -78,6 +78,14 @@ Structure:
 
 Always deliver results as a pull request — never push to the default branch directly.
 
+0. **Check for a stale sibling first**: `gh pr list --state open --label provider-watch`
+   for a branch prefixed `provider-watch/triage-`. If a prior triage PR is still unmerged,
+   do NOT stack a sibling — your run must cover its window too (your watermark start is the
+   merged state on the default branch, so it already does). Read the stale PR's filed tasks:
+   carry forward any you agree with into your own tasks.json changes, and name the ones you
+   dropped (with a one-line reason) in your PR description. After opening your PR, close the
+   stale one with a comment naming your PR as its superseder. Never leave two open triage
+   PRs that advance the same watermarks.
 1. Create a branch named `provider-watch/triage-<YYYY-MM-DD>` off the default branch.
 2. Commit ONLY `.relay/` data files: the updated `changelog-watch-state.json` and
    `tasks.json` (and `provider-strategy.md` only if you were explicitly asked to revise it).
