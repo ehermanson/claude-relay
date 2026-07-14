@@ -300,6 +300,7 @@ export interface ProviderRequest {
   files?: string[];
   server?: string;
   raw?: Record<string, unknown>;
+  agentId?: string;
 }
 
 export interface ProviderRequestResponse {

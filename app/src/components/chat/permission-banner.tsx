@@ -10,8 +10,8 @@ function getProviderLabel(provider: ProviderKind): string {
   return provider === "codex" ? "Codex" : "Claude";
 }
 
-function getPermissionLabel(provider: ProviderKind, tool: string): string {
-  const label = getProviderLabel(provider);
+function getPermissionLabel(provider: ProviderKind, tool: string, agentId?: string): string {
+  const label = agentId ? `Agent ${agentId}` : getProviderLabel(provider);
   if (FILE_WRITE_GROUP.includes(tool)) return `${label} needs permission to edit files`;
   if (tool === "Bash") return `${label} needs permission to run commands`;
   return `${label} needs permission to use ${tool}`;
@@ -70,7 +70,7 @@ export function PermissionBanner({
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[0.8125rem] font-medium text-text-bright">
-              {getPermissionLabel(provider, tool)}
+              {getPermissionLabel(provider, tool, request.agentId)}
             </p>
             {detail && <p className="truncate text-[0.75rem] text-muted">{detail}</p>}
           </div>
