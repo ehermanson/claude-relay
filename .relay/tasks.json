@@ -2176,14 +2176,14 @@
       "id": "8e6b4a27",
       "title": "Claude: surface agent_id in permission prompts from background agents",
       "description": "Claude Agent SDK v0.3.186 added `agent_id` to `can_use_tool` control requests and changed background-agent behavior: background agents now forward permission prompts to `canUseTool` instead of auto-denying.\n\nThis has two effects on Relay:\n1. Our permission-prompt UI will now receive `can_use_tool` requests from background agents that previously never surfaced. Volume of interactive permission requests may increase for multi-agent sessions.\n2. The `agent_id` field lets us identify which subagent is requesting a permission, enabling a richer permission UI (e.g. \"Agent `abc123` wants to use the bash tool\").\n\n`ProviderCapabilities` currently has no concept of agent identity on permission requests. Relay should:\n- Map `agent_id` through the permission control request flow in `claude-sdk.ts` and the `PermissionRequest` type.\n- Surface it in the `AskUserQuestionPanel` / permission banner so users see which agent is asking.\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.186\n\nBucket 2 — priority 2.\n\n---\n\n**Post-upgrade note (2026-07-01, commit `23aa4c0`):** The agent SDK is now bumped to 0.3.197, so effect #1 is **already live in production** — background-agent permission prompts now flow to `canUseTool` (no longer auto-denied) as of this commit, independent of any UI work here. Reframe: this is no longer 'enable a new path' but 'prompts are already surfacing untagged — add `agent_id` attribution.' `agent_id` is confirmed present on the can_use_tool control request (`sdk.d.ts`); our `CanUseTool` options type in `claude-sdk.ts` already declares an `agentID?` slot, so plumbing is partly wired. Bumping priority worth considering given the behavior is active.",
-      "status": "in_progress",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-06-30T00:00:00.000Z",
-      "updatedAt": "2026-07-08T00:00:00.000Z"
+      "updatedAt": "2026-07-14T00:00:00.000Z"
     },
     {
       "id": "3c1f9d48",
@@ -2262,6 +2262,32 @@
       "blockedBy": [],
       "createdAt": "2026-07-13T00:00:00.000Z",
       "updatedAt": "2026-07-13T00:00:00.000Z"
+    },
+    {
+      "id": "ffbc884b",
+      "title": "Claude SDK: surface `blocked` state from workflow_agent events in agents view",
+      "description": "**What changed**: SDK 0.3.199 added a `blocked` field to `workflow_agent` progress events, set to `true` when an agent was blocked by the auto-mode safety classifier.\n\n**Bucket**: 2 (capability-declaration)\n\n**ProviderCapabilities / abstraction**: No new `ProviderCapabilities` field required — this is new event data in the existing `workflow_agent` event shape. Touch point: the live activity stream in `claude-sdk.ts` that processes `workflow_agent` events, and the agents sidecar component that renders agent rows.\n\n**UI control**: Agents sidecar view should show a `blocked` indicator (badge, icon, or status label) on affected agent rows so users know an agent stalled on the safety classifier. Related to open task `803fe57b` (nested subagent activity view); consider landing as a prerequisite detail of that redesign.\n\n**Scope estimate**: Small. (1) Parse `blocked` field in the `workflow_agent` event handler in `claude-sdk.ts`. (2) Forward it through the `AgentActivity` / `ActivityMessage` type. (3) Render a `ShieldAlert` icon or equivalent on blocked agent rows in the sidecar.\n\n**Changelog ref**: @anthropic-ai/claude-agent-sdk 0.3.199",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-07-06T00:00:00.000Z",
+      "updatedAt": "2026-07-14T00:00:00.000Z"
+    },
+    {
+      "id": "791f1b26",
+      "title": "Claude SDK: expose per-server MCP request timeout in project settings",
+      "description": "**What changed**: SDK 0.3.198 added a `request_timeout_ms` option to the `mcp_set_servers` control request, allowing per-MCP-server timeout configuration.\n\n**Bucket**: 2 (capability-declaration)\n\n**ProviderCapabilities / abstraction**: Relay reads MCP server config from `~/.claude.json` and project settings, then calls `mcp_set_servers` when a Claude session starts. The new option is a per-server `request_timeout_ms` field in the servers array. Consider adding a `requestTimeoutMs?: number` to Relay's stored MCP server config shape and threading it through the driver call.\n\n**UI control**: Surface a timeout field per MCP server entry in the project settings MCP section. If per-server MCP options aren't yet in the settings UI, this is a small prerequisite. At minimum, pass a configurable default (e.g. 30 000 ms) in the driver to prevent infinitely-hanging tool calls.\n\n**Scope estimate**: Medium. (1) Add `requestTimeoutMs?: number` to the MCP server config shape in types. (2) Thread it through to `mcp_set_servers` in the Claude SDK driver. (3) Persist via project settings API. (4) Render in project settings UI.\n\n**Changelog ref**: @anthropic-ai/claude-agent-sdk 0.3.198",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-07-06T00:00:00.000Z",
+      "updatedAt": "2026-07-14T00:00:00.000Z"
     }
   ]
 }
