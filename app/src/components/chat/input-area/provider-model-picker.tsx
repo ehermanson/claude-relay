@@ -5,6 +5,7 @@ import {
   LockIcon,
   LockOpenIcon,
   MapIcon,
+  ShieldCheckIcon,
   ZapIcon,
 } from "lucide-react";
 import { Fragment } from "react";
@@ -170,11 +171,17 @@ export function ProviderModelPicker({
   );
 }
 
-const RUNTIME_MODE_ORDER: ProviderRuntimeMode[] = ["approval-required", "full-access", "plan"];
+const RUNTIME_MODE_ORDER: ProviderRuntimeMode[] = [
+  "approval-required",
+  "full-access",
+  "auto",
+  "plan",
+];
 
 const RUNTIME_MODE_ICON: Record<ProviderRuntimeMode, typeof LockIcon> = {
   "approval-required": LockIcon,
   "full-access": LockOpenIcon,
+  auto: ShieldCheckIcon,
   plan: MapIcon,
 };
 

@@ -190,6 +190,10 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
         label: "Full access",
         description: "Run commands and edit files without asking",
       },
+      auto: {
+        label: "Auto",
+        description: "Safety classifier decides automatically which tool calls need approval",
+      },
       plan: {
         label: "Plan",
         description: "Stay in planning mode for this chat",
