@@ -6,6 +6,11 @@ import type { ProviderKind } from "@shared/types";
 
 type RateLimitStatus = "allowed" | "allowed_warning" | "rejected";
 
+// Rate-limit state belongs to the provider, not to an individual chat. Keep it
+// outside the hook so navigating between chats cannot make an unchanged warning
+// look like a new transition. An explicit recovery still arms the next warning.
+const lastSeenStatuses = new Map<string, RateLimitStatus>();
+
 /**
  * Fires a toast when a provider rate limit window transitions into
  * "allowed_warning" or "rejected". Re-fires if the status later resets and
@@ -13,8 +18,6 @@ type RateLimitStatus = "allowed" | "allowed_warning" | "rejected";
  */
 export function useRateLimitWarning(provider: ProviderKind | undefined, onOpenContext: () => void) {
   const providerGlobalState = useProviderRuntimeStore((s) => s.providerGlobalState);
-  // Map of "<scope>/<windowIndex>" → last-seen status, so we only toast on transitions.
-  const prevStatusRef = useRef(new Map<string, RateLimitStatus>());
   // Keep the latest callback without making it an effect dependency.
   const onOpenContextRef = useRef(onOpenContext);
   onOpenContextRef.current = onOpenContext;
@@ -27,12 +30,12 @@ export function useRateLimitWarning(provider: ProviderKind | undefined, onOpenCo
       const windows = limit.windows ?? [];
       for (let i = 0; i < windows.length; i++) {
         const window = windows[i];
-        const key = `${limit.scope ?? limit.name ?? "unknown"}/${i}`;
+        const key = `${provider}/${limit.scope ?? limit.name ?? "unknown"}/${i}`;
         const currentStatus = (window.status ?? "allowed") as RateLimitStatus;
-        const prevStatus = prevStatusRef.current.get(key) ?? "allowed";
+        const prevStatus = lastSeenStatuses.get(key) ?? "allowed";
         if (currentStatus === prevStatus) continue;
 
-        prevStatusRef.current.set(key, currentStatus);
+        lastSeenStatuses.set(key, currentStatus);
         if (currentStatus === "allowed") continue; // recovered — nothing to surface
 
         const resetIn = window.resetAt ? formatTimeUntil(window.resetAt) : "";
@@ -56,6 +59,11 @@ export function useRateLimitWarning(provider: ProviderKind | undefined, onOpenCo
       }
     }
   }, [provider, providerGlobalState]);
+}
+
+/** Test-only reset for module-scoped transition memory. */
+export function resetRateLimitWarningState(): void {
+  lastSeenStatuses.clear();
 }
 
 function formatWindowName(scope: string | undefined): string {
