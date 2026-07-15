@@ -175,6 +175,7 @@ const RUNTIME_MODE_ORDER: ProviderRuntimeMode[] = [
   "approval-required",
   "full-access",
   "auto",
+  "writes-only",
   "plan",
 ];
 
@@ -182,6 +183,7 @@ const RUNTIME_MODE_ICON: Record<ProviderRuntimeMode, typeof LockIcon> = {
   "approval-required": LockIcon,
   "full-access": LockOpenIcon,
   auto: ShieldCheckIcon,
+  "writes-only": LockOpenIcon,
   plan: MapIcon,
 };
 

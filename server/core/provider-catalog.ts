@@ -242,6 +242,10 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
         label: "Full access",
         description: "Run commands directly without sandboxing",
       },
+      "writes-only": {
+        label: "Writes only",
+        description: "Auto-allow read operations; only prompt for write operations",
+      },
       plan: {
         label: "Plan",
         description: "Stay in planning mode for this chat",

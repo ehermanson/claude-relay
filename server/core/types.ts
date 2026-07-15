@@ -142,7 +142,12 @@ export interface ResolvedSuggestion {
 
 export type InstanceStatus = "idle" | "processing" | "error" | "stopped";
 export type ProviderKind = "claude" | "codex" | "gemini";
-export type ProviderRuntimeMode = "approval-required" | "full-access" | "plan" | "auto";
+export type ProviderRuntimeMode =
+  | "approval-required"
+  | "full-access"
+  | "plan"
+  | "auto"
+  | "writes-only";
 
 /**
  * Canonical cross-provider reasoning effort level.
