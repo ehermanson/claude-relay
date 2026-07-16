@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { GitBranch } from "lucide-react";
+import { GitBranch, Pin } from "lucide-react";
 import { StatusDot } from "@/components/ui/status-dot";
 import { getInstanceChatRoute } from "@/lib/project-route";
 import {
@@ -41,6 +41,7 @@ export function ChatListRow({
           <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-text">
             {instance.name}
           </span>
+          {instance.pinned && <Pin size={10} className="shrink-0 fill-current text-muted" />}
           {recencyAt > 0 && (
             <span className="shrink-0 text-[0.625rem] text-muted">{formatTimeAgo(recencyAt)}</span>
           )}

@@ -67,6 +67,22 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
     return c.json(summary);
   });
 
+  app.post("/api/instances/:id/pinned", async (c) => {
+    try {
+      const body = await readJsonBody<{ pinned?: boolean }>(c);
+      const updated = await instanceManager.setInstancePinned(
+        c.req.param("id"),
+        body.pinned === true,
+      );
+      if (!updated) {
+        return c.json({ error: "Instance not found" }, 404);
+      }
+      return c.json({ success: true });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Failed to pin chat" }, 400);
+    }
+  });
+
   app.delete("/api/instances/:id", (c) => {
     const removed = instanceManager.removeInstance(c.req.param("id"));
     if (removed) {

@@ -89,6 +89,7 @@ export interface SessionRow {
   type: string;
   archived: number;
   custom_title: number;
+  pinned: number;
   input_tokens: number;
   output_tokens: number;
   cache_creation_tokens: number;
@@ -124,6 +125,7 @@ export interface ManagedInstanceRow {
   last_activity_at: number;
   archived: number;
   custom_title: number;
+  pinned: number;
   input_tokens: number;
   output_tokens: number;
   cache_creation_tokens: number;
@@ -178,6 +180,7 @@ export interface SpinOffRow {
 
 function normalizeSessionRow(row: SessionRow): SessionRow {
   const normalized = { ...row };
+  normalized.pinned ??= 0;
   normalized.summary ??= null;
   normalized.first_prompt ??= null;
   normalized.git_branch ??= null;
@@ -201,6 +204,7 @@ function normalizeSessionRow(row: SessionRow): SessionRow {
 
 function normalizeManagedInstanceRow(row: ManagedInstanceRow): ManagedInstanceRow {
   const normalized = { ...row };
+  normalized.pinned ??= 0;
   normalized.git_branch ??= null;
   normalized.worktree_path ??= null;
   normalized.original_directory ??= null;
@@ -431,6 +435,8 @@ export class SessionDB {
   private stmtUpdateStats!: StatementSync;
   private stmtUpdateLastActivity!: StatementSync;
   private stmtUpdateName!: StatementSync;
+  private stmtSetPinned!: StatementSync;
+  private stmtSetManagedPinned!: StatementSync;
   private stmtGetJsonlPaths!: StatementSync;
   private stmtDeleteBySessionId!: StatementSync;
   private stmtDeleteByInstanceId!: StatementSync;
@@ -644,6 +650,7 @@ ${buildSearchIndexSchemaSql()},
       this.ensureSuggestionsColumns();
       this.ensureRuntimeModeColumns();
       this.ensureProjectSlugColumn();
+      this.ensurePinnedColumns();
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
       return;
     }
@@ -657,6 +664,7 @@ ${buildSearchIndexSchemaSql()},
       this.ensureSuggestionsColumns();
       this.ensureRuntimeModeColumns();
       this.ensureProjectSlugColumn();
+      this.ensurePinnedColumns();
       return;
     }
 
@@ -666,6 +674,7 @@ ${buildSearchIndexSchemaSql()},
     this.ensureGlobalSettingsColumns();
     this.ensureSuggestionsColumns();
     this.ensureRuntimeModeColumns();
+    this.ensurePinnedColumns();
     this.db.exec(`UPDATE schema_version SET version = ${CURRENT_SCHEMA_VERSION}`);
   }
 
@@ -683,6 +692,7 @@ ${buildSearchIndexSchemaSql()},
         type TEXT NOT NULL DEFAULT 'external',
         archived INTEGER NOT NULL DEFAULT 0,
         custom_title INTEGER NOT NULL DEFAULT 0,
+        pinned INTEGER NOT NULL DEFAULT 0,
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
@@ -724,6 +734,7 @@ ${buildSearchIndexSchemaSql()},
         last_activity_at INTEGER NOT NULL,
         archived INTEGER NOT NULL DEFAULT 0,
         custom_title INTEGER NOT NULL DEFAULT 0,
+        pinned INTEGER NOT NULL DEFAULT 0,
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
@@ -908,6 +919,23 @@ ${buildSearchIndexSchemaSql()},
     );
   }
 
+  /**
+   * Add the `pinned` flag to both session tables. Idempotent — safe to run on
+   * fresh and migrated databases alike.
+   */
+  private ensurePinnedColumns(): void {
+    const ensureFor = (table: "sessions" | "managed_sessions") => {
+      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+        name?: string;
+      }>;
+      if (!columns.some((c) => c.name === "pinned")) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+      }
+    };
+    ensureFor("sessions");
+    ensureFor("managed_sessions");
+  }
+
   private ensureSuggestionsColumns(): void {
     const ensureFor = (table: "global_settings" | "projects") => {
       const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
@@ -936,7 +964,7 @@ ${buildSearchIndexSchemaSql()},
       this.db.prepare(`
       INSERT INTO sessions (
         session_id, instance_id, provider_name, name, working_directory, jsonl_path,
-        created_at, last_activity_at, type, archived, custom_title,
+        created_at, last_activity_at, type, archived, custom_title, pinned,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         summary, first_prompt, git_branch, message_count, allowed_tools,
         worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, runtime_mode,
@@ -944,7 +972,7 @@ ${buildSearchIndexSchemaSql()},
         git_info_branch, git_info_is_worktree, space_id, project_id, model
       ) VALUES (
         @session_id, @instance_id, @provider_name, @name, @working_directory, @jsonl_path,
-        @created_at, @last_activity_at, @type, @archived, @custom_title,
+        @created_at, @last_activity_at, @type, @archived, @custom_title, @pinned,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
         @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @runtime_mode,
@@ -961,6 +989,8 @@ ${buildSearchIndexSchemaSql()},
         type = excluded.type,
         archived = excluded.archived,
         custom_title = excluded.custom_title,
+        -- pinned intentionally omitted: only setPinned() mutates it, so
+        -- upserts from stale info snapshots can't clobber a pin
         input_tokens = excluded.input_tokens,
         output_tokens = excluded.output_tokens,
         cache_creation_tokens = excluded.cache_creation_tokens,
@@ -991,7 +1021,7 @@ ${buildSearchIndexSchemaSql()},
       this.db.prepare(`
       INSERT INTO managed_sessions (
         instance_id, provider_name, provider_session_id, name, working_directory,
-        created_at, last_activity_at, archived, custom_title,
+        created_at, last_activity_at, archived, custom_title, pinned,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         git_branch, worktree_path, original_directory, parent_session_id,
         preferred_model, reasoning_budget, runtime_mode,
@@ -1001,7 +1031,7 @@ ${buildSearchIndexSchemaSql()},
         model_options_json, original_git_branch
       ) VALUES (
         @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
-        @created_at, @last_activity_at, @archived, @custom_title,
+        @created_at, @last_activity_at, @archived, @custom_title, @pinned,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @git_branch, @worktree_path, @original_directory, @parent_session_id,
         @preferred_model, @reasoning_budget, @runtime_mode,
@@ -1018,6 +1048,8 @@ ${buildSearchIndexSchemaSql()},
         last_activity_at = excluded.last_activity_at,
         archived = excluded.archived,
         custom_title = excluded.custom_title,
+        -- pinned intentionally omitted: only setPinned() mutates it, so
+        -- upserts from stale info snapshots can't clobber a pin
         input_tokens = excluded.input_tokens,
         output_tokens = excluded.output_tokens,
         cache_creation_tokens = excluded.cache_creation_tokens,
@@ -1134,6 +1166,12 @@ ${buildSearchIndexSchemaSql()},
 
     this.stmtUpdateName = this.db.prepare(
       "UPDATE sessions SET name = ?, custom_title = ? WHERE session_id = ?",
+    );
+
+    this.stmtSetPinned = this.db.prepare("UPDATE sessions SET pinned = ? WHERE instance_id = ?");
+
+    this.stmtSetManagedPinned = this.db.prepare(
+      "UPDATE managed_sessions SET pinned = ? WHERE instance_id = ?",
     );
 
     this.stmtGetJsonlPaths = this.db.prepare("SELECT jsonl_path FROM sessions");
@@ -1588,6 +1626,14 @@ ${buildSearchIndexSchemaSql()},
     this.stmtUpdateName.run(name, customTitle ? 1 : 0, sessionId);
     const row = this.getBySessionId(sessionId);
     if (row) this.syncSearchIndexForInstance(row.instance_id);
+  }
+
+  /** Set the pinned flag on whichever session table(s) know this instance. */
+  setPinned(instanceId: string, pinned: boolean): boolean {
+    const value = pinned ? 1 : 0;
+    const external = this.stmtSetPinned.run(value, instanceId);
+    const managed = this.stmtSetManagedPinned.run(value, instanceId);
+    return Number(external.changes) > 0 || Number(managed.changes) > 0;
   }
 
   updateProvider(sessionId: string, provider: string): void {

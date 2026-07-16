@@ -1,6 +1,6 @@
 import type { InstanceInfo, Project } from "@shared/types";
 import { isAttachedReviewInstance } from "@/lib/review-session";
-import { getChatRecencyTimestamp } from "@/lib/utils";
+import { compareChatListOrder } from "@/lib/utils";
 
 function getInstanceProjectDirectory(
   instance: Pick<InstanceInfo, "projectId" | "originalDirectory" | "workingDirectory">,
@@ -39,7 +39,7 @@ export function groupInstancesByProject(
   }
 
   for (const group of groupMap.values()) {
-    group.sort((a, b) => getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a));
+    group.sort(compareChatListOrder);
   }
 
   return Array.from(groupMap.entries());

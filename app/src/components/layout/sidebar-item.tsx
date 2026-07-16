@@ -1,6 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Columns2, GitBranch, GitMerge, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import {
+  Columns2,
+  GitBranch,
+  GitMerge,
+  MoreVertical,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
+} from "lucide-react";
 import { Menu } from "@/components/ui/menu";
 import { Badge } from "@/components/ui/badge";
 import { SessionIndicator } from "@/components/ui/session-indicator";
@@ -140,6 +149,9 @@ export function SidebarItem({
             >
               {instance.name}
             </div>
+            {instance.pinned ? (
+              <Pin size={10} className="shrink-0 fill-current text-muted" />
+            ) : null}
             {instance.review ? (
               <Badge size="xs" variant={isActive ? "accent" : "default"}>
                 Review
@@ -203,6 +215,19 @@ export function SidebarItem({
                   <MoreVertical size={16} />
                 </Menu.Trigger>
                 <Menu.Content>
+                  <Menu.Item
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      actions.pinInstance(instance.id, !instance.pinned);
+                    }}
+                  >
+                    {instance.pinned ? (
+                      <PinOff size={13} strokeWidth={2} className="text-muted" />
+                    ) : (
+                      <Pin size={13} strokeWidth={2} className="text-muted" />
+                    )}
+                    {instance.pinned ? "Unpin" : "Pin"}
+                  </Menu.Item>
                   <Menu.Item
                     onClick={(e: React.MouseEvent) => {
                       e.stopPropagation();

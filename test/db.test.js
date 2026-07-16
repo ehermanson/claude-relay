@@ -265,6 +265,30 @@ describe("SessionDB", () => {
     });
   });
 
+  describe("setPinned", () => {
+    it("pins and unpins by instance_id", () => {
+      db.upsert(makeRow());
+      assert.equal(db.setPinned("inst-1", true), true);
+      assert.equal(db.getBySessionId("sess-1").pinned, 1);
+      assert.equal(db.setPinned("inst-1", false), true);
+      assert.equal(db.getBySessionId("sess-1").pinned, 0);
+    });
+
+    it("returns false when no row matches", () => {
+      assert.equal(db.setPinned("unknown", true), false);
+    });
+
+    it("survives a subsequent upsert of the same session", () => {
+      db.upsert(makeRow());
+      db.setPinned("inst-1", true);
+      // Routine saves (which don't know about pinned) must not clobber the pin
+      db.upsert(makeRow({ name: "Updated Name" }));
+      const row = db.getBySessionId("sess-1");
+      assert.equal(row.name, "Updated Name");
+      assert.equal(row.pinned, 1);
+    });
+  });
+
   describe("getJsonlPaths", () => {
     it("returns a Set of all jsonl paths", () => {
       db.upsert(makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl" }));
@@ -569,6 +593,15 @@ describe("SessionDB", () => {
 
     it("returns empty array for unknown project", () => {
       assert.equal(db.getManagedByProjectId("nonexistent").length, 0);
+    });
+
+    it("setPinned pins managed rows and survives a subsequent upsert", () => {
+      db.upsertManaged(makeManagedRow({ instance_id: "m-1", project_id: "proj-1" }));
+      assert.equal(db.setPinned("m-1", true), true);
+      db.upsertManaged(makeManagedRow({ instance_id: "m-1", project_id: "proj-1", name: "New" }));
+      const row = db.getManagedByProjectId("proj-1")[0];
+      assert.equal(row.name, "New");
+      assert.equal(row.pinned, 1);
     });
 
     it("returns only managed rows matching the given space_id", () => {

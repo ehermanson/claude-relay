@@ -458,6 +458,18 @@ export async function fetchProjectChats(projectId: string): Promise<InstanceInfo
   return res.json();
 }
 
+export async function setInstancePinned(instanceId: string, pinned: boolean): Promise<void> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/pinned`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pinned }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to pin chat" }));
+    throw new ApiError(data.error || "Failed to pin chat", res.status);
+  }
+}
+
 export async function fetchSpaceChats(spaceId: string): Promise<InstanceInfo[]> {
   const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/chats`);
   if (!res.ok) return [];

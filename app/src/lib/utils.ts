@@ -120,6 +120,16 @@ export function getChatRecencyTimestamp(
   return instance.lastMessage?.timestamp ?? instance.lastActivityAt ?? 0;
 }
 
+/** Canonical chat-list order: pinned chats first, then most recent activity. */
+export function compareChatListOrder(
+  a: Pick<InstanceInfo, "pinned" | "lastMessage" | "lastActivityAt">,
+  b: Pick<InstanceInfo, "pinned" | "lastMessage" | "lastActivityAt">,
+): number {
+  const pinnedDelta = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+  if (pinnedDelta !== 0) return pinnedDelta;
+  return getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a);
+}
+
 export function formatTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";

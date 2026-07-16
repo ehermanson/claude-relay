@@ -1333,6 +1333,39 @@ describe("InstanceManager", () => {
         rows.close();
       }
     });
+
+    it("setInstancePinned pins chats without a live instance and surfaces pinned in summaries", async () => {
+      const project = manager.projectManager.addProject(manager.baseConfig.workingDirectory);
+      const db = new SessionDB(manager.baseConfig.dbPath, noopLogger);
+      try {
+        db.upsert(
+          makeExternalRow({
+            session_id: "pinned-session",
+            instance_id: "pinned-chat",
+            jsonl_path: "/tmp/pinned.jsonl",
+            working_directory: manager.baseConfig.workingDirectory,
+            project_id: project.id,
+            name: "Old chat",
+          }),
+        );
+      } finally {
+        db.close();
+      }
+
+      // No live in-memory instance — the pin must persist via the DB alone.
+      assert.equal(manager.instances.has("pinned-chat"), false);
+      assert.equal(await manager.setInstancePinned("pinned-chat", true), true);
+
+      const pinned = manager.listProjectChats(project.id).find((c) => c.id === "pinned-chat");
+      assert.ok(pinned);
+      assert.equal(pinned.pinned, true);
+
+      assert.equal(await manager.setInstancePinned("pinned-chat", false), true);
+      const unpinned = manager.listProjectChats(project.id).find((c) => c.id === "pinned-chat");
+      assert.equal(unpinned.pinned, false);
+
+      assert.equal(await manager.setInstancePinned("missing-chat", true), false);
+    });
   });
 
   describe("getHistory", () => {

@@ -512,6 +512,8 @@ export interface InstanceInfo {
   sessionId?: string;
   /** True when the user has manually set the title (prevents auto-refresh) */
   customTitle?: boolean;
+  /** True when the user pinned this chat to the top of its project's chat lists */
+  pinned?: boolean;
   /** Running token/cost stats for this session */
   stats?: SessionStats;
   /** Git branch name when instance runs in a worktree (e.g. "relay/a1b2c3d4") */

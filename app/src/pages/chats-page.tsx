@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "@tanstack/react-router";
-import { GitBranch, MessageSquare, Search } from "lucide-react";
+import { GitBranch, MessageSquare, Pin, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { EmptyProjectActions } from "@/components/empty-project-actions";
@@ -16,6 +16,7 @@ import { fetchProjectChats, fetchAllSpaces } from "@/lib/api";
 import { getInstanceChatRoute, instanceMatchesProject } from "@/lib/project-route";
 import { isAttachedReviewInstance } from "@/lib/review-session";
 import {
+  compareChatListOrder,
   deriveInstanceStatusPresentation,
   formatModel,
   formatTimeAgo,
@@ -53,8 +54,11 @@ function SessionCard({
 
       {/* Main column — name, preview, parent */}
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[0.8125rem] font-medium text-text-bright">
-          {instance.name}
+        <div className="flex min-w-0 items-center gap-1.5">
+          <div className="min-w-0 truncate text-[0.8125rem] font-medium text-text-bright">
+            {instance.name}
+          </div>
+          {instance.pinned && <Pin size={11} className="shrink-0 fill-current text-muted" />}
         </div>
         {parentName && (
           <div className="mt-0.5 truncate text-[0.6875rem] text-muted">
@@ -181,9 +185,7 @@ export function ProjectChatList() {
     if (!instanceMatchesProject(inst, projectId)) continue;
     projectInstancesMap.set(inst.id, inst);
   }
-  const projectInstances = Array.from(projectInstancesMap.values()).sort(
-    (a, b) => getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a),
-  );
+  const projectInstances = Array.from(projectInstancesMap.values()).sort(compareChatListOrder);
   // Resolve a chat's space tag (branch, falling back to space name). Default
   // ("main") space chats are untagged standalone chats.
   const spacesById = new Map(spaces.map((s) => [s.id, s]));

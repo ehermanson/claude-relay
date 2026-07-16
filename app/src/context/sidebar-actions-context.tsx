@@ -20,6 +20,7 @@ import {
   markSpaceMerged as apiMarkSpaceMerged,
   deleteSpace as apiDeleteSpace,
   removeProject as apiRemoveProject,
+  setInstancePinned as apiSetInstancePinned,
 } from "../lib/api";
 import { type RemoveProjectTarget } from "../lib/project-route";
 import { ConfirmActionDialog } from "../components/ui/confirm-action-dialog";
@@ -30,6 +31,7 @@ interface SidebarActions {
   // Instance
   deleteInstance(instance: Pick<InstanceInfo, "id" | "name">): void;
   renameInstance(id: string, name: string): void;
+  pinInstance(id: string, pinned: boolean): void;
   mergeInstance(id: string): void;
 
   // Space
@@ -150,6 +152,15 @@ export function SidebarActionsProvider({
       // Instance
       deleteInstance: (instance) => setConfirmRemoveInstance(instance),
       renameInstance: (id, name) => send({ type: "rename_instance", instanceId: id, name }),
+      pinInstance: (id, pinned) => {
+        // Pins persist even for chats without a live instance, so the REST
+        // summaries are the source of truth — refetch them after the write.
+        apiSetInstancePinned(id, pinned)
+          .then(() => queryClient.invalidateQueries({ queryKey: ["projectChats"] }))
+          .catch((err) => {
+            toast.error(err instanceof Error ? err.message : "Failed to pin chat");
+          });
+      },
       mergeInstance: (id) => {
         const instance = instances.find((entry) => entry.id === id);
         if (instance) trackInstanceMerge(instance);

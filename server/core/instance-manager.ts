@@ -6771,6 +6771,7 @@ export class InstanceManager extends EventEmitter {
             type: "external",
             archived: 0,
             custom_title: 0,
+            pinned: 0,
             input_tokens: 0,
             output_tokens: 0,
             cache_creation_tokens: 0,
@@ -6963,6 +6964,7 @@ export class InstanceManager extends EventEmitter {
               type: "external",
               archived: 0,
               custom_title: 0,
+              pinned: 0,
               input_tokens: 0,
               output_tokens: 0,
               cache_creation_tokens: 0,
@@ -8282,6 +8284,25 @@ export class InstanceManager extends EventEmitter {
       if (this.isInstanceNotFoundError(err)) return false;
       throw err;
     });
+  }
+
+  /**
+   * Pin or unpin a chat so it sorts to the top of its project's chat lists.
+   * Works for chats without a live in-memory instance (stopped/historical
+   * sessions that only exist as DB rows) — the pin is written straight to the
+   * session tables, and the live instance info is updated when present.
+   */
+  async setInstancePinned(id: string, pinned: boolean): Promise<boolean> {
+    const persisted = this.db.setPinned(id, pinned);
+    const updatedLive = await this.enqueueInstanceMutation(id, async (instance) => {
+      instance.info.pinned = pinned;
+      this.emitInstanceStatus(instance);
+      return true;
+    }).catch((err) => {
+      if (this.isInstanceNotFoundError(err)) return false;
+      throw err;
+    });
+    return persisted || updatedLive;
   }
 
   /**
