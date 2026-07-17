@@ -82,6 +82,34 @@ describe("buildReviewDraft", () => {
     expect(draft).toContain("<source_files>\napp/src/foo.ts\n</source_files>");
   });
 
+  it("appends trimmed extra instructions when provided", () => {
+    const draft = buildReviewDraft({
+      sourceName: "Source Chat",
+      review: {
+        sourceName: "Source Chat",
+        scope: "branch",
+      },
+      instructions: "  Focus on the migration edge cases.  ",
+    });
+
+    expect(draft).toContain(
+      "Additional instructions for this review:\nFocus on the migration edge cases.",
+    );
+  });
+
+  it("omits the instructions section when instructions are blank", () => {
+    const draft = buildReviewDraft({
+      sourceName: "Source Chat",
+      review: {
+        sourceName: "Source Chat",
+        scope: "branch",
+      },
+      instructions: "   ",
+    });
+
+    expect(draft).not.toContain("Additional instructions");
+  });
+
   it("builds a branch review prompt for branch scope", () => {
     const draft = buildReviewDraft({
       sourceName: "Source Chat",

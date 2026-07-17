@@ -335,6 +335,7 @@ export function InstanceView({
     model?: string;
     modelOptions?: ProviderModelOptions;
     runtimeMode?: ProviderRuntimeMode;
+    instructions?: string;
   }): Promise<void> => {
     if (!id || !instance) return;
     setCreatingReview(true);
@@ -364,6 +365,7 @@ export function InstanceView({
         sourceName: instance.name,
         review,
         touchedFiles: currentFiles,
+        instructions: selection.instructions,
       });
       send({ type: "instance_message", instanceId: created.id, text: draft });
       if (!isSidecarOpen || activeTab !== "review") {

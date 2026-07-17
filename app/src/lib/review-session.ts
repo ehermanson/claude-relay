@@ -78,8 +78,10 @@ export function buildReviewDraft(options: {
   sourceName: string;
   review: ReviewSessionInfo;
   touchedFiles?: FileChange[] | null;
+  instructions?: string;
 }): string {
   const { sourceName, review, touchedFiles } = options;
+  const instructions = options.instructions?.trim();
   const lines: string[] = [
     `Review the recent changes from "${sourceName}". This is a review-only pass; do not make edits.`,
   ];
@@ -95,13 +97,16 @@ export function buildReviewDraft(options: {
       "",
       "Focus on correctness bugs, regressions, edge cases, missing tests, and anything half-finished or inconsistent. Return a prioritized list of findings with file:line references and concrete suggestions.",
     );
-    return lines.join("\n");
+  } else {
+    lines.push(
+      "",
+      "Read the full reviewable diff for this branch/worktree: uncommitted edits and any commits ahead of the base branch. Look for correctness bugs, regressions, edge cases, missing tests, naming inconsistencies, and unfinished work. Return a prioritized list of findings with file:line references and concrete suggestions.",
+    );
   }
 
-  lines.push(
-    "",
-    "Read the full reviewable diff for this branch/worktree: uncommitted edits and any commits ahead of the base branch. Look for correctness bugs, regressions, edge cases, missing tests, naming inconsistencies, and unfinished work. Return a prioritized list of findings with file:line references and concrete suggestions.",
-  );
+  if (instructions) {
+    lines.push("", "Additional instructions for this review:", instructions);
+  }
   return lines.join("\n");
 }
 
