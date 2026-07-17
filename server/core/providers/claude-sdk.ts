@@ -124,7 +124,7 @@ interface SdkModelInfo {
 interface QueryHandle extends AsyncIterable<SDKMessageBase> {
   interrupt(): Promise<void>;
   setPermissionMode(
-    mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk",
+    mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk" | "auto",
   ): Promise<void>;
   setModel(model?: string): Promise<void>;
   setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
@@ -693,6 +693,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       sdkOptions.permissionMode = "plan";
     } else if (this._runtimeMode === "full-access") {
       sdkOptions.permissionMode = "bypassPermissions";
+    } else if (this._runtimeMode === "auto") {
+      sdkOptions.permissionMode = "auto";
     }
 
     // Always set canUseTool so we can toggle bypass at runtime.
@@ -869,14 +871,25 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
   setRuntimeMode(mode: ProviderRuntimeMode): void {
     if (this._stopped) return;
-    if (mode !== "approval-required" && mode !== "full-access" && mode !== "plan") {
+    if (
+      mode !== "approval-required" &&
+      mode !== "full-access" &&
+      mode !== "plan" &&
+      mode !== "auto"
+    ) {
       this.logger.warn(`[SdkSession] Unknown runtime mode: ${mode}`);
       return;
     }
     this._runtimeMode = mode;
     this.logger.info(`[SdkSession] Runtime mode: ${mode}`);
     const permissionMode =
-      mode === "plan" ? "plan" : mode === "full-access" ? "bypassPermissions" : "default";
+      mode === "plan"
+        ? "plan"
+        : mode === "full-access"
+          ? "bypassPermissions"
+          : mode === "auto"
+            ? "auto"
+            : "default";
     this.query.setPermissionMode(permissionMode).catch((err) => {
       this.logger.warn(`[SdkSession] setPermissionMode error: ${err}`);
     });
