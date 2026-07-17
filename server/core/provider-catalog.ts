@@ -243,7 +243,7 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
         description: "Run commands directly without sandboxing",
       },
       "writes-only": {
-        label: "Writes only",
+        label: "Approve writes",
         description: "Auto-allow read operations; only prompt for write operations",
       },
       plan: {

@@ -1,12 +1,22 @@
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import type { ProviderCapabilities, ProviderKind, ProviderModelOption } from "@shared/types";
+import type {
+  ProviderCapabilities,
+  ProviderKind,
+  ProviderModelOption,
+  ProviderModelsResponse,
+} from "@shared/types";
 import { getDefaultProviderCapabilities } from "@shared/provider-catalog";
 import { fetchProviderModels } from "@/lib/api";
 
 // Discovered models change rarely; cache for a minute so opening the picker for
 // several providers doesn't refire discovery on every render/mount.
 const PROVIDER_MODELS_STALE_TIME = 60_000;
+const PROVIDER_MODELS_BOOTSTRAP_REFETCH_INTERVAL = 5_000;
+
+export function providerModelsRefetchInterval(data: ProviderModelsResponse | undefined) {
+  return data?.capabilities.versionAdvisory ? false : PROVIDER_MODELS_BOOTSTRAP_REFETCH_INTERVAL;
+}
 
 export function useProviderModels(provider?: ProviderKind) {
   const [showModelMenu, setShowModelMenu] = useState(false);
@@ -17,6 +27,7 @@ export function useProviderModels(provider?: ProviderKind) {
     queryFn: () => fetchProviderModels(provider!),
     enabled: !!provider,
     staleTime: PROVIDER_MODELS_STALE_TIME,
+    refetchInterval: (query) => providerModelsRefetchInterval(query.state.data),
   });
 
   const availableProviderModels: ProviderModelOption[] =
