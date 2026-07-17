@@ -41,11 +41,13 @@ export {
   resolveProviderDefaultModelOption,
 } from "#core/provider-catalog.js";
 export {
+  buildEffectiveProviderCapabilities,
   getCachedVersionAdvisory,
   getProviderCapabilities,
   getProviderDriver,
   getRegisteredProviders,
   inferClaudeModelIdFromSdkInfo,
+  isClaudeAutoModeAvailable,
   isProviderAvailable,
   listAvailableProviders,
   refreshProviderVersionAdvisories,

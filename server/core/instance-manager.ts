@@ -8457,6 +8457,7 @@ export class InstanceManager extends EventEmitter {
   async setRuntimeMode(id: string, mode: ProviderRuntimeMode): Promise<boolean> {
     return this.enqueueInstanceMutation(id, async (instance) => {
       if (instance.info.external || !instance.process) return false;
+      if (!getProviderCapabilities(instance.info.provider).runtimeModes?.[mode]) return false;
 
       instance.info.runtimeMode = mode;
       instance.process.setRuntimeMode(mode);

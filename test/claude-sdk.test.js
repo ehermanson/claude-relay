@@ -222,6 +222,22 @@ describe("ClaudeSdkSession", () => {
       session.close();
     });
 
+    it("passes auto permission mode when runtimeMode is 'auto'", async () => {
+      let capturedOptions;
+      const fakeQuery = new FakeQuery();
+      const session = await createSdkSession({
+        cwd: "/test",
+        runtimeMode: "auto",
+        logger: noopLogger,
+        queryFn: ({ _prompt, options }) => {
+          capturedOptions = options;
+          return fakeQuery;
+        },
+      });
+      assert.equal(capturedOptions.permissionMode, "auto");
+      session.close();
+    });
+
     it("sets canUseTool when runtimeMode defaults to approval-required", async () => {
       let capturedOptions;
       const fakeQuery = new FakeQuery();
@@ -972,7 +988,7 @@ describe("ClaudeSdkSession", () => {
   });
 
   describe("permissions", () => {
-    it("setRuntimeMode forwards plan + bypassPermissions modes to the SDK", async () => {
+    it("setRuntimeMode forwards supported permission modes to the SDK", async () => {
       const harness = makeHarness();
       const session = await createTestSession(harness, {
         runtimeMode: "full-access",
@@ -980,8 +996,13 @@ describe("ClaudeSdkSession", () => {
 
       session.setRuntimeMode("plan");
       session.setRuntimeMode("full-access");
+      session.setRuntimeMode("auto");
 
-      assert.deepEqual(harness.fakeQuery.setPermissionModeCalls, ["plan", "bypassPermissions"]);
+      assert.deepEqual(harness.fakeQuery.setPermissionModeCalls, [
+        "plan",
+        "bypassPermissions",
+        "auto",
+      ]);
       session.close();
     });
 

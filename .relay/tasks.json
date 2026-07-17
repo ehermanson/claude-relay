@@ -2241,27 +2241,27 @@
       "id": "d7f03b28",
       "title": "Codex: add `writes` approval mode to ProviderCapabilities.runtimeModes",
       "description": "Codex CLI v0.144.0 (2026-07-09) added a `writes` app-approval mode: declared read-only tool calls are auto-allowed; only write-access tool calls prompt for approval. This is a third `approvalPolicy` value alongside the existing `on-request` and `never`.\n\nRelay's `resolveApprovalPolicy()` in `server/core/providers/codex-app-server.ts` currently maps `full-access \u2192 'never'` and everything else \u2192 `'on-request'`. The `writes` mode has no Relay representation:\n\n1. Add `'writes-only'` (or similar Relay-canonical name) to `ProviderRuntimeMode` and map it to Codex `approvalPolicy: 'writes'` in `resolveApprovalPolicy()`.\n2. Add an entry to `ProviderCapabilities.runtimeModes` for Codex so the UI renders the new option in the runtime-mode picker (label, description, icon \u2014 driven by capability metadata, never hardcoded in the UI).\n3. Verify the Codex app-server actually accepts `writes` on the `turn/start` or `session/init` RPC \u2014 confirm the field name from the codex source or app-server protocol docs.\n4. Update `ProviderRuntimeMode` union type in `server/core/types.ts`, the DB column values if needed, and any downstream switch exhaustion checks.\n\nRef: https://github.com/openai/codex/releases/tag/v0.144.0\n\nBucket 2 \u2014 priority 2.",
-      "status": "open",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "codex", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-07-13T00:00:00.000Z",
-      "updatedAt": "2026-07-13T00:00:00.000Z"
+      "updatedAt": "2026-07-16T00:00:00.000Z"
     },
     {
       "id": "e2a81c94",
       "title": "Claude: expose auto mode as a runtime-mode capability option",
       "description": "Claude Code CLI v2.1.207 (2026-07-11) made auto mode generally available without the `CLAUDE_CODE_ENABLE_AUTO_MODE` env-var opt-in on Bedrock, Vertex AI, and Foundry. It can be disabled via `disableAutoMode` in `~/.claude/settings.json`.\n\nAuto mode is a distinct permission-management model: a safety classifier automatically approves or rejects each tool call without user prompts \u2014 between the current `approval-required` (prompt everything) and `full-access` (allow everything) modes in Relay's `ProviderRuntimeMode`.\n\nCurrently Relay has no representation for auto mode:\n\n1. **Determine SDK surface**: check whether the Claude Agent SDK exposes auto mode as a `permissionMode` value (likely `permissionMode: 'auto'`) or whether it requires a separate session argument / settings injection. The Claude Code CLI docs and SDK changelog are the reference.\n2. **Add to `ProviderCapabilities`**: add `autoMode` to `ProviderCapabilities.runtimeModes` (or as a boolean `autoMode` capability flag) for the Claude driver. Scope the flag to platforms where it is actually supported (Bedrock, Vertex, Foundry \u2014 not necessarily the standard API).\n3. **Provider driver**: map the new Relay runtime mode to the correct SDK arg in `claude-sdk.ts`.\n4. **UI**: the runtime-mode picker already renders from `ProviderCapabilities.runtimeModes` metadata \u2014 ensure label and description copy are added.\n5. **`disableAutoMode` setting**: if users have this set, Relay should not offer auto mode as an option (or surface a warning). Consider reading from `~/.claude/settings.json` in the provider version probe and reflecting it in capabilities.\n\nNote: `permissionMode: 'manual'` is now an accepted alias for `'default'` in the SDK (v0.3.200) \u2014 no change needed, `'default'` still works. The auto mode capability is the new surface.\n\nRef: https://github.com/anthropics/claude-code/releases/tag/v2.1.207, claude-agent-sdk-typescript CHANGELOG v0.3.200\n\nBucket 2 \u2014 priority 2.",
-      "status": "in_progress",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-07-13T00:00:00.000Z",
-      "updatedAt": "2026-07-15T00:00:00.000Z"
+      "updatedAt": "2026-07-16T00:00:00.000Z"
     },
     {
       "id": "ffbc884b",

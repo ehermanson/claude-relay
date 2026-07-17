@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildEffectiveProviderCapabilities,
   getProviderDriver,
   getProviderCapabilities,
   getRegisteredProviders,
@@ -33,6 +34,54 @@ function makeContext() {
 }
 
 describe("provider registry", () => {
+  it("only exposes Codex writes mode for CLI 0.144.0 or newer", () => {
+    const base = getProviderDriver("codex").capabilities;
+    const advisory = (currentVersion) => ({
+      status: "current",
+      currentVersion,
+      latestVersion: currentVersion,
+      packageName: "@openai/codex",
+      updateCommand: null,
+      installMethod: "manual",
+      checkedAt: new Date().toISOString(),
+    });
+
+    assert.equal(
+      buildEffectiveProviderCapabilities("codex", base, advisory("0.143.9")).runtimeModes?.[
+        "writes-only"
+      ],
+      undefined,
+    );
+    assert.ok(
+      buildEffectiveProviderCapabilities("codex", base, advisory("0.144.0")).runtimeModes?.[
+        "writes-only"
+      ],
+    );
+    assert.ok(
+      buildEffectiveProviderCapabilities("codex", base, advisory("0.145.0-alpha.1")).runtimeModes?.[
+        "writes-only"
+      ],
+    );
+  });
+
+  it("only exposes Claude auto mode for eligible, enabled environments", () => {
+    const base = getProviderDriver("claude").capabilities;
+    const capabilities = (env, settings = null) =>
+      buildEffectiveProviderCapabilities("claude", base, undefined, {
+        env,
+        claudeUserSettings: settings,
+      });
+
+    assert.equal(capabilities({}).runtimeModes?.auto, undefined);
+    assert.ok(capabilities({ CLAUDE_CODE_USE_BEDROCK: "1" }).runtimeModes?.auto);
+    assert.ok(capabilities({ CLAUDE_CODE_ENABLE_AUTO_MODE: "true" }).runtimeModes?.auto);
+    assert.equal(
+      capabilities({ CLAUDE_CODE_USE_VERTEX: "1" }, { disableAutoMode: "disable" }).runtimeModes
+        ?.auto,
+      undefined,
+    );
+  });
+
   it("registers drivers for all known provider kinds", () => {
     assert.deepEqual(getRegisteredProviders().sort(), ["claude", "codex", "gemini"]);
   });
