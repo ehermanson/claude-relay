@@ -178,6 +178,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 
 - `ProviderCapabilities.versionAdvisory` carries the result of the provider-version probe: installed CLI version vs latest npm-published version, detected install method, and the recommended update command
 - Probe runs in `server/core/provider-versions.ts` (pure helpers + `buildVersionAdvisory`); `server/core/provider-registry.ts` caches the result in-memory and refreshes every 30 min
+- Provider capabilities may be filtered by the installed version after probing. Codex `writes-only` is exposed only for CLI >= 0.144.0; before the probe resolves, version-gated controls remain hidden.
 - Latest-version lookup hits the npm registry with a 1h in-memory cache; `POST /api/providers/recheck-version` force-bypasses the cache (used by the settings "Re-check" button)
 - `POST /api/providers/update?provider=<kind>` runs the advisory's update command server-side (`runProviderUpdate` in `provider-registry.ts`): the command is always server-derived from `buildUpdateCommand` (never client-supplied), executed shell-less via `execFile` with a 10-min timeout; concurrent requests per provider share one run, and the advisory is force re-probed afterward. Automatic update is offered only for detected non-manual install methods; manual installs keep a copyable recommendation but are not run server-side.. Automatic update is offered only for detected non-manual install methods; manual installs keep a copyable recommendation but are not run server-side.
 - UI surfaces a one-shot sonner toast at app launch via `app/src/components/provider-update-notification.tsx`; dismissals persist per (provider, latestVersion) key in localStorage (`use-dismissed-provider-advisories.ts`)
@@ -196,7 +197,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 ### Codex Process Spawning
 
 - Every `codex app-server` spawn must build its environment with `buildCodexSpawnEnv()` (`server/core/providers/codex-cli.ts`), never raw `process.env`. It inherits the process env and, when unset, injects `CODEX_CODE_MODE_HOST_PATH` pointing at the `codex-code-mode-host` binary bundled inside ChatGPT.app. Codex "code mode" shells out to that helper but it isn't on PATH, so without this injection `turn/start` fails with `failed to spawn code-mode host ...: No such file or directory`. A user-provided `CODEX_CODE_MODE_HOST_PATH` always wins.
-- `resolveApprovalPolicy()` maps `full-access` → `never` and everything else → `on-request`. Codex dropped the old `on-failure` variant; valid values are `untrusted`/`on-request`/`granular`/`never`.
+- `resolveApprovalPolicy()` maps `full-access` → `never`, `writes-only` → `writes`, and everything else → `on-request`. Codex dropped the old `on-failure` variant; valid values include `untrusted`/`on-request`/`granular`/`never`/`writes` (with `writes` requiring CLI >= 0.144.0).
 
 ### Model Options
 
@@ -206,6 +207,7 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - `model_options_json` column on `managed_sessions` is the canonical storage for provider-agnostic model tuning
 - `set_model_options` WS message does sparse merge (omitted = untouched, `null` = clear)
 - `ProviderCapabilities` includes control metadata (`reasoningEffortLevels`, `runtimeModes`, `fastModes`) — UI renders labels/descriptions from these, never hardcodes provider-specific text
+- Claude `auto` is an environment-dependent runtime mode: expose it only for Bedrock, Vertex, Foundry, or explicit `CLAUDE_CODE_ENABLE_AUTO_MODE` opt-in, and never when user settings contain `disableAutoMode: "disable"`.
 - `ReasoningEffort` uses `"max"` as the Relay-canonical highest effort; provider drivers map to native values (e.g. Codex `"xhigh"`); unknown strings pass through
 - Mid-session model switches emit a `model_switched` system event (divider in chat + timeline). It's recorded at **message-dispatch time** (`recordModelSwitchOnDispatch`), not when the user picks a model in the UI — only when the resolved model differs from the previous turn's (`instance.lastTurnModel`). So toggling the picker without sending, or switching away and back before sending, produces no divider; the divider always sits directly above the first turn the new model ran. Relay-level events like this never appear in provider transcripts, so they're persisted in the `session_events` table and re-merged into history by `mergeSessionEvents()` on every hydrate/getHistory. `lastTurnModel` is in-memory only, so the first send after a server restart re-establishes the baseline without a divider
 

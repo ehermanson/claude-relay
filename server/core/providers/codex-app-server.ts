@@ -951,7 +951,12 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   }
 
   setRuntimeMode(mode: ProviderRuntimeMode): void {
-    if (mode !== "approval-required" && mode !== "full-access" && mode !== "plan") {
+    if (
+      mode !== "approval-required" &&
+      mode !== "full-access" &&
+      mode !== "plan" &&
+      mode !== "writes-only"
+    ) {
       this.logger.warn(`[CodexAppServer] Unknown runtime mode: ${mode}`);
       return;
     }
@@ -2517,10 +2522,11 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
 
   private resolveApprovalPolicy(): string {
     if (this._runtimeMode === "full-access") return "never";
+    if (this._runtimeMode === "writes-only") return "writes";
     // Plan and approval-required both use the same approval policy: let the
     // model decide when to escalate for approval. ("untrusted" would ask for
     // everything; "never" is reserved for full-access.) Note: Codex dropped the
-    // old "on-failure" variant; valid values are untrusted/on-request/granular/never.
+    // old "on-failure" variant; valid values are untrusted/on-request/granular/never/writes.
     return "on-request";
   }
 

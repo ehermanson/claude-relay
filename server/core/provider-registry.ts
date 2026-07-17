@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -30,7 +31,11 @@ import type {
 import { createSdkSessionSync, getSdkDiscoveredModels } from "#core/providers/claude-sdk.js";
 import { findClaudeBinary, isClaudeInstalled } from "#core/providers/claude-cli.js";
 import { findCodexBinary, isCodexInstalled } from "#core/providers/codex-cli.js";
-import { buildVersionAdvisory, executeUpdateCommand } from "#core/provider-versions.js";
+import {
+  buildVersionAdvisory,
+  compareSemver,
+  executeUpdateCommand,
+} from "#core/provider-versions.js";
 import type { ProviderVersionAdvisory } from "#core/types.js";
 import { discoverCodexModels, getCachedCodexModels } from "#core/providers/codex-models.js";
 import { CodexAppServerSession } from "#core/providers/codex-app-server.js";
@@ -1069,9 +1074,70 @@ export function getProviderCapabilities(provider: ProviderKind): ProviderCapabil
   // one model onto another through provider-level aggregation.
   const base = getProviderDriver(provider).capabilities;
   const advisory = versionAdvisoryCache.get(provider);
+  const effective = buildEffectiveProviderCapabilities(provider, base, advisory);
   // Always include a versionAdvisory if we have one cached; the UI uses its
   // presence (vs absence) to know whether the probe has completed yet.
-  return advisory ? { ...base, versionAdvisory: advisory } : base;
+  return advisory ? { ...effective, versionAdvisory: advisory } : effective;
+}
+
+const CODEX_WRITES_MIN_VERSION = "0.144.0";
+
+function isTruthyEnvironmentValue(value: string | undefined): boolean {
+  return value != null && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function readClaudeUserSettings(): Record<string, unknown> | null {
+  const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(join(configDir, "settings.json"), "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isClaudeAutoModeAvailable(
+  env: NodeJS.ProcessEnv = process.env,
+  userSettings: Record<string, unknown> | null = readClaudeUserSettings(),
+): boolean {
+  if (userSettings?.disableAutoMode === "disable") return false;
+  return [
+    "CLAUDE_CODE_ENABLE_AUTO_MODE",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+  ].some((name) => isTruthyEnvironmentValue(env[name]));
+}
+
+export function buildEffectiveProviderCapabilities(
+  provider: ProviderKind,
+  base: ProviderCapabilities,
+  advisory?: ProviderVersionAdvisory,
+  options: {
+    env?: NodeJS.ProcessEnv;
+    claudeUserSettings?: Record<string, unknown> | null;
+  } = {},
+): ProviderCapabilities {
+  const runtimeModes = { ...base.runtimeModes };
+
+  if (provider === "codex") {
+    const version = advisory?.currentVersion;
+    const isValidVersion = !!version && /^v?\d+(?:\.\d+){0,2}(?:[-+]|$)/i.test(version);
+    if (!isValidVersion || compareSemver(version, CODEX_WRITES_MIN_VERSION) < 0) {
+      delete runtimeModes["writes-only"];
+    }
+  }
+
+  if (
+    provider === "claude" &&
+    !isClaudeAutoModeAvailable(options.env, options.claudeUserSettings)
+  ) {
+    delete runtimeModes.auto;
+  }
+
+  return { ...base, runtimeModes };
 }
 
 export function createManagedProviderSession(
@@ -1090,7 +1156,11 @@ export function createManagedProviderSession(
           : getProviderDisplayName(provider);
     throw new Error(`${binary} is not available on this machine`);
   }
-  return driver.createSession(config, options, context);
+  const requestedMode = options?.runtimeMode ?? config.defaultRuntimeMode;
+  const runtimeMode = getProviderCapabilities(provider).runtimeModes?.[requestedMode]
+    ? requestedMode
+    : "approval-required";
+  return driver.createSession(config, { ...options, runtimeMode }, context);
 }
 
 export function resolveManagedTranscriptPathForProvider(

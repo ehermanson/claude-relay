@@ -660,6 +660,27 @@ describe("CodexAppServerSession", () => {
     session.close();
   });
 
+  it("writes-only runtime mode requests approval only for writes", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      runtimeMode: "writes-only",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+
+    session.send("inspect this project");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    const msgs = child.getStdinMessages();
+    assert.equal(msgs.find((m) => m.method === "thread/start").params.approvalPolicy, "writes");
+    assert.equal(msgs.find((m) => m.method === "turn/start").params.approvalPolicy, "writes");
+    session.close();
+  });
+
   it("resumes an existing thread when resumeSessionId is provided", async () => {
     const harness = createHarness();
     const session = new CodexAppServerSession({
