@@ -22,6 +22,8 @@
 | **Provider**         | An agent platform Relay integrates with, such as Claude or Codex.                             | Backend, driver, model         |
 | **Model**            | A provider-specific agent variant selected for a **Chat**.                                    | Provider, engine               |
 | **Model options**    | Provider-agnostic tuning choices attached to a **Managed session**.                           | Flags, provider args           |
+| **MCP server**       | A Provider-reported Model Context Protocol integration that exposes tools to a **Chat**.      | Plugin, app                    |
+| **MCP availability** | Whether the active **Provider** reports an MCP server as loaded for a particular **Chat**.    | Configured, installed          |
 
 ## Planning and tasking
 
@@ -52,6 +54,7 @@
 - A **Space** contains one or more **Chats**
 - A **Chat** may be backed by zero or one **Managed session**
 - A **Managed session** belongs to exactly one **Provider** and uses exactly one **Model**
+- An **MCP server** may be configured at Provider level without being available to every **Chat**
 - A **Transcript** belongs to exactly one **Chat**
 - A **Project** can contain zero or more **Tasks**
 - Completing a **Space** produces one merged branch outcome; archiving a **Space** produces none

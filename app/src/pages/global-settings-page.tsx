@@ -23,6 +23,7 @@ import {
   fetchProviderModels,
   recheckProviderVersions,
   runProviderUpdate,
+  addProviderMcpServer,
 } from "../lib/api";
 import { useSystemUpdate, describeUpdateStage } from "@/hooks/use-system-update";
 import {
@@ -31,14 +32,18 @@ import {
 } from "@/components/provider-update-notification.logic";
 
 import { Button } from "@/components/ui/button";
+import { CheckboxField } from "@/components/ui/checkbox";
+import { Dialog } from "@/components/ui/dialog";
 import { Input, Select } from "../components/ui/input";
 import { MarkdownEditor } from "../components/ui/markdown-editor";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { RateLimitBar, flattenRateLimitWindows } from "@/components/ui/rate-limit-bar";
 import { SettingsSection, SettingRow } from "@/components/settings/settings-shared";
+import { McpServerFormFields } from "@/components/settings/mcp-server-form-fields";
 import { SuggestionSettings } from "@/components/settings/suggestion-settings";
 import { endpointHint, isLocalhostUrl, resolveEndpointSelection } from "@/lib/remote-access";
+import { getCompatibleMcpProviders } from "@/lib/mcp-management";
 import { useThemeStore, type ThemePreference } from "@/stores/theme-store";
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
 import type {
@@ -47,6 +52,7 @@ import type {
   ProviderDescriptor,
   ProviderGlobalState,
   ProviderKind,
+  ProviderMcpServerStatus,
   ProviderVersionAdvisory,
   UpdateSnapshot,
 } from "@shared/types";
@@ -762,6 +768,7 @@ export function ProvidersSettingsSection() {
           defaults={providerDefaults[p.provider] ?? {}}
           onChange={(field, value) => handleProviderDefaultChange(p.provider, field, value)}
           runtimeState={providerGlobalState[p.provider]}
+          availableProviders={providers}
         />
       ))}
     </SettingsSection>
@@ -967,16 +974,225 @@ function formatRelativeTime(date: Date): string {
 
 // ─── Provider Defaults Row (always visible, no expand) ─────────────────────
 
+function McpManagementForm({
+  provider,
+  runtimeState,
+  availableProviders,
+}: {
+  provider: ProviderDescriptor;
+  runtimeState?: ProviderGlobalState;
+  availableProviders: ProviderDescriptor[];
+}) {
+  const [name, setName] = useState("");
+  const [transport, setTransport] = useState<"http" | "sse" | "stdio">("http");
+  const [url, setUrl] = useState("");
+  const [command, setCommand] = useState("");
+  const [commandArgs, setCommandArgs] = useState("");
+  const [tokenEnvVar, setTokenEnvVar] = useState("");
+  const [providerDialogOpen, setProviderDialogOpen] = useState(false);
+  const [selectedProviders, setSelectedProviders] = useState<ProviderKind[]>([provider.provider]);
+  const management = provider.capabilities.mcp?.management;
+  const compatibleProviders = getCompatibleMcpProviders(availableProviders, transport);
+  const supportsBearerTokenEnvVar = compatibleProviders.some(
+    (candidate) => candidate.capabilities.mcp?.management?.bearerTokenEnvVar,
+  );
+  const bearerTokenProviderLabels = compatibleProviders
+    .filter((candidate) => candidate.capabilities.mcp?.management?.bearerTokenEnvVar)
+    .map((candidate) => candidate.label)
+    .join("/");
+  const addMutation = useMutation({
+    mutationFn: async (targets: ProviderKind[]) => {
+      const results = await Promise.allSettled(
+        targets.map(async (target) => {
+          await addProviderMcpServer(target, {
+            name: name.trim(),
+            transport,
+            url: transport === "stdio" ? undefined : url.trim(),
+            command: transport === "stdio" ? command.trim() : undefined,
+            args:
+              transport === "stdio"
+                ? commandArgs
+                    .split("\n")
+                    .map((arg) => arg.trim())
+                    .filter(Boolean)
+                : undefined,
+            bearerTokenEnvVar:
+              transport === "http" &&
+              availableProviders.find((candidate) => candidate.provider === target)?.capabilities
+                .mcp?.management?.bearerTokenEnvVar
+                ? tokenEnvVar.trim() || undefined
+                : undefined,
+          });
+          return target;
+        }),
+      );
+      return results.map((result, index) => ({
+        provider: targets[index],
+        error: result.status === "rejected" ? result.reason : undefined,
+      }));
+    },
+    onSuccess: (results) => {
+      const succeeded = results.filter((result) => !result.error);
+      const failed = results.filter((result) => result.error);
+      if (succeeded.length) {
+        toast.success(
+          `MCP server added to ${succeeded.map((result) => result.provider).join(", ")}`,
+          { description: "New Chats can load the server." },
+        );
+      }
+      if (failed.length) {
+        toast.error(`Could not add to ${failed.map((result) => result.provider).join(", ")}`, {
+          description: failed
+            .map((result) =>
+              result.error instanceof Error ? result.error.message : String(result.error),
+            )
+            .join(" · "),
+        });
+      }
+      if (!succeeded.length) return;
+      setName("");
+      setUrl("");
+      setCommand("");
+      setCommandArgs("");
+      setTokenEnvVar("");
+      setProviderDialogOpen(false);
+      setSelectedProviders([provider.provider]);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Failed to add server"),
+  });
+  if (!management) return null;
+
+  const describeConnectionState = (state: ProviderMcpServerStatus["connectionState"]) => {
+    if (state === "unknown") return "Configured · status not reported";
+    if (state === "needs_auth") return "Needs authentication";
+    return state.charAt(0).toUpperCase() + state.slice(1);
+  };
+
+  const submitAdd = () => {
+    if (compatibleProviders.length > 1) {
+      setSelectedProviders([provider.provider]);
+      setProviderDialogOpen(true);
+      return;
+    }
+    addMutation.mutate([provider.provider]);
+  };
+
+  return (
+    <div className="ml-7 mt-4 border-t border-border/30 pt-4">
+      <div className="text-[0.75rem] font-medium text-text-bright">Add MCP server</div>
+      <div className="mt-0.5 text-[0.6875rem] text-muted">
+        Relay passes this configuration to {provider.label}. Credentials in URLs are rejected.
+      </div>
+      <div className="mt-3">
+        <McpServerFormFields
+          name={name}
+          onNameChange={setName}
+          transport={transport}
+          transports={management.transports}
+          onTransportChange={setTransport}
+          target={transport === "stdio" ? command : url}
+          onTargetChange={transport === "stdio" ? setCommand : setUrl}
+          args={commandArgs}
+          onArgsChange={setCommandArgs}
+          tokenEnvVar={tokenEnvVar}
+          onTokenEnvVarChange={setTokenEnvVar}
+          tokenProviderLabels={supportsBearerTokenEnvVar ? bearerTokenProviderLabels : undefined}
+          pending={addMutation.isPending}
+          onSubmit={submitAdd}
+        />
+      </div>
+      {runtimeState?.mcpServers?.length ? (
+        <div className="mt-3">
+          <div className="space-y-1">
+            {runtimeState.mcpServers.map((server) => (
+              <div
+                key={server.id}
+                className="flex items-center justify-between rounded-md bg-surface-inset/60 px-2.5 py-1.5"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-[0.75rem] text-text-bright">{server.name}</div>
+                  <div className="text-[0.6875rem] text-muted">
+                    {describeConnectionState(server.connectionState)}
+                  </div>
+                </div>
+                {server.connectionState === "needs_auth" ? (
+                  <div className="text-[0.6875rem] text-muted">
+                    Authenticate with the {provider.label} CLI.
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 text-[0.6875rem] text-muted">
+            Remove servers with the {provider.label} CLI.
+          </div>
+        </div>
+      ) : null}
+      <Dialog.Root open={providerDialogOpen} onOpenChange={setProviderDialogOpen}>
+        <Dialog.Content maxWidth="max-w-md">
+          <Dialog.Header>
+            <Dialog.Title>Add MCP server to providers</Dialog.Title>
+            <Dialog.Close />
+          </Dialog.Header>
+          <p className="text-[0.75rem] text-muted">
+            This {transport.toUpperCase()} server can be added to multiple installed providers.
+          </p>
+          <div className="space-y-2 rounded-lg border border-border/50 bg-surface-inset/50 p-3">
+            {compatibleProviders.map((candidate) => (
+              <CheckboxField
+                key={candidate.provider}
+                checked={selectedProviders.includes(candidate.provider)}
+                onCheckedChange={(checked) =>
+                  setSelectedProviders((current) =>
+                    checked
+                      ? [...new Set([...current, candidate.provider])]
+                      : current.filter((value) => value !== candidate.provider),
+                  )
+                }
+                label={
+                  <span className="inline-flex items-center gap-2">
+                    <ProviderLogo provider={candidate.provider} className="h-3.5 w-3.5" />
+                    {candidate.label}
+                    {candidate.provider === provider.provider ? (
+                      <span className="text-muted/70">(current)</span>
+                    ) : null}
+                  </span>
+                }
+              />
+            ))}
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="ghost" onClick={() => setProviderDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!selectedProviders.length || addMutation.isPending}
+              onClick={() => addMutation.mutate(selectedProviders)}
+            >
+              {addMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Add to {selectedProviders.length} provider{selectedProviders.length === 1 ? "" : "s"}
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Root>
+    </div>
+  );
+}
+
 function ProviderDefaultsRow({
   provider,
   defaults,
   onChange,
   runtimeState,
+  availableProviders,
 }: {
   provider: ProviderDescriptor;
   defaults: ProviderDefaults;
   onChange: (field: keyof ProviderDefaults, value: string) => void;
   runtimeState?: ProviderGlobalState;
+  availableProviders: ProviderDescriptor[];
 }) {
   const { data: providerModels } = useQuery({
     queryKey: ["provider-models", provider.provider],
@@ -1133,9 +1349,9 @@ function ProviderDefaultsRow({
                 </span>
               </div>
             )}
-            {typeof runtimeState?.mcpServers?.length === "number" && (
+            {caps.mcp && typeof runtimeState?.mcpServers?.length === "number" && (
               <div className="flex items-baseline gap-1.5">
-                <span className="text-[0.6875rem] text-muted">MCP Servers</span>
+                <span className="text-[0.6875rem] text-muted">Provider MCP servers</span>
                 <span className="font-medium text-text-bright">
                   {runtimeState.mcpServers.length}
                 </span>
@@ -1154,6 +1370,11 @@ function ProviderDefaultsRow({
           ) : null}
         </div>
       )}
+      <McpManagementForm
+        provider={provider}
+        runtimeState={runtimeState}
+        availableProviders={availableProviders}
+      />
     </div>
   );
 }

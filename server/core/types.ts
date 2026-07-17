@@ -191,8 +191,40 @@ export interface ProviderNotice {
   detail?: string;
 }
 
-export interface ProviderMcpServerStatus {
+export type ProviderMcpScope = "global" | "project" | "chat" | "unknown";
+export type ProviderMcpSource = "provider" | "relay";
+export type ProviderMcpConnectionState =
+  | "connected"
+  | "connecting"
+  | "needs_auth"
+  | "failed"
+  | "disabled"
+  | "unknown";
+
+export interface ProviderMcpTool {
   name: string;
+  description?: string;
+}
+
+export interface ProviderMcpServerStatus {
+  /** Stable within a Provider. Falls back to the Provider-reported name. */
+  id: string;
+  name: string;
+  provider: ProviderKind;
+  scope: ProviderMcpScope;
+  source: ProviderMcpSource;
+  /** Whether the Provider reports the server in configuration. */
+  configured?: boolean;
+  /** Whether the Provider reports the server loaded for the current scope/Chat. */
+  available?: boolean;
+  connectionState: ProviderMcpConnectionState;
+  authentication?: {
+    method: "oauth" | "bearer_token" | "none" | "unknown";
+    login: boolean;
+    logout: boolean;
+  };
+  tools?: ProviderMcpTool[];
+  /** Raw Provider fields retained for diagnostics, never used for UI branching. */
   status?: string;
   authStatus?: string;
   connected?: boolean;
@@ -349,6 +381,16 @@ export interface ProviderCapabilities {
   supportsFastMode: boolean;
   supportsModelSelection: boolean;
   supportsTitleUpdates: boolean;
+  /** MCP discovery is read-only; configuration capabilities are intentionally separate. */
+  mcp?: {
+    discovery: "global" | "chat" | "global-and-chat";
+    toolEnumeration: boolean;
+    management?: {
+      scopes: Array<"global" | "project">;
+      bearerTokenEnvVar: boolean;
+      transports: Array<"http" | "sse" | "stdio">;
+    };
+  };
   /** Labels/descriptions for reasoning effort levels, rendered by the UI as-is */
   reasoningEffortLevels?: {
     effort: ReasoningEffort;
@@ -955,6 +997,13 @@ export interface ActivityMessage {
   tasks?: TaskItem[];
   files?: FileChange[];
   inputDescription?: string;
+  mcp?: {
+    serverId: string;
+    serverName: string;
+    toolName: string;
+    callId?: string;
+    durationMs?: number;
+  };
   /** Raw SDK/provider message for debug display. */
   raw?: unknown;
 }

@@ -47,6 +47,7 @@ import {
   BUILTIN_PROVIDER_MODELS,
   resolveProviderDefaultModelOption,
 } from "#core/provider-catalog.js";
+import { overlayManagedMcpConfiguration } from "#core/mcp.js";
 import { SpaceManager } from "#core/space-manager.js";
 import { SpinOffManager } from "#core/spin-off-manager.js";
 import { ProjectManager } from "#core/project-manager.js";
@@ -2706,6 +2707,13 @@ export class InstanceManager extends EventEmitter {
 
     this.providerGlobalHydrationInFlight.set(provider, run);
     return run;
+  }
+
+  recordManagedMcpConfiguration(provider: ProviderKind, name: string): void {
+    const existing = this.providerGlobalState.get(provider)?.mcpServers ?? [];
+    this.updateProviderGlobalState(provider, {
+      mcpServers: overlayManagedMcpConfiguration(existing, provider, name),
+    });
   }
 
   private updateProviderGlobalState(
@@ -7771,13 +7779,25 @@ export class InstanceManager extends EventEmitter {
                   return acc;
                 }, [])
               : [];
-            if (slashCommands.length || skills.length) {
+            const mcpServers = Array.isArray(payload.mcpServers)
+              ? payload.mcpServers.flatMap((server) => {
+                  if (!server || typeof server !== "object") return [];
+                  const record = server as Record<string, unknown>;
+                  return typeof record.id === "string" &&
+                    typeof record.name === "string" &&
+                    record.provider === live.info.provider
+                    ? [{ ...record } as unknown as import("./types.js").ProviderMcpServerStatus]
+                    : [];
+                })
+              : undefined;
+            if (slashCommands.length || skills.length || mcpServers !== undefined) {
               live.info.providerStatus = {
                 ...live.info.providerStatus,
                 slashCommands: slashCommands.length
                   ? slashCommands
                   : live.info.providerStatus?.slashCommands,
                 skills: skills.length ? skills : live.info.providerStatus?.skills,
+                ...(mcpServers !== undefined ? { mcpServers } : {}),
               };
               this.emitInstanceStatus(live);
             }
@@ -7886,6 +7906,9 @@ export class InstanceManager extends EventEmitter {
                     ];
                   })
                 : live.info.providerStatus?.skills,
+              mcpServers: Array.isArray(payload.mcpServers)
+                ? payload.mcpServers.map((server) => ({ ...server }))
+                : live.info.providerStatus?.mcpServers,
               diff:
                 payload.diff && typeof payload.diff === "object"
                   ? { ...(payload.diff as Record<string, unknown>) }

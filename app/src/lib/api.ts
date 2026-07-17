@@ -238,6 +238,54 @@ export async function runProviderUpdate(provider: ProviderKind): Promise<Provide
   return data.providers ?? [];
 }
 
+export async function addProviderMcpServer(
+  provider: ProviderKind,
+  input: {
+    name: string;
+    transport?: "http" | "sse" | "stdio";
+    url?: string;
+    command?: string;
+    args?: string[];
+    bearerTokenEnvVar?: string;
+    scope?: "global" | "project";
+    projectId?: string;
+  },
+): Promise<void> {
+  const res = await fetch(`/api/providers/${encodeURIComponent(provider)}/mcp-servers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(data.error || "Failed to add MCP server");
+}
+
+export async function fetchProjectMcpServers(
+  provider: ProviderKind,
+  projectId: string,
+): Promise<
+  Array<{
+    name: string;
+    transport: "http" | "sse" | "stdio" | "unknown";
+    target?: string;
+    scope: "local" | "project";
+  }>
+> {
+  const res = await fetch(
+    `/api/providers/${encodeURIComponent(provider)}/mcp-servers?projectId=${encodeURIComponent(projectId)}`,
+  );
+  if (!res.ok) throw new Error("Failed to load Project MCP servers");
+  const data = (await res.json()) as {
+    servers?: Array<{
+      name: string;
+      transport: "http" | "sse" | "stdio" | "unknown";
+      target?: string;
+      scope: "local" | "project";
+    }>;
+  };
+  return data.servers ?? [];
+}
+
 export async function fetchUpdateStatus(): Promise<UpdateSnapshot> {
   const res = await fetch("/api/system/update");
   if (!res.ok) throw new Error("Failed to fetch update status");

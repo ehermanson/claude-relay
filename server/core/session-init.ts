@@ -1,4 +1,5 @@
-import type { SystemEventMessage } from "#core/types.js";
+import { mcpServerId, normalizeMcpAuthentication, normalizeMcpConnectionState } from "#core/mcp.js";
+import type { ProviderKind, ProviderMcpServerStatus, SystemEventMessage } from "#core/types.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -94,20 +95,49 @@ function normalizeAgents(value: unknown): Array<string | JsonRecord> | undefined
   return items.length > 0 ? items : undefined;
 }
 
-function normalizeMcpServers(value: unknown): Array<{ name: string; status?: string }> | undefined {
+function normalizeMcpServers(
+  value: unknown,
+  provider: ProviderKind,
+): ProviderMcpServerStatus[] | undefined {
   if (Array.isArray(value)) {
     const items = value
       .map((item) => {
-        if (typeof item === "string" && item.trim()) return { name: item };
+        if (typeof item === "string" && item.trim()) {
+          return {
+            id: mcpServerId(provider, item.trim()),
+            name: item.trim(),
+            provider,
+            scope: "chat" as const,
+            source: "provider" as const,
+            available: true,
+            connectionState: "unknown" as const,
+          };
+        }
         const record = asRecord(item);
         if (!record) return null;
         const name = typeof record.name === "string" ? record.name : undefined;
         if (!name?.trim()) return null;
         const status = typeof record.status === "string" ? record.status : undefined;
-        return { name, status };
+        const authStatus = typeof record.authStatus === "string" ? record.authStatus : undefined;
+        const connected = typeof record.connected === "boolean" ? record.connected : undefined;
+        const connectionState = normalizeMcpConnectionState(status, authStatus, connected);
+        const authentication = normalizeMcpAuthentication(authStatus, connectionState);
+        return {
+          id: mcpServerId(provider, name),
+          name,
+          provider,
+          scope: "chat" as const,
+          source: "provider" as const,
+          available: true,
+          connectionState,
+          ...(authentication ? { authentication } : {}),
+          status,
+          authStatus,
+          connected,
+        };
       })
-      .filter((item): item is { name: string; status?: string } => !!item);
-    return items.length > 0 ? items : undefined;
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+    return items;
   }
 
   const record = asRecord(value);
@@ -115,24 +145,80 @@ function normalizeMcpServers(value: unknown): Array<{ name: string; status?: str
   const items = Object.entries(record)
     .map(([name, details]) => {
       if (!name.trim()) return null;
-      if (typeof details === "string") return { name, status: details };
-      if (typeof details === "boolean")
-        return { name, status: details ? "connected" : "needs auth" };
+      if (typeof details === "string") {
+        const connectionState = normalizeMcpConnectionState(details);
+        const authentication = normalizeMcpAuthentication(undefined, connectionState);
+        return {
+          id: mcpServerId(provider, name),
+          name,
+          provider,
+          scope: "chat" as const,
+          source: "provider" as const,
+          available: true,
+          connectionState,
+          ...(authentication ? { authentication } : {}),
+          status: details,
+        };
+      }
+      if (typeof details === "boolean") {
+        const status = details ? "connected" : "needs auth";
+        return {
+          id: mcpServerId(provider, name),
+          name,
+          provider,
+          scope: "chat" as const,
+          source: "provider" as const,
+          available: true,
+          connectionState: normalizeMcpConnectionState(status, undefined, details),
+          status,
+          connected: details,
+        };
+      }
       const detailRecord = asRecord(details);
-      if (!detailRecord) return { name };
+      if (!detailRecord)
+        return {
+          id: mcpServerId(provider, name),
+          name,
+          provider,
+          scope: "chat" as const,
+          source: "provider" as const,
+          available: true,
+          connectionState: "unknown" as const,
+        };
       const status =
         typeof detailRecord.status === "string"
           ? detailRecord.status
           : typeof detailRecord.state === "string"
             ? detailRecord.state
             : undefined;
-      return { name, status };
+      const authStatus =
+        typeof detailRecord.authStatus === "string" ? detailRecord.authStatus : undefined;
+      const connected =
+        typeof detailRecord.connected === "boolean" ? detailRecord.connected : undefined;
+      const connectionState = normalizeMcpConnectionState(status, authStatus, connected);
+      const authentication = normalizeMcpAuthentication(authStatus, connectionState);
+      return {
+        id: mcpServerId(provider, name),
+        name,
+        provider,
+        scope: "chat" as const,
+        source: "provider" as const,
+        available: true,
+        connectionState,
+        ...(authentication ? { authentication } : {}),
+        status,
+        authStatus,
+        connected,
+      };
     })
-    .filter((item): item is { name: string; status?: string } => !!item);
-  return items.length > 0 ? items : undefined;
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+  return items;
 }
 
-export function normalizeSessionInitPayload(raw: unknown): Record<string, unknown> | undefined {
+export function normalizeSessionInitPayload(
+  raw: unknown,
+  provider: ProviderKind = "claude",
+): Record<string, unknown> | undefined {
   const record = asRecord(raw);
   if (!record) return undefined;
 
@@ -173,8 +259,8 @@ export function normalizeSessionInitPayload(raw: unknown): Record<string, unknow
     normalizeAgents(record.agentTypes);
   if (agents) payload.agents = agents;
 
-  const mcpServers = normalizeMcpServers(record.mcp_servers ?? record.mcpServers);
-  if (mcpServers) payload.mcpServers = mcpServers;
+  const mcpServers = normalizeMcpServers(record.mcp_servers ?? record.mcpServers, provider);
+  if (mcpServers !== undefined) payload.mcpServers = mcpServers;
 
   return Object.keys(payload).length > 0 ? payload : undefined;
 }
@@ -182,12 +268,13 @@ export function normalizeSessionInitPayload(raw: unknown): Record<string, unknow
 export function buildSessionInitEvent(
   raw: unknown,
   overrides?: Record<string, unknown>,
+  provider: ProviderKind = "claude",
 ): SystemEventMessage {
   return {
     type: "system_event",
     event: "session_init",
     payload: {
-      ...(normalizeSessionInitPayload(raw) ?? {}),
+      ...(normalizeSessionInitPayload(raw, provider) ?? {}),
       ...(overrides ?? {}),
     },
     raw,

@@ -209,6 +209,18 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - `ReasoningEffort` uses `"max"` as the Relay-canonical highest effort; provider drivers map to native values (e.g. Codex `"xhigh"`); unknown strings pass through
 - Mid-session model switches emit a `model_switched` system event (divider in chat + timeline). It's recorded at **message-dispatch time** (`recordModelSwitchOnDispatch`), not when the user picks a model in the UI — only when the resolved model differs from the previous turn's (`instance.lastTurnModel`). So toggling the picker without sending, or switching away and back before sending, produces no divider; the divider always sits directly above the first turn the new model ran. Relay-level events like this never appear in provider transcripts, so they're persisted in the `session_events` table and re-merged into history by `mergeSessionEvents()` on every hydrate/getHistory. `lastTurnModel` is in-memory only, so the first send after a server restart re-establishes the baseline without a divider
 
+### MCP Discovery
+
+- `ProviderMcpServerStatus` is Relay's normalized MCP discovery contract. Keep configured, available-to-chat, and connection/authentication state separate; presence in Provider configuration never proves Chat availability.
+- Provider-global MCP state may enrich Chat-reported state, but Chat-reported state is authoritative for availability in that Chat. Empty arrays clear stale snapshots; `undefined` means the Provider supplied no new knowledge.
+- Provider-native MCP payload parsing stays in Provider drivers/session initialization. Shared UI consumes normalized enums and `ProviderCapabilities.mcp`, never Provider-name branches or raw status-string parsing.
+- Global Settings can add Provider-global MCP servers through `POST /api/providers/:provider/mcp-servers`; Claude supports HTTP/SSE/stdio and Codex supports HTTP/stdio. `server/core/mcp-management.ts` validates inputs and invokes Provider CLIs shelllessly; never accept credentials embedded in URLs or client-supplied commands. Relay intentionally does not remove MCP configuration because Provider discovery does not reliably distinguish user-managed, plugin-owned, and bundled servers.
+- Project Settings shows every installed MCP-capable Provider because Provider-global servers still apply to Project Chats. Project-scoped add controls render only when the Provider advertises Project management scope.
+- Claude Project discovery merges shared `.mcp.json` configuration with local-scope configuration stored under the Project path in `~/.claude.json`. Reads must return sanitized summaries only: never expose header, argument, or environment values, URL credentials, or query-string secrets.
+- Relay does not launch interactive MCP authentication/logout from the server: headless Provider CLI login can block indefinitely. When a server needs authentication, the UI directs the user to the Provider CLI. Live-only reconnect and enable/disable controls do not belong in Global Settings.
+- MCP add routes validate the requested transport against `ProviderCapabilities.mcp.management.transports`. Global and Project Settings share the same capability-driven MCP form so their supported fields cannot drift.
+- Codex may reference a bearer-token environment variable by name. Relay does not accept or persist token, header, or environment values. Persistent request-timeout and tool-policy settings remain unavailable until the Provider management surfaces expose a safe portable contract.
+
 ### Task Tracking
 
 - Tasks stored in `.relay/tasks.json` (Relay-managed snapshot JSON)
