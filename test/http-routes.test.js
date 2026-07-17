@@ -291,6 +291,74 @@ describe("HTTP Routes — Additional Coverage", () => {
     });
   });
 
+  describe("MCP provider routes", () => {
+    const capabilities = {
+      supportsResume: true,
+      supportsTranscriptReplay: true,
+      supportsApprovals: true,
+      supportsUserInputRequests: true,
+      supportsReasoningEffort: false,
+      supportsFastMode: false,
+      supportsModelSelection: true,
+      supportsTitleUpdates: false,
+      mcp: {
+        discovery: "global",
+        toolEnumeration: false,
+        management: {
+          scopes: ["global"],
+          bearerTokenEnvVar: false,
+          transports: ["http"],
+        },
+      },
+    };
+
+    beforeEach(() => {
+      getAvailableProviders = () => [{ provider: "claude", label: "Claude Code", capabilities }];
+      getProviderCapabilities = () => capabilities;
+    });
+
+    it("requires authentication for MCP additions", async () => {
+      const res = await request(server, "POST", "/api/providers/claude/mcp-servers", {
+        headers: { "Content-Type": "application/json" },
+        body: { name: "github", transport: "http", url: "https://example.com/mcp" },
+      });
+      assert.equal(res.status, 401);
+    });
+
+    it("rejects transports not advertised by the Provider", async () => {
+      const session = auth.createSession();
+      const res = await request(server, "POST", "/api/providers/claude/mcp-servers", {
+        headers: {
+          Cookie: `session=${session.id}`,
+          "Content-Type": "application/json",
+        },
+        body: { name: "local", transport: "stdio", command: "node" },
+      });
+      assert.equal(res.status, 400);
+      assert.equal(res.body.error, "Provider does not support stdio MCP servers");
+    });
+
+    it("does not expose an interactive MCP action endpoint", async () => {
+      const session = auth.createSession();
+      const res = await request(server, "POST", "/api/providers/claude/mcp-servers/github/action", {
+        headers: {
+          Cookie: `session=${session.id}`,
+          "Content-Type": "application/json",
+        },
+        body: { action: "login" },
+      });
+      assert.equal(res.status, 404);
+    });
+
+    it("does not expose an MCP removal endpoint", async () => {
+      const session = auth.createSession();
+      const res = await request(server, "DELETE", "/api/providers/claude/mcp-servers/github", {
+        headers: { Cookie: `session=${session.id}` },
+      });
+      assert.equal(res.status, 404);
+    });
+  });
+
   describe("POST /api/providers/update", () => {
     it("requires authentication", async () => {
       const res = await request(server, "POST", "/api/providers/update?provider=codex");

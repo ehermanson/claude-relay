@@ -99,6 +99,10 @@ function autoRespond(child, options = {}) {
           JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { userAgent: "codex-test/1.0" } }) +
             "\n",
         );
+      } else if (msg.method === "mcpServerStatus/list" && options.mcpResult) {
+        child.stdout.write(
+          JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: options.mcpResult }) + "\n",
+        );
       } else if (msg.method === "thread/start") {
         child.stdout.write(
           JSON.stringify({
@@ -328,6 +332,55 @@ describe("CodexAppServerSession", () => {
     assert.ok(methods.includes("account/read"), "Should request account snapshot");
     assert.ok(methods.includes("account/rateLimits/read"), "Should request rate-limit snapshot");
 
+    session.close();
+  });
+
+  it("normalizes the paginated Codex MCP startup snapshot", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const systemEvents = collectEvents(session, "systemEvent");
+
+    session.send("hello");
+    autoRespond(harness.children[0], {
+      mcpResult: {
+        data: [
+          {
+            name: "github",
+            serverInfo: { name: "GitHub" },
+            tools: [{ name: "search", description: "Search repositories" }],
+            authStatus: "authenticated",
+          },
+          {
+            name: "sentry",
+            serverInfo: null,
+            tools: [],
+            authStatus: "oAuth",
+          },
+        ],
+        nextCursor: null,
+      },
+    });
+    await tick(50);
+
+    const event = systemEvents
+      .map(([value]) => value)
+      .find((value) => value.event === "provider_status" && value.payload.mcpServers?.length);
+    assert.equal(event.payload.mcpServers[0].name, "github");
+    assert.equal(event.payload.mcpServers[0].toolCount, 1);
+    assert.equal(event.payload.mcpServers[0].tools[0].name, "search");
+    assert.equal(event.payload.mcpServers[0].authStatus, "authenticated");
+    assert.equal(event.payload.mcpServers[0].connectionState, "connected");
+    assert.equal(event.payload.mcpServers[1].connectionState, "needs_auth");
+    assert.deepEqual(event.payload.mcpServers[1].authentication, {
+      method: "oauth",
+      login: true,
+      logout: false,
+    });
     session.close();
   });
 
@@ -856,6 +909,53 @@ describe("CodexAppServerSession", () => {
     const toolResult = activities.find(([a]) => a.activity === "tool_result" && a.tool === "Bash");
     assert.ok(toolResult, "Expected a tool_result activity for Bash");
     assert.equal(toolResult[0].description, "Command completed");
+  });
+
+  it("preserves MCP server and tool identity in activities", async () => {
+    const harness = createHarness();
+    const session = new CodexAppServerSession({
+      cwd: "/tmp/project",
+      logger: noopLogger,
+      spawnProcess: harness.spawnProcess,
+      codexPath: "codex",
+    });
+    const activities = collectEvents(session, "activity");
+
+    session.send("search GitHub");
+    const child = harness.children[0];
+    autoRespond(child);
+    await tick(50);
+
+    for (const method of ["item/started", "item/completed"]) {
+      child.stdout.write(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          method,
+          params: {
+            threadId: "thread-001",
+            turnId: "turn-1",
+            item: {
+              type: "mcpToolCall",
+              id: "mcp-1",
+              server: "github",
+              tool: "search_repositories",
+              status: method === "item/started" ? "inProgress" : "completed",
+              durationMs: method === "item/completed" ? 42 : null,
+            },
+          },
+        }) + "\n",
+      );
+    }
+
+    await tick();
+    assert.deepEqual(activities[0][0].mcp, {
+      serverId: "codex:github",
+      serverName: "github",
+      toolName: "search_repositories",
+      callId: "mcp-1",
+      durationMs: undefined,
+    });
+    assert.equal(activities[1][0].mcp.durationMs, 42);
   });
 
   it("tracks file changes from fileChange items", async () => {
@@ -1615,7 +1715,15 @@ describe("CodexAppServerSession", () => {
     assert.ok(providerStatusEvents.length >= 3);
     assert.deepEqual(providerStatusEvents[0].payload.mcpServers, [
       {
+        id: "codex:github",
         name: "github",
+        provider: "codex",
+        scope: "global",
+        source: "provider",
+        configured: true,
+        connectionState: "connected",
+        authentication: { method: "unknown", login: true, logout: true },
+        tools: undefined,
         status: "connected",
         authStatus: "authenticated",
         connected: true,

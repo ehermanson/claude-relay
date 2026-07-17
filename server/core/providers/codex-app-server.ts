@@ -48,6 +48,7 @@ import { findCodexBinary, buildCodexSpawnEnv } from "#core/providers/codex-cli.j
 import { resolveProviderDefaultModelOption } from "#core/provider-catalog.js";
 import { getCachedCodexModels } from "#core/providers/codex-models.js";
 import { extFromPath } from "#core/paths.js";
+import { mcpServerId, normalizeMcpAuthentication, normalizeMcpConnectionState } from "#core/mcp.js";
 
 type SpawnFn = typeof spawn;
 
@@ -378,16 +379,57 @@ function buildMcpServerStatusList(value: unknown): ProviderMcpServerStatus[] | u
     const name = getString(row.name) ?? getString(row.server);
     if (!name) continue;
     const tools = Array.isArray(row.tools) ? row.tools.length : undefined;
+    const status = getString(row.status);
+    const authStatus = getString(row.authStatus) ?? getString(row.auth_status);
+    const connected =
+      typeof row.connected === "boolean"
+        ? row.connected
+        : asRecord(row.serverInfo ?? row.server_info)
+          ? true
+          : undefined;
+    let connectionState = normalizeMcpConnectionState(status, authStatus, connected);
+    if (
+      connectionState === "unknown" &&
+      connected !== true &&
+      authStatus
+        ?.toLowerCase()
+        .replace(/[^a-z]/g, "")
+        .includes("oauth")
+    ) {
+      connectionState = "needs_auth";
+    }
     servers.push({
+      id: mcpServerId("codex", name),
       name,
-      status: getString(row.status),
-      authStatus: getString(row.authStatus) ?? getString(row.auth_status),
-      connected: typeof row.connected === "boolean" ? row.connected : undefined,
+      provider: "codex",
+      scope: "global",
+      source: "provider",
+      configured: true,
+      connectionState,
+      authentication: normalizeMcpAuthentication(authStatus, connectionState),
+      tools: Array.isArray(row.tools)
+        ? row.tools.flatMap((tool) => {
+            if (typeof tool === "string" && tool.trim()) return [{ name: tool.trim() }];
+            const record = asRecord(tool);
+            const toolName = getString(record?.name);
+            return toolName
+              ? [{ name: toolName, description: getString(record?.description) }]
+              : [];
+          })
+        : undefined,
+      status,
+      authStatus,
+      connected,
       toolCount: tools,
       detail: getString(row.detail) ?? getString(row.message),
     });
   }
-  return servers.length > 0 ? servers : undefined;
+  return servers;
+}
+
+function normalizeMcpServerStatusSnapshot(value: unknown): ProviderMcpServerStatus[] | undefined {
+  const payload = asRecord(value);
+  return buildMcpServerStatusList(payload?.data ?? payload?.servers ?? payload?.items ?? value);
 }
 
 function buildAccountStatus(params: Record<string, unknown>): ProviderAccountStatus | undefined {
@@ -1131,9 +1173,8 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private requestStartupSnapshots(): void {
     void this.sendRpc("mcpServerStatus/list", {})
       .then((result) => {
-        const payload = asRecord(result);
-        const mcpServers = buildMcpServerStatusList(payload?.servers ?? payload?.items ?? result);
-        if (!mcpServers?.length) return;
+        const mcpServers = normalizeMcpServerStatusSnapshot(result);
+        if (!mcpServers) return;
         this.emit("systemEvent", {
           type: "system_event",
           event: "provider_status",
@@ -2022,7 +2063,7 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           type: "system_event",
           event: "provider_status",
           payload: {
-            mcpServers: buildMcpServerStatusList(params.servers ?? params.items),
+            mcpServers: normalizeMcpServerStatusSnapshot(params),
           },
           raw: msg,
         } as SystemEventMessage);
@@ -2206,6 +2247,13 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           activity: "tool_use",
           tool: mcp.tool,
           description: `Using ${mcp.server}/${mcp.tool}`,
+          mcp: {
+            serverId: mcpServerId("codex", mcp.server),
+            serverName: mcp.server,
+            toolName: mcp.tool,
+            callId: mcp.id,
+            durationMs: mcp.durationMs ?? undefined,
+          },
           raw: item,
         } as ActivityMessage);
         break;
@@ -2329,6 +2377,13 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
           activity: "tool_result",
           tool: mcp.tool,
           description: `${mcp.server}/${mcp.tool} completed`,
+          mcp: {
+            serverId: mcpServerId("codex", mcp.server),
+            serverName: mcp.server,
+            toolName: mcp.tool,
+            callId: mcp.id,
+            durationMs: mcp.durationMs ?? undefined,
+          },
           raw: item,
         } as ActivityMessage);
         break;
@@ -2430,11 +2485,15 @@ export class CodexAppServerSession extends EventEmitter implements ProviderSessi
   private emitSessionInitEvent(raw?: unknown): void {
     this.emit(
       "systemEvent",
-      buildSessionInitEvent(raw, {
-        sessionId: this._sessionId,
-        cwd: this.cwd,
-        model: this._preferredModel ?? undefined,
-      }),
+      buildSessionInitEvent(
+        raw,
+        {
+          sessionId: this._sessionId,
+          cwd: this.cwd,
+          model: this._preferredModel ?? undefined,
+        },
+        "codex",
+      ),
     );
   }
 
@@ -2630,7 +2689,6 @@ export async function fetchCodexProviderGlobalStateSnapshot({
       Promise.race([sendRpc("account/rateLimits/read", undefined), timeout]).catch(() => null),
     ]);
 
-    const mcpPayload = asRecord(mcpResult);
     const appPayload = asRecord(appResult);
     const account = normalizeCodexAccountSnapshot(accountResult) ?? undefined;
 
@@ -2648,7 +2706,7 @@ export async function fetchCodexProviderGlobalStateSnapshot({
               rateLimits,
             }
           : undefined,
-      mcpServers: buildMcpServerStatusList(mcpPayload?.servers ?? mcpPayload?.items ?? mcpResult),
+      mcpServers: normalizeMcpServerStatusSnapshot(mcpResult),
       apps: getStringArray(appPayload?.apps ?? appPayload?.items ?? appResult),
       updatedAt: Date.now(),
     };

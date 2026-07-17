@@ -179,6 +179,15 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsFastMode: false,
     supportsModelSelection: true,
     supportsTitleUpdates: false,
+    mcp: {
+      discovery: "chat",
+      toolEnumeration: false,
+      management: {
+        scopes: ["global", "project"],
+        bearerTokenEnvVar: false,
+        transports: ["http", "sse", "stdio"],
+      },
+    },
     reasoningEffortLevels: EXTENDED_EFFORTS,
     composerHints: { helpText: "Use @ for files and / for commands and skills" },
     runtimeModes: {
@@ -205,6 +214,15 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsFastMode: true,
     supportsModelSelection: true,
     supportsTitleUpdates: true,
+    mcp: {
+      discovery: "global-and-chat",
+      toolEnumeration: true,
+      management: {
+        scopes: ["global"],
+        bearerTokenEnvVar: true,
+        transports: ["http", "stdio"],
+      },
+    },
     reasoningEffortLevels: STANDARD_EFFORTS,
     composerHints: { helpText: "Use @ for files, / for commands, and $ for skills" },
     fastModes: {

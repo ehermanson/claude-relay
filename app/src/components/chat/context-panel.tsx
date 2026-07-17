@@ -1,6 +1,5 @@
 import { memo, useMemo } from "react";
 import { Tooltip } from "../ui/tooltip";
-import { Badge } from "../ui/badge";
 import type { ChatItem } from "@/hooks/use-instance-messages";
 
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
@@ -23,6 +22,7 @@ import type {
 import { StatusDot } from "../ui/status-dot";
 import { ProviderLogo } from "../ui/provider-logo";
 import { RateLimitBar, flattenRateLimitWindows } from "../ui/rate-limit-bar";
+import { McpServerList } from "./mcp-server-list";
 
 // =============================================================================
 // Shared primitives
@@ -260,10 +260,10 @@ function InstanceContext({
     globalProviderState?.account?.plan ||
     globalProviderState?.account?.rateLimits?.length ||
     globalProviderState?.mcpServers?.length ||
+    providerStatus?.mcpServers?.length ||
     providerStatus?.notices?.length ||
     globalProviderState?.notices?.length,
   );
-
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Stats grid */}
@@ -362,10 +362,12 @@ function ProviderStatusBlock({
   provider,
   providerStatus,
   globalState,
+  mcpContext = "chat",
 }: {
   provider: string;
   providerStatus?: ProviderStatusSummary;
   globalState?: ProviderGlobalState;
+  mcpContext?: "chat" | "provider";
 }) {
   const hasContent = Boolean(
     providerStatus?.threadStatus ||
@@ -376,11 +378,12 @@ function ProviderStatusBlock({
     globalState?.account?.plan ||
     globalState?.account?.rateLimits?.length ||
     globalState?.mcpServers?.length ||
+    providerStatus?.mcpServers?.length ||
     providerStatus?.notices?.length ||
     globalState?.notices?.length,
   );
 
-  if (!hasContent && !provider) return null;
+  if (!hasContent) return null;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -447,34 +450,12 @@ function ProviderStatusBlock({
       ) : null}
 
       {/* MCP servers */}
-      {globalState?.mcpServers?.length ? (
-        <div className="flex flex-wrap gap-1.5">
-          {globalState.mcpServers.map((server) => (
-            <Badge
-              key={server.name}
-              variant={
-                statusTone(server.authStatus ?? server.status) === "warning"
-                  ? "warning"
-                  : statusTone(server.authStatus ?? server.status) === "success"
-                    ? "success"
-                    : "default"
-              }
-              size="xs"
-              dot
-              dotClass={
-                statusTone(server.authStatus ?? server.status) === "active"
-                  ? "bg-warning animate-pulse-dot"
-                  : statusTone(server.authStatus ?? server.status) === "success"
-                    ? "bg-accent"
-                    : "bg-muted"
-              }
-            >
-              {server.name}
-              {typeof server.toolCount === "number" ? ` (${server.toolCount})` : ""}
-            </Badge>
-          ))}
-        </div>
-      ) : null}
+      <McpServerList
+        provider={provider as ProviderKind}
+        globalServers={globalState?.mcpServers}
+        chatServers={providerStatus?.mcpServers}
+        context={mcpContext}
+      />
 
       {/* Notices */}
       {providerStatus?.notices?.length || globalState?.notices?.length ? (
@@ -562,6 +543,7 @@ function SpaceContext({
                 key={p}
                 provider={p}
                 globalState={providerGlobalStates[p as ProviderKind]}
+                mcpContext="provider"
               />
             ))}
           </div>

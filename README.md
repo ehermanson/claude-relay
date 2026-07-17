@@ -51,6 +51,7 @@ If you do not use spaces, you can still use Relay just fine with regular chats.
 - Start review chats for a branch or for the files changed in a chat
 - Browse project tasks, plans, installed skills, docs, and usage stats
 - Set global defaults and project-specific instructions
+- See which MCP servers are available to a chat and manage supported Provider-global or project-scoped MCP configuration
 - Update an installed Relay build from the settings screen
 - Open Relay on another device with a QR code, Tailscale address, or tunnel
 
@@ -172,6 +173,7 @@ Depending on the provider, you may see support for:
 - Approval requests
 - User-input prompts
 - Session resume
+- MCP discovery and management (transport and scope vary by provider)
 
 ## Requirements
 

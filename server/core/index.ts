@@ -51,6 +51,7 @@ export {
   refreshProviderVersionAdvisories,
 } from "#core/provider-registry.js";
 export { buildProviderSwitchHandoffPrompt } from "#core/session-handoff.js";
+export { mcpServerId, normalizeMcpConnectionState, resolveMcpServersForChat } from "#core/mcp.js";
 
 export { ClaudeProcess } from "#core/claude-process.js";
 export type { ClaudeProcessEvents } from "#core/claude-process.js";

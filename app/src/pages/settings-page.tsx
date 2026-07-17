@@ -10,10 +10,13 @@ import {
   fetchProviderModels,
   fetchProjectWorkspaceEntries,
   fetchGlobalSettings,
-  fetchHealth,
+  addProviderMcpServer,
+  fetchProjectMcpServers,
 } from "../lib/api";
 import { useProjectContext } from "../context/project-context";
 import { Input, Select } from "../components/ui/input";
+import { McpServerFormFields } from "@/components/settings/mcp-server-form-fields";
+import { getProjectMcpProviders } from "@/lib/mcp-management";
 import { MarkdownEditor } from "../components/ui/markdown-editor";
 import { RadioGroup, RadioGroupField } from "@/components/ui/radio-group";
 import {
@@ -24,7 +27,8 @@ import {
 import { SuggestionSettings } from "@/components/settings/suggestion-settings";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { PageShell } from "@/components/ui/page-shell";
-import type { Project, GlobalSettings, ProviderKind } from "@shared/types";
+import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
+import type { Project, GlobalSettings, ProviderDescriptor, ProviderKind } from "@shared/types";
 
 // ─── Hooks ──────────────────────────────────────────────────────────────────
 
@@ -71,7 +75,13 @@ export function SettingsPage() {
     staleTime: 60_000,
   });
 
-  if (isLoading || isLoadingGlobal || !project || !globalSettings) {
+  const { data: providers = [], isLoading: isLoadingProviders } = useQuery({
+    queryKey: ["providers"],
+    queryFn: fetchProviders,
+    staleTime: 60_000,
+  });
+
+  if (isLoading || isLoadingGlobal || isLoadingProviders || !project || !globalSettings) {
     return (
       <div className="flex flex-1 items-center justify-center">
         <span className="text-sm text-muted">Loading settings...</span>
@@ -79,7 +89,14 @@ export function SettingsPage() {
     );
   }
 
-  return <SettingsForm key={project.id} project={project} globalSettings={globalSettings} />;
+  return (
+    <SettingsForm
+      key={project.id}
+      project={project}
+      globalSettings={globalSettings}
+      providers={providers}
+    />
+  );
 }
 
 // ─── Settings Form ──────────────────────────────────────────────────────────
@@ -87,9 +104,11 @@ export function SettingsPage() {
 function SettingsForm({
   project,
   globalSettings,
+  providers,
 }: {
   project: Project;
   globalSettings: GlobalSettings;
+  providers: ProviderDescriptor[];
 }) {
   const save = useProjectAutoSave(project);
 
@@ -103,9 +122,6 @@ function SettingsForm({
             save={save}
           />
         </SettingsSectionBoundary>
-        <SettingsSectionBoundary name="Remote Access">
-          <RemoteAccessSection />
-        </SettingsSectionBoundary>
         <SettingsSectionBoundary name="Git">
           <GitSection
             key={`git-${project.defaultSpaceBranch ?? ""}`}
@@ -116,6 +132,9 @@ function SettingsForm({
         </SettingsSectionBoundary>
         <SettingsSectionBoundary name="Providers">
           <ProvidersSection project={project} globalSettings={globalSettings} save={save} />
+        </SettingsSectionBoundary>
+        <SettingsSectionBoundary name="MCP Servers">
+          <ProjectMcpSection project={project} providers={providers} />
         </SettingsSectionBoundary>
         <SettingsSectionBoundary name="Suggestions">
           <SuggestionSettings
@@ -131,51 +150,168 @@ function SettingsForm({
   );
 }
 
-function RemoteAccessSection() {
-  const { data: health } = useQuery({
-    queryKey: ["health"],
-    queryFn: fetchHealth,
-    staleTime: 60_000,
-  });
+function ProjectMcpSection({
+  project,
+  providers,
+}: {
+  project: Project;
+  providers: ProviderDescriptor[];
+}) {
+  const eligibleProviders = getProjectMcpProviders(providers);
+  if (!eligibleProviders.length) return null;
 
   return (
     <SettingsSection
-      title="Remote Access"
-      description="Connection settings for phones, tablets, and secondary laptops."
+      title="MCP Availability"
+      description="MCP servers available to Chats in this Project, grouped by Provider."
     >
-      <SettingRow
-        label="Open On Phone"
-        description={
-          health?.authRequired
-            ? "Remote access is configured globally because it applies to the whole Relay server."
-            : "Relay is running in open mode, and global settings can show a direct QR code for this server."
-        }
-        vertical
-      >
-        <div className="space-y-3 text-[0.75rem] text-muted">
-          {health?.authRequired ? (
-            <div>
-              Open{" "}
-              <Link to="/settings/general" className="text-accent hover:underline">
-                global settings
-              </Link>{" "}
-              to choose a phone-friendly URL, show a QR code, or generate a one-time pairing code.
-            </div>
-          ) : (
-            <div>
-              Open{" "}
-              <Link to="/settings/general" className="text-accent hover:underline">
-                global settings
-              </Link>{" "}
-              to choose a LAN or Tailscale address and show a QR code. Add{" "}
-              <code className="rounded bg-surface px-1 py-0.5">--password</code> or{" "}
-              <code className="rounded bg-surface px-1 py-0.5">RELAY_PASSWORD</code> if you also
-              want one-time pairing codes.
-            </div>
-          )}
-        </div>
-      </SettingRow>
+      <div className="space-y-6">
+        {eligibleProviders.map((provider) => (
+          <ProjectProviderMcpGroup key={provider.provider} project={project} provider={provider} />
+        ))}
+      </div>
     </SettingsSection>
+  );
+}
+
+function ProjectProviderMcpGroup({
+  project,
+  provider,
+}: {
+  project: Project;
+  provider: ProviderDescriptor;
+}) {
+  const queryClient = useQueryClient();
+  const globalServers = useProviderRuntimeStore(
+    (state) => state.providerGlobalState[provider.provider]?.mcpServers ?? [],
+  );
+  const transports = provider.capabilities.mcp?.management?.transports ?? [];
+  const [name, setName] = useState("");
+  const [transport, setTransport] = useState<"http" | "sse" | "stdio">(transports[0] ?? "http");
+  const [target, setTarget] = useState("");
+  const [args, setArgs] = useState("");
+  const [tokenEnvVar, setTokenEnvVar] = useState("");
+  const { data: projectServers = [] } = useQuery({
+    queryKey: ["project-mcp-servers", project.id, provider.provider],
+    queryFn: () => fetchProjectMcpServers(provider.provider, project.id),
+  });
+  const servers = [
+    ...new Map(
+      [
+        ...globalServers.map((server) => ({
+          name: server.name,
+          transport: "unknown" as const,
+          scope: "global" as const,
+          connectionState: server.connectionState,
+          target: undefined,
+        })),
+        ...projectServers.map((server) => ({ ...server, connectionState: undefined })),
+      ].map((server) => [server.name, server] as const),
+    ).values(),
+  ];
+  const canAddProject = Boolean(provider.capabilities.mcp?.management?.scopes.includes("project"));
+  const refresh = () =>
+    queryClient.invalidateQueries({
+      queryKey: ["project-mcp-servers", project.id, provider.provider],
+    });
+  const add = useMutation({
+    mutationFn: () =>
+      addProviderMcpServer(provider.provider, {
+        name: name.trim(),
+        transport,
+        scope: "project",
+        projectId: project.id,
+        url: transport === "stdio" ? undefined : target.trim(),
+        command: transport === "stdio" ? target.trim() : undefined,
+        args:
+          transport === "stdio"
+            ? args
+                .split("\n")
+                .map((value) => value.trim())
+                .filter(Boolean)
+            : undefined,
+        bearerTokenEnvVar:
+          transport === "http" && provider.capabilities.mcp?.management?.bearerTokenEnvVar
+            ? tokenEnvVar.trim() || undefined
+            : undefined,
+      }),
+    onSuccess: () => {
+      setName("");
+      setTarget("");
+      setArgs("");
+      setTokenEnvVar("");
+      refresh();
+      toast.success("Project MCP server added");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Failed to add MCP server"),
+  });
+
+  return (
+    <section className="rounded-lg border border-border/40 bg-surface/40 p-3.5">
+      <div className="mb-3 flex items-center gap-2">
+        <ProviderLogo provider={provider.provider} className="h-4 w-4" />
+        <h3 className="text-[0.8125rem] font-medium text-text-bright">{provider.label}</h3>
+      </div>
+      {canAddProject ? (
+        <McpServerFormFields
+          name={name}
+          onNameChange={setName}
+          transport={transport}
+          transports={transports}
+          onTransportChange={setTransport}
+          target={target}
+          onTargetChange={setTarget}
+          args={args}
+          onArgsChange={setArgs}
+          tokenEnvVar={tokenEnvVar}
+          onTokenEnvVarChange={setTokenEnvVar}
+          tokenProviderLabels={
+            provider.capabilities.mcp?.management?.bearerTokenEnvVar ? provider.label : undefined
+          }
+          pending={add.isPending}
+          onSubmit={() => add.mutate()}
+        />
+      ) : (
+        <div className="text-[0.75rem] text-muted">
+          Global MCP configuration applies to every Project. Add or configure servers in{" "}
+          <Link to="/settings/providers" className="text-accent hover:underline">
+            Global Settings
+          </Link>
+          .
+        </div>
+      )}
+      <div className="mt-3 space-y-1">
+        {servers.map((server) => (
+          <div
+            key={server.name}
+            className="flex items-center justify-between rounded-md bg-surface-inset/60 px-2.5 py-2"
+          >
+            <div>
+              <div className="text-[0.75rem] text-text-bright">{server.name}</div>
+              <div className="text-[0.6875rem] text-muted">
+                {server.transport === "unknown"
+                  ? "Transport not reported"
+                  : server.transport.toUpperCase()}
+                {server.target ? ` · ${server.target}` : ""}
+                {` · ${server.scope === "local" ? "Local Project" : server.scope === "project" ? "Shared Project" : "Global"}`}
+                {server.connectionState ? ` · ${server.connectionState.replace("_", " ")}` : ""}
+              </div>
+            </div>
+          </div>
+        ))}
+        {!servers.length ? (
+          <div className="text-[0.75rem] text-muted">
+            No MCP servers reported for this Provider and Project.
+          </div>
+        ) : null}
+        {servers.length ? (
+          <div className="pt-1 text-[0.6875rem] text-muted">
+            Remove servers with the {provider.label} CLI.
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
