@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Check, FilePenLine, GitBranch, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, FilePenLine, GitBranch } from "lucide-react";
 import type {
   ProviderKind,
   ProviderModelOptions,
@@ -77,8 +77,6 @@ export function ReviewSetupPanel({
   );
   const [runtimeMode] = useState<ProviderRuntimeMode | undefined>(initialRuntimeMode);
   const [instructions, setInstructions] = useState("");
-  const [showInstructions, setShowInstructions] = useState(false);
-  const instructionsRef = useRef<HTMLTextAreaElement | null>(null);
   const {
     availableProviderModels: visibleModels,
     capabilities,
@@ -151,35 +149,18 @@ export function ReviewSetupPanel({
             </div>
           </section>
 
-          {/* ── Instructions (optional) ───────────────── */}
+          {/* ── Additional instructions (optional) ────── */}
           <section className="grid gap-2">
-            {showInstructions ? (
-              <>
-                <div className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted">
-                  Instructions
-                </div>
-                <textarea
-                  ref={instructionsRef}
-                  value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
-                  placeholder="What to focus on, things to look out for, extra context…"
-                  rows={3}
-                  className="w-full resize-y rounded-lg border border-border bg-bg px-2.5 py-2 text-xs text-text placeholder:text-muted/70 focus:border-accent focus:outline-none"
-                />
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowInstructions(true);
-                  requestAnimationFrame(() => instructionsRef.current?.focus());
-                }}
-                className="flex items-center gap-1.5 self-start rounded-md px-1 py-0.5 text-[0.6875rem] font-medium text-muted transition-colors hover:text-text"
-              >
-                <Plus size={11} strokeWidth={2} className="shrink-0" />
-                Add instructions
-              </button>
-            )}
+            <div className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-muted">
+              Additional Instructions
+            </div>
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder="What to focus on, things to look out for, extra context…"
+              rows={3}
+              className="w-full resize-y rounded-lg border border-border bg-bg px-2.5 py-2 text-xs text-text placeholder:text-muted/70 focus:border-accent focus:outline-none"
+            />
           </section>
 
           {/* ── Reviewer ──────────────────────────────── */}
