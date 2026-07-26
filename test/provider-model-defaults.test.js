@@ -8,10 +8,10 @@ import {
 } from "../dist/server/core/index.js";
 
 describe("resolveProviderDefaultModelOption", () => {
-  it("returns the catalog default for claude (Opus 4.7)", () => {
+  it("returns the catalog default for claude (Opus 5)", () => {
     const result = resolveProviderDefaultModelOption("claude");
     assert.ok(result);
-    assert.equal(result.id, "claude-opus-4-7");
+    assert.equal(result.id, "claude-opus-5");
     assert.equal(result.isDefault, true);
   });
 
@@ -53,11 +53,11 @@ describe("resolveProviderDefaultModelOption", () => {
 
   it("prefers a discovered claude default over the fallback catalog default", () => {
     const result = resolveProviderDefaultModelOption("claude", [
-      { provider: "claude", id: "claude-opus-4-7", label: "Opus 4.7" },
-      { provider: "claude", id: "claude-opus-4-8", label: "Opus 4.8", isDefault: true },
+      { provider: "claude", id: "claude-opus-4-8", label: "Opus 4.8" },
+      { provider: "claude", id: "claude-fable-5", label: "Fable 5", isDefault: true },
     ]);
     assert.ok(result);
-    assert.equal(result.id, "claude-opus-4-8");
+    assert.equal(result.id, "claude-fable-5");
   });
 
   it("falls back to first model when catalog default is absent and no isDefault", () => {
@@ -181,7 +181,7 @@ describe("catalog default model used for session creation", () => {
     const models = getBuiltinProviderModels("claude");
     const defaults = models.filter((m) => m.isDefault);
     assert.equal(defaults.length, 1);
-    assert.equal(defaults[0].id, "claude-opus-4-7");
+    assert.equal(defaults[0].id, "claude-opus-5");
   });
 
   it("codex catalog has exactly one default model", () => {

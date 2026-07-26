@@ -45,6 +45,17 @@ const DEFAULT_TIMEOUT_MS = 5_000;
  */
 let codexDiscoveredModels: ProviderModelOption[] | null = null;
 
+/** When the model list was last probed (prewarm or staleness refresh). */
+let codexModelsProbedAt = 0;
+
+/** In-flight staleness refresh, deduped so concurrent callers share one probe. */
+let codexModelsRefreshInFlight: Promise<void> | null = null;
+
+/** Re-probe the model list this often — the reported list changes when the
+ *  Codex CLI is updated (including via Relay's own provider-update flow), so a
+ *  long-running server must not serve a boot-time snapshot forever. */
+const CODEX_MODELS_REFRESH_INTERVAL_MS = 30 * 60_000;
+
 /**
  * Return the cached Codex model list if `prewarmCodexModels()` (or a cached
  * `discoverCodexModels()` call) has populated it. Returns null otherwise so
@@ -66,6 +77,7 @@ export async function prewarmCodexModels(options: DiscoverCodexModelsOptions = {
     const models = await discoverCodexModels(options);
     if (models.length > 0) {
       codexDiscoveredModels = models;
+      codexModelsProbedAt = Date.now();
       options.logger?.info?.(`[CodexModels] Pre-warm discovered ${models.length} models`);
     } else {
       options.logger?.debug?.(
@@ -75,6 +87,37 @@ export async function prewarmCodexModels(options: DiscoverCodexModelsOptions = {
   } catch (err) {
     options.logger?.debug?.(`[CodexModels] Pre-warm failed (non-fatal): ${err}`);
   }
+}
+
+/**
+ * Re-probe the Codex model list when the cached snapshot is older than
+ * CODEX_MODELS_REFRESH_INTERVAL_MS. Fire-and-forget from the provider driver's
+ * getModels() when the cache is warm (callers get the current cache
+ * immediately and the UI's next poll picks up the refreshed list), or awaited
+ * on a cold cache. An empty probe result leaves the previous cache in place.
+ */
+export async function refreshCodexModelsIfStale(
+  options: DiscoverCodexModelsOptions = {},
+): Promise<void> {
+  if (Date.now() - codexModelsProbedAt < CODEX_MODELS_REFRESH_INTERVAL_MS) return;
+  if (codexModelsRefreshInFlight) return codexModelsRefreshInFlight;
+  codexModelsRefreshInFlight = (async () => {
+    try {
+      const models = await discoverCodexModels(options);
+      if (models.length > 0) {
+        codexDiscoveredModels = models;
+        options.logger?.info?.(`[CodexModels] Refreshed model discovery: ${models.length} models`);
+      }
+    } catch (err) {
+      options.logger?.debug?.(`[CodexModels] model discovery refresh failed (non-fatal): ${err}`);
+    } finally {
+      // Stamp even on failure/empty so a broken environment retries once per
+      // interval instead of spawning a probe on every picker open.
+      codexModelsProbedAt = Date.now();
+      codexModelsRefreshInFlight = null;
+    }
+  })();
+  return codexModelsRefreshInFlight;
 }
 
 export async function discoverCodexModels(

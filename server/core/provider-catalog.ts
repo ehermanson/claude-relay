@@ -103,20 +103,54 @@ function resolveCodexDefaultModelOption(
 }
 
 function formatClaudeModelLabel(modelId: string): string | null {
-  const match = modelId.match(/^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/i);
+  // Match any `claude-<family>-<major>[-<minor>]` id — the family list is
+  // deliberately NOT a whitelist, so newly released family names (e.g.
+  // "fable") format correctly without a code change.
+  const match = modelId.match(/^claude-([a-z]+)-(\d+)(?:-(\d+))?/i);
   if (!match) return null;
   const family = toTitleCaseToken(match[1]);
   const version = match[3] ? `${match[2]}.${match[3]}` : match[2];
   return `${family} ${version}`;
 }
 
+/**
+ * Offline fallback + metadata enrichment only. For Claude the SDK-discovered
+ * model list is canonical (see the claude driver's getModels in
+ * provider-registry.ts) — these entries render only before discovery resolves
+ * or as appended extras when the SDK no longer enumerates them. Do not rely on
+ * bumping this list to surface new models.
+ */
 export const BUILTIN_PROVIDER_MODELS: Record<ProviderKind, readonly ProviderModelOption[]> = {
   claude: [
     {
       provider: "claude",
+      id: "claude-opus-5",
+      label: "Opus 5",
+      isDefault: true,
+      capabilities: { reasoningEffortLevels: EXTENDED_EFFORTS },
+    },
+    {
+      provider: "claude",
+      id: "claude-opus-4-8",
+      label: "Opus 4.8",
+      capabilities: { reasoningEffortLevels: EXTENDED_EFFORTS },
+    },
+    {
+      provider: "claude",
+      id: "claude-fable-5",
+      label: "Fable 5",
+      capabilities: { reasoningEffortLevels: EXTENDED_EFFORTS },
+    },
+    {
+      provider: "claude",
+      id: "claude-sonnet-5",
+      label: "Sonnet 5",
+      capabilities: { reasoningEffortLevels: EXTENDED_EFFORTS },
+    },
+    {
+      provider: "claude",
       id: "claude-opus-4-7",
       label: "Opus 4.7",
-      isDefault: true,
       capabilities: { reasoningEffortLevels: EXTENDED_EFFORTS },
     },
     {

@@ -112,6 +112,45 @@ describe("provider registry", () => {
     assert.equal(inferred, "claude-opus-4-8");
   });
 
+  it("prefers the SDK's resolvedModel over display-text inference", () => {
+    const inferred = inferClaudeModelIdFromSdkInfo({
+      value: "sonnet",
+      resolvedModel: "claude-sonnet-5",
+      displayName: "Sonnet",
+      description: "Sonnet 5 · Efficient for routine tasks",
+    });
+    assert.equal(inferred, "claude-sonnet-5");
+  });
+
+  it("strips the 1M-context alias suffix from resolved ids", () => {
+    assert.equal(
+      inferClaudeModelIdFromSdkInfo({
+        value: "opus[1m]",
+        resolvedModel: "claude-opus-4-8[1m]",
+        displayName: "Opus",
+        description: "Opus 4.8 with 1M context",
+      }),
+      "claude-opus-4-8",
+    );
+    assert.equal(
+      inferClaudeModelIdFromSdkInfo({
+        value: "claude-fable-5[1m]",
+        displayName: "Fable",
+        description: "Fable 5 · Most capable",
+      }),
+      "claude-fable-5",
+    );
+  });
+
+  it("infers new family names from display text when resolvedModel is absent", () => {
+    const inferred = inferClaudeModelIdFromSdkInfo({
+      value: "fable",
+      displayName: "Fable",
+      description: "Fable 5 · Most capable for your hardest tasks",
+    });
+    assert.equal(inferred, "claude-fable-5");
+  });
+
   it("resolves managed transcript paths through the provider driver", () => {
     const claudePath = getProviderDriver("claude").resolveManagedTranscriptPath({
       providerDirs: {

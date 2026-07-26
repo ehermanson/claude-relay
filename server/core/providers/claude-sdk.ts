@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from "events";
+import { findClaudeBinary } from "#core/providers/claude-cli.js";
 import type {
   OutputMessage,
   ExitMessage,
@@ -112,6 +113,9 @@ interface ContextUsage {
 /** Model capability info from supportedModels() */
 interface SdkModelInfo {
   value: string;
+  /** Canonical model id the alias resolves to (e.g. "sonnet" → "claude-sonnet-5").
+   *  Newer CLIs only — always feature-detect. */
+  resolvedModel?: string;
   displayName: string;
   description: string;
   supportsEffort?: boolean;
@@ -323,8 +327,32 @@ export interface ClaudeSdkSession extends ProviderSession {
 let cachedQueryFn: QueryFn | null = null;
 let cachedStartupFn: StartupFn | null = null;
 
+/**
+ * Resolve the claude CLI executable for SDK spawns (sessions and discovery
+ * probes). Prefer the system-installed CLI: it auto-updates (and is covered by
+ * Relay's provider-version advisory + update flow), so model discovery tracks
+ * the freshest CLI instead of the snapshot bundled inside the SDK package —
+ * which only changes when Relay's lockfile pin is bumped. Returns undefined
+ * (= SDK bundled CLI) when no system CLI is found or when
+ * RELAY_CLAUDE_SDK_USE_BUNDLED_CLI is set as an escape hatch.
+ */
+function resolveClaudeExecutablePath(): string | undefined {
+  if (process.env.RELAY_CLAUDE_SDK_USE_BUNDLED_CLI) return undefined;
+  return findClaudeBinary() ?? undefined;
+}
+
 /** Module-level cache of SDK-discovered models. Populated eagerly by prewarmSdk(), updated by sessions. */
 let sdkDiscoveredModels: SdkModelInfo[] | null = null;
+
+/** When the model list was last probed (prewarm, session discovery, or refresh). */
+let sdkModelsProbedAt = 0;
+
+/** In-flight staleness refresh, deduped so concurrent callers share one probe. */
+let sdkModelsRefreshInFlight: Promise<void> | null = null;
+
+/** Re-probe the model list this often — new models are published server-side,
+ *  so a long-running Relay must not serve a boot-time snapshot forever. */
+const SDK_MODELS_REFRESH_INTERVAL_MS = 30 * 60_000;
 
 /**
  * Module-level cache of SDK-discovered account info (plan/email/org).
@@ -493,7 +521,10 @@ export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<void> {
   if (sdkDiscoveredModels && sdkDiscoveredAccountInfo) return; // already discovered
   if (!cachedStartupFn) return;
   try {
-    const warm = await cachedStartupFn({ initializeTimeoutMs: 30_000 });
+    const warm = await cachedStartupFn({
+      options: { pathToClaudeCodeExecutable: resolveClaudeExecutablePath() },
+      initializeTimeoutMs: 30_000,
+    });
     logger.info("[SdkSession] Pre-warmed Claude Code subprocess via startup()");
 
     // Consume the single-use warm handle to probe both models and account info.
@@ -511,6 +542,7 @@ export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<void> {
       ]);
       if (modelsResult.status === "fulfilled") {
         sdkDiscoveredModels = modelsResult.value;
+        sdkModelsProbedAt = Date.now();
         logger.info(`[SdkSession] Pre-warm discovered ${modelsResult.value.length} models`);
       } else {
         logger.debug(
@@ -558,6 +590,50 @@ export async function prewarmSdk(logger: CoreConfig["logger"]): Promise<void> {
  */
 export function getSdkDiscoveredModels(): SdkModelInfo[] | null {
   return sdkDiscoveredModels;
+}
+
+/**
+ * Re-probe the SDK model list in the background when the cached snapshot is
+ * older than SDK_MODELS_REFRESH_INTERVAL_MS. Fire-and-forget from the provider
+ * driver's getModels() — callers get the current cache immediately and the UI's
+ * next poll picks up the refreshed list. Anthropic publishes new models
+ * server-side (no SDK/CLI update needed), so without this a server running
+ * across a release date serves a stale list until restart.
+ */
+export function refreshSdkDiscoveredModelsIfStale(logger: CoreConfig["logger"]): Promise<void> {
+  if (!cachedStartupFn) return Promise.resolve();
+  if (Date.now() - sdkModelsProbedAt < SDK_MODELS_REFRESH_INTERVAL_MS) return Promise.resolve();
+  if (sdkModelsRefreshInFlight) return sdkModelsRefreshInFlight;
+  sdkModelsRefreshInFlight = (async () => {
+    try {
+      const warm = await cachedStartupFn({
+        options: { pathToClaudeCodeExecutable: resolveClaudeExecutablePath() },
+        initializeTimeoutMs: 30_000,
+      });
+      const promptQueue = new PromptQueue();
+      const handle = warm.query(promptQueue);
+      try {
+        const models = await handle.supportedModels();
+        sdkDiscoveredModels = models;
+        logger.info(`[SdkSession] Refreshed model discovery: ${models.length} models`);
+      } finally {
+        promptQueue.terminate();
+        try {
+          await handle.close();
+        } catch {
+          /* ignore close errors */
+        }
+      }
+    } catch (err) {
+      logger.debug(`[SdkSession] model discovery refresh failed (non-fatal): ${err}`);
+    } finally {
+      // Stamp even on failure so a broken environment retries once per
+      // interval instead of spawning a probe on every picker open.
+      sdkModelsProbedAt = Date.now();
+      sdkModelsRefreshInFlight = null;
+    }
+  })();
+  return sdkModelsRefreshInFlight;
 }
 
 /**
@@ -666,6 +742,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       effort: options.reasoningEffort as SDKOptions["effort"],
       includePartialMessages: true,
       env: process.env as Record<string, string | undefined>,
+      pathToClaudeCodeExecutable: resolveClaudeExecutablePath(),
     };
     if (options.fastMode) {
       sdkOptions.settings = { fastMode: true };
@@ -1567,6 +1644,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
       this._cachedModelCapabilities = models;
       // Always update module-level cache so the provider driver serves fresh data
       sdkDiscoveredModels = models;
+      sdkModelsProbedAt = Date.now();
       this.logger.info(`[SdkSession] Discovered ${models.length} models with capabilities`);
       return models;
     } catch (err) {

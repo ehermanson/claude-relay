@@ -199,6 +199,13 @@ Spaces group multiple concurrent agent chats within a shared git worktree/branch
 - Every `codex app-server` spawn must build its environment with `buildCodexSpawnEnv()` (`server/core/providers/codex-cli.ts`), never raw `process.env`. It inherits the process env and, when unset, injects `CODEX_CODE_MODE_HOST_PATH` pointing at the `codex-code-mode-host` binary bundled inside ChatGPT.app. Codex "code mode" shells out to that helper but it isn't on PATH, so without this injection `turn/start` fails with `failed to spawn code-mode host ...: No such file or directory`. A user-provided `CODEX_CODE_MODE_HOST_PATH` always wins.
 - `resolveApprovalPolicy()` maps `full-access` → `never`, `writes-only` → `writes`, and everything else → `on-request`. Codex dropped the old `on-failure` variant; valid values include `untrusted`/`on-request`/`granular`/`never`/`writes` (with `writes` requiring CLI >= 0.144.0).
 
+### Model Discovery
+
+- For **every** provider, the provider-discovered model list is canonical: new models surface in discovery order without a code change. `BUILTIN_PROVIDER_MODELS` (`provider-catalog.ts`) is offline fallback + metadata enrichment only — a new model release must **not** require a catalog bump.
+- Claude canonical ids come from the SDK's `resolvedModel` field (with the `[1m]` alias suffix stripped); display-text scraping in `inferClaudeModelIdFromSdkInfo` is a legacy fallback for old CLIs. Label formatting (`formatClaudeModelLabel`) accepts any `claude-<family>-<version>` id — never whitelist family names.
+- Both discovery caches re-probe in the background on a 30-min TTL, kicked from the drivers' `getModels` (`refreshSdkDiscoveredModelsIfStale` in `claude-sdk.ts`, `refreshCodexModelsIfStale` in `codex-models.ts`), so a long-running server picks up new models without a restart. This matters because lists change out from under a running server: Anthropic publishes models server-side; Codex lists change when the CLI is updated (including via Relay's own provider-update flow).
+- Claude SDK spawns (sessions and discovery probes) prefer the **system-installed** `claude` CLI via `pathToClaudeCodeExecutable` (`resolveClaudeExecutablePath` in `claude-sdk.ts`). The CLI bundled inside the `@anthropic-ai/claude-agent-sdk` package caps flagship alias resolution at whatever it shipped with and only changes on a lockfile bump; the system CLI auto-updates and is covered by the provider-version advisory. Escape hatch: `RELAY_CLAUDE_SDK_USE_BUNDLED_CLI=1` forces the bundled CLI.
+
 ### Model Options
 
 `ProviderModelOptions` (`reasoningEffort`, `fastMode`) is the canonical contract for provider-agnostic model tuning. Provider drivers map these to provider-specific session args.

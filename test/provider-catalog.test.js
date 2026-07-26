@@ -82,8 +82,13 @@ describe("findProviderModelLabel", () => {
     assert.equal(label, "GPT-5.5");
   });
 
-  it("returns null for unknown model ID", () => {
-    const label = findProviderModelLabel("claude", "claude-nonexistent-99");
+  it("formats labels for new claude family names without a catalog entry", () => {
+    assert.equal(findProviderModelLabel("claude", "claude-fable-5"), "Fable 5");
+    assert.equal(findProviderModelLabel("claude", "claude-fable-5-2"), "Fable 5.2");
+  });
+
+  it("returns null for an unparseable model ID", () => {
+    const label = findProviderModelLabel("claude", "claude-3-5-sonnet-20241022");
     assert.equal(label, null);
   });
 

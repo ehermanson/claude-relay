@@ -28,7 +28,11 @@ import type {
   SessionStats,
   TaskItem,
 } from "#core/types.js";
-import { createSdkSessionSync, getSdkDiscoveredModels } from "#core/providers/claude-sdk.js";
+import {
+  createSdkSessionSync,
+  getSdkDiscoveredModels,
+  refreshSdkDiscoveredModelsIfStale,
+} from "#core/providers/claude-sdk.js";
 import { findClaudeBinary, isClaudeInstalled } from "#core/providers/claude-cli.js";
 import { findCodexBinary, isCodexInstalled } from "#core/providers/codex-cli.js";
 import {
@@ -37,7 +41,7 @@ import {
   executeUpdateCommand,
 } from "#core/provider-versions.js";
 import type { ProviderVersionAdvisory } from "#core/types.js";
-import { discoverCodexModels, getCachedCodexModels } from "#core/providers/codex-models.js";
+import { getCachedCodexModels, refreshCodexModelsIfStale } from "#core/providers/codex-models.js";
 import { CodexAppServerSession } from "#core/providers/codex-app-server.js";
 import { findCodexTranscriptPath, parseCodexTranscript } from "#core/providers/codex-transcript.js";
 import {
@@ -139,19 +143,25 @@ const NO_SESSION_MESSAGE = "Gemini provider support is not implemented in this r
 
 type ClaudeSdkModelInfo = NonNullable<ReturnType<typeof getSdkDiscoveredModels>>[number];
 
+/** Strip the CLI's 1M-context alias suffix (e.g. "claude-opus-4-8[1m]"). */
+function stripClaude1mSuffix(id: string): string {
+  return id.replace(/\[1m\]$/i, "");
+}
+
 export function inferClaudeModelIdFromSdkInfo(model: ClaudeSdkModelInfo): string | null {
-  if (model.value.startsWith("claude-")) return model.value;
+  // Newer CLIs report the canonical id directly — always prefer it. The
+  // display-text fallbacks below exist only for CLIs that predate
+  // `resolvedModel`; do not extend their family whitelist, new families are
+  // covered by resolvedModel.
+  if (model.resolvedModel?.startsWith("claude-")) return stripClaude1mSuffix(model.resolvedModel);
+  if (model.value.startsWith("claude-")) return stripClaude1mSuffix(model.value);
   const text = `${model.displayName ?? ""} ${model.description ?? ""}`;
-  const match = text.match(/\b(Opus|Sonnet|Haiku)\s+(\d+)(?:\.(\d+))?\b/i);
+  const match = text.match(/\b(Opus|Sonnet|Haiku|Fable)\s+(\d+)(?:\.(\d+))?\b/i);
   if (!match) return null;
   const family = match[1].toLowerCase();
   const major = match[2];
   const minor = match[3];
   return minor ? `claude-${family}-${major}-${minor}` : `claude-${family}-${major}`;
-}
-
-function formatInferredClaudeModelLabel(modelId: string, fallback: string): string {
-  return findProviderModelLabel("claude", modelId) ?? fallback;
 }
 
 function resolveClaudeProjectDir(providerRoot: string, workingDirectory: string): string {
@@ -562,32 +572,19 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
     createSession(config, options, context) {
       return createClaudeSession(config, options, context);
     },
-    async getModels() {
+    async getModels(context) {
+      // Kick a background re-probe when the discovery snapshot is stale so a
+      // long-running server surfaces newly released models without a restart.
+      void refreshSdkDiscoveredModelsIfStale(context.logger);
+
       const sdkModels = getSdkDiscoveredModels();
-
-      // The SDK returns short aliases ("default", "sonnet", "haiku") rather
-      // than canonical model IDs like "claude-opus-4-6". We enrich builtin
-      // catalog entries with SDK capability metadata where available, and
-      // synthesize canonical IDs from SDK descriptions when the SDK reports a
-      // newer family/version before Relay's fallback catalog has been updated.
-
       const builtins = getBuiltinProviderModels("claude");
       if (!sdkModels?.length) return builtins;
 
-      // Map: alias value → SDK info (skip "default" meta-alias)
-      const sdkByAlias = new Map(
-        sdkModels.filter((m) => m.value !== "default").map((m) => [m.value, m]),
-      );
-
-      const inferredById = new Map<string, ClaudeSdkModelInfo>();
-      const inferredDefaultId = sdkModels.find((m) => m.value === "default")
-        ? inferClaudeModelIdFromSdkInfo(sdkModels.find((m) => m.value === "default")!)
-        : null;
-      for (const model of sdkModels) {
-        const inferredId = inferClaudeModelIdFromSdkInfo(model);
-        if (!inferredId || inferredId === "default") continue;
-        inferredById.set(inferredId, model);
-      }
+      // The SDK-discovered list is canonical (mirrors the Codex driver): new
+      // models the CLI reports surface in SDK order without a catalog bump.
+      // The builtin catalog only enriches metadata and appends still-valid
+      // models the SDK no longer enumerates.
 
       // Programmatic per-model capabilities — derived from SDK metadata where
       // available. This is what makes e.g. new Opus higher reasoning tiers
@@ -595,7 +592,7 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       const claudeProviderCaps = DEFAULT_PROVIDER_CAPABILITIES.claude;
       const builtinEffortLevels = claudeProviderCaps.reasoningEffortLevels ?? [];
       const buildModelCapabilities = (
-        sdkMatch: ReturnType<typeof sdkByAlias.get>,
+        sdkMatch: ClaudeSdkModelInfo | undefined,
         builtinOverride: Partial<ProviderCapabilities> | undefined,
       ): Partial<ProviderCapabilities> | undefined => {
         const override: Partial<ProviderCapabilities> = { ...(builtinOverride ?? {}) };
@@ -618,63 +615,43 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
         return Object.keys(override).length > 0 ? override : undefined;
       };
 
-      // Enrich builtins with SDK capability metadata. We do NOT filter the
-      // list to SDK-reported aliases only — the Claude API accepts full model
-      // IDs (e.g. "claude-opus-4-8") even when the SDK's supportedModels()
-      // alias list doesn't enumerate them, so removing unlisted models would
-      // make valid choices disappear without actually preventing session use.
-      const enrichedBuiltins = builtins.map((builtin) => {
-        const sdkMatch = sdkByAlias.get(builtin.id) ?? inferredById.get(builtin.id);
-        const capabilities = buildModelCapabilities(sdkMatch, builtin.capabilities);
+      const builtinById = new Map(builtins.map((b) => [b.id, b]));
+      const defaultEntry = sdkModels.find((m) => m.value === "default");
+      const defaultId = defaultEntry ? inferClaudeModelIdFromSdkInfo(defaultEntry) : null;
 
-        return {
+      const discovered: ProviderModelOption[] = [];
+      const seenIds = new Set<string>();
+      const seenLabels = new Set<string>();
+      for (const m of sdkModels) {
+        if (m.value === "default") continue;
+        // Fall back to the raw alias for entries we can't canonicalize — the
+        // CLI accepts its own alias values as --model.
+        const id = inferClaudeModelIdFromSdkInfo(m) ?? m.value;
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        const builtin = builtinById.get(id);
+        const label = findProviderModelLabel("claude", id) ?? m.displayName ?? id;
+        seenLabels.add(label);
+        const capabilities = buildModelCapabilities(m, builtin?.capabilities);
+        discovered.push({
           provider: "claude" as const,
-          id: builtin.id,
-          label: builtin.label,
-          description: sdkMatch?.description || builtin.description,
-          isDefault: inferredDefaultId
-            ? builtin.id === inferredDefaultId
-            : (builtin.isDefault ?? false),
+          id,
+          label,
+          description: m.description || builtin?.description,
+          isDefault: defaultId !== null && id === defaultId,
           ...(capabilities ? { capabilities } : {}),
-        };
-      });
-
-      const builtinIds = new Set(builtins.map((b) => b.id));
-      const builtinLabels = new Set(builtins.map((b) => b.label));
-      const inferredExtras = [...inferredById.entries()]
-        .filter(([id]) => !builtinIds.has(id))
-        .filter(([id]) => !builtinLabels.has(formatInferredClaudeModelLabel(id, id)))
-        .map(([id, m]) => {
-          const capabilities = buildModelCapabilities(m, undefined);
-          return {
-            provider: "claude" as const,
-            id,
-            label: formatInferredClaudeModelLabel(id, m.displayName || id),
-            description: m.description || undefined,
-            isDefault: inferredDefaultId === id,
-            ...(capabilities ? { capabilities } : {}),
-          };
         });
-      const coveredSdkValues = new Set([
-        "default",
-        ...sdkModels.filter((m) => inferClaudeModelIdFromSdkInfo(m)).map((m) => m.value),
-        ...builtinIds,
-      ]);
-      const sdkValueExtras = sdkModels
-        .filter((m) => !coveredSdkValues.has(m.value))
-        .map((m) => {
-          const capabilities = buildModelCapabilities(m, undefined);
-          return {
-            provider: "claude" as const,
-            id: m.value,
-            label: m.displayName || m.value,
-            description: m.description || undefined,
-            isDefault: false,
-            ...(capabilities ? { capabilities } : {}),
-          };
-        });
+      }
 
-      const models = [...enrichedBuiltins, ...inferredExtras, ...sdkValueExtras];
+      // Builtin catalog entries the SDK didn't report stay selectable below
+      // the discovered list — the Claude API accepts full model IDs even when
+      // the SDK's alias list doesn't enumerate them, so removing them would
+      // make valid choices disappear without actually preventing session use.
+      const extras = builtins
+        .filter((b) => !seenIds.has(b.id) && !seenLabels.has(b.label))
+        .map((b) => ({ ...b, isDefault: false }));
+
+      const models = [...discovered, ...extras];
       if (models.some((model) => model.isDefault)) return models;
       const defaultModel = resolveProviderDefaultModelOption("claude", models);
       return models.map((model) => ({
@@ -765,10 +742,17 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
     async getModels(context) {
       // Prefer the pre-warm cache populated at server boot so the first
       // /api/provider-models?provider=codex hit doesn't pay the cost of
-      // spawning `codex app-server`. Falls through to a live probe if the
-      // pre-warm hasn't completed yet (or the binary wasn't present at boot).
-      const discovered =
-        getCachedCodexModels() ?? (await discoverCodexModels({ logger: context.logger }));
+      // spawning `codex app-server`. On a warm cache, kick a background
+      // re-probe when stale so a long-running server picks up models added by
+      // a CLI update (including Relay's own provider-update flow) without a
+      // restart; on a cold cache, await the probe directly.
+      const cached = getCachedCodexModels();
+      if (cached) {
+        void refreshCodexModelsIfStale({ logger: context.logger });
+      } else {
+        await refreshCodexModelsIfStale({ logger: context.logger });
+      }
+      const discovered = getCachedCodexModels() ?? [];
       if (discovered.length === 0) {
         return getBuiltinProviderModels("codex");
       }

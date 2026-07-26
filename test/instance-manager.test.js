@@ -2331,7 +2331,7 @@ describe("InstanceManager", () => {
       await mgr.sendMessage(info.id, "first");
       // Toggle away and back before sending again.
       await mgr.setModel(info.id, "claude-sonnet-4-5");
-      await mgr.setModel(info.id, "claude-opus-4-7");
+      await mgr.setModel(info.id, "claude-opus-5");
       await mgr.sendMessage(info.id, "second");
 
       // Net model is unchanged from the previous turn → no divider.
