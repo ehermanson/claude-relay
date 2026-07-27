@@ -100,7 +100,6 @@ describe("WebSocket Messages — Additional Coverage", () => {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     auth = new AuthManager(config);

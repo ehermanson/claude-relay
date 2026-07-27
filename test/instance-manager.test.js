@@ -119,7 +119,6 @@ function makeConfig(overrides = {}) {
     providerDirs: {
       claude: join(tempDir, ".claude"),
       codex: join(tempDir, ".codex"),
-      gemini: join(tempDir, ".gemini"),
     },
     workingDirectory: tempDir,
     ...overrides,
@@ -1016,7 +1015,6 @@ describe("InstanceManager", () => {
     it("surfaces available providers with capabilities", () => {
       const providers = manager.getAvailableProviders();
       assert.ok(providers.some((provider) => provider.provider === "claude"));
-      assert.ok(!providers.some((provider) => provider.provider === "gemini"));
       for (const provider of providers) {
         assert.equal(typeof provider.capabilities.supportsResume, "boolean");
         assert.equal(typeof provider.capabilities.supportsModelSelection, "boolean");
@@ -1029,7 +1027,7 @@ describe("InstanceManager", () => {
       assert.equal(codex.supportsTitleUpdates, true);
     });
 
-    it("rejects switching to an unavailable provider", async () => {
+    it("rejects switching to an unknown/unavailable provider", async () => {
       const info = manager.createInstance();
       assert.equal(await manager.setProvider(info.id, "gemini"), false);
     });

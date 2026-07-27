@@ -71,11 +71,6 @@ describe("resolveProviderDefaultModelOption", () => {
     // so it falls back to the first candidate.
     assert.equal(result.id, "model-a");
   });
-
-  it("returns undefined for provider with no models", () => {
-    const result = resolveProviderDefaultModelOption("gemini");
-    assert.equal(result, undefined);
-  });
 });
 
 describe("mergeCapabilities", () => {

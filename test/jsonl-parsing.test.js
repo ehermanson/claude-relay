@@ -31,7 +31,6 @@ function makeConfig(tempDir, overrides = {}) {
     providerDirs: {
       claude: join(tempDir, ".claude"),
       codex: join(tempDir, ".codex"),
-      gemini: join(tempDir, ".gemini"),
     },
     ...overrides,
   });

@@ -165,7 +165,6 @@ async function startServer(cliArgs: string[]): Promise<number> {
     providerDirs: {
       claude: process.env.CLAUDE_DIR ?? join(home, ".claude"),
       codex: process.env.CODEX_DIR ?? join(home, ".codex"),
-      gemini: process.env.GEMINI_DIR ?? join(home, ".gemini"),
     },
     updateManager,
   });

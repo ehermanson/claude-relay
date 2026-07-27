@@ -61,7 +61,6 @@ export function resolveCoreConfig(options: CoreOptions = {}): CoreConfig {
     providerDirs: options.providerDirs ?? {
       claude: join(home, ".claude"),
       codex: join(home, ".codex"),
-      gemini: join(home, ".gemini"),
     },
   };
 }

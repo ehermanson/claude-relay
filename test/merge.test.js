@@ -219,7 +219,6 @@ describe("InstanceManager.mergeInstance", () => {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     manager = new InstanceManager(config);
@@ -285,7 +284,6 @@ describe("POST /api/instances/:id/merge", () => {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     auth = new AuthManager(config);
@@ -403,7 +401,6 @@ describe("WebSocket merge_instance", () => {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     auth = new AuthManager(config);

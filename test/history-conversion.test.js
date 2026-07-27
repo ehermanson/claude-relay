@@ -25,7 +25,6 @@ function makeManager(tempDir) {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     }),
   );

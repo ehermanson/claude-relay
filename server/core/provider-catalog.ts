@@ -8,7 +8,6 @@ import type {
 export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
   claude: "Claude Code",
   codex: "Codex",
-  gemini: "Gemini",
 };
 
 const REASONING_LEVEL_DEFS: Record<ReasoningEffort, { label: string; description: string }> = {
@@ -200,7 +199,6 @@ export const BUILTIN_PROVIDER_MODELS: Record<ProviderKind, readonly ProviderMode
       label: "GPT-5.2",
     },
   ],
-  gemini: [],
 };
 
 export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabilities> = {
@@ -283,27 +281,6 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
       plan: {
         label: "Plan",
         description: "Stay in planning mode for this chat",
-      },
-    },
-  },
-  gemini: {
-    supportsResume: false,
-    supportsTranscriptReplay: false,
-    supportsApprovals: false,
-    supportsUserInputRequests: false,
-    supportsReasoningEffort: false,
-    supportsFastMode: false,
-    supportsModelSelection: true,
-    supportsTitleUpdates: false,
-    composerHints: { helpText: "Use @ for files and / for commands" },
-    runtimeModes: {
-      "approval-required": {
-        label: "Ask Permission",
-        description: "Ask before running commands or editing files",
-      },
-      "full-access": {
-        label: "Full access",
-        description: "Run commands and edit files without asking",
       },
     },
   },

@@ -513,8 +513,6 @@ function providerLabel(provider?: ProviderKind): string {
       return "Claude";
     case "codex":
       return "Codex";
-    case "gemini":
-      return "Gemini";
     default:
       return "";
   }
@@ -535,7 +533,7 @@ function isDefaultSessionTitle(name: string): boolean {
   const trimmed = name.trim();
   if (!trimmed) return true;
   if (trimmed.toLowerCase() === "new session") return true;
-  return /^External (?:Claude|Codex|Gemini) Session$/i.test(trimmed);
+  return /^External (?:Claude|Codex) Session$/i.test(trimmed);
 }
 
 /**
@@ -1331,7 +1329,6 @@ export class InstanceManager extends EventEmitter {
     this.providerDirs = {
       claude: config.providerDirs.claude ?? join(home, ".claude"),
       codex: config.providerDirs.codex ?? join(home, ".codex"),
-      gemini: config.providerDirs?.gemini ?? join(home, ".gemini"),
     };
     this.db = new SessionDB(config.dbPath, config.logger);
     this.spaceManager = new SpaceManager(this.db, config.logger);

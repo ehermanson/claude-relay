@@ -272,7 +272,6 @@ describe("getGitInfo worktree detection", () => {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager = new InstanceManager(config);
@@ -297,7 +296,6 @@ describe("getGitInfo worktree detection", () => {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager = new InstanceManager(config);
@@ -377,7 +375,6 @@ describe("scanAllSessions worktree recovery", () => {
       providerDirs: {
         claude: claudeDir,
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager = new InstanceManager(config);
@@ -433,7 +430,6 @@ describe("scanAllSessions worktree recovery", () => {
       providerDirs: {
         claude: claudeDir,
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager = new InstanceManager(config);
@@ -477,7 +473,6 @@ describe("scanAllSessions worktree recovery", () => {
       providerDirs: {
         claude: claudeDir,
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager = new InstanceManager(config);
@@ -536,7 +531,6 @@ describe("scanAllSessions worktree recovery", () => {
       providerDirs: {
         claude: claudeDir,
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager = new InstanceManager(config);
@@ -608,7 +602,6 @@ describe("scanAllSessions archive protection", () => {
       providerDirs: {
         claude: claudeDir,
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
 
@@ -648,7 +641,6 @@ describe("scanAllSessions archive protection", () => {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager1 = new InstanceManager(config);
@@ -748,7 +740,6 @@ describe("scanAllSessions archive protection", () => {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager = new InstanceManager(config);
@@ -820,7 +811,6 @@ describe("scanAllSessions archive protection", () => {
       providerDirs: {
         claude: join(tempDir, ".claude"),
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager = new InstanceManager(config);
@@ -962,7 +952,6 @@ describe("live discovery worktree recovery", () => {
       providerDirs: {
         claude: claudeDir,
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
     });
     const manager = new InstanceManager(config);

@@ -1,4 +1,3 @@
-import { EventEmitter } from "node:events";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -138,8 +137,6 @@ interface ProviderDriver {
     context: ProviderExternalDiscoveryContext,
   ): Promise<DiscoveredExternalSession[]>;
 }
-
-const NO_SESSION_MESSAGE = "Gemini provider support is not implemented in this relay build yet.";
 
 type ClaudeSdkModelInfo = NonNullable<ReturnType<typeof getSdkDiscoveredModels>>[number];
 
@@ -521,47 +518,6 @@ function createClaudeSession(
   return proc;
 }
 
-class UnsupportedGeminiSession extends EventEmitter implements ProviderSession {
-  constructor(_config: CoreConfig) {
-    super();
-  }
-
-  readonly provider = "gemini" as const;
-  readonly pid = undefined;
-  readonly stats: SessionStats = {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationTokens: 0,
-    cacheReadTokens: 0,
-  };
-
-  get isProcessing(): boolean {
-    return false;
-  }
-
-  send(_message: string): void {
-    throw new Error(NO_SESSION_MESSAGE);
-  }
-
-  interrupt(): void {}
-
-  close(): void {}
-
-  setModel(_model: string | null): void {}
-
-  setRuntimeMode(_mode: ProviderRuntimeMode): void {}
-
-  addAllowedTool(_tool: string): void {}
-
-  getRuntimeBinding(): ProviderRuntimeBinding {
-    return { provider: "gemini" };
-  }
-
-  respondToRequest(_requestId: string, _decision: "accept" | "decline"): boolean {
-    return false;
-  }
-}
-
 const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
   claude: {
     kind: "claude",
@@ -844,30 +800,6 @@ const PROVIDER_DRIVERS: Record<ProviderKind, ProviderDriver> = {
       return discoverCodexExternalSessions(context);
     },
   },
-  gemini: {
-    kind: "gemini",
-    capabilities: DEFAULT_PROVIDER_CAPABILITIES.gemini,
-    isAvailable() {
-      return false;
-    },
-    createSession(config) {
-      return new UnsupportedGeminiSession(config);
-    },
-    async getModels() {
-      return getBuiltinProviderModels("gemini");
-    },
-    parseTranscript(filePath, parseClaudeTranscript) {
-      return parseClaudeTranscript(filePath);
-    },
-    resolveManagedTranscriptPath(options) {
-      return options.transcriptPath;
-    },
-    captureManagedSession(context) {
-      const binding = context.binding ?? context.proc.getRuntimeBinding();
-      const sessionId = binding.providerSessionId ?? context.fallbackSessionId;
-      return sessionId ? { sessionId, transcriptPath: binding.transcriptPath } : null;
-    },
-  },
 };
 
 export function getProviderDriver(provider: ProviderKind): ProviderDriver {
@@ -878,7 +810,11 @@ export function isProviderAvailable(
   provider: ProviderKind,
   context: ProviderDriverContext,
 ): boolean {
-  return getProviderDriver(provider).isAvailable(context);
+  // Tolerate unknown/stale provider kinds (e.g. a persisted row or WS payload
+  // naming a provider this build no longer registers) — report unavailable
+  // rather than throwing on the undefined driver lookup.
+  const driver = PROVIDER_DRIVERS[provider] as ProviderDriver | undefined;
+  return driver?.isAvailable(context) ?? false;
 }
 
 // ─── Version advisory cache ─────────────────────────────────────────────────
@@ -1132,12 +1068,7 @@ export function createManagedProviderSession(
 ): ProviderSession {
   const driver = getProviderDriver(provider);
   if (!driver.isAvailable(context)) {
-    const binary =
-      provider === "codex"
-        ? "Codex CLI"
-        : provider === "gemini"
-          ? "Gemini CLI"
-          : getProviderDisplayName(provider);
+    const binary = provider === "codex" ? "Codex CLI" : getProviderDisplayName(provider);
     throw new Error(`${binary} is not available on this machine`);
   }
   const requestedMode = options?.runtimeMode ?? config.defaultRuntimeMode;

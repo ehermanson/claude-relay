@@ -15,10 +15,6 @@ describe("getProviderDisplayName", () => {
   it("returns 'Codex' for codex", () => {
     assert.equal(getProviderDisplayName("codex"), "Codex");
   });
-
-  it("returns 'Gemini' for gemini", () => {
-    assert.equal(getProviderDisplayName("gemini"), "Gemini");
-  });
 });
 
 describe("getBuiltinProviderModels", () => {
@@ -54,11 +50,6 @@ describe("getBuiltinProviderModels", () => {
     assert.notEqual(first[0], second[0]);
     assert.deepEqual(first, second);
   });
-
-  it("returns empty array for gemini (no builtin models yet)", () => {
-    const models = getBuiltinProviderModels("gemini");
-    assert.equal(models.length, 0);
-  });
 });
 
 describe("findProviderModelLabel", () => {
@@ -91,16 +82,11 @@ describe("findProviderModelLabel", () => {
     const label = findProviderModelLabel("claude", "claude-3-5-sonnet-20241022");
     assert.equal(label, null);
   });
-
-  it("returns null for provider with no models", () => {
-    const label = findProviderModelLabel("gemini", "gemini-pro");
-    assert.equal(label, null);
-  });
 });
 
 describe("getDefaultProviderCapabilities", () => {
   it("every provider defines composer hints", () => {
-    for (const provider of ["claude", "codex", "gemini"]) {
+    for (const provider of ["claude", "codex"]) {
       const caps = getDefaultProviderCapabilities(provider);
       assert.equal(typeof caps.composerHints?.helpText, "string");
       assert.ok(caps.composerHints.helpText.length > 0);

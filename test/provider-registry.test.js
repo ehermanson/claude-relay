@@ -9,7 +9,7 @@ import {
   getProviderCapabilities,
   getRegisteredProviders,
   inferClaudeModelIdFromSdkInfo,
-  listAvailableProviders,
+  isProviderAvailable,
   resolveCoreConfig,
 } from "../dist/server/core/index.js";
 
@@ -26,7 +26,6 @@ function makeContext() {
     providerDirs: {
       claude: config.providerDirs.claude,
       codex: config.providerDirs.codex,
-      gemini: config.providerDirs.gemini,
     },
     logger: noopLogger,
     sdkQueryFn: null,
@@ -83,7 +82,7 @@ describe("provider registry", () => {
   });
 
   it("registers drivers for all known provider kinds", () => {
-    assert.deepEqual(getRegisteredProviders().sort(), ["claude", "codex", "gemini"]);
+    assert.deepEqual(getRegisteredProviders().sort(), ["claude", "codex"]);
   });
 
   it("exposes fixed capability metadata for each driver", () => {
@@ -98,9 +97,8 @@ describe("provider registry", () => {
     }
   });
 
-  it("keeps gemini out of the available provider catalog until it is supported", () => {
-    const available = listAvailableProviders(makeContext());
-    assert.ok(!available.some((provider) => provider.provider === "gemini"));
+  it("reports unknown provider kinds as unavailable instead of throwing", () => {
+    assert.equal(isProviderAvailable("gemini", makeContext()), false);
   });
 
   it("infers canonical Claude model ids from SDK model descriptions", () => {
@@ -156,7 +154,6 @@ describe("provider registry", () => {
       providerDirs: {
         claude: "/tmp/.claude",
         codex: "/tmp/.codex",
-        gemini: "/tmp/.gemini",
       },
       sessionId: "session-123",
       workingDirectory: "/tmp/project",
@@ -174,7 +171,6 @@ describe("provider registry", () => {
       providerDirs: {
         claude: claudeDir,
         codex: join(tempDir, ".codex"),
-        gemini: join(tempDir, ".gemini"),
       },
       sessionId: "session-123",
       workingDirectory: "/Users/test/.relay/worktrees/space-262013e4",
