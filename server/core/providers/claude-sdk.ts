@@ -718,6 +718,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private pendingTools = new Map<string, string>();
   /** Raw assistant message for attaching to emitted events */
   private _lastRawAssistantMsg: Record<string, unknown> | null = null;
+  /** Unix ms timestamp from the SDK's model-completion event (SDKAssistantMessage.timestamp). */
+  private _lastMsgTimestamp: number | undefined;
 
   private logger: CoreConfig["logger"];
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -1318,6 +1320,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     if (this._isResumeReplay) return;
 
     this._lastRawAssistantMsg = msg;
+    const ts = typeof msg.timestamp === "string" ? msg.timestamp : undefined;
+    this._lastMsgTimestamp = ts ? new Date(ts).getTime() : undefined;
     const message = msg.message as
       | {
           content?: Array<{
@@ -2061,10 +2065,13 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     // Refresh plan rate-limit utilization after each completed turn
     // (throttled) — live events rarely carry a percentage for the 5h window.
     this.refreshUsageRateLimits();
+    const modelTimestamp = this._lastMsgTimestamp;
+    this._lastMsgTimestamp = undefined;
     const done: OutputMessage = {
       type: "output",
       text: "",
       isWaiting: true,
+      modelTimestamp,
       raw: this._lastRawAssistantMsg ?? undefined,
     };
     this._lastRawAssistantMsg = null;

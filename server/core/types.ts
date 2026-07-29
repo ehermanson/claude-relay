@@ -882,6 +882,8 @@ export interface OutputMessage {
   thinking?: string;
   instanceId?: string;
   eventSequence?: number;
+  /** Unix ms timestamp from the SDK's model-completion event — more accurate than server receive time. */
+  modelTimestamp?: number;
   /** Raw SDK/provider message for debug display. */
   raw?: unknown;
 }
