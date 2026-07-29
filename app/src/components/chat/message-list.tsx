@@ -419,6 +419,7 @@ export function MessageList({
             text={row.text}
             timestamp={row.timestamp}
             anchorIndex={Number.isFinite(origIdx) ? origIdx : rowIndex}
+            aborted={row.aborted}
           />
         );
       }

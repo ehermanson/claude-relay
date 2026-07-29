@@ -159,6 +159,7 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
   let items: ChatItem[] = [];
   let assistantText = "";
   let assistantTimestamp: number | undefined;
+  let assistantAborted: boolean | undefined;
   let currentActivities: MergedActivity[] = [];
 
   const flushActivities = () => {
@@ -168,11 +169,17 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
     }
   };
 
-  const flushAssistant = () => {
+  const flushAssistant = (aborted?: boolean) => {
     if (assistantText) {
-      items.push({ kind: "assistant", text: assistantText, timestamp: assistantTimestamp });
+      items.push({
+        kind: "assistant",
+        text: assistantText,
+        timestamp: assistantTimestamp,
+        aborted: aborted || assistantAborted || undefined,
+      });
       assistantText = "";
       assistantTimestamp = undefined;
+      assistantAborted = undefined;
     }
   };
 
@@ -191,7 +198,7 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
         }
         if (msg.isWaiting) {
           flushActivities();
-          flushAssistant();
+          flushAssistant(msg.aborted);
         }
         break;
       case "user": {
@@ -345,6 +352,7 @@ type Action =
       text: string;
       isWaiting: boolean;
       thinking?: string;
+      aborted?: boolean;
       eventSequence?: number;
     }
   | { type: "activity"; message: ActivityMessage }
@@ -911,6 +919,7 @@ function actionToHistoryEntry(action: Action): HistoryEntry | null {
           text: action.text,
           isWaiting: action.isWaiting,
           thinking: action.thinking,
+          aborted: action.aborted,
         } as ServerMessage,
       };
     case "user":
@@ -1023,6 +1032,7 @@ export function useInstanceMessages() {
               text: message.text,
               isWaiting: message.isWaiting,
               thinking: message.thinking,
+              aborted: message.aborted,
               eventSequence: message.eventSequence,
             });
           }

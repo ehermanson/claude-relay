@@ -882,6 +882,8 @@ export interface OutputMessage {
   thinking?: string;
   instanceId?: string;
   eventSequence?: number;
+  /** True when this turn was cut short by a user interrupt before completion. */
+  aborted?: boolean;
   /** Raw SDK/provider message for debug display. */
   raw?: unknown;
 }
