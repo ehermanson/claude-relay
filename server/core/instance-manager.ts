@@ -5782,6 +5782,8 @@ export class InstanceManager extends EventEmitter {
   private convertAssistantEntry(
     message: {
       model?: string;
+      /** ISO-8601 model-completion time from SDKAssistantMessage.timestamp */
+      timestamp?: string;
       usage?: {
         input_tokens?: number;
         output_tokens?: number;
@@ -5815,6 +5817,7 @@ export class InstanceManager extends EventEmitter {
   ): HistoryEntry[] {
     const results: HistoryEntry[] = [];
     const content = message.content;
+    const modelTimestamp = message.timestamp ? new Date(message.timestamp).getTime() : undefined;
     if (Array.isArray(content)) {
       let textParts: string[] = [];
 
@@ -5866,7 +5869,7 @@ export class InstanceManager extends EventEmitter {
       // Mark end of assistant turn
       results.push({
         timestamp,
-        message: { type: "output", text: "", isWaiting: true } as OutputMessage,
+        message: { type: "output", text: "", isWaiting: true, modelTimestamp } as OutputMessage,
       });
     }
 

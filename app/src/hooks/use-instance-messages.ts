@@ -191,6 +191,7 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
         }
         if (msg.isWaiting) {
           flushActivities();
+          if (msg.modelTimestamp && assistantText) assistantTimestamp = msg.modelTimestamp;
           flushAssistant();
         }
         break;
@@ -345,6 +346,7 @@ type Action =
       text: string;
       isWaiting: boolean;
       thinking?: string;
+      modelTimestamp?: number;
       eventSequence?: number;
     }
   | { type: "activity"; message: ActivityMessage }
@@ -911,6 +913,7 @@ function actionToHistoryEntry(action: Action): HistoryEntry | null {
           text: action.text,
           isWaiting: action.isWaiting,
           thinking: action.thinking,
+          modelTimestamp: action.modelTimestamp,
         } as ServerMessage,
       };
     case "user":
@@ -1023,6 +1026,7 @@ export function useInstanceMessages() {
               text: message.text,
               isWaiting: message.isWaiting,
               thinking: message.thinking,
+              modelTimestamp: message.modelTimestamp,
               eventSequence: message.eventSequence,
             });
           }
