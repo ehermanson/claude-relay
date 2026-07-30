@@ -163,6 +163,7 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
             text: item.text,
             timestamp: item.timestamp,
             isLast: i === lastAssistantIndex,
+            aborted: item.aborted,
           });
           break;
         case "system":

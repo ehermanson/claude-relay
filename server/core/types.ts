@@ -884,6 +884,8 @@ export interface OutputMessage {
   eventSequence?: number;
   /** Unix ms timestamp from the SDK's model-completion event — more accurate than server receive time. */
   modelTimestamp?: number;
+  /** True when this turn was cut short by a user interrupt before completion. */
+  aborted?: boolean;
   /** Raw SDK/provider message for debug display. */
   raw?: unknown;
 }

@@ -5587,6 +5587,8 @@ export class InstanceManager extends EventEmitter {
       subtype?: string;
       cwd?: string;
       timestamp?: string;
+      /** Set on SDKAssistantMessage when the turn was cut short by an interrupt. */
+      aborted?: boolean;
       data?: Record<string, unknown>;
       message?: {
         role?: string;
@@ -5650,7 +5652,7 @@ export class InstanceManager extends EventEmitter {
       return this.convertUserEntry(entry.message.content, timestamp, ctx);
     }
     if (entry.type === "assistant" && entry.message?.content) {
-      return this.convertAssistantEntry(entry.message, timestamp, ctx);
+      return this.convertAssistantEntry(entry.message, timestamp, ctx, entry.aborted);
     }
     if (entry.type === "progress" && entry.data) {
       return this.convertProgressEntry(entry.data, timestamp);
@@ -5814,6 +5816,7 @@ export class InstanceManager extends EventEmitter {
       stats?: SessionStats;
       cwd?: string;
     },
+    aborted?: boolean,
   ): HistoryEntry[] {
     const results: HistoryEntry[] = [];
     const content = message.content;
@@ -5866,10 +5869,16 @@ export class InstanceManager extends EventEmitter {
         });
       }
 
-      // Mark end of assistant turn
+      // Mark end of assistant turn; carry aborted flag when the turn was interrupted
       results.push({
         timestamp,
-        message: { type: "output", text: "", isWaiting: true, modelTimestamp } as OutputMessage,
+        message: {
+          type: "output",
+          text: "",
+          isWaiting: true,
+          modelTimestamp,
+          aborted: aborted || undefined,
+        } as OutputMessage,
       });
     }
 

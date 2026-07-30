@@ -41,6 +41,8 @@ export interface AssistantChatItem {
   kind: "assistant";
   text: string;
   timestamp?: number;
+  /** True when the turn was cut short by a user interrupt before completion. */
+  aborted?: boolean;
 }
 
 export interface SystemChatItem {
@@ -107,6 +109,8 @@ export interface AssistantRow {
   text: string;
   timestamp?: number;
   isLast: boolean;
+  /** True when the turn was cut short by a user interrupt before completion. */
+  aborted?: boolean;
 }
 
 export interface SystemRow {

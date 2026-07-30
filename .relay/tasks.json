@@ -2345,19 +2345,19 @@
       "id": "b3a52de8",
       "title": "Claude Agent SDK: render interrupted assistant messages with aborted indicator",
       "description": "SDK 0.3.214 adds `aborted: true` to assistant messages cut short by `interrupt()` (user cancelled mid-turn). Previously, partial messages were indistinguishable from complete ones in both the live stream and the JSONL transcript.\n\nTwo paths Relay should update:\n1. **Live stream** (`claude-sdk.ts`): when an assistant message arrives with `aborted: true`, propagate a flag through `SessionHistoryEntry` / `ChatMessage` so the UI can render a visual indicator (e.g. a \"Cancelled\" badge on the partial text).\n2. **JSONL replay**: the JSONL entry for the interrupted message carries `aborted: true`; parse it and set the same flag on the replayed message so history renders consistently.\n\nUI touch point: `app/src/components/chat/claude-message.tsx`. The indicator should be subtle and not disrupt normal message flow.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.214",
-      "status": "open",
+      "status": "in_progress",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-07-20T00:00:00.000Z",
-      "updatedAt": "2026-07-20T00:00:00.000Z"
+      "updatedAt": "2026-07-29T00:00:00.000Z"
     },
     {
       "id": "f8c1a047",
       "title": "Claude Agent SDK: surface subagent_type and subagent_retry in agents sidecar",
-      "description": "SDK 0.3.214 adds two new fields to `tool_progress` events:\n- `subagent_type`: identifies what kind of subagent is running.\n- `subagent_retry`: whether this is a retry of a previously failed tool call.\n\nRelay's agents sidecar panel (see also open task `ffbc884b` for the related `blocked` field) shows live agent activity from `workflow_agent` and `tool_progress` events. These fields can enrich it:\n- Show subagent-type labels on agent rows instead of generic identifiers.\n- Show a retry indicator (badge or icon) on retried tool calls.\n\nTouch points:\n1. `claude-sdk.ts`: parse `subagent_type` and `subagent_retry` from `tool_progress` events and forward through `AgentActivity`.\n2. Agents sidecar component: render type labels and retry indicator.\n\nCoordinate with `ffbc884b` (blocked field) — consider landing together as a single sidecar-enrichment pass.\n\nScope: small (~2–3h including UI).\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.214",
+      "description": "SDK 0.3.214 adds two new fields to `tool_progress` events:\n- `subagent_type`: identifies what kind of subagent is running.\n- `subagent_retry`: whether this is a retry of a previously failed tool call.\n\nRelay's agents sidecar panel (see also open task `ffbc884b` for the related `blocked` field) shows live agent activity from `workflow_agent` and `tool_progress` events. These fields can enrich it:\n- Show subagent-type labels on agent rows instead of generic identifiers.\n- Show a retry indicator (badge or icon) on retried tool calls.\n\nTouch points:\n1. `claude-sdk.ts`: parse `subagent_type` and `subagent_retry` from `tool_progress` events and forward through `AgentActivity`.\n2. Agents sidecar component: render type labels and retry indicator.\n\nCoordinate with `ffbc884b` (blocked field) — consider landing together as a single sidecar-enrichment pass.\n\nScope: small (~2–3h including UI).\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.214\n\n---\n**Kicked back 2026-07-29**: Not mechanical. `SidecarTab` union in `app/src/stores/sidecar-store.ts` has no `\"agents\"` tab — the agents sidecar view does not exist as a discrete tab. Same blocker as `ffbc884b`. This task needs a design decision on where/how to surface subagent-type and retry information before any implementation can proceed.",
       "status": "open",
       "priority": 2,
       "type": "task",
@@ -2365,7 +2365,7 @@
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-07-20T00:00:00.000Z",
-      "updatedAt": "2026-07-20T00:00:00.000Z"
+      "updatedAt": "2026-07-29T00:00:00.000Z"
     },
     {
       "id": "9d3e6b82",

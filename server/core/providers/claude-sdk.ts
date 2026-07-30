@@ -720,6 +720,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private _lastRawAssistantMsg: Record<string, unknown> | null = null;
   /** Unix ms timestamp from the SDK's model-completion event (SDKAssistantMessage.timestamp). */
   private _lastMsgTimestamp: number | undefined;
+  /** True when the last assistant message carried aborted:true (interrupt before stream completed). */
+  private _lastMsgAborted = false;
 
   private logger: CoreConfig["logger"];
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -1322,6 +1324,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this._lastRawAssistantMsg = msg;
     const ts = typeof msg.timestamp === "string" ? msg.timestamp : undefined;
     this._lastMsgTimestamp = ts ? new Date(ts).getTime() : undefined;
+    this._lastMsgAborted = msg.aborted === true;
     const message = msg.message as
       | {
           content?: Array<{
@@ -2067,11 +2070,14 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this.refreshUsageRateLimits();
     const modelTimestamp = this._lastMsgTimestamp;
     this._lastMsgTimestamp = undefined;
+    const aborted = this._lastMsgAborted || undefined;
+    this._lastMsgAborted = false;
     const done: OutputMessage = {
       type: "output",
       text: "",
       isWaiting: true,
       modelTimestamp,
+      aborted,
       raw: this._lastRawAssistantMsg ?? undefined,
     };
     this._lastRawAssistantMsg = null;

@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { MarkdownContent } from "./markdown-content";
 import { MessageHoverToolbar } from "./message-hover-toolbar";
 import { formatTimestamp } from "../../lib/utils";
-import { CornerDownLeft, GitBranchPlus } from "lucide-react";
+import { CornerDownLeft, GitBranchPlus, OctagonX } from "lucide-react";
 import { useMessageRelay } from "@/components/chat/message-relay-context";
 import { Textarea } from "@/components/ui/input";
 import { useTextSelection } from "@/hooks/use-text-selection";
@@ -13,6 +13,7 @@ interface AgentMessageProps {
   text: string;
   timestamp?: number;
   anchorIndex?: number;
+  aborted?: boolean;
 }
 
 function SelectionReplyPopover({
@@ -137,7 +138,7 @@ function SelectionReplyPopover({
   );
 }
 
-export function AgentMessage({ text, timestamp, anchorIndex }: AgentMessageProps) {
+export function AgentMessage({ text, timestamp, anchorIndex, aborted }: AgentMessageProps) {
   const relay = useMessageRelay();
   const contentRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
@@ -255,8 +256,18 @@ export function AgentMessage({ text, timestamp, anchorIndex }: AgentMessageProps
         />
       )}
 
-      {timestamp && (
-        <span className="px-1 text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
+      {(timestamp || aborted) && (
+        <div className="flex items-center gap-2 px-1">
+          {aborted && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted/60">
+              <OctagonX size={10} />
+              Cancelled
+            </span>
+          )}
+          {timestamp && (
+            <span className="text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
+          )}
+        </div>
       )}
 
       <AnimatePresence>
