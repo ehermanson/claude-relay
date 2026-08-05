@@ -260,7 +260,37 @@ export function normalizeSessionInitPayload(
   if (agents) payload.agents = agents;
 
   const mcpServers = normalizeMcpServers(record.mcp_servers ?? record.mcpServers, provider);
-  if (mcpServers !== undefined) payload.mcpServers = mcpServers;
+
+  // mcp_server_errors (SDK/CLI >= 2.1.219): Record<serverName, errorMessage> for servers
+  // that failed config validation at startup — these are skipped and never appear in
+  // mcp_servers. Access untyped since the field is not yet in the SDK TypeScript types.
+  const rawErrors = (record as Record<string, unknown>).mcp_server_errors;
+  const errorEntries: ProviderMcpServerStatus[] = [];
+  if (rawErrors && typeof rawErrors === "object" && !Array.isArray(rawErrors)) {
+    const knownNames = new Set(mcpServers?.map((s) => s.name) ?? []);
+    for (const [name, errorValue] of Object.entries(rawErrors as Record<string, unknown>)) {
+      if (!name.trim()) continue;
+      // Skip if mcp_servers already includes this server (it will carry its own status)
+      if (knownNames.has(name)) continue;
+      const detail = typeof errorValue === "string" ? errorValue : undefined;
+      errorEntries.push({
+        id: mcpServerId(provider, name),
+        name,
+        provider,
+        scope: "chat",
+        source: "provider",
+        available: true,
+        connectionState: "failed",
+        ...(detail ? { detail } : {}),
+      });
+    }
+  }
+
+  const mergedMcpServers =
+    mcpServers !== undefined || errorEntries.length > 0
+      ? [...(mcpServers ?? []), ...errorEntries]
+      : undefined;
+  if (mergedMcpServers !== undefined) payload.mcpServers = mergedMcpServers;
 
   return Object.keys(payload).length > 0 ? payload : undefined;
 }

@@ -2475,7 +2475,7 @@
       "id": "18ca0517",
       "title": "Claude: surface mcp_server_errors from headless init event in MCP status UI",
       "description": "CLI 2.1.219 adds `mcp_server_errors` to the headless stream-json init event — an array of `--mcp-config` entries that failed config validation and were skipped at startup.\n\nRelay launches Claude sessions in headless mode and processes the stream-json init event in `claude-sdk.ts`. The MCP management UI shows configured and connected servers, but currently has no way to surface servers that failed to start.\n\nNeeded:\n1. Parse `mcp_server_errors` from the headless init event in `claude-sdk.ts` and include it in the MCP state broadcast.\n2. Surface failed servers with their error reason in the MCP panel — either inline on the server row (a red error badge) or as a dedicated \"failed to start\" section.\n3. Coordinate with `ProviderMcpServerStatus` (`failed` state): ensure `mcp_server_errors` entries map correctly to `failed` status.\n\nScope: small–medium (~2h). Touch points: `claude-sdk.ts` (init handler), MCP state broadcast, MCP panel UI.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.219",
-      "status": "open",
+      "status": "in_progress",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
