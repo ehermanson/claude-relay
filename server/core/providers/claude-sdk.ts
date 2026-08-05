@@ -1472,6 +1472,10 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
             outputTokens: number;
             cacheReadInputTokens: number;
             cacheCreationInputTokens: number;
+            /** Canonical model id used for pricing (SDK >= 0.3.218); may differ from the map key alias. */
+            canonicalModel?: string;
+            /** API provider that served this model (SDK >= 0.3.218). */
+            provider?: string;
           }
         >
       | undefined;
@@ -1483,7 +1487,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         this._stats.cacheReadTokens += usage.cacheReadInputTokens || 0;
         this._stats.cacheCreationTokens += usage.cacheCreationInputTokens || 0;
         if (!this._stats.model) {
-          this._stats.model = model;
+          // Prefer canonicalModel (the billing-level id) over the map key, which
+          // may be a provider-specific alias that differs from the canonical id.
+          this._stats.model = usage.canonicalModel ?? model;
         }
         this.emit("stats", { ...this._stats });
       }
