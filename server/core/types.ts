@@ -1052,6 +1052,11 @@ export interface ActivityMessage {
     callId?: string;
     durationMs?: number;
   };
+  /** SDK-reported reason a tool was not executed (SDK >= 0.3.216). */
+  toolResultMeta?: {
+    nonExecutionKind?: string;
+    userFeedback?: string;
+  };
   /** Raw SDK/provider message for debug display. */
   raw?: unknown;
 }

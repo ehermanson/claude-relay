@@ -172,6 +172,7 @@ export function ActivityGroup({
                 isExternalPending={isPendingInTerminal}
                 resultStatus={act.mergedResultStatus}
                 resultDetail={act.mergedResultDetail}
+                toolResultMeta={act.toolResultMeta}
                 {...(act.tool === "AskUserQuestion" || act.tool === "ExitPlanMode"
                   ? {
                       onSendMessage,

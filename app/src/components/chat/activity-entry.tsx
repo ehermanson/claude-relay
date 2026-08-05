@@ -33,6 +33,8 @@ interface ActivityEntryProps {
   resultStatus?: ResultStatus;
   /** Merged result detail from the paired tool_result. */
   resultDetail?: string;
+  /** SDK-reported reason a tool was not executed (denied, interrupted, cancelled). */
+  toolResultMeta?: { nonExecutionKind?: string; userFeedback?: string };
 }
 
 /** Tools where we show a file-type icon instead of the generic tool icon. */
@@ -155,6 +157,7 @@ export function ActivityEntry({
   resolution,
   resultStatus,
   resultDetail,
+  toolResultMeta,
 }: ActivityEntryProps) {
   const hasRichContent = !!input && !!tool;
   const isPermDenied = !!permissionDenied;
@@ -218,6 +221,11 @@ export function ActivityEntry({
         {isExternalPending && (
           <span className="shrink-0 whitespace-nowrap rounded-md bg-claude-dim px-1.5 py-0.5 text-[0.625rem] font-medium text-claude">
             Pending in terminal
+          </span>
+        )}
+        {toolResultMeta?.nonExecutionKind && (
+          <span className="shrink-0 whitespace-nowrap rounded-md bg-muted/10 px-1.5 py-0.5 text-[10px] font-medium text-muted/70">
+            {toolResultMeta.nonExecutionKind.replace(/_/g, " ")}
           </span>
         )}
         {isExpandable && (

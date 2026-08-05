@@ -41,6 +41,7 @@ import {
   getContextWindow,
   TASK_TOOLS,
   FILE_WRITE_TOOLS,
+  buildToolResultActivity,
 } from "#core/tools.js";
 import { buildSessionInitEvent } from "#core/session-init.js";
 import { isPathWithinWorkspace } from "#core/workspace-paths.js";
@@ -720,6 +721,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private fileMap = new Map<string, FileChange>();
   // Map tool_use_id → tool name for tool_result attribution
   private pendingTools = new Map<string, string>();
+  // Map tool_use_id → tool_result_meta for non-execution annotation (SDK >= 0.3.216)
+  private pendingToolResultMeta = new Map<
+    string,
+    { nonExecutionKind?: string; userFeedback?: string }
+  >();
   /** Raw assistant message for attaching to emitted events */
   private _lastRawAssistantMsg: Record<string, unknown> | null = null;
   /** Unix ms timestamp from the SDK's model-completion event (SDKAssistantMessage.timestamp). */
@@ -1267,7 +1273,7 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         this.handleResult(msg);
         break;
       case "user":
-        // User message replay during resume — skip
+        this.handleUserMessage(msg);
         break;
       case "tool_progress":
         this.handleToolProgress(msg);
@@ -1903,6 +1909,29 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     this.emit("activity", activity);
   }
 
+  private handleUserMessage(msg: Record<string, unknown>): void {
+    const message = (msg as Record<string, unknown>).message;
+    if (!message || typeof message !== "object" || Array.isArray(message)) return;
+    const content = (message as Record<string, unknown>).content;
+    if (!Array.isArray(content)) return;
+    for (const block of content) {
+      if (!block || typeof block !== "object" || Array.isArray(block)) continue;
+      const b = block as Record<string, unknown>;
+      if (b.type !== "tool_result") continue;
+      const toolUseId = typeof b.tool_use_id === "string" ? b.tool_use_id : undefined;
+      if (!toolUseId) continue;
+      const meta = (b as Record<string, unknown>).tool_result_meta;
+      if (!meta || typeof meta !== "object" || Array.isArray(meta)) continue;
+      const m = meta as Record<string, unknown>;
+      const nonExecutionKind =
+        typeof m.non_execution_kind === "string" ? m.non_execution_kind : undefined;
+      const userFeedback = typeof m.user_feedback === "string" ? m.user_feedback : undefined;
+      if (nonExecutionKind !== undefined || userFeedback !== undefined) {
+        this.pendingToolResultMeta.set(toolUseId, { nonExecutionKind, userFeedback });
+      }
+    }
+  }
+
   private handleToolResult(block: Record<string, unknown>): void {
     const toolUseId = block.tool_use_id as string;
     const toolName = this.pendingTools.get(toolUseId);
@@ -1939,14 +1968,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     }
 
     // For non-task tools, emit a tool_result activity
-    const activity: ActivityMessage = {
-      type: "activity",
-      activity: "tool_result",
-      description: isError ? "Tool error" : "Tool completed",
-      tool: toolName,
-      detail: content ? capDetail(content) : undefined,
-      raw: { tool_use_id: toolUseId, tool: toolName, content: block.content, is_error: isError },
-    };
+    const meta = this.pendingToolResultMeta.get(toolUseId);
+    this.pendingToolResultMeta.delete(toolUseId);
+    const activity = buildToolResultActivity(isError, toolName, content, meta);
     this.emit("activity", activity);
   }
 

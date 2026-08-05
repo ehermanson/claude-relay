@@ -5565,6 +5565,7 @@ export class InstanceManager extends EventEmitter {
       tasks?: Map<string, TaskItem>;
     },
     results: HistoryEntry[],
+    toolResultMeta?: { nonExecutionKind?: string; userFeedback?: string },
   ): void {
     const toolName = ctx.pendingTools?.get(block.tool_use_id || "");
     const isTaskTool = TASK_TOOLS.has(toolName || "");
@@ -5614,7 +5615,7 @@ export class InstanceManager extends EventEmitter {
       }
       results.push({
         timestamp,
-        message: buildToolResultActivity(block.is_error, toolName, blockContent),
+        message: buildToolResultActivity(block.is_error, toolName, blockContent, toolResultMeta),
       });
     }
   }
@@ -5738,7 +5739,21 @@ export class InstanceManager extends EventEmitter {
           // Skip base64 data images — too large for history
         } else if (c.type === "tool_result" && ctx) {
           // In Claude API format, tool_result blocks are in user messages.
-          this.handleToolResultBlock(c, timestamp, ctx, results);
+          const rawMeta = (c as Record<string, unknown>).tool_result_meta;
+          const toolResultMeta =
+            rawMeta && typeof rawMeta === "object" && !Array.isArray(rawMeta)
+              ? (() => {
+                  const m = rawMeta as Record<string, unknown>;
+                  const nonExecutionKind =
+                    typeof m.non_execution_kind === "string" ? m.non_execution_kind : undefined;
+                  const userFeedback =
+                    typeof m.user_feedback === "string" ? m.user_feedback : undefined;
+                  return nonExecutionKind !== undefined || userFeedback !== undefined
+                    ? { nonExecutionKind, userFeedback }
+                    : undefined;
+                })()
+              : undefined;
+          this.handleToolResultBlock(c, timestamp, ctx, results, toolResultMeta);
         }
       }
       text = parts.join("\n");
