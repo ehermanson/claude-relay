@@ -412,6 +412,13 @@ export interface ProviderCapabilities {
   /** Labels/descriptions for the fast mode toggle */
   fastModes?: { off: ControlOption; on: ControlOption };
   /**
+   * When true, the session's stop/cancel path passes cancel_queued:true to the
+   * SDK interrupt call so that queued messages are cancelled alongside the running
+   * turn. Advertised by the CLI's interrupt_cancel_queued_v1 capability; set by
+   * the Claude driver once the installed CLI version is confirmed to support it.
+   */
+  interruptCancelQueued?: boolean;
+  /**
    * Advisory describing whether the provider's installed CLI is current with
    * the latest published version. Populated asynchronously by the version
    * probe; absent or `status: "unknown"` means the probe hasn't completed
