@@ -801,6 +801,7 @@ export function InputArea({
         fastMode={modelOptions?.fastMode}
         modes={effectiveCapabilities.fastModes}
         onToggle={setFastMode}
+        disabledReason={providerStatus?.fastModeDisabledReason}
       />
     ) : null,
     runtimeModes ? (
@@ -830,6 +831,7 @@ export function InputArea({
         fastMode={modelOptions?.fastMode}
         modes={effectiveCapabilities.fastModes}
         onToggle={setFastMode}
+        disabledReason={providerStatus?.fastModeDisabledReason}
       />
     ) : null,
   ].filter(Boolean);

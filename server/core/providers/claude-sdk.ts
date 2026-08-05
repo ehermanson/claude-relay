@@ -1304,6 +1304,18 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
           `[SdkSession] Init: model=${msg.model}, cwd=${msg.cwd}, tools=${(msg.tools as string[])?.length}, capabilities=${capabilities.join(",")}`,
         );
         this.emit("systemEvent", buildSessionInitEvent(msg));
+        // Always emit the fast-mode availability from init: a string sets the
+        // disabled reason, null clears any stale one (absence means available).
+        this.emit("systemEvent", {
+          type: "system_event",
+          event: "provider_status",
+          payload: {
+            fastModeDisabledReason:
+              typeof msg.fast_mode_disabled_reason === "string"
+                ? msg.fast_mode_disabled_reason
+                : null,
+          },
+        } as SystemEventMessage);
         break;
       }
       case "hook_started":
@@ -1509,6 +1521,20 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
         this.emit("stats", { ...this._stats });
       }
     }
+
+    // Surface fast mode availability from the turn result (SDK >= 0.3.219).
+    // Emitted unconditionally: a string sets the disabled reason, null clears a
+    // stale one — the SDK signals "available again" by omitting the field.
+    this.emit("systemEvent", {
+      type: "system_event",
+      event: "provider_status",
+      payload: {
+        fastModeDisabledReason:
+          typeof msg.fast_mode_disabled_reason === "string"
+            ? msg.fast_mode_disabled_reason
+            : null,
+      },
+    } as SystemEventMessage);
 
     // Handle error results
     if (msg.subtype !== "success") {
