@@ -130,7 +130,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
       onClick={onClose}
     >
       <button
-        className="absolute top-5 right-5 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+        className="absolute top-[calc(env(safe-area-inset-top,0px)+1.25rem)] right-[calc(env(safe-area-inset-right,0px)+1.25rem)] flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white sm:h-9 sm:w-9"
         onClick={onClose}
         aria-label="Close"
       >
