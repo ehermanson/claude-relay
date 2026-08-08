@@ -126,32 +126,40 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
   // Portal to document.body so it escapes overflow-hidden / transform parents
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 cursor-pointer backdrop-blur-md"
+      className="fixed inset-0 z-[9999] flex cursor-pointer flex-col bg-black/80 backdrop-blur-md pt-[env(safe-area-inset-top,0px)] pr-[env(safe-area-inset-right,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)]"
       onClick={onClose}
     >
-      <button
-        className="absolute top-[calc(env(safe-area-inset-top,0px)+1.25rem)] right-[calc(env(safe-area-inset-right,0px)+1.25rem)] flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white sm:h-9 sm:w-9"
-        onClick={onClose}
-        aria-label="Close"
-      >
-        <X size={18} />
-      </button>
+      {/* The close button gets its own row rather than being absolutely
+          positioned over the image — a centered image large enough to reach
+          the top corner would otherwise sit on top of it and swallow taps. */}
+      <div className="flex shrink-0 justify-end p-3">
+        <button
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white sm:h-9 sm:w-9"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <X size={18} />
+        </button>
+      </div>
       {/* Link to the raw image: the lightbox fits the image to the viewport
           (so browser page-zoom just re-fits it), while the browser's native
           image viewer in a new tab gives real zoom with no custom UI. */}
-      <a
-        href={src}
-        target="_blank"
-        rel="noreferrer"
-        title="Open full size in new tab"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <img
-          src={src}
-          alt={alt}
-          className="max-w-[90vw] max-h-[90vh] rounded-xl object-contain shadow-2xl"
-        />
-      </a>
+      <div className="flex min-h-0 flex-1 items-center justify-center px-4 pb-4">
+        <a
+          href={src}
+          target="_blank"
+          rel="noreferrer"
+          title="Open full size in new tab"
+          className="flex min-h-0 max-w-full items-center justify-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <img
+            src={src}
+            alt={alt}
+            className="max-w-full rounded-xl object-contain shadow-2xl max-h-[calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-6rem)]"
+          />
+        </a>
+      </div>
     </div>,
     document.body,
   );
