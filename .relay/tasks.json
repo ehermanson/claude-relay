@@ -2123,7 +2123,7 @@
     {
       "id": "a5d82c63",
       "title": "Claude: design session branching via rewind_conversation primitive",
-      "description": "Claude Agent SDK v0.3.186 added a `rewind_conversation` control request that rewinds a conversation to a previous point with durable resume-anchor support. This is a genuine new session-management primitive.\n\n**Would've been bucket-2 if Relay had a provider-agnostic session-branching abstraction.** This is the flag: if Relay defined a provider-neutral \"branch session\" concept (a capability-shaped `sessionBranching` flag in `ProviderCapabilities`, a `branchSession(anchorId)` method on the provider driver contract), this would be a near-mechanical implementation task. Today it's bucket-3 because that abstraction doesn't exist.\n\nScope of this design task:\n1. Define what \"session branching\" means in Relay terms: user picks a point in history, Relay creates a sibling managed session resumed from that anchor.\n2. Decide where the branch entry-point lives in the UI (message context menu? chat header action?).\n3. Map `rewind_conversation` onto a provider-neutral `ProviderCapabilities.sessionBranching` flag so the UI only renders the control when the active provider supports it.\n4. Define the Codex equivalent if any (or mark as Claude-only pending Codex support).\n5. Consider whether this overlaps with the existing Spin Off flow (tasks `8092b659`, `6e0e1f44`).\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.186\n\nBucket 3 (passes chase test: new primitive to generalize across providers) \u2014 priority 3.",
+      "description": "Claude Agent SDK v0.3.186 added a `rewind_conversation` control request that rewinds a conversation to a previous point with durable resume-anchor support. This is a genuine new session-management primitive.\n\n**Would've been bucket-2 if Relay had a provider-agnostic session-branching abstraction.** This is the flag: if Relay defined a provider-neutral \"branch session\" concept (a capability-shaped `sessionBranching` flag in `ProviderCapabilities`, a `branchSession(anchorId)` method on the provider driver contract), this would be a near-mechanical implementation task. Today it's bucket-3 because that abstraction doesn't exist.\n\nScope of this design task:\n1. Define what \"session branching\" means in Relay terms: user picks a point in history, Relay creates a sibling managed session resumed from that anchor.\n2. Decide where the branch entry-point lives in the UI (message context menu? chat header action?).\n3. Map `rewind_conversation` onto a provider-neutral `ProviderCapabilities.sessionBranching` flag so the UI only renders the control when the active provider supports it.\n4. Define the Codex equivalent if any (or mark as Claude-only pending Codex support).\n5. Consider whether this overlaps with the existing Spin Off flow (tasks `8092b659`, `6e0e1f44`).\n\nRef: claude-agent-sdk-typescript CHANGELOG v0.3.186\n\nBucket 3 (passes chase test: new primitive to generalize across providers) \u2014 priority 3.\n\n---\n\n**Codex equivalent confirmed (2026-08-10):** Codex 0.147.0 (2026-08-07) ships thread forking \u2014 \"Fork threads with paginated history, including temporary forks that do not appear in thread listings.\" This is the Codex-side answer to step 4 above: both providers now have a branching primitive. The design task still stands \u2014 once the provider-agnostic `ProviderCapabilities.sessionBranching` abstraction is defined, implementation tasks for `rewind_conversation` (Claude) and thread forking (Codex) can be filed as near-mechanical follow-ups.",
       "status": "open",
       "priority": 3,
       "type": "task",
@@ -2483,6 +2483,71 @@
       "blockedBy": [],
       "createdAt": "2026-07-27T00:00:00.000Z",
       "updatedAt": "2026-07-27T00:00:00.000Z"
+    },
+    {
+      "id": "29a4c7e1",
+      "title": "Codex: research executor-provided skill discovery protocol",
+      "description": "Codex 0.146.0 lets the executor (Relay) publish a skill manifest that Codex sessions can discover and invoke. Relay already surfaces Claude skills in the UI and supports slash-command invocation. Making this work across both providers via a shared `ProviderCapabilities` layer would be on-strategy cross-provider normalization — the same skill invoked in either a Claude or Codex session, with Relay brokering discovery.\n\nThis is distinct from task `d9e3f5a7` (Codex Agent Plugins catalog) which covers the Codex-to-plugin direction. This task covers the executor-to-session direction: Relay publishing what skills it knows about so the Codex session can invoke them via slash commands.\n\nNeeded first (research):\n1. Identify the app-server RPC that lets the executor register a skill manifest (likely a `skills/register` or similar notification in the Codex JSON-RPC protocol).\n2. Understand the manifest format: what fields (name, description, invocation path) are required.\n3. Determine whether Relay's existing skill model (CLAUDE.md `.claude/agents/*.md` skills) can be adapted or if a new data model is needed.\n\nOnce the protocol is understood, this likely becomes a near-mechanical bucket-2 task: add `executorSkills?: boolean` to `ProviderCapabilities` for the Codex driver and wire the registration RPC at session start.\n\n**Would've been bucket-2 if `ProviderCapabilities` had an `executorSkills` abstraction.** The missing piece is both the protocol research and the shared abstraction.\n\nScope: research pass ~2h; implementation TBD after research.\n\nBucket 3 — priority 3.\n\nRef: github.com/openai/codex releases v0.146.0",
+      "status": "open",
+      "priority": 3,
+      "type": "task",
+      "tags": ["provider-watch", "codex", "bucket-3"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-10T00:00:00.000Z",
+      "updatedAt": "2026-08-10T00:00:00.000Z"
+    },
+    {
+      "id": "b6c8d0e2",
+      "title": "Claude: expose crossSessionInbound and dialogExpiry session settings",
+      "description": "CLI 2.1.224 and Agent SDK 0.3.224 add two new session settings:\n\n- **`crossSessionInbound`**: controls whether cross-session messages (from `SendMessage` or peer agents) sent to a session running with bypassed permissions are held for your approval or auto-delivered.\n- **`dialogExpiry`**: sets a TTL on held cross-session messages before they are auto-expired.\n\nRelay uses bypassed permissions for full-access (`bypassPermissions`) sessions. With SDK 0.3.224+, cross-session messages to full-access sessions are now held for approval by default — a behavior change for any Relay session in full-access mode that receives cross-session messages.\n\nNeeded:\n1. Add `crossSessionInbound` and `dialogExpiry` fields to Relay's session-start settings passed via the Agent SDK in `claude-sdk.ts`.\n2. Expose them as toggleable options in session creation or project settings, driven by a `ProviderCapabilities` flag.\n3. Decide the right Relay default: mirroring the SDK default (hold for approval) is safer; auto-deliver matches the prior behavior.\n\nNote: SDK 0.3.224 is within the pinned `^0.3.170` range — these settings are available in the current install after the lockfile refreshes to 0.3.224+.\n\nScope: small (~1–2h). Touch points: `claude-sdk.ts` session-start args, `ProviderCapabilities` type, optionally session creation UI.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.224, @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.224",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-10T00:00:00.000Z",
+      "updatedAt": "2026-08-10T00:00:00.000Z"
+    },
+    {
+      "id": "c7d9e1f3",
+      "title": "Claude: strip gateway provider prefix from model discovery IDs in model picker",
+      "description": "CLI 2.1.223 fixed a bug where gateway-registered Claude models — models registered with provider-prefixed IDs like `vertex_ai/claude-3-5-sonnet-20241022` or `bedrock/anthropic.claude-opus-4` — were hidden from model discovery. After this fix, these IDs appear in the model picker when users run Claude via a Bedrock, Vertex, or Foundry gateway.\n\nRelay's `formatClaudeModelLabel` (per AGENTS.md) accepts `claude-<family>-<version>` IDs. Gateway-prefixed IDs don't match this form — `vertex_ai/claude-...` — so users on gateway setups would see raw gateway IDs like `vertex_ai/claude-3-5-sonnet-20241022` in the picker instead of a formatted label.\n\nNeeded:\n1. In the model discovery path (`claude-sdk.ts` or `provider-catalog.ts`), strip any `<gateway>/` prefix before passing the ID to `formatClaudeModelLabel`.\n2. Preserve the full gateway ID as the canonical model ID passed to the SDK — only strip for display.\n3. Verify that `resolvedModel` from a session started with a gateway-prefixed ID is used correctly for cost estimation and model tracking.\n\nScope: small (~1h). Touch points: model discovery / label formatting code, cost estimation if it key-maps on display model ID.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.223",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-10T00:00:00.000Z",
+      "updatedAt": "2026-08-10T00:00:00.000Z"
+    },
+    {
+      "id": "a8b2c4d6",
+      "title": "Anthropic SDK: audit advisor tool type in JSONL parser and add render",
+      "description": "Anthropic SDK 0.116.0 (2026-08-07) adds support for the advisor tool — a new built-in tool type in the Anthropic Messages API, alongside the existing bash, computer-use, text-editor, and web-search built-ins.\n\nWhen Claude uses the advisor tool, it appears in the message stream and JSONL transcripts as a `tool_use` block with a distinct tool type. Relay's JSONL parser and streaming handler in `claude-sdk.ts` process tool_use blocks and render them in the chat UI. Without explicit handling, an advisor tool block may be silently dropped (content loss) or displayed with a fallback \"Unknown tool\" row.\n\nNeeded:\n1. Verify that the JSONL parser handles an unknown `tool_use` type without throwing — the defensive `default:` in the stream handler likely covers this, but confirm no exhaustiveness check throws on the new type.\n2. Add a recognizable render for advisor tool results in the chat message renderer (icon + tool name label), consistent with how web-search and other built-ins are displayed.\n3. No new `ProviderCapabilities` flag needed — tool types appear based on model behavior, not session settings.\n\nNote: The advisor tool is in the `@anthropic-ai/sdk` API layer. Whether it surfaces via the Agent SDK stream (which Relay uses) depends on the Claude CLI version in use. Verify the installed CLI version exposes it before landing UI changes.\n\nScope: small (~1–2h audit + render). Touch points: `claude-sdk.ts` streaming handler, JSONL parser, chat message renderer.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/sdk CHANGELOG v0.116.0",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-10T00:00:00.000Z",
+      "updatedAt": "2026-08-10T00:00:00.000Z"
+    },
+    {
+      "id": "d9e3f5a7",
+      "title": "Codex: design cross-provider plugin/skill catalog normalization",
+      "description": "Codex 0.147.0 (2026-08-07) adds an Agent Plugins catalog: agents can install portable plugins and search across local, personal, workspace, and remote plugin catalogs. This is the Codex counterpart to Claude's skills system.\n\nRelay already surfaces Claude skills in the UI (installed skills list, slash-command invocation). Now both providers have a plugin/skill model:\n- Claude: skills (`.claude/agents/*.md`), slash-command invocation, marketplace install\n- Codex: Agent Plugins (local, personal, workspace, remote catalogs, portable installs)\n\n**Would've been bucket-2 if `ProviderCapabilities` had a `pluginCatalog` abstraction.** The missing piece is a shared abstraction that lets Relay's UI show one unified plugin/skill surface regardless of provider.\n\nThis task supersedes the Codex-direction half of `29a4c7e1` (executor-provided skill discovery) by widening the scope: rather than just surfacing executor skills *to* Codex, design a shared `ProviderCapabilities.pluginCatalog` contract that both providers implement.\n\nScope of this design task:\n1. Map Claude's skills model and Codex's Agent Plugins model onto a shared `PluginCatalogEntry` type in `server/core/types.ts`.\n2. Add a `pluginCatalog?: boolean` flag (or a richer `pluginCatalog` sub-object) to `ProviderCapabilities`.\n3. Define the REST/WS API for Relay's UI to query the merged plugin list and trigger installs.\n4. Decide what \"install\" means across providers: for Claude, a skill file; for Codex, a portable plugin from the catalog.\n5. Determine how the slash-command menu in the Relay composer sources completions from both providers' catalogs.\n\nBucket 3 (passes chase test: cross-provider normalization of plugin/skill model) — priority 3.\n\nRef: github.com/openai/codex releases v0.147.0; @anthropic-ai/sdk CHANGELOG v0.116.0 (skills auto-loading from GitHub)",
+      "status": "open",
+      "priority": 3,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "codex", "bucket-3"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-10T00:00:00.000Z",
+      "updatedAt": "2026-08-10T00:00:00.000Z"
     }
   ]
 }
