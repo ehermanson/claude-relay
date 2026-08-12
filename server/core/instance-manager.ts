@@ -8432,6 +8432,7 @@ export class InstanceManager extends EventEmitter {
     patch: {
       reasoningEffort?: string | null;
       fastMode?: boolean | null;
+      networkStrictAllowlist?: boolean | null;
     },
   ): Promise<boolean> {
     return this.enqueueInstanceMutation(id, async (instance) => {
@@ -8446,8 +8447,14 @@ export class InstanceManager extends EventEmitter {
       if ("fastMode" in patch) {
         next.fastMode = patch.fastMode ?? undefined;
       }
+      if ("networkStrictAllowlist" in patch) {
+        next.networkStrictAllowlist = patch.networkStrictAllowlist ?? undefined;
+      }
 
-      const isEmpty = next.reasoningEffort == null && next.fastMode == null;
+      const isEmpty =
+        next.reasoningEffort == null &&
+        next.fastMode == null &&
+        next.networkStrictAllowlist == null;
       instance.info.modelOptions = isEmpty ? undefined : next;
 
       if (instance.process?.setModelOptions) {

@@ -2462,14 +2462,14 @@
       "id": "07b9d406",
       "title": "Claude: expose sandbox.network.strictAllowlist as a session capability option",
       "description": "CLI 2.1.219 and Agent SDK 0.3.219 add `sandbox.network.strictAllowlist` to session settings. When enabled, sandboxed commands are denied access to any host not in the `sandbox.network.allowedHosts` allowlist without prompting — giving operators deterministic network isolation for agent sessions.\n\nRelay currently exposes sandbox settings from `ProviderCapabilities` (permission mode, etc.) but has no concept of network-level sandboxing.\n\nNeeded:\n1. Add a `networkStrictAllowlist?: boolean` (or a `sandboxNetwork` sub-object) to `ProviderCapabilities` for the Claude driver.\n2. Expose it as a toggleable session option in session creation / project settings.\n3. Thread the setting through to the SDK session-start args in `claude-sdk.ts`.\n4. If `sandbox.network.allowedHosts` is also configurable, consider a companion list field.\n\nScope: medium (~2–4h). Touch points: `ProviderCapabilities` type, `claude-sdk.ts`, project or global settings UI, session creation.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.219, @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.219",
-      "status": "open",
+      "status": "in_progress",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-07-27T00:00:00.000Z",
-      "updatedAt": "2026-07-27T00:00:00.000Z"
+      "updatedAt": "2026-08-12T00:00:00.000Z"
     },
     {
       "id": "18ca0517",

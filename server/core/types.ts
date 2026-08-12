@@ -163,6 +163,10 @@ export type ReasoningEffort = "low" | "medium" | "high" | "max" | (string & {});
 export interface ProviderModelOptions {
   reasoningEffort?: ReasoningEffort;
   fastMode?: boolean;
+  /** When true, sandbox network is set to strict-allowlist mode: hosts not in
+   *  sandbox.network.allowedDomains are denied without prompting. Only honoured
+   *  by the Claude driver; requires the sandbox to be available on the host. */
+  networkStrictAllowlist?: boolean;
 }
 
 export interface UserInputOption {
@@ -384,6 +388,8 @@ export interface ProviderCapabilities {
   supportsUserInputRequests: boolean;
   supportsReasoningEffort: boolean;
   supportsFastMode: boolean;
+  /** Whether the provider supports strict-allowlist sandboxed networking. */
+  supportsNetworkAllowlist?: boolean;
   supportsModelSelection: boolean;
   supportsTitleUpdates: boolean;
   /** MCP discovery is read-only; configuration capabilities are intentionally separate. */
@@ -411,6 +417,8 @@ export interface ProviderCapabilities {
   runtimeModes?: Partial<Record<ProviderRuntimeMode, ControlOption>>;
   /** Labels/descriptions for the fast mode toggle */
   fastModes?: { off: ControlOption; on: ControlOption };
+  /** Labels/descriptions for the sandbox strict-allowlist network toggle */
+  networkAllowlistModes?: { off: ControlOption; on: ControlOption };
   /**
    * Advisory describing whether the provider's installed CLI is current with
    * the latest published version. Populated asynchronously by the version
@@ -485,6 +493,7 @@ export interface ProviderDefaults {
   reasoningEffort?: ReasoningEffort;
   runtimeMode?: ProviderRuntimeMode;
   fastMode?: boolean;
+  networkStrictAllowlist?: boolean;
 }
 
 export interface GlobalSettings {
@@ -747,6 +756,7 @@ export interface SetModelOptionsPayload {
   modelOptions: {
     reasoningEffort?: ReasoningEffort | null;
     fastMode?: boolean | null;
+    networkStrictAllowlist?: boolean | null;
   };
 }
 

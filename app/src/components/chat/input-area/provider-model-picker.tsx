@@ -2,10 +2,12 @@ import {
   BrainIcon,
   Check,
   ChevronRight,
+  GlobeIcon,
   LockIcon,
   LockOpenIcon,
   MapIcon,
   ShieldCheckIcon,
+  ShieldIcon,
   ZapIcon,
 } from "lucide-react";
 import { Fragment } from "react";
@@ -347,6 +349,55 @@ export function FastModeToggle({ isProcessing, fastMode, modes, onToggle }: Fast
             <span className="text-[0.6875rem] text-muted">{modes.on.description}</span>
           </span>
           {fastMode && <Check size={13} strokeWidth={2.5} />}
+        </Menu.Item>
+      </Menu.Content>
+    </Menu.Root>
+  );
+}
+
+interface NetworkAllowlistToggleProps {
+  isProcessing: boolean;
+  networkStrictAllowlist?: boolean;
+  modes: { off: ControlOption; on: ControlOption };
+  onToggle: (enabled: boolean) => void;
+}
+
+export function NetworkAllowlistToggle({
+  isProcessing,
+  networkStrictAllowlist,
+  modes,
+  onToggle,
+}: NetworkAllowlistToggleProps) {
+  const label = networkStrictAllowlist ? modes.on.label : modes.off.label;
+  const Icon = networkStrictAllowlist ? ShieldIcon : GlobeIcon;
+
+  return (
+    <Menu.Root>
+      <Tooltip content="Set sandbox network mode">
+        <Menu.Trigger
+          disabled={isProcessing}
+          className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
+            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
+          } ${networkStrictAllowlist ? "text-accent" : "text-muted"}`}
+        >
+          <Icon size={11} strokeWidth={2} />
+          <span className="toolbar-control-label">{label}</span>
+        </Menu.Trigger>
+      </Tooltip>
+      <Menu.Content side="top" align="start">
+        <Menu.Item onClick={() => onToggle(false)}>
+          <span className="flex flex-1 flex-col">
+            <span>{modes.off.label}</span>
+            <span className="text-[0.6875rem] text-muted">{modes.off.description}</span>
+          </span>
+          {!networkStrictAllowlist && <Check size={13} strokeWidth={2.5} />}
+        </Menu.Item>
+        <Menu.Item onClick={() => onToggle(true)}>
+          <span className="flex flex-1 flex-col">
+            <span>{modes.on.label}</span>
+            <span className="text-[0.6875rem] text-muted">{modes.on.description}</span>
+          </span>
+          {networkStrictAllowlist && <Check size={13} strokeWidth={2.5} />}
         </Menu.Item>
       </Menu.Content>
     </Menu.Root>
