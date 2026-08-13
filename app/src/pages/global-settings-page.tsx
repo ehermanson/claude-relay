@@ -6,6 +6,8 @@ import {
   AlertCircle,
   CheckCircle2,
   DownloadCloud,
+  FolderTree,
+  Inbox,
   Loader2,
   Monitor,
   Moon,
@@ -17,7 +19,6 @@ import {
   createPairingCode,
   fetchConnectEndpoints,
   fetchHealth,
-  fetchGlobalSettings,
   updateGlobalSettings,
   fetchProviders,
   fetchProviderModels,
@@ -25,6 +26,7 @@ import {
   runProviderUpdate,
   addProviderMcpServer,
 } from "../lib/api";
+import { useGlobalSettings } from "@/hooks/use-global-settings";
 import { useSystemUpdate, describeUpdateStage } from "@/hooks/use-system-update";
 import {
   INSTALL_METHOD_LABEL,
@@ -54,6 +56,7 @@ import type {
   ProviderKind,
   ProviderMcpServerStatus,
   ProviderVersionAdvisory,
+  SidebarLayout,
   UpdateSnapshot,
 } from "@shared/types";
 
@@ -61,33 +64,10 @@ import type {
 
 // ─── Defaults & hooks ──────────────────────────────────────────────────────
 
-const DEFAULT_SETTINGS: GlobalSettings = {
-  theme: "dark",
-  defaultOpenTarget: null,
-  defaultProvider: null,
-  defaultModel: null,
-  defaultSpaceBranch: null,
-  spaceBranchSource: "local",
-  providerDefaults: {},
-  customInstructions: null,
-  projectOrder: null,
-  suggestions: null,
-  maxProcesses: null,
-};
-
 /** Server fallback when no explicit cap is set (mirrors the backend default). */
 const DEFAULT_MAX_PROCESSES = 15;
 
 const REMOTE_ACCESS_ENDPOINT_KEY = "relay.remoteAccess.endpoint";
-
-export function useGlobalSettings() {
-  return useQuery({
-    queryKey: ["global-settings"],
-    queryFn: fetchGlobalSettings,
-    staleTime: 60_000,
-    placeholderData: DEFAULT_SETTINGS,
-  });
-}
 
 function useAutoSave() {
   const queryClient = useQueryClient();
@@ -142,6 +122,7 @@ export function GeneralSettingsSection() {
       <SettingRow label="Theme" description="Choose between light, dark, or system appearance.">
         <ThemeToggle value={themeStore.preference} onChange={handleThemeChange} />
       </SettingRow>
+      <SidebarLayoutSettingsRow />
       <MaxProcessesSettingsRow />
       <UpdateSettingsRow />
       <RemoteAccessSettingsRow />
@@ -698,6 +679,45 @@ function ThemeToggle({
         );
       })}
     </div>
+  );
+}
+
+function SidebarLayoutSettingsRow() {
+  const { data: settings } = useGlobalSettings();
+  const save = useAutoSave();
+  const value: SidebarLayout = settings?.sidebarLayout === "projects" ? "projects" : "inbox";
+
+  const options = [
+    { value: "projects" as const, icon: FolderTree, label: "Projects" },
+    { value: "inbox" as const, icon: Inbox, label: "Inbox" },
+  ];
+
+  return (
+    <SettingRow
+      label="Sidebar layout"
+      description="Group chats under their project, or show one flat list sorted by activity."
+    >
+      <div className="flex rounded-lg border border-border bg-surface/60 p-0.5">
+        {options.map((opt) => {
+          const Icon = opt.icon;
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => save.mutate({ sidebarLayout: opt.value })}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-[0.75rem] font-medium transition-colors ${
+                active
+                  ? "bg-surface-hover text-text-bright shadow-sm"
+                  : "text-muted hover:text-text"
+              }`}
+            >
+              <Icon size={13} />
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </SettingRow>
   );
 }
 

@@ -75,6 +75,7 @@ export interface GlobalSettingsRow {
   project_order_json: string | null;
   suggestions_json: string | null;
   max_processes: number | null;
+  sidebar_layout: string | null;
 }
 
 export interface SessionRow {
@@ -90,6 +91,7 @@ export interface SessionRow {
   archived: number;
   custom_title: number;
   pinned: number;
+  done_at: number | null;
   input_tokens: number;
   output_tokens: number;
   cache_creation_tokens: number;
@@ -126,6 +128,7 @@ export interface ManagedInstanceRow {
   archived: number;
   custom_title: number;
   pinned: number;
+  done_at: number | null;
   input_tokens: number;
   output_tokens: number;
   cache_creation_tokens: number;
@@ -181,6 +184,7 @@ export interface SpinOffRow {
 function normalizeSessionRow(row: SessionRow): SessionRow {
   const normalized = { ...row };
   normalized.pinned ??= 0;
+  normalized.done_at ??= null;
   normalized.summary ??= null;
   normalized.first_prompt ??= null;
   normalized.git_branch ??= null;
@@ -205,6 +209,7 @@ function normalizeSessionRow(row: SessionRow): SessionRow {
 function normalizeManagedInstanceRow(row: ManagedInstanceRow): ManagedInstanceRow {
   const normalized = { ...row };
   normalized.pinned ??= 0;
+  normalized.done_at ??= null;
   normalized.git_branch ??= null;
   normalized.worktree_path ??= null;
   normalized.original_directory ??= null;
@@ -437,6 +442,8 @@ export class SessionDB {
   private stmtUpdateName!: StatementSync;
   private stmtSetPinned!: StatementSync;
   private stmtSetManagedPinned!: StatementSync;
+  private stmtSetDone!: StatementSync;
+  private stmtSetManagedDone!: StatementSync;
   private stmtGetJsonlPaths!: StatementSync;
   private stmtDeleteBySessionId!: StatementSync;
   private stmtDeleteByInstanceId!: StatementSync;
@@ -650,7 +657,7 @@ ${buildSearchIndexSchemaSql()},
       this.ensureSuggestionsColumns();
       this.ensureRuntimeModeColumns();
       this.ensureProjectSlugColumn();
-      this.ensurePinnedColumns();
+      this.ensureChatFlagColumns();
       this.db.exec(`INSERT INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION})`);
       return;
     }
@@ -664,7 +671,7 @@ ${buildSearchIndexSchemaSql()},
       this.ensureSuggestionsColumns();
       this.ensureRuntimeModeColumns();
       this.ensureProjectSlugColumn();
-      this.ensurePinnedColumns();
+      this.ensureChatFlagColumns();
       return;
     }
 
@@ -674,7 +681,7 @@ ${buildSearchIndexSchemaSql()},
     this.ensureGlobalSettingsColumns();
     this.ensureSuggestionsColumns();
     this.ensureRuntimeModeColumns();
-    this.ensurePinnedColumns();
+    this.ensureChatFlagColumns();
     this.db.exec(`UPDATE schema_version SET version = ${CURRENT_SCHEMA_VERSION}`);
   }
 
@@ -693,6 +700,7 @@ ${buildSearchIndexSchemaSql()},
         archived INTEGER NOT NULL DEFAULT 0,
         custom_title INTEGER NOT NULL DEFAULT 0,
         pinned INTEGER NOT NULL DEFAULT 0,
+        done_at INTEGER,
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
@@ -735,6 +743,7 @@ ${buildSearchIndexSchemaSql()},
         archived INTEGER NOT NULL DEFAULT 0,
         custom_title INTEGER NOT NULL DEFAULT 0,
         pinned INTEGER NOT NULL DEFAULT 0,
+        done_at INTEGER,
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
@@ -834,7 +843,8 @@ ${buildSearchIndexSchemaSql()},
         custom_instructions TEXT,
         project_order_json TEXT,
         suggestions_json TEXT,
-        max_processes INTEGER
+        max_processes INTEGER,
+        sidebar_layout TEXT
       );
 
       INSERT OR IGNORE INTO global_settings (id) VALUES (1);
@@ -854,6 +864,9 @@ ${buildSearchIndexSchemaSql()},
     }
     if (!columnNames.has("max_processes")) {
       this.db.exec("ALTER TABLE global_settings ADD COLUMN max_processes INTEGER");
+    }
+    if (!columnNames.has("sidebar_layout")) {
+      this.db.exec("ALTER TABLE global_settings ADD COLUMN sidebar_layout TEXT");
     }
   }
 
@@ -920,16 +933,20 @@ ${buildSearchIndexSchemaSql()},
   }
 
   /**
-   * Add the `pinned` flag to both session tables. Idempotent — safe to run on
-   * fresh and migrated databases alike.
+   * Add the per-chat user flags (`pinned`, `done_at`) to both session tables.
+   * Idempotent — safe to run on fresh and migrated databases alike.
    */
-  private ensurePinnedColumns(): void {
+  private ensureChatFlagColumns(): void {
     const ensureFor = (table: "sessions" | "managed_sessions") => {
       const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
         name?: string;
       }>;
-      if (!columns.some((c) => c.name === "pinned")) {
+      const names = new Set(columns.map((c) => c.name));
+      if (!names.has("pinned")) {
         this.db.exec(`ALTER TABLE ${table} ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+      }
+      if (!names.has("done_at")) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN done_at INTEGER`);
       }
     };
     ensureFor("sessions");
@@ -964,7 +981,7 @@ ${buildSearchIndexSchemaSql()},
       this.db.prepare(`
       INSERT INTO sessions (
         session_id, instance_id, provider_name, name, working_directory, jsonl_path,
-        created_at, last_activity_at, type, archived, custom_title, pinned,
+        created_at, last_activity_at, type, archived, custom_title, pinned, done_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         summary, first_prompt, git_branch, message_count, allowed_tools,
         worktree_path, original_directory, parent_session_id, preferred_model, reasoning_budget, runtime_mode,
@@ -972,7 +989,7 @@ ${buildSearchIndexSchemaSql()},
         git_info_branch, git_info_is_worktree, space_id, project_id, model
       ) VALUES (
         @session_id, @instance_id, @provider_name, @name, @working_directory, @jsonl_path,
-        @created_at, @last_activity_at, @type, @archived, @custom_title, @pinned,
+        @created_at, @last_activity_at, @type, @archived, @custom_title, @pinned, @done_at,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @summary, @first_prompt, @git_branch, @message_count, @allowed_tools,
         @worktree_path, @original_directory, @parent_session_id, @preferred_model, @reasoning_budget, @runtime_mode,
@@ -989,8 +1006,9 @@ ${buildSearchIndexSchemaSql()},
         type = excluded.type,
         archived = excluded.archived,
         custom_title = excluded.custom_title,
-        -- pinned intentionally omitted: only setPinned() mutates it, so
-        -- upserts from stale info snapshots can't clobber a pin
+        -- pinned / done_at intentionally omitted: only setPinned() and
+        -- setDone() mutate them, so upserts from stale info snapshots
+        -- can't clobber a pin or a done marker
         input_tokens = excluded.input_tokens,
         output_tokens = excluded.output_tokens,
         cache_creation_tokens = excluded.cache_creation_tokens,
@@ -1021,7 +1039,7 @@ ${buildSearchIndexSchemaSql()},
       this.db.prepare(`
       INSERT INTO managed_sessions (
         instance_id, provider_name, provider_session_id, name, working_directory,
-        created_at, last_activity_at, archived, custom_title, pinned,
+        created_at, last_activity_at, archived, custom_title, pinned, done_at,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         git_branch, worktree_path, original_directory, parent_session_id,
         preferred_model, reasoning_budget, runtime_mode,
@@ -1031,7 +1049,7 @@ ${buildSearchIndexSchemaSql()},
         model_options_json, original_git_branch
       ) VALUES (
         @instance_id, @provider_name, @provider_session_id, @name, @working_directory,
-        @created_at, @last_activity_at, @archived, @custom_title, @pinned,
+        @created_at, @last_activity_at, @archived, @custom_title, @pinned, @done_at,
         @input_tokens, @output_tokens, @cache_creation_tokens, @cache_read_tokens,
         @git_branch, @worktree_path, @original_directory, @parent_session_id,
         @preferred_model, @reasoning_budget, @runtime_mode,
@@ -1048,8 +1066,9 @@ ${buildSearchIndexSchemaSql()},
         last_activity_at = excluded.last_activity_at,
         archived = excluded.archived,
         custom_title = excluded.custom_title,
-        -- pinned intentionally omitted: only setPinned() mutates it, so
-        -- upserts from stale info snapshots can't clobber a pin
+        -- pinned / done_at intentionally omitted: only setPinned() and
+        -- setDone() mutate them, so upserts from stale info snapshots
+        -- can't clobber a pin or a done marker
         input_tokens = excluded.input_tokens,
         output_tokens = excluded.output_tokens,
         cache_creation_tokens = excluded.cache_creation_tokens,
@@ -1172,6 +1191,12 @@ ${buildSearchIndexSchemaSql()},
 
     this.stmtSetManagedPinned = this.db.prepare(
       "UPDATE managed_sessions SET pinned = ? WHERE instance_id = ?",
+    );
+
+    this.stmtSetDone = this.db.prepare("UPDATE sessions SET done_at = ? WHERE instance_id = ?");
+
+    this.stmtSetManagedDone = this.db.prepare(
+      "UPDATE managed_sessions SET done_at = ? WHERE instance_id = ?",
     );
 
     this.stmtGetJsonlPaths = this.db.prepare("SELECT jsonl_path FROM sessions");
@@ -1445,7 +1470,8 @@ ${buildSearchIndexSchemaSql()},
         custom_instructions = @custom_instructions,
         project_order_json = @project_order_json,
         suggestions_json = @suggestions_json,
-        max_processes = @max_processes
+        max_processes = @max_processes,
+        sidebar_layout = @sidebar_layout
       WHERE id = 1
     `);
 
@@ -1633,6 +1659,20 @@ ${buildSearchIndexSchemaSql()},
     const value = pinned ? 1 : 0;
     const external = this.stmtSetPinned.run(value, instanceId);
     const managed = this.stmtSetManagedPinned.run(value, instanceId);
+    return Number(external.changes) > 0 || Number(managed.changes) > 0;
+  }
+
+  /**
+   * Mark a chat done as of `doneAt`, or clear the marker with `null`.
+   *
+   * Stored as a timestamp rather than a boolean so "new activity revives a
+   * done chat" is derived, not pushed: a chat reads as done only while its
+   * recency is at or below `done_at`. There is no single choke point where
+   * activity is recorded, so a push-based revive would leak.
+   */
+  setDone(instanceId: string, doneAt: number | null): boolean {
+    const external = this.stmtSetDone.run(doneAt, instanceId);
+    const managed = this.stmtSetManagedDone.run(doneAt, instanceId);
     return Number(external.changes) > 0 || Number(managed.changes) > 0;
   }
 
@@ -2030,6 +2070,7 @@ ${buildSearchIndexSchemaSql()},
         suggestions_json:
           "suggestions_json" in patch ? patch.suggestions_json : current.suggestions_json,
         max_processes: "max_processes" in patch ? patch.max_processes : current.max_processes,
+        sidebar_layout: "sidebar_layout" in patch ? patch.sidebar_layout : current.sidebar_layout,
       }),
     );
     return this.getGlobalSettings();

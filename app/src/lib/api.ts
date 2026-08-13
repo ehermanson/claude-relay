@@ -518,6 +518,18 @@ export async function setInstancePinned(instanceId: string, pinned: boolean): Pr
   }
 }
 
+export async function setInstanceDone(instanceId: string, done: boolean): Promise<void> {
+  const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/done`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ done }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to update chat" }));
+    throw new ApiError(data.error || "Failed to update chat", res.status);
+  }
+}
+
 export async function fetchSpaceChats(spaceId: string): Promise<InstanceInfo[]> {
   const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/chats`);
   if (!res.ok) return [];

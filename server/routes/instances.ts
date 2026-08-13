@@ -83,6 +83,23 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
     }
   });
 
+  app.post("/api/instances/:id/done", async (c) => {
+    try {
+      const body = await readJsonBody<{ done?: unknown }>(c);
+      // Strict: a malformed `done` must not silently clear the marker.
+      if (typeof body.done !== "boolean") {
+        return c.json({ error: "done must be a boolean" }, 400);
+      }
+      const updated = await instanceManager.setInstanceDone(c.req.param("id"), body.done);
+      if (!updated) {
+        return c.json({ error: "Instance not found" }, 404);
+      }
+      return c.json({ success: true });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Failed to update chat" }, 400);
+    }
+  });
+
   app.delete("/api/instances/:id", (c) => {
     const removed = instanceManager.removeInstance(c.req.param("id"));
     if (removed) {

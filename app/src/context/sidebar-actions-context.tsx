@@ -21,6 +21,7 @@ import {
   deleteSpace as apiDeleteSpace,
   removeProject as apiRemoveProject,
   setInstancePinned as apiSetInstancePinned,
+  setInstanceDone as apiSetInstanceDone,
 } from "../lib/api";
 import { type RemoveProjectTarget } from "../lib/project-route";
 import { ConfirmActionDialog } from "../components/ui/confirm-action-dialog";
@@ -32,6 +33,7 @@ interface SidebarActions {
   deleteInstance(instance: Pick<InstanceInfo, "id" | "name">): void;
   renameInstance(id: string, name: string): void;
   pinInstance(id: string, pinned: boolean): void;
+  markInstanceDone(id: string, done: boolean): void;
   mergeInstance(id: string): void;
 
   // Space
@@ -159,6 +161,15 @@ export function SidebarActionsProvider({
           .then(() => queryClient.invalidateQueries({ queryKey: ["projectChats"] }))
           .catch((err) => {
             toast.error(err instanceof Error ? err.message : "Failed to pin chat");
+          });
+      },
+      markInstanceDone: (id, done) => {
+        // Same story as pins: done chats are usually stopped and have no live
+        // instance, so the REST summaries are the source of truth.
+        apiSetInstanceDone(id, done)
+          .then(() => queryClient.invalidateQueries({ queryKey: ["projectChats"] }))
+          .catch((err) => {
+            toast.error(err instanceof Error ? err.message : "Failed to update chat");
           });
       },
       mergeInstance: (id) => {

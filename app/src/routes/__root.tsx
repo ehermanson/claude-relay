@@ -37,7 +37,13 @@ const persistOptions = {
   persister,
   maxAge: 24 * 60 * 60 * 1000,
   // Bump when the shape of persisted query data changes incompatibly.
-  buster: "v1",
+  // v2: global-settings gained `sidebarLayout` and chat summaries gained
+  // `doneAt`. A cache without them paints the Projects sidebar first and
+  // snaps to Inbox once the refetch lands.
+  // v3: Inbox is now the default layout. Caches from v2 hold the old server's
+  // null→"projects" normalization, which would flash Projects before the
+  // refetch corrects it — clearing them lets first paint use the new default.
+  buster: "v3",
   dehydrateOptions: {
     // Structurally typed (not `Query`) to avoid nominal-type clashes between
     // the query-core copies hoisted by react-query vs the persist packages.

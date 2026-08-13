@@ -24,6 +24,7 @@ function rowToSettings(row: {
   project_order_json: string | null;
   suggestions_json: string | null;
   max_processes: number | null;
+  sidebar_layout: string | null;
 }): GlobalSettings {
   let providerDefaults: Record<string, unknown> = {};
   if (row.provider_defaults_json) {
@@ -50,6 +51,9 @@ function rowToSettings(row: {
     suggestions: parseJson<SuggestionsConfig>(row.suggestions_json),
     maxProcesses:
       typeof row.max_processes === "number" && row.max_processes > 0 ? row.max_processes : null,
+    // Inbox is the default: only an explicit "projects" choice opts out, so an
+    // unset (null) value — new installs and users who never toggled — is inbox.
+    sidebarLayout: row.sidebar_layout === "projects" ? "projects" : "inbox",
   };
 }
 
@@ -78,6 +82,8 @@ export function registerSettingsRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
     if (body.spaceBranchSource !== undefined) dbPatch.space_branch_source = body.spaceBranchSource;
     if (body.customInstructions !== undefined)
       dbPatch.custom_instructions = body.customInstructions;
+    if (body.sidebarLayout !== undefined)
+      dbPatch.sidebar_layout = body.sidebarLayout === "projects" ? "projects" : "inbox";
 
     if (body.maxProcesses !== undefined) {
       if (body.maxProcesses === null) {

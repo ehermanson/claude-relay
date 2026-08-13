@@ -289,6 +289,30 @@ describe("SessionDB", () => {
     });
   });
 
+  describe("setDone", () => {
+    it("stores and clears the done timestamp by instance_id", () => {
+      db.upsert(makeRow());
+      assert.equal(db.setDone("inst-1", 1700000000000), true);
+      assert.equal(db.getBySessionId("sess-1").done_at, 1700000000000);
+      assert.equal(db.setDone("inst-1", null), true);
+      assert.equal(db.getBySessionId("sess-1").done_at, null);
+    });
+
+    it("returns false when no row matches", () => {
+      assert.equal(db.setDone("unknown", 1700000000000), false);
+    });
+
+    it("survives a subsequent upsert of the same session", () => {
+      db.upsert(makeRow());
+      db.setDone("inst-1", 1700000000000);
+      // Routine saves don't know about done_at and must not clear it
+      db.upsert(makeRow({ name: "Updated Name" }));
+      const row = db.getBySessionId("sess-1");
+      assert.equal(row.name, "Updated Name");
+      assert.equal(row.done_at, 1700000000000);
+    });
+  });
+
   describe("getJsonlPaths", () => {
     it("returns a Set of all jsonl paths", () => {
       db.upsert(makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl" }));

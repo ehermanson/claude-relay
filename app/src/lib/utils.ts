@@ -1,4 +1,4 @@
-import type { InstanceInfo, ProviderKind, ProviderRateLimitStatus } from "@shared/types";
+import type { InstanceInfo, ProviderKind, ProviderRateLimitStatus, SpaceInfo } from "@shared/types";
 import type { StatusDotVariant } from "@/components/ui/status-dot";
 
 export interface InstanceStatusPresentation {
@@ -114,10 +114,16 @@ export function formatTimestamp(ts: number): string {
   return `${day}, ${time}`;
 }
 
+/**
+ * Newest activity signal for a chat: the max of the last parsed message and
+ * `lastActivityAt`, since either can lead (tool-only activity bumps
+ * `lastActivityAt` without producing a message). `isChatDone` revives on this
+ * value, so missing the newer signal would strand a revived chat in Done.
+ */
 export function getChatRecencyTimestamp(
   instance: Pick<InstanceInfo, "lastMessage" | "lastActivityAt">,
 ): number {
-  return instance.lastMessage?.timestamp ?? instance.lastActivityAt ?? 0;
+  return Math.max(instance.lastMessage?.timestamp ?? 0, instance.lastActivityAt ?? 0);
 }
 
 /** Canonical chat-list order: pinned chats first, then most recent activity. */
@@ -128,6 +134,23 @@ export function compareChatListOrder(
   const pinnedDelta = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
   if (pinnedDelta !== 0) return pinnedDelta;
   return getChatRecencyTimestamp(b) - getChatRecencyTimestamp(a);
+}
+
+/**
+ * Whether a chat should sort into the sidebar's "Done" section.
+ *
+ * `doneAt` is a timestamp, not a flag, so any activity after the user marked
+ * the chat done automatically revives it — no server-side clearing needed.
+ * Chats in a closed space are permanently done: the work is merged or
+ * archived, so later activity shouldn't drag them back into the inbox.
+ */
+export function isChatDone(
+  instance: Pick<InstanceInfo, "doneAt" | "lastMessage" | "lastActivityAt">,
+  spaceStatus?: SpaceInfo["status"],
+): boolean {
+  if (spaceStatus === "completed" || spaceStatus === "archived") return true;
+  if (instance.doneAt == null) return false;
+  return getChatRecencyTimestamp(instance) <= instance.doneAt;
 }
 
 export function formatTokens(n: number): string {

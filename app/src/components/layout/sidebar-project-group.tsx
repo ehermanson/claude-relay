@@ -5,21 +5,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
-  ArrowDown,
-  ArrowDownToLine,
-  ArrowUp,
-  ArrowUpToLine,
-  Bug,
   ChevronDown,
   ChevronRight,
-  FolderMinus,
   GitBranch,
   MessageSquarePlus,
   MoreVertical,
-  NotebookPen,
   Plus,
-  Settings,
-  Toolbox,
 } from "lucide-react";
 import type { InstanceInfo, Project, SpaceInfo } from "@shared/types";
 import { getInstanceProjectRouteId, getProjectName } from "../../lib/project-route";
@@ -32,6 +23,7 @@ import { Button } from "../ui/button";
 import { Collapsible } from "../ui/collapsible";
 import { Menu } from "../ui/menu";
 import { Tooltip } from "../ui/tooltip";
+import { ProjectActionsMenuContent } from "./project-actions-menu";
 import { SidebarItem } from "./sidebar-item";
 import { SidebarSpaceGroup } from "./sidebar-space-group";
 
@@ -192,7 +184,6 @@ export function SidebarProjectGroup({
         projectId: getInstanceProjectRouteId(inst),
         chatId: inst.id,
       }}
-      deleteDisabled={inst.external === true && inst.status !== "stopped"}
       activeChatId={currentId}
     />
   );
@@ -294,114 +285,18 @@ export function SidebarProjectGroup({
                 >
                   <MoreVertical size={16} />
                 </Menu.Trigger>
-                <Menu.Content>
-                  <Menu.Item
-                    onClick={(event: React.MouseEvent) => {
-                      event.stopPropagation();
-                      navigate({
-                        to: "/projects/$projectId/plans",
-                        params: { projectId: routeProjectId },
-                      });
-                    }}
-                  >
-                    <NotebookPen size={13} strokeWidth={2} className="text-muted" />
-                    Plans
-                  </Menu.Item>
-                  <Menu.Item
-                    onClick={(event: React.MouseEvent) => {
-                      event.stopPropagation();
-                      navigate({
-                        to: "/projects/$projectId/tasks",
-                        params: { projectId: routeProjectId },
-                      });
-                    }}
-                  >
-                    <Bug size={13} strokeWidth={2} className="text-muted" />
-                    Tasks
-                  </Menu.Item>
-                  <Menu.Item
-                    onClick={(event: React.MouseEvent) => {
-                      event.stopPropagation();
-                      navigate({
-                        to: "/projects/$projectId/skills",
-                        params: { projectId: routeProjectId },
-                      });
-                    }}
-                  >
-                    <Toolbox size={13} strokeWidth={2} className="text-muted" />
-                    Skills
-                  </Menu.Item>
-                  <Menu.Item
-                    onClick={(event: React.MouseEvent) => {
-                      event.stopPropagation();
-                      navigate({
-                        to: "/projects/$projectId/settings",
-                        params: { projectId: routeProjectId },
-                      });
-                    }}
-                  >
-                    <Settings size={13} strokeWidth={2} className="text-muted" />
-                    Settings
-                  </Menu.Item>
-                  <Menu.Separator />
-                  {onMoveToTop && (
-                    <Menu.Item
-                      disabled={isFirst}
-                      onClick={(event: React.MouseEvent) => {
-                        event.stopPropagation();
-                        onMoveToTop();
-                      }}
-                    >
-                      <ArrowUpToLine size={13} strokeWidth={2} className="text-muted" />
-                      Move to top
-                    </Menu.Item>
-                  )}
-                  {onMoveUp && (
-                    <Menu.Item
-                      disabled={isFirst}
-                      onClick={(event: React.MouseEvent) => {
-                        event.stopPropagation();
-                        onMoveUp();
-                      }}
-                    >
-                      <ArrowUp size={13} strokeWidth={2} className="text-muted" />
-                      Move up
-                    </Menu.Item>
-                  )}
-                  {onMoveDown && (
-                    <Menu.Item
-                      disabled={isLast}
-                      onClick={(event: React.MouseEvent) => {
-                        event.stopPropagation();
-                        onMoveDown();
-                      }}
-                    >
-                      <ArrowDown size={13} strokeWidth={2} className="text-muted" />
-                      Move down
-                    </Menu.Item>
-                  )}
-                  {onMoveToBottom && (
-                    <Menu.Item
-                      disabled={isLast}
-                      onClick={(event: React.MouseEvent) => {
-                        event.stopPropagation();
-                        onMoveToBottom();
-                      }}
-                    >
-                      <ArrowDownToLine size={13} strokeWidth={2} className="text-muted" />
-                      Move to bottom
-                    </Menu.Item>
-                  )}
-                  <Menu.Separator />
-                  <Menu.Item
-                    onClick={() => {
-                      actions.removeProject(removeProjectTarget);
-                    }}
-                  >
-                    <FolderMinus size={13} strokeWidth={2} className="text-muted" />
-                    Remove project
-                  </Menu.Item>
-                </Menu.Content>
+                <ProjectActionsMenuContent
+                  routeProjectId={routeProjectId}
+                  removeProjectTarget={removeProjectTarget}
+                  reorder={{
+                    isFirst,
+                    isLast,
+                    onMoveToTop,
+                    onMoveUp,
+                    onMoveDown,
+                    onMoveToBottom,
+                  }}
+                />
               </Menu.Root>
             ) : (
               <Button

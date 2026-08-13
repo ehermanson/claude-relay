@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { Toaster } from "sonner";
+import { InboxSidebar } from "@/components/layout/inbox-sidebar";
 import { MiniSidebar } from "@/components/layout/mini-sidebar";
 import { Sidebar } from "@/components/layout/sidebar";
 import { NoProvidersLanding } from "@/components/no-providers-landing";
@@ -8,6 +9,7 @@ import { ProviderUpdateNotification } from "@/components/provider-update-notific
 import { SearchDialog, useSearchDialog } from "@/components/search-dialog";
 import { RelayLogo } from "@/components/ui/relay-logo";
 import { useAvailableProviders } from "@/hooks/use-available-providers";
+import { useSidebarLayout } from "@/hooks/use-global-settings";
 import { useTheme } from "@/stores/theme-store";
 import { useLayoutStore } from "@/stores/layout-store";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -19,6 +21,8 @@ export function AppLayout() {
   const { providers, isLoading: providersLoading } = useAvailableProviders();
   const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const sidebarLayout = useSidebarLayout();
+  const SidebarComponent = sidebarLayout === "inbox" ? InboxSidebar : Sidebar;
   const { isConnected } = useWSState();
   const { theme } = useTheme();
   const {
@@ -118,7 +122,7 @@ export function AppLayout() {
             {/* Sidebar panel */}
             <div className="relative z-10 my-auto h-[calc(100%-16px)] w-[85vw] max-w-sm animate-slide-in-left">
               <div className="app-shell-sidebar h-full">
-                <Sidebar showLogo onSearchOpen={() => search.setOpen(true)} />
+                <SidebarComponent showLogo onSearchOpen={() => search.setOpen(true)} />
               </div>
             </div>
           </div>
@@ -143,7 +147,10 @@ export function AppLayout() {
             {showMini ? (
               <MiniSidebar onExpand={toggleCollapsed} />
             ) : (
-              <Sidebar onCollapse={toggleCollapsed} onSearchOpen={() => search.setOpen(true)} />
+              <SidebarComponent
+                onCollapse={toggleCollapsed}
+                onSearchOpen={() => search.setOpen(true)}
+              />
             )}
             {/* Persistent logo – never unmounts, sits above both sidebars */}
             <Link

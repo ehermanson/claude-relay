@@ -1,15 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  Columns2,
-  GitBranch,
-  GitMerge,
-  MoreVertical,
-  Pencil,
-  Pin,
-  PinOff,
-  Trash2,
-} from "lucide-react";
+import { GitBranch, MoreVertical, Pin } from "lucide-react";
 import { Menu } from "@/components/ui/menu";
 import { Badge } from "@/components/ui/badge";
 import { SessionIndicator } from "@/components/ui/session-indicator";
@@ -20,7 +11,8 @@ import { useSidebarActions } from "../../context/sidebar-actions-context";
 import { getInstanceProjectRouteId } from "@/lib/project-route";
 import { formatTimeAgo, getChatRecencyTimestamp } from "@/lib/utils";
 import { useUnreadStore, selectHasUnread } from "@/stores/unread-store";
-import type { InstanceInfo } from "@shared/types";
+import { ChatActionsMenuContent } from "./chat-actions-menu";
+import type { InstanceInfo, SpaceInfo } from "@shared/types";
 
 interface SidebarItemProps {
   instance: InstanceInfo;
@@ -29,9 +21,10 @@ interface SidebarItemProps {
   parentInstance?: { id: string; name: string };
   to: string;
   params: Record<string, string>;
-  deleteDisabled?: boolean;
   /** Currently active chatId — used to offer "Open in split view". */
   activeChatId?: string;
+  /** Status of the owning space, when the chat belongs to one. */
+  spaceStatus?: SpaceInfo["status"];
 }
 
 export function SidebarItem({
@@ -41,8 +34,8 @@ export function SidebarItem({
   parentInstance,
   to,
   params,
-  deleteDisabled,
   activeChatId,
+  spaceStatus,
 }: SidebarItemProps) {
   const navigate = useNavigate({ from: "/projects/$projectId/chats/$chatId" });
   const actions = useSidebarActions();
@@ -51,8 +44,6 @@ export function SidebarItem({
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const canMerge = !!instance.gitBranch && !!instance.hasChanges;
-  const canSplit = !!activeChatId && activeChatId !== instance.id;
   // Terminals attach to the space when the chat belongs to one, else to the
   // chat itself — mirror the scope the chat view uses to open terminals.
   const terminalScope: TerminalScope = instance.spaceId
@@ -214,65 +205,12 @@ export function SidebarItem({
                 >
                   <MoreVertical size={16} />
                 </Menu.Trigger>
-                <Menu.Content>
-                  <Menu.Item
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      actions.pinInstance(instance.id, !instance.pinned);
-                    }}
-                  >
-                    {instance.pinned ? (
-                      <PinOff size={13} strokeWidth={2} className="text-muted" />
-                    ) : (
-                      <Pin size={13} strokeWidth={2} className="text-muted" />
-                    )}
-                    {instance.pinned ? "Unpin" : "Pin"}
-                  </Menu.Item>
-                  <Menu.Item
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      startEditing();
-                    }}
-                  >
-                    <Pencil size={13} strokeWidth={2} className="text-muted" />
-                    Rename
-                  </Menu.Item>
-                  {canMerge && (
-                    <Menu.Item
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        actions.mergeInstance(instance.id);
-                      }}
-                    >
-                      <GitMerge size={13} strokeWidth={2} className="text-muted" />
-                      Merge to main
-                    </Menu.Item>
-                  )}
-                  {canSplit && (
-                    <Menu.Item
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        navigate({
-                          search: { split: instance.id },
-                        });
-                      }}
-                    >
-                      <Columns2 size={13} strokeWidth={2} className="text-muted" />
-                      Open in split view
-                    </Menu.Item>
-                  )}
-                  <Menu.Item
-                    danger
-                    disabled={deleteDisabled}
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      actions.deleteInstance({ id: instance.id, name: instance.name });
-                    }}
-                  >
-                    <Trash2 size={13} strokeWidth={2} />
-                    Delete
-                  </Menu.Item>
-                </Menu.Content>
+                <ChatActionsMenuContent
+                  instance={instance}
+                  spaceStatus={spaceStatus}
+                  activeChatId={activeChatId}
+                  onRename={startEditing}
+                />
               </Menu.Root>
             ) : (
               <button

@@ -1,0 +1,486 @@
+/**
+ * InboxSidebar — sidebar v2.
+ *
+ * One flat list of every chat across every project, sorted by activity rather
+ * than grouped by project. Chats the user has finished with collapse into a
+ * "Done" section; project-level actions move into a "Projects" section at the
+ * bottom, since there are no project headers to hang them off.
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FolderPlus,
+  GitBranch,
+  Inbox,
+  Loader2,
+  MessageSquarePlus,
+  MoreVertical,
+  Plus,
+} from "lucide-react";
+import { SidebarActionsProvider, useSidebarActions } from "../../context/sidebar-actions-context";
+import { useWSState } from "../../context/websocket-context";
+import {
+  useInboxNavigationModel,
+  type InboxEntry,
+  type InboxProjectOption,
+} from "@/hooks/use-inbox-navigation-model";
+import { Button } from "../ui/button";
+import { Collapsible } from "../ui/collapsible";
+import { Menu } from "../ui/menu";
+import { ProjectAvatar } from "../ui/project-avatar";
+import { Tooltip } from "../ui/tooltip";
+import { InboxItem } from "./inbox-item";
+import { NewChatMenu } from "./new-chat-menu";
+import { ProjectActionsMenuContent } from "./project-actions-menu";
+import {
+  AddProjectButton,
+  SIDEBAR_CONTROL_CLASS,
+  SIDEBAR_CONTROL_ROW_CLASS,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarSearchIconButton,
+  SidebarSearchTrigger,
+} from "./sidebar-chrome";
+import "./sidebar.css";
+
+/** Rows shown before the list truncates behind a "Show all". */
+const ACTIVE_VISIBLE_LIMIT = 15;
+const DONE_VISIBLE_LIMIT = 20;
+
+function ShowAllButton({ hidden, onClick }: { hidden: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-1 rounded-md px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+    >
+      Show all ({hidden} more)
+      <ChevronDown size={10} strokeWidth={2.5} />
+    </button>
+  );
+}
+
+/**
+ * Renders a capped list with a "Show all" escape hatch. The cap exists so a
+ * long backlog can't push live chats off-screen, never to silently hide them.
+ */
+function CappedChatList({
+  entries,
+  limit,
+  currentId,
+}: {
+  entries: InboxEntry[];
+  limit: number;
+  currentId?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  // Keep the open chat reachable even when it falls past the cap.
+  const visible = useMemo(() => {
+    if (expanded || entries.length <= limit) return entries;
+    const head = entries.slice(0, limit);
+    if (currentId && !head.some((entry) => entry.instance.id === currentId)) {
+      const active = entries.find((entry) => entry.instance.id === currentId);
+      if (active) return [...head, active];
+    }
+    return head;
+  }, [entries, expanded, limit, currentId]);
+  const hidden = entries.length - visible.length;
+
+  return (
+    <div className="space-y-0.5">
+      {visible.map((entry) => (
+        <InboxItem
+          key={entry.instance.id}
+          entry={entry}
+          isActive={entry.instance.id === currentId}
+          activeChatId={currentId}
+        />
+      ))}
+      {hidden > 0 && <ShowAllButton hidden={hidden} onClick={() => setExpanded(true)} />}
+    </div>
+  );
+}
+
+/**
+ * Top-level "New chat", occupying the header slot that Projects mode gives to
+ * Add project. In a flat list there are no project headers to hang chat
+ * creation off, so it becomes the layout's primary action — and Add project
+ * moves down beside the project filter.
+ *
+ * With a project filter applied (or only one project registered) the target is
+ * unambiguous, so the button creates the chat directly instead of asking.
+ */
+function NewChatHeaderButton({
+  projectOptions,
+  projectFilter,
+}: {
+  projectOptions: InboxProjectOption[];
+  projectFilter: string | null;
+}) {
+  const actions = useSidebarActions();
+
+  const soleTarget =
+    (projectFilter && projectOptions.some((option) => option.dir === projectFilter)
+      ? projectFilter
+      : null) ?? (projectOptions.length === 1 ? projectOptions[0].dir : null);
+
+  return (
+    <NewChatMenu
+      projectOptions={projectOptions}
+      soleTarget={soleTarget}
+      onCreate={actions.quickCreate}
+      icon={<MessageSquarePlus size={15} strokeWidth={2} />}
+      tooltipSide="bottom"
+      align="end"
+      triggerClassName="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"
+    />
+  );
+}
+
+function ProjectRow({
+  dir,
+  name,
+  projectId,
+  dbId,
+  iconPath,
+  isFirst,
+  isLast,
+  onMoveToTop,
+  onMoveUp,
+  onMoveDown,
+  onMoveToBottom,
+}: {
+  dir: string;
+  name: string;
+  projectId: string;
+  dbId?: string;
+  iconPath?: string;
+  isFirst: boolean;
+  isLast: boolean;
+  onMoveToTop: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onMoveToBottom: () => void;
+}) {
+  const actions = useSidebarActions();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+
+  return (
+    <div className="group/project flex items-center rounded-lg pl-2.5 pr-1 transition-colors hover:bg-surface-hover">
+      <Link
+        to="/projects/$projectId"
+        params={{ projectId }}
+        className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left"
+      >
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+          <ProjectAvatar iconPath={iconPath} name={name} size={16} />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[0.75rem] font-medium text-text">{name}</span>
+      </Link>
+
+      <div className="flex shrink-0 items-center gap-0.5">
+        <Menu.Root open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+          <Tooltip content="New" side="top">
+            <Menu.Trigger
+              onClick={(event: React.MouseEvent) => event.stopPropagation()}
+              className="sidebar-menu-trigger flex h-6 w-6 items-center justify-center rounded-md text-muted opacity-0 transition-all group-hover/project:opacity-100 hover:bg-surface-hover hover:text-text"
+            >
+              <Plus size={14} strokeWidth={2.5} />
+            </Menu.Trigger>
+          </Tooltip>
+          <Menu.Content align="start">
+            <Menu.Item
+              className="!items-start"
+              onClick={(event: React.MouseEvent) => {
+                event.stopPropagation();
+                actions.quickCreate(dir);
+              }}
+            >
+              <MessageSquarePlus size={13} strokeWidth={2} className="mt-1 text-muted" />
+              <div>
+                <div>New Chat</div>
+                <div className="text-[0.6875rem] text-muted">Work with an agent on this branch</div>
+              </div>
+            </Menu.Item>
+            <Menu.Item
+              className="!items-start"
+              onClick={(event: React.MouseEvent) => {
+                event.stopPropagation();
+                actions.createSpace(dir);
+              }}
+            >
+              <GitBranch size={13} strokeWidth={2} className="mt-1 text-muted" />
+              <div>
+                <div>New Space</div>
+                <div className="text-[0.6875rem] text-muted">
+                  Start an isolated worktree and merge back later
+                </div>
+              </div>
+            </Menu.Item>
+          </Menu.Content>
+        </Menu.Root>
+
+        {menuOpen ? (
+          <Menu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+            <Menu.Trigger
+              onClick={(event: React.MouseEvent) => event.stopPropagation()}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted hover:text-text"
+            >
+              <MoreVertical size={15} />
+            </Menu.Trigger>
+            <ProjectActionsMenuContent
+              routeProjectId={projectId}
+              removeProjectTarget={{ id: dbId, name, directory: dir }}
+              reorder={{ isFirst, isLast, onMoveToTop, onMoveUp, onMoveDown, onMoveToBottom }}
+            />
+          </Menu.Root>
+        ) : (
+          <Button
+            variant="icon"
+            size="icon-sm"
+            onClick={(event) => {
+              event.stopPropagation();
+              setMenuOpen(true);
+            }}
+            className="sidebar-menu-trigger !h-6 !w-6 text-muted/60 opacity-0 transition-opacity duration-150 group-hover/project:opacity-100"
+          >
+            <MoreVertical size={15} />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function InboxSidebar({
+  onCollapse,
+  onSearchOpen,
+  showLogo = false,
+}: { onCollapse?: () => void; onSearchOpen?: () => void; showLogo?: boolean } = {}) {
+  const { isSyncing } = useWSState();
+  // Deliberately not persisted: the filter is a momentary scoping tool, and a
+  // sticky one would silently hide chats after a reload.
+  const [projectFilter, setProjectFilter] = useState<string | null>(null);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [doneOpen, setDoneOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+
+  const {
+    active,
+    done,
+    projectOptions,
+    projects,
+    projectByDir,
+    registeredDirs,
+    currentChatId,
+    currentProjectId,
+    currentSpaceId,
+    createNewChat,
+    moveDown,
+    moveToBottom,
+    moveToTop,
+    moveUp,
+  } = useInboxNavigationModel(projectFilter);
+
+  const currentId = currentChatId;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const didInitialScrollRef = useRef(false);
+
+  // Drop a filter that no longer matches a registered project (e.g. the
+  // project was removed while it was selected) so the list can't go empty.
+  useEffect(() => {
+    if (!projectFilter) return;
+    if (!projectOptions.some((option) => option.dir === projectFilter)) setProjectFilter(null);
+  }, [projectFilter, projectOptions]);
+
+  // Keep the open chat visible: when it is (or becomes) done, expand the Done
+  // section it lives in. Deps are the chat's identity and done-membership, not
+  // the arrays, so collapsing Done by hand while that chat stays open sticks.
+  const currentIsDone = done.some((entry) => entry.instance.id === currentChatId);
+  useEffect(() => {
+    if (currentIsDone) setDoneOpen(true);
+  }, [currentChatId, currentIsDone]);
+
+  useEffect(() => {
+    if (didInitialScrollRef.current) return;
+    if (!currentId) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    const el = container.querySelector<HTMLElement>(`[data-chat-id="${CSS.escape(currentId)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    didInitialScrollRef.current = true;
+  }, [currentId, active, done]);
+
+  const hasProjects = projects.length > 0;
+  const selectedProject = projectOptions.find((option) => option.dir === projectFilter);
+  const filterLabel = selectedProject?.name ?? "All projects";
+  const orderedDirs = projectOptions.map((option) => option.dir);
+
+  return (
+    <SidebarActionsProvider
+      currentProjectId={currentProjectId}
+      currentSpaceId={currentSpaceId}
+      projectByDir={projectByDir}
+      createNewChat={createNewChat}
+    >
+      <aside
+        className="flex h-full w-full flex-col bg-surface rounded-xl"
+        style={{ containerName: "sidebar", containerType: "inline-size" }}
+      >
+        <SidebarHeader
+          onCollapse={onCollapse}
+          showLogo={showLogo}
+          registeredDirs={registeredDirs}
+          // With no projects yet there is nothing to start a chat in, and the
+          // filter row that normally holds Add project is hidden — so fall back
+          // to the default header action or there'd be no way to add one.
+          action={
+            projectOptions.length > 0 ? (
+              <NewChatHeaderButton projectOptions={projectOptions} projectFilter={projectFilter} />
+            ) : undefined
+          }
+        />
+        {/* One control row: project filter (flex) + search + Add project. With
+            no projects there's no filter to anchor it, so search/add live in
+            the header fallback and the empty state carries the rest. */}
+        {hasProjects ? (
+          <div className={SIDEBAR_CONTROL_ROW_CLASS}>
+            <Menu.Root open={filterOpen} onOpenChange={setFilterOpen}>
+              <Menu.Trigger className={SIDEBAR_CONTROL_CLASS}>
+                {selectedProject ? (
+                  <ProjectAvatar iconPath={selectedProject.iconPath} name={selectedProject.name} />
+                ) : (
+                  <Inbox size={13} className="shrink-0" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-left">{filterLabel}</span>
+                <ChevronDown size={12} strokeWidth={2.5} className="shrink-0 opacity-60" />
+              </Menu.Trigger>
+              <Menu.Content align="start">
+                <Menu.Item onClick={() => setProjectFilter(null)}>
+                  <Inbox size={13} strokeWidth={2} className="text-muted" />
+                  All projects
+                  {projectFilter === null && <Check size={12} className="ml-auto text-accent" />}
+                </Menu.Item>
+                <Menu.Separator />
+                {projectOptions.map((option) => (
+                  <Menu.Item key={option.dir} onClick={() => setProjectFilter(option.dir)}>
+                    <ProjectAvatar iconPath={option.iconPath} name={option.name} />
+                    <span className="min-w-0 truncate">{option.name}</span>
+                    {projectFilter === option.dir && (
+                      <Check size={12} className="ml-auto text-accent" />
+                    )}
+                  </Menu.Item>
+                ))}
+              </Menu.Content>
+            </Menu.Root>
+            <SidebarSearchIconButton onSearchOpen={onSearchOpen} />
+            <AddProjectButton registeredDirs={registeredDirs} tooltipSide="bottom" align="end" />
+          </div>
+        ) : (
+          <SidebarSearchTrigger onSearchOpen={onSearchOpen} />
+        )}
+
+        <div ref={scrollRef} className="flex-1 overflow-y-auto pb-2">
+          {!hasProjects && isSyncing ? (
+            <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
+              <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin text-muted" />
+              <p className="text-sm text-muted">Syncing...</p>
+            </div>
+          ) : !hasProjects ? (
+            <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
+              <FolderPlus className="mx-auto mb-3 h-8 w-8 text-muted/40" />
+              <p className="mb-1 text-sm text-muted">No projects registered</p>
+              <span className="text-xs text-muted opacity-60">Add a git repo to get started</span>
+            </div>
+          ) : (
+            <>
+              <div className="px-2">
+                {active.length > 0 ? (
+                  <CappedChatList
+                    entries={active}
+                    limit={ACTIVE_VISIBLE_LIMIT}
+                    currentId={currentId}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-1 px-3 py-8 text-center">
+                    <Check size={18} className="text-muted/40" />
+                    <p className="text-[0.75rem] text-muted">Inbox zero</p>
+                    <span className="text-[0.6875rem] text-muted/60">
+                      {done.length > 0 ? "Everything is marked done" : "No chats yet"}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {done.length > 0 && (
+                <Collapsible.Root open={doneOpen} onOpenChange={setDoneOpen}>
+                  <Collapsible.Trigger className="flex w-full items-center gap-1 px-3 pb-1 pt-3 text-[0.625rem] font-semibold uppercase tracking-wider text-muted/60 transition-colors hover:text-muted">
+                    {doneOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                    Done
+                    <span className="ml-1 font-normal normal-case tracking-normal text-muted/40">
+                      {done.length}
+                    </span>
+                  </Collapsible.Trigger>
+                  <Collapsible.Content>
+                    <div className="px-2">
+                      <CappedChatList
+                        entries={done}
+                        limit={DONE_VISIBLE_LIMIT}
+                        currentId={currentId}
+                      />
+                    </div>
+                  </Collapsible.Content>
+                </Collapsible.Root>
+              )}
+
+              <Collapsible.Root open={projectsOpen} onOpenChange={setProjectsOpen}>
+                <Collapsible.Trigger className="flex w-full items-center gap-1 px-3 pb-1 pt-3 text-[0.625rem] font-semibold uppercase tracking-wider text-muted/60 transition-colors hover:text-muted">
+                  {projectsOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  Projects
+                  <span className="ml-1 font-normal normal-case tracking-normal text-muted/40">
+                    {projectOptions.length}
+                  </span>
+                </Collapsible.Trigger>
+                <Collapsible.Content>
+                  <div className="px-2">
+                    {projectOptions.map((option, index) => (
+                      <ProjectRow
+                        key={option.dir}
+                        dir={option.dir}
+                        name={option.name}
+                        projectId={option.projectId}
+                        dbId={option.dbId}
+                        iconPath={option.iconPath}
+                        isFirst={index === 0}
+                        isLast={index === projectOptions.length - 1}
+                        onMoveToTop={() => moveToTop(option.dir)}
+                        onMoveUp={() => moveUp(option.dir, orderedDirs)}
+                        onMoveDown={() => moveDown(option.dir, orderedDirs)}
+                        onMoveToBottom={() => moveToBottom(option.dir)}
+                      />
+                    ))}
+                  </div>
+                </Collapsible.Content>
+              </Collapsible.Root>
+
+              {isSyncing && (
+                <div className="flex items-center justify-center gap-1.5 py-3 text-muted/60">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span className="text-[0.6875rem]">Syncing...</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <SidebarFooter />
+      </aside>
+    </SidebarActionsProvider>
+  );
+}

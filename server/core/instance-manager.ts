@@ -6789,6 +6789,7 @@ export class InstanceManager extends EventEmitter {
             archived: 0,
             custom_title: 0,
             pinned: 0,
+            done_at: null,
             input_tokens: 0,
             output_tokens: 0,
             cache_creation_tokens: 0,
@@ -6982,6 +6983,7 @@ export class InstanceManager extends EventEmitter {
               archived: 0,
               custom_title: 0,
               pinned: 0,
+              done_at: null,
               input_tokens: 0,
               output_tokens: 0,
               cache_creation_tokens: 0,
@@ -8328,6 +8330,28 @@ export class InstanceManager extends EventEmitter {
     const persisted = this.db.setPinned(id, pinned);
     const updatedLive = await this.enqueueInstanceMutation(id, async (instance) => {
       instance.info.pinned = pinned;
+      this.emitInstanceStatus(instance);
+      return true;
+    }).catch((err) => {
+      if (this.isInstanceNotFoundError(err)) return false;
+      throw err;
+    });
+    return persisted || updatedLive;
+  }
+
+  /**
+   * Mark a chat done (or clear the marker). Like pinning, this works for chats
+   * with no live instance, so the write goes straight to the session tables.
+   *
+   * `doneAt` is a timestamp, not a flag: consumers treat a chat as done only
+   * while its recency is at or below the marker, so any later activity revives
+   * it without the server having to detect and clear anything.
+   */
+  async setInstanceDone(id: string, done: boolean): Promise<boolean> {
+    const doneAt = done ? Date.now() : null;
+    const persisted = this.db.setDone(id, doneAt);
+    const updatedLive = await this.enqueueInstanceMutation(id, async (instance) => {
+      instance.info.doneAt = doneAt ?? undefined;
       this.emitInstanceStatus(instance);
       return true;
     }).catch((err) => {

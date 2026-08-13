@@ -503,7 +503,15 @@ export interface GlobalSettings {
    * (MAX_PROCESSES env or 15). Applied live — no restart required.
    */
   maxProcesses: number | null;
+  /**
+   * Sidebar presentation. `"inbox"` (the default) is one flat recency-sorted
+   * list across every project; `"projects"` groups chats under collapsible
+   * project headers.
+   */
+  sidebarLayout: SidebarLayout;
 }
+
+export type SidebarLayout = "projects" | "inbox";
 
 export interface SessionStats {
   inputTokens: number;
@@ -561,6 +569,11 @@ export interface InstanceInfo {
   customTitle?: boolean;
   /** True when the user pinned this chat to the top of its project's chat lists */
   pinned?: boolean;
+  /**
+   * Timestamp the user marked this chat done. The chat only reads as done
+   * while its recency is at or below this value, so later activity revives it.
+   */
+  doneAt?: number;
   /** Running token/cost stats for this session */
   stats?: SessionStats;
   /** Git branch name when instance runs in a worktree (e.g. "relay/a1b2c3d4") */
