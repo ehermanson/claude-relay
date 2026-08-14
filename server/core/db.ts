@@ -1676,6 +1676,25 @@ ${buildSearchIndexSchemaSql()},
     return Number(external.changes) > 0 || Number(managed.changes) > 0;
   }
 
+  /**
+   * Mark many chats at once, stamping the same `doneAt` on all of them.
+   * Returns the subset of ids the write actually reached.
+   *
+   * Callers pass explicit ids rather than a "older than X" predicate because
+   * `last_activity_at` is only half of a chat's recency — the other half is the
+   * last message in its transcript — so only the caller knows what is stale.
+   */
+  setDoneBulk(instanceIds: readonly string[], doneAt: number | null): string[] {
+    if (instanceIds.length === 0) return [];
+    return this.withTransaction(() => {
+      const updated: string[] = [];
+      for (const id of instanceIds) {
+        if (this.setDone(id, doneAt)) updated.push(id);
+      }
+      return updated;
+    });
+  }
+
   updateProvider(sessionId: string, provider: string): void {
     this.db
       .prepare("UPDATE sessions SET provider_name = ? WHERE session_id = ?")

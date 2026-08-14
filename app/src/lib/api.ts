@@ -530,6 +530,21 @@ export async function setInstanceDone(instanceId: string, done: boolean): Promis
   }
 }
 
+/** Mark many chats done in one request; resolves to the number updated. */
+export async function setInstancesDone(instanceIds: string[], done: boolean): Promise<number> {
+  const res = await fetch("/api/instances/done-bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instanceIds, done }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: "Failed to update chats" }));
+    throw new ApiError(data.error || "Failed to update chats", res.status);
+  }
+  const data = (await res.json()) as { updated?: number };
+  return data.updated ?? 0;
+}
+
 export async function fetchSpaceChats(spaceId: string): Promise<InstanceInfo[]> {
   const res = await fetch(`/api/spaces/${encodeURIComponent(spaceId)}/chats`);
   if (!res.ok) return [];

@@ -4,6 +4,8 @@ import {
   buildInboxProjectOptions,
   filterInboxEntries,
   partitionInboxEntries,
+  selectStaleInboxEntries,
+  STALE_CHAT_DONE_DAYS,
   type InboxSourceGroup,
 } from "./inbox";
 import type { InstanceInfo, SpaceInfo } from "@shared/types";
@@ -188,6 +190,56 @@ describe("partitionInboxEntries", () => {
 
     const { done } = partitionInboxEntries(entries);
     expect(done.map((e) => e.instance.id)).toEqual(["done-recent", "done-pinned"]);
+  });
+});
+
+describe("selectStaleInboxEntries", () => {
+  const NOW = 100 * 24 * 60 * 60 * 1000;
+  const DAY = 24 * 60 * 60 * 1000;
+  const stale = NOW - (STALE_CHAT_DONE_DAYS + 1) * DAY;
+  const fresh = NOW - (STALE_CHAT_DONE_DAYS - 1) * DAY;
+
+  function select(instances: InstanceInfo[]) {
+    const { active } = partitionInboxEntries(
+      buildInboxEntries([group({ groupInstances: instances })]),
+    );
+    return selectStaleInboxEntries(active, NOW).map((e) => e.instance.id);
+  }
+
+  it("picks only chats past the inactivity cutoff", () => {
+    expect(
+      select([
+        chat({ id: "old", lastActivityAt: stale }),
+        chat({ id: "recent", lastActivityAt: fresh }),
+      ]),
+    ).toEqual(["old"]);
+  });
+
+  it("measures staleness from the last message when it leads lastActivityAt", () => {
+    expect(
+      select([
+        chat({
+          id: "messaged-recently",
+          lastActivityAt: stale,
+          lastMessage: { text: "hi", from: "assistant", timestamp: fresh },
+        }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("leaves a working agent alone however long the chat has been open", () => {
+    expect(select([chat({ id: "busy", status: "processing", lastActivityAt: stale })])).toEqual([]);
+  });
+
+  it("skips chats with no recorded activity rather than treating them as ancient", () => {
+    expect(select([chat({ id: "unknown", lastActivityAt: undefined })])).toEqual([]);
+  });
+
+  it("never re-marks chats that are already done", () => {
+    const entries = buildInboxEntries([
+      group({ groupInstances: [chat({ id: "done", lastActivityAt: stale, doneAt: NOW })] }),
+    ]);
+    expect(selectStaleInboxEntries(entries, NOW)).toEqual([]);
   });
 });
 

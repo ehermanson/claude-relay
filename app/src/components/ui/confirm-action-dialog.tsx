@@ -14,6 +14,8 @@ interface ConfirmActionDialogProps {
   cancelLabel?: string;
   maxWidth?: string;
   isLoading?: boolean;
+  /** Most confirms guard something destructive; bulk-but-reversible ones don't. */
+  confirmVariant?: "danger" | "primary";
 }
 
 export function ConfirmActionDialog({
@@ -26,6 +28,7 @@ export function ConfirmActionDialog({
   cancelLabel = "Cancel",
   maxWidth = "max-w-xs",
   isLoading = false,
+  confirmVariant = "danger",
 }: ConfirmActionDialogProps) {
   // Only show the spinner after the action has been in-flight long enough to perceive.
   // Buttons are disabled immediately (via isLoading) to prevent double-submit.
@@ -50,7 +53,7 @@ export function ConfirmActionDialog({
               {cancelLabel}
             </Button>
             <Button
-              variant="danger"
+              variant={confirmVariant}
               size="sm"
               onClick={onConfirm}
               disabled={isLoading}

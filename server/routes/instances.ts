@@ -100,6 +100,28 @@ export function registerInstanceRoutes(app: Hono<AppEnv>, deps: HttpDeps): void 
     }
   });
 
+  // Bulk done, used by the inbox's "sweep stale chats" action. The client sends
+  // explicit ids rather than a cutoff because it is the side that knows each
+  // chat's true recency (last activity *or* last transcript message).
+  app.post("/api/instances/done-bulk", async (c) => {
+    try {
+      const body = await readJsonBody<{ instanceIds?: unknown; done?: unknown }>(c);
+      if (typeof body.done !== "boolean") {
+        return c.json({ error: "done must be a boolean" }, 400);
+      }
+      if (
+        !Array.isArray(body.instanceIds) ||
+        body.instanceIds.some((id) => typeof id !== "string")
+      ) {
+        return c.json({ error: "instanceIds must be an array of strings" }, 400);
+      }
+      const updated = instanceManager.setInstancesDone(body.instanceIds as string[], body.done);
+      return c.json({ success: true, updated });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "Failed to update chats" }, 400);
+    }
+  });
+
   app.delete("/api/instances/:id", (c) => {
     const removed = instanceManager.removeInstance(c.req.param("id"));
     if (removed) {

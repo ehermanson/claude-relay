@@ -9,8 +9,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Check,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   FolderPlus,
@@ -28,8 +31,11 @@ import {
   type InboxEntry,
   type InboxProjectOption,
 } from "@/hooks/use-inbox-navigation-model";
+import { setInstancesDone } from "@/lib/api";
+import { selectStaleInboxEntries, STALE_CHAT_DONE_DAYS } from "@/lib/inbox";
 import { Button } from "../ui/button";
 import { Collapsible } from "../ui/collapsible";
+import { ConfirmActionDialog } from "../ui/confirm-action-dialog";
 import { Menu } from "../ui/menu";
 import { ProjectAvatar } from "../ui/project-avatar";
 import { Tooltip } from "../ui/tooltip";
@@ -102,6 +108,25 @@ function CappedChatList({
       ))}
       {hidden > 0 && <ShowAllButton hidden={hidden} onClick={() => setExpanded(true)} />}
     </div>
+  );
+}
+
+/**
+ * Offers to sweep the inbox's stale tail into Done. Sits directly under the
+ * active list — where the backlog actually is — and only renders when there is
+ * one, so a small inbox never sees it. Deliberately a button rather than an
+ * automatic rule: nothing marks a chat done without the user asking.
+ */
+function SweepStaleRow({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-0.5 flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-surface-hover hover:text-accent"
+    >
+      <CheckCheck size={12} strokeWidth={2.5} className="shrink-0" />
+      Mark {count} inactive {count === 1 ? "chat" : "chats"} done
+    </button>
   );
 }
 
@@ -269,6 +294,9 @@ export function InboxSidebar({
   const [filterOpen, setFilterOpen] = useState(false);
   const [doneOpen, setDoneOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [sweepOpen, setSweepOpen] = useState(false);
+  const [sweeping, setSweeping] = useState(false);
+  const queryClient = useQueryClient();
 
   const {
     active,
@@ -316,6 +344,27 @@ export function InboxSidebar({
     el.scrollIntoView({ block: "nearest", inline: "nearest" });
     didInitialScrollRef.current = true;
   }, [currentId, active, done]);
+
+  // Scoped to `active`, which the project filter has already narrowed — the
+  // sweep marks exactly what the list in front of the user shows.
+  const staleEntries = useMemo(() => selectStaleInboxEntries(active, Date.now()), [active]);
+
+  const runSweep = () => {
+    setSweeping(true);
+    setInstancesDone(
+      staleEntries.map((entry) => entry.instance.id),
+      true,
+    )
+      .then(async (updated) => {
+        await queryClient.invalidateQueries({ queryKey: ["projectChats"] });
+        setSweepOpen(false);
+        toast.success(`Marked ${updated} ${updated === 1 ? "chat" : "chats"} done`);
+      })
+      .catch((err) => {
+        toast.error(err instanceof Error ? err.message : "Failed to update chats");
+      })
+      .finally(() => setSweeping(false));
+  };
 
   const hasProjects = projects.length > 0;
   const selectedProject = projectOptions.find((option) => option.dir === projectFilter);
@@ -402,11 +451,19 @@ export function InboxSidebar({
             <>
               <div className="px-2">
                 {active.length > 0 ? (
-                  <CappedChatList
-                    entries={active}
-                    limit={ACTIVE_VISIBLE_LIMIT}
-                    currentId={currentId}
-                  />
+                  <>
+                    <CappedChatList
+                      entries={active}
+                      limit={ACTIVE_VISIBLE_LIMIT}
+                      currentId={currentId}
+                    />
+                    {staleEntries.length > 0 && (
+                      <SweepStaleRow
+                        count={staleEntries.length}
+                        onClick={() => setSweepOpen(true)}
+                      />
+                    )}
+                  </>
                 ) : (
                   <div className="flex flex-col items-center gap-1 px-3 py-8 text-center">
                     <Check size={18} className="text-muted/40" />
@@ -481,6 +538,25 @@ export function InboxSidebar({
 
         <SidebarFooter />
       </aside>
+
+      <ConfirmActionDialog
+        open={sweepOpen}
+        onOpenChange={setSweepOpen}
+        title="Mark inactive chats done"
+        description={
+          <>
+            {staleEntries.length} {staleEntries.length === 1 ? "chat" : "chats"}
+            {selectedProject ? ` in ${selectedProject.name}` : ""} with no activity in{" "}
+            {STALE_CHAT_DONE_DAYS} days will move to Done. Any new activity brings a chat back to
+            the inbox.
+          </>
+        }
+        confirmLabel={sweeping ? "Marking..." : "Mark done"}
+        confirmVariant="primary"
+        onConfirm={runSweep}
+        isLoading={sweeping}
+        maxWidth="max-w-sm"
+      />
     </SidebarActionsProvider>
   );
 }

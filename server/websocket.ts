@@ -328,6 +328,13 @@ export function createWebSocketServer(
     sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
   });
 
+  instanceManager.on("instances:changed", () => {
+    broadcast({
+      type: "instance_list",
+      instances: instanceManager.listInstances(),
+    });
+  });
+
   instanceManager.on("scan:complete", () => {
     broadcast({ type: "scan_complete" });
   });

@@ -346,6 +346,8 @@ export interface InstanceManagerEvents {
   "instance:error": [instanceId: string, message: string];
   "instance:user": [instanceId: string, message: UserMessage];
   "instance:transcript": [instanceId: string, message: TranscriptMessage];
+  /** A bulk mutation touched many chats at once — re-send the whole list. */
+  "instances:changed": [];
   "scan:complete": [];
   "projects:changed": [];
   "tasks:changed": [projectId: string, tasks: Task[]];
@@ -8359,6 +8361,36 @@ export class InstanceManager extends EventEmitter {
       throw err;
     });
     return persisted || updatedLive;
+  }
+
+  /**
+   * Bulk variant of {@link setInstanceDone} for sweeping a backlog of stale
+   * chats in one go. Returns how many chats were updated.
+   *
+   * All of them get the *same* `doneAt` — the sweep's timestamp, never each
+   * chat's own last activity: a chat reads as done only while its recency is at
+   * or below the marker, and recency can come from a transcript message that is
+   * newer than the row's `last_activity_at`, so stamping anything older than
+   * "now" would leave some of the swept chats still showing as not done.
+   *
+   * Emits one `instances:changed` rather than a status message per chat — a
+   * sweep touches hundreds of rows, and that many broadcasts would stall the UI.
+   */
+  setInstancesDone(ids: readonly string[], done: boolean): number {
+    const doneAt = done ? Date.now() : null;
+    const unique = [...new Set(ids)];
+    const updated = new Set(this.db.setDoneBulk(unique, doneAt));
+
+    // Live instances win over the DB summaries in the UI's merge, so they have
+    // to be updated in memory too or swept chats would come back on refresh.
+    for (const id of unique) {
+      const instance = this.instances.get(id);
+      if (!instance) continue;
+      instance.info.doneAt = doneAt ?? undefined;
+      updated.add(id);
+    }
+    if (updated.size > 0) this.emit("instances:changed");
+    return updated.size;
   }
 
   /**

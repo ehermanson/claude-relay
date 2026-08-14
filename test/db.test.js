@@ -313,6 +313,35 @@ describe("SessionDB", () => {
     });
   });
 
+  describe("setDoneBulk", () => {
+    it("stamps every matching chat with the same timestamp", () => {
+      db.upsert(makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl" }));
+      db.upsert(makeRow({ session_id: "s2", instance_id: "i2", jsonl_path: "/b.jsonl" }));
+
+      const updated = db.setDoneBulk(["i1", "i2"], 1700000000000);
+
+      assert.deepEqual(updated, ["i1", "i2"]);
+      assert.equal(db.getBySessionId("s1").done_at, 1700000000000);
+      assert.equal(db.getBySessionId("s2").done_at, 1700000000000);
+    });
+
+    it("reports only the ids it reached, ignoring unknown ones", () => {
+      db.upsert(makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl" }));
+      assert.deepEqual(db.setDoneBulk(["i1", "gone"], 1700000000000), ["i1"]);
+    });
+
+    it("clears the marker for many chats at once", () => {
+      db.upsert(makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl" }));
+      db.setDoneBulk(["i1"], 1700000000000);
+      assert.deepEqual(db.setDoneBulk(["i1"], null), ["i1"]);
+      assert.equal(db.getBySessionId("s1").done_at, null);
+    });
+
+    it("no-ops on an empty id list", () => {
+      assert.deepEqual(db.setDoneBulk([], 1700000000000), []);
+    });
+  });
+
   describe("getJsonlPaths", () => {
     it("returns a Set of all jsonl paths", () => {
       db.upsert(makeRow({ session_id: "s1", instance_id: "i1", jsonl_path: "/a.jsonl" }));

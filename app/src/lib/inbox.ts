@@ -93,6 +93,35 @@ export function partitionInboxEntries(entries: readonly InboxEntry[]): {
   return { active, done };
 }
 
+/**
+ * How long a chat must sit untouched before the inbox offers to sweep it into
+ * Done. Deliberately a manual action, not a rule that runs on its own — nothing
+ * marks a chat done behind the user's back.
+ */
+export const STALE_CHAT_DONE_DAYS = 10;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Active chats with no activity for `days` — the ones the sweep would mark
+ * done. Chats mid-turn are excluded (staleness is about the backlog, and a
+ * working agent is by definition unfinished), as are chats with no recorded
+ * activity at all: recency 0 means "unknown", not "ancient", and a chat created
+ * seconds ago but never messaged reads that way.
+ */
+export function selectStaleInboxEntries(
+  entries: readonly InboxEntry[],
+  now: number,
+  days: number = STALE_CHAT_DONE_DAYS,
+): InboxEntry[] {
+  const cutoff = now - days * DAY_MS;
+  return entries.filter((entry) => {
+    if (entry.done || entry.instance.status === "processing") return false;
+    const recencyAt = getChatRecencyTimestamp(entry.instance);
+    return recencyAt > 0 && recencyAt < cutoff;
+  });
+}
+
 export function buildInboxProjectOptions(
   groups: readonly InboxSourceGroup[],
 ): InboxProjectOption[] {
