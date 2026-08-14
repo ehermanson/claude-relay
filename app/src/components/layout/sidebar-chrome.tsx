@@ -31,6 +31,7 @@ import { AddProjectForm } from "../forms/add-project-form";
 import { CreateProjectForm } from "../forms/create-project-form";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Dialog } from "../ui/dialog";
 import { Popover } from "../ui/popover";
 import { RelayLogo } from "../ui/relay-logo";
 import { Tabs } from "../ui/tabs";
@@ -59,20 +60,17 @@ export function useSidebarDocumentTitle() {
 }
 
 /**
- * Add/create a project. Lives in the header in Projects mode; Inbox mode moves
- * it down beside the project filter so the header slot can carry New chat.
+ * The add/create-project forms themselves, minus any surface. Mounted fresh by
+ * each surface (popover, dialog) so tab + error state resets on every open.
  */
-export function AddProjectButton({
+function AddProjectPanel({
   registeredDirs,
-  tooltipSide = "bottom",
-  align = "end",
+  onClose,
 }: {
   registeredDirs: Set<string>;
-  tooltipSide?: "top" | "bottom";
-  align?: "start" | "end";
+  onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [showAddProject, setShowAddProject] = useState(false);
   const [projectTab, setProjectTab] = useState<"add" | "create">("add");
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const [createProjectError, setCreateProjectError] = useState<string | null>(null);
@@ -83,7 +81,7 @@ export function AddProjectButton({
     try {
       const project = await apiAddProject(directory);
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      setShowAddProject(false);
+      onClose();
       toast.success(`Added "${project.name}"`);
     } catch (err) {
       setAddProjectError(err instanceof Error ? err.message : "Failed to add project");
@@ -96,7 +94,7 @@ export function AddProjectButton({
     try {
       const project = await apiCreateProject(parentDirectory, name);
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      setShowAddProject(false);
+      onClose();
       toast.success(`Created "${project.name}"`);
     } catch (err) {
       setCreateProjectError(err instanceof Error ? err.message : "Failed to create project");
@@ -106,51 +104,85 @@ export function AddProjectButton({
   };
 
   return (
-    <Popover.Root
-      open={showAddProject}
-      onOpenChange={(open) => {
-        setShowAddProject(open);
-        if (!open) {
-          setAddProjectError(null);
-          setCreateProjectError(null);
-          setProjectTab("add");
-        }
-      }}
-    >
+    <Tabs.Root value={projectTab} onValueChange={(v) => setProjectTab(v as "add" | "create")}>
+      <Tabs.List className="mb-3">
+        <Tabs.Tab value="add" className="flex-1 text-center">
+          Add Existing
+        </Tabs.Tab>
+        <Tabs.Tab value="create" className="flex-1 text-center">
+          Create New
+        </Tabs.Tab>
+      </Tabs.List>
+      <Tabs.Panel value="add">
+        <AddProjectForm
+          onSubmit={handleAddProject}
+          onCancel={onClose}
+          error={addProjectError}
+          registeredDirs={registeredDirs}
+        />
+      </Tabs.Panel>
+      <Tabs.Panel value="create">
+        <CreateProjectForm
+          onSubmit={handleCreateProject}
+          onCancel={onClose}
+          error={createProjectError}
+          isSubmitting={isCreating}
+        />
+      </Tabs.Panel>
+    </Tabs.Root>
+  );
+}
+
+/**
+ * Add/create a project from an icon button. Projects mode keeps this in the
+ * header; Inbox mode has no room for a second `+` beside New chat, so it opens
+ * the same panel from the project filter menu via `AddProjectDialog`.
+ */
+export function AddProjectButton({
+  registeredDirs,
+  tooltipSide = "bottom",
+  align = "end",
+}: {
+  registeredDirs: Set<string>;
+  tooltipSide?: "top" | "bottom";
+  align?: "start" | "end";
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
       <Tooltip content="Add project" side={tooltipSide}>
         <Popover.Trigger render={<Button variant="icon" />}>
           <Plus size={14} strokeWidth={2.5} />
         </Popover.Trigger>
       </Tooltip>
       <Popover.Content className="w-96 max-w-[calc(100vw-2rem)]" align={align}>
-        <Tabs.Root value={projectTab} onValueChange={(v) => setProjectTab(v as "add" | "create")}>
-          <Tabs.List className="mb-3">
-            <Tabs.Tab value="add" className="flex-1 text-center">
-              Add Existing
-            </Tabs.Tab>
-            <Tabs.Tab value="create" className="flex-1 text-center">
-              Create New
-            </Tabs.Tab>
-          </Tabs.List>
-          <Tabs.Panel value="add">
-            <AddProjectForm
-              onSubmit={handleAddProject}
-              onCancel={() => setShowAddProject(false)}
-              error={addProjectError}
-              registeredDirs={registeredDirs}
-            />
-          </Tabs.Panel>
-          <Tabs.Panel value="create">
-            <CreateProjectForm
-              onSubmit={handleCreateProject}
-              onCancel={() => setShowAddProject(false)}
-              error={createProjectError}
-              isSubmitting={isCreating}
-            />
-          </Tabs.Panel>
-        </Tabs.Root>
+        <AddProjectPanel registeredDirs={registeredDirs} onClose={() => setOpen(false)} />
       </Popover.Content>
     </Popover.Root>
+  );
+}
+
+/** The same panel as a standalone dialog, for triggers inside a menu. */
+export function AddProjectDialog({
+  open,
+  onOpenChange,
+  registeredDirs,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  registeredDirs: Set<string>;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Content maxWidth="max-w-md">
+        <Dialog.Header>
+          <Dialog.Title>Add project</Dialog.Title>
+          <Dialog.Close />
+        </Dialog.Header>
+        <AddProjectPanel registeredDirs={registeredDirs} onClose={() => onOpenChange(false)} />
+      </Dialog.Content>
+    </Dialog.Root>
   );
 }
 
@@ -231,8 +263,12 @@ export function SidebarHeader({
 export const SIDEBAR_CONTROL_CLASS =
   "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-[0.75rem] text-muted transition-colors hover:bg-bg-2 hover:text-text";
 
-/** Row wrapper for a sidebar control plus its optional trailing icon button. */
-export const SIDEBAR_CONTROL_ROW_CLASS = "flex shrink-0 items-center gap-1 px-3 pb-2";
+/**
+ * Row wrapper for a sidebar control plus its optional trailing icon button.
+ * `pr-4` matches the header's `px-4`, so a trailing icon button here lines up
+ * with the header's icon column rather than sitting 4px inside it.
+ */
+export const SIDEBAR_CONTROL_ROW_CLASS = "flex shrink-0 items-center gap-1 pl-3 pr-4 pb-2";
 
 /**
  * Compact search affordance for layouts that put search on a shared control

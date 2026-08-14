@@ -35,6 +35,52 @@
   }
 }
 
+/* ── Done section header ────────────────────────────────────────── */
+
+/* Marking a chat done deliberately does NOT expand the Done section — the
+   header pulses instead, so the change is acknowledged without a collapsed
+   list jumping open under the cursor. */
+@keyframes inbox-done-pulse {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes inbox-done-count-flash {
+  0%,
+  45% {
+    color: var(--color-accent);
+  }
+  100% {
+    color: inherit;
+  }
+}
+
+.inbox-done-label {
+  transform-origin: left center;
+  animation: inbox-done-pulse 520ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.inbox-done-label .inbox-done-count {
+  animation: inbox-done-count-flash 900ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inbox-done-label {
+    animation: none;
+  }
+
+  .inbox-done-label .inbox-done-count {
+    animation-duration: 600ms;
+  }
+}
+
 /* ── Collapsed rail ─────────────────────────────────────────────── */
 
 /* The rail is only 48px wide and its items are centered. A visible

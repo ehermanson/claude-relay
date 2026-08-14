@@ -43,7 +43,7 @@ import { InboxItem } from "./inbox-item";
 import { NewChatMenu } from "./new-chat-menu";
 import { ProjectActionsMenuContent } from "./project-actions-menu";
 import {
-  AddProjectButton,
+  AddProjectDialog,
   SIDEBAR_CONTROL_CLASS,
   SIDEBAR_CONTROL_ROW_CLASS,
   SidebarFooter,
@@ -134,7 +134,8 @@ function SweepStaleRow({ count, onClick }: { count: number; onClick: () => void 
  * Top-level "New chat", occupying the header slot that Projects mode gives to
  * Add project. In a flat list there are no project headers to hang chat
  * creation off, so it becomes the layout's primary action — and Add project
- * moves down beside the project filter.
+ * moves into the project filter menu, since two plus glyphs side by side were
+ * indistinguishable.
  *
  * With a project filter applied (or only one project registered) the target is
  * unambiguous, so the button creates the chat directly instead of asking.
@@ -296,6 +297,7 @@ export function InboxSidebar({
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
   const [sweeping, setSweeping] = useState(false);
+  const [addProjectOpen, setAddProjectOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const {
@@ -326,13 +328,36 @@ export function InboxSidebar({
     if (!projectOptions.some((option) => option.dir === projectFilter)) setProjectFilter(null);
   }, [projectFilter, projectOptions]);
 
-  // Keep the open chat visible: when it is (or becomes) done, expand the Done
-  // section it lives in. Deps are the chat's identity and done-membership, not
-  // the arrays, so collapsing Done by hand while that chat stays open sticks.
+  // Keep the open chat reachable when you *arrive* on a chat that is already
+  // done — but never yank the section open because the open chat just became
+  // done. `wasActiveRef` records that we saw this chat in the active list while
+  // it was open, which is exactly the transition that must not expand anything
+  // (and, unlike a plain "did it change" check, it can't misfire while the
+  // lists are still loading and the chat is in neither).
   const currentIsDone = done.some((entry) => entry.instance.id === currentChatId);
+  const currentIsActive = active.some((entry) => entry.instance.id === currentChatId);
+  const wasActiveRef = useRef(false);
   useEffect(() => {
-    if (currentIsDone) setDoneOpen(true);
-  }, [currentChatId, currentIsDone]);
+    wasActiveRef.current = false;
+  }, [currentChatId]);
+  useEffect(() => {
+    if (currentIsActive) wasActiveRef.current = true;
+  }, [currentIsActive]);
+  useEffect(() => {
+    if (currentIsDone && !wasActiveRef.current) setDoneOpen(true);
+  }, [currentIsDone]);
+
+  // Acknowledge chats moving into Done with a pulse on the header instead. Keyed
+  // off ids that were active on the previous render (not off `done.length`, which
+  // also jumps when the lists first load), so it fires once per real transition.
+  const [donePulse, setDonePulse] = useState(0);
+  const prevActiveIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const prevActive = prevActiveIdsRef.current;
+    prevActiveIdsRef.current = new Set(active.map((entry) => entry.instance.id));
+    if (!prevActive) return;
+    if (done.some((entry) => prevActive.has(entry.instance.id))) setDonePulse((n) => n + 1);
+  }, [active, done]);
 
   useEffect(() => {
     if (didInitialScrollRef.current) return;
@@ -387,7 +412,7 @@ export function InboxSidebar({
           showLogo={showLogo}
           registeredDirs={registeredDirs}
           // With no projects yet there is nothing to start a chat in, and the
-          // filter row that normally holds Add project is hidden — so fall back
+          // filter menu that normally holds Add project is hidden — so fall back
           // to the default header action or there'd be no way to add one.
           action={
             projectOptions.length > 0 ? (
@@ -395,9 +420,11 @@ export function InboxSidebar({
             ) : undefined
           }
         />
-        {/* One control row: project filter (flex) + search + Add project. With
-            no projects there's no filter to anchor it, so search/add live in
-            the header fallback and the empty state carries the rest. */}
+        {/* One control row: project filter (flex) + search. Add project is a
+            menu item inside the filter rather than a button here — it and the
+            header's New chat are both plus glyphs, and stacked in the same
+            corner they were a coin flip. With no projects there's no filter at
+            all, so Add project falls back to the header slot. */}
         {hasProjects ? (
           <div className={SIDEBAR_CONTROL_ROW_CLASS}>
             <Menu.Root open={filterOpen} onOpenChange={setFilterOpen}>
@@ -426,10 +453,17 @@ export function InboxSidebar({
                     )}
                   </Menu.Item>
                 ))}
+                <Menu.Separator />
+                {/* Add project lives here rather than as a second icon button on
+                    this row — it and the header's New chat are both plus glyphs,
+                    indistinguishable at icon size. */}
+                <Menu.Item onClick={() => setAddProjectOpen(true)}>
+                  <FolderPlus size={13} strokeWidth={2} className="text-muted" />
+                  Add project
+                </Menu.Item>
               </Menu.Content>
             </Menu.Root>
             <SidebarSearchIconButton onSearchOpen={onSearchOpen} />
-            <AddProjectButton registeredDirs={registeredDirs} tooltipSide="bottom" align="end" />
           </div>
         ) : (
           <SidebarSearchTrigger onSearchOpen={onSearchOpen} />
@@ -479,9 +513,16 @@ export function InboxSidebar({
                 <Collapsible.Root open={doneOpen} onOpenChange={setDoneOpen}>
                   <Collapsible.Trigger className="flex w-full items-center gap-1 px-3 pb-1 pt-3 text-[0.625rem] font-semibold uppercase tracking-wider text-muted/60 transition-colors hover:text-muted">
                     {doneOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                    Done
-                    <span className="ml-1 font-normal normal-case tracking-normal text-muted/40">
-                      {done.length}
+                    {/* Remounted on each pulse so the animation restarts; the
+                        key-0 mount renders without the animating class. */}
+                    <span
+                      key={donePulse}
+                      className={`inline-flex items-center${donePulse > 0 ? " inbox-done-label" : ""}`}
+                    >
+                      Done
+                      <span className="inbox-done-count ml-1 font-normal normal-case tracking-normal text-muted/40">
+                        {done.length}
+                      </span>
                     </span>
                   </Collapsible.Trigger>
                   <Collapsible.Content>
@@ -556,6 +597,12 @@ export function InboxSidebar({
         onConfirm={runSweep}
         isLoading={sweeping}
         maxWidth="max-w-sm"
+      />
+
+      <AddProjectDialog
+        open={addProjectOpen}
+        onOpenChange={setAddProjectOpen}
+        registeredDirs={registeredDirs}
       />
     </SidebarActionsProvider>
   );
