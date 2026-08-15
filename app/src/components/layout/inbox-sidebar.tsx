@@ -31,6 +31,7 @@ import {
   type InboxEntry,
   type InboxProjectOption,
 } from "@/hooks/use-inbox-navigation-model";
+import { useDoneSectionDisclosure, useDoneTransitionPulse } from "@/hooks/use-done-section";
 import { setInstancesDone } from "@/lib/api";
 import { selectStaleInboxEntries, STALE_CHAT_DONE_DAYS } from "@/lib/inbox";
 import { Button } from "../ui/button";
@@ -293,7 +294,6 @@ export function InboxSidebar({
   // sticky one would silently hide chats after a reload.
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [doneOpen, setDoneOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
   const [sweeping, setSweeping] = useState(false);
@@ -328,36 +328,15 @@ export function InboxSidebar({
     if (!projectOptions.some((option) => option.dir === projectFilter)) setProjectFilter(null);
   }, [projectFilter, projectOptions]);
 
-  // Keep the open chat reachable when you *arrive* on a chat that is already
-  // done — but never yank the section open because the open chat just became
-  // done. `wasActiveRef` records that we saw this chat in the active list while
-  // it was open, which is exactly the transition that must not expand anything
-  // (and, unlike a plain "did it change" check, it can't misfire while the
-  // lists are still loading and the chat is in neither).
-  const currentIsDone = done.some((entry) => entry.instance.id === currentChatId);
-  const currentIsActive = active.some((entry) => entry.instance.id === currentChatId);
-  const wasActiveRef = useRef(false);
-  useEffect(() => {
-    wasActiveRef.current = false;
-  }, [currentChatId]);
-  useEffect(() => {
-    if (currentIsActive) wasActiveRef.current = true;
-  }, [currentIsActive]);
-  useEffect(() => {
-    if (currentIsDone && !wasActiveRef.current) setDoneOpen(true);
-  }, [currentIsDone]);
-
-  // Acknowledge chats moving into Done with a pulse on the header instead. Keyed
-  // off ids that were active on the previous render (not off `done.length`, which
-  // also jumps when the lists first load), so it fires once per real transition.
-  const [donePulse, setDonePulse] = useState(0);
-  const prevActiveIdsRef = useRef<Set<string> | null>(null);
-  useEffect(() => {
-    const prevActive = prevActiveIdsRef.current;
-    prevActiveIdsRef.current = new Set(active.map((entry) => entry.instance.id));
-    if (!prevActive) return;
-    if (done.some((entry) => prevActive.has(entry.instance.id))) setDonePulse((n) => n + 1);
-  }, [active, done]);
+  // Expand Done only when arriving on an already-done chat; acknowledge chats
+  // moving into Done with a header pulse instead. Both live in `use-done-section`
+  // so the transition rules can be tested without mounting the sidebar.
+  const [doneOpen, setDoneOpen] = useDoneSectionDisclosure({
+    chatId: currentChatId,
+    isActive: active.some((entry) => entry.instance.id === currentChatId),
+    isDone: done.some((entry) => entry.instance.id === currentChatId),
+  });
+  const donePulse = useDoneTransitionPulse(active, done);
 
   useEffect(() => {
     if (didInitialScrollRef.current) return;
