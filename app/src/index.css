@@ -354,15 +354,32 @@ html {
   }
 }
 
-/* Metadata type floor on mobile: the two smallest steps in the scale render
-   at ~9.6px/10.6px even after the 17px root bump — below comfortable phone
-   legibility (iOS caption is 11–12px). Flooring them here beats editing 60+
-   call sites, and un-layered CSS wins over Tailwind's layered utilities
-   without !important. Desktop keeps its density. */
+/* Mobile type ladder: shift every step of the chrome type scale up one notch
+   on phones. The desktop scale (9.6–13.8px after the 17px root bump) reads
+   fine with a mouse but is below native-app sizes on touch — iOS runs
+   caption 12 / footnote 13 / subhead 15 / body 17. Remapping the utility
+   classes here beats editing ~600 call sites, keeps relative hierarchy
+   intact, and un-layered CSS wins over Tailwind's layered utilities without
+   !important. Desktop keeps its density. Resulting mobile ladder:
+   11.7 → 12.75 → 13.8 → 14.9 (=text-sm) → 16 (chat messages). */
 @media (max-width: 768px) {
   .text-\[0\.5625rem\],
   .text-\[0\.625rem\] {
     font-size: 0.6875rem;
+  }
+
+  .text-\[0\.68rem\],
+  .text-\[0\.6875rem\] {
+    font-size: 0.75rem;
+  }
+
+  .text-xs,
+  .text-\[0\.75rem\] {
+    font-size: 0.8125rem;
+  }
+
+  .text-\[0\.8125rem\] {
+    font-size: 0.875rem;
   }
 }
 
@@ -666,6 +683,13 @@ body *::-webkit-scrollbar-thumb:hover {
 .diff-drawer diffs-container {
   --diffs-font-size: 11px;
   --diffs-line-height: 18px;
+}
+
+@media (max-width: 768px) {
+  .diff-drawer diffs-container {
+    --diffs-font-size: 12px;
+    --diffs-line-height: 19px;
+  }
 }
 
 /* ── Glass Surface ─────────────────────────────────────────────────── */

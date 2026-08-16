@@ -189,7 +189,9 @@ export const TerminalView = memo(function TerminalView({
     const terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: "bar",
-      fontSize: 11,
+      // Checked at creation time only — a mid-session breakpoint change
+      // (rotate/resize) keeps the current size rather than recreating xterm.
+      fontSize: window.matchMedia("(max-width: 768px)").matches ? 13 : 11,
       fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, Consolas, monospace",
       lineHeight: 1.25,
       scrollback: 5000,
