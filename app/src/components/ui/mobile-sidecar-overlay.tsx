@@ -1,10 +1,15 @@
 /**
  * Floating-card overlay used to host the mobile sidecar/sidebar on small
- * screens. Owns the backdrop, positioning, and click-outside behavior so
- * instance and space views share the same presentation.
+ * screens. Owns the backdrop, positioning, and dismissal (backdrop tap or
+ * swipe-right) so instance and space views share the same presentation.
+ *
+ * Parents conditionally mount this on open, so the drawer manages its own
+ * enter/exit animation internally: it mounts closed, opens on the next
+ * effect tick, and calls `onClose` only after the slide-out completes.
  */
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { SwipeableDrawer } from "./swipeable-drawer";
 
 interface MobileSidecarOverlayProps {
   onClose: () => void;
@@ -12,18 +17,21 @@ interface MobileSidecarOverlayProps {
 }
 
 export function MobileSidecarOverlay({ onClose, children }: MobileSidecarOverlayProps) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    setOpen(true);
+  }, []);
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end p-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)]"
-      onClick={onClose}
+    <SwipeableDrawer
+      side="right"
+      open={open}
+      onOpenChange={setOpen}
+      onExitComplete={onClose}
+      containerClassName="p-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)]"
+      panelClassName="my-auto h-[calc(100%-16px)]"
     >
-      <div className="animate-fade-in absolute inset-0 bg-black/50" />
-      <div
-        className="relative z-10 my-auto h-[calc(100%-16px)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
+      {children}
+    </SwipeableDrawer>
   );
 }

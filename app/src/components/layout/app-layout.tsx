@@ -8,6 +8,7 @@ import { NoProvidersLanding } from "@/components/no-providers-landing";
 import { ProviderUpdateNotification } from "@/components/provider-update-notification";
 import { SearchDialog, useSearchDialog } from "@/components/search-dialog";
 import { RelayLogo } from "@/components/ui/relay-logo";
+import { SwipeableDrawer } from "@/components/ui/swipeable-drawer";
 import { useAvailableProviders } from "@/hooks/use-available-providers";
 import { useSidebarLayout } from "@/hooks/use-global-settings";
 import { useTheme } from "@/stores/theme-store";
@@ -111,22 +112,20 @@ export function AppLayout() {
             <Outlet />
           </main>
         </div>
-        {/* Mobile sidebar overlay */}
-        {mobileSidebarOpen && (
-          <div className="fixed inset-0 z-50 flex p-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)]">
-            {/* Backdrop */}
-            <div
-              className="absolute inset-0 bg-black/50 animate-fade-in"
-              onClick={() => setMobileSidebarOpen(false)}
-            />
-            {/* Sidebar panel */}
-            <div className="relative z-10 my-auto h-[calc(100%-16px)] w-[85vw] max-w-sm animate-slide-in-left">
-              <div className="app-shell-sidebar h-full">
-                <SidebarComponent showLogo onSearchOpen={() => search.setOpen(true)} />
-              </div>
-            </div>
+        {/* Mobile sidebar overlay — edge-swipe from the left opens it,
+            swiping the panel left (or tapping the backdrop) dismisses. */}
+        <SwipeableDrawer
+          side="left"
+          open={mobileSidebarOpen}
+          onOpenChange={setMobileSidebarOpen}
+          edgeSwipeOpen
+          containerClassName="p-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)]"
+          panelClassName="my-auto h-[calc(100%-16px)] w-[85vw] max-w-sm"
+        >
+          <div className="app-shell-sidebar h-full">
+            <SidebarComponent showLogo onSearchOpen={() => search.setOpen(true)} />
           </div>
-        )}
+        </SwipeableDrawer>
         <SearchDialog open={search.open} onOpenChange={search.setOpen} />
         {toaster}
         <ProviderUpdateNotification />

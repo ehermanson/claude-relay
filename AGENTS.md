@@ -127,6 +127,7 @@ Mobile (≤768px) sizing is centralized in `app/src/index.css` — don't fight i
 - A `@media (pointer: coarse)` block gives menu items / options / tabs native hit heights centrally; undersized icon buttons get `max-[768px]:h-10 max-[768px]:w-10`-style bumps at the call site. Keep interactive targets ≥ ~40px on mobile — grow hit areas (padding/min-height), not glyphs.
 - **Tooltips never open on touch.** Anything informational needs a tap path on mobile (e.g. context-panel help icons switch to a `Popover` on coarse pointers), and hover-gated affordances need a `pointer: coarse` override (see `sidebar.css`).
 - Dialogs top-anchor on mobile (`dialog.tsx`) — the keyboard covers vertically centered dialogs.
+- Mobile overlays (sidebar, sidecar) use the shared `SwipeableDrawer` (`app/src/components/ui/swipeable-drawer.tsx`): motion-drag swipe-to-dismiss with a progress-driven backdrop, plus opt-in edge-swipe-to-open. Don't hand-roll new overlay gestures — reuse it. Its edge listeners never block taps (they claim the gesture only after horizontal intent), but the OS back-gesture can win at the outermost bezel, so a tap affordance must always exist too.
 
 ### Lazy Hydration
 
