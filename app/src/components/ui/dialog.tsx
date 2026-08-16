@@ -72,7 +72,7 @@ export function DialogTitle({
 export function DialogClose({ className = "" }: { className?: string }) {
   return (
     <BaseDialog.Close
-      className={`flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text ${className}`}
+      className={`flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:h-10 max-[768px]:w-10 ${className}`}
     >
       <X size={16} />
     </BaseDialog.Close>

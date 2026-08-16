@@ -287,8 +287,10 @@ export function InboxItem({ entry, isActive, activeChatId }: InboxItemProps) {
         matching the projects-mode row; shared CSS classes keep touch behavior
         consistent (menu always shown, timestamp hidden).
       */}
+      {/* bottom-2.5 stretches the band to the full row height — the visible
+          glyph stays on line 1 (items-start) but the tap area doesn't stop there. */}
       {!editing && (
-        <span className="sidebar-slot-has-menu absolute right-2.5 top-2.5 flex w-10 items-start justify-end">
+        <span className="sidebar-slot-has-menu absolute bottom-2.5 right-2.5 top-2.5 flex w-10 items-start justify-end">
           {recencyAt > 0 && (
             <span
               className={`sidebar-timestamp-fade text-[0.625rem] leading-none text-muted/50 transition-opacity duration-150 group-hover:opacity-0${

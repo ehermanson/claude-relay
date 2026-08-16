@@ -366,6 +366,29 @@ html {
   }
 }
 
+/* ── Touch tap targets ─────────────────────────────────────────────
+   On coarse pointers, give menu/option/tab rows a native-app hit height
+   (iOS menus are 44pt rows) without changing desktop density. Rows are
+   flex items-center, so min-height grows the hit area, not the text. */
+@media (pointer: coarse) {
+  [role="menuitem"],
+  [role="menuitemradio"],
+  [role="menuitemcheckbox"],
+  [role="option"] {
+    min-height: 2.5rem;
+  }
+
+  [role="tab"] {
+    min-height: 2.25rem;
+  }
+
+  /* Hover doesn't exist on touch — keep the copy button visible. */
+  .markdown-content pre .code-copy-btn {
+    opacity: 0.7;
+    padding: 5px 12px;
+  }
+}
+
 /* ── Tabular numbers for data ─────────────────────────────────────── */
 .tabular-nums {
   font-variant-numeric: tabular-nums;

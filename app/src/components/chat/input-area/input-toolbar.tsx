@@ -79,7 +79,7 @@ export function InputToolbar({
               variant="icon"
               onClick={onAttach}
               disabled={disabled}
-              className="h-7 w-7 shrink-0 !rounded-full"
+              className="h-7 w-7 shrink-0 !rounded-full max-[768px]:h-9 max-[768px]:w-9"
             >
               <Paperclip size={15} />
             </Button>
@@ -134,7 +134,7 @@ export function InputToolbar({
                     onClick={() => {
                       option.onSelect();
                     }}
-                    className="flex w-full items-center gap-2.5 px-3 py-1 text-left text-[0.8125rem] text-text transition-colors hover:bg-surface-hover"
+                    className="flex w-full items-center gap-2.5 px-3 py-1 text-left text-[0.8125rem] text-text transition-colors hover:bg-surface-hover max-[768px]:py-2.5"
                   >
                     <span className="w-4 shrink-0">
                       {option.selected ? (
@@ -155,7 +155,7 @@ export function InputToolbar({
             <button
               ref={overflowTriggerRef}
               onClick={() => setOverflowOpen(!overflowOpen)}
-              className="toolbar-overflow-trigger h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              className="toolbar-overflow-trigger h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-surface-hover hover:text-text max-[768px]:h-10 max-[768px]:w-10"
             >
               <Ellipsis size={16} />
             </button>
@@ -170,7 +170,7 @@ export function InputToolbar({
             variant="ghost"
             onClick={onSecondaryAction}
             disabled={isSecondaryActionDisabled}
-            className="h-8 shrink-0 rounded-full px-3.5 text-[0.8125rem]"
+            className="h-8 shrink-0 rounded-full px-3.5 text-[0.8125rem] max-[768px]:h-10"
           >
             {secondaryActionLabel}
           </Button>

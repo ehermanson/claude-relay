@@ -74,10 +74,18 @@ export function PermissionBanner({
             </p>
             {detail && <p className="truncate text-[0.75rem] text-muted">{detail}</p>}
           </div>
-          <Button variant="ghost" className="shrink-0" onClick={handleDecline}>
+          <Button
+            variant="ghost"
+            className="shrink-0 max-[768px]:h-10 max-[768px]:px-4"
+            onClick={handleDecline}
+          >
             Deny
           </Button>
-          <Button variant="primary" className="shrink-0" onClick={handleApprove}>
+          <Button
+            variant="primary"
+            className="shrink-0 max-[768px]:h-10 max-[768px]:px-4"
+            onClick={handleApprove}
+          >
             Allow
           </Button>
           <Tooltip content="Dismiss">

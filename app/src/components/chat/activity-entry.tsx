@@ -185,7 +185,7 @@ export function ActivityEntry({
   return (
     <div className={`flex flex-col ${collapsed ? "hidden" : ""}`}>
       <div
-        className={`group/entry flex items-start gap-2.5 rounded-md py-1 text-[0.6875rem] leading-relaxed text-muted ${
+        className={`group/entry flex items-start gap-2.5 rounded-md py-1 text-[0.6875rem] leading-relaxed text-muted max-[768px]:py-2 ${
           isError ? "bg-error-dim" : ""
         } ${isExpandable ? "cursor-pointer" : ""}`}
         onClick={isExpandable ? () => setExpanded(!expanded) : undefined}

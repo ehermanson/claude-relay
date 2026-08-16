@@ -55,7 +55,7 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
                   ? "border border-dashed border-accent/60 bg-accent/15 text-accent shadow-none hover:bg-accent/25"
                   : "bg-accent/85 text-white hover:bg-accent"
             }
-            ${hasLabel ? "h-9 rounded-full px-4 text-[0.875rem] tracking-[-0.02em]" : "h-8 w-8 rounded-full p-0"}
+            ${hasLabel ? "h-9 rounded-full px-4 text-[0.875rem] tracking-[-0.02em] max-[768px]:h-10" : "h-8 w-8 rounded-full p-0 max-[768px]:h-10 max-[768px]:w-10"}
           `}
         style={{ minWidth: hasLabel ? undefined : 32 }}
         animate={{
