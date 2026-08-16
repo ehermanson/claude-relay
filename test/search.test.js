@@ -348,6 +348,277 @@ describe("SessionDB search", () => {
     });
   });
 
+  describe("prefix matching", () => {
+    it("prefix-matches the last token while typing", () => {
+      db.upsert(makeRow({ name: "routing architecture discussion" }));
+      db.syncSearchIndexForInstance("inst-1");
+      assert.equal(db.search("rout").length, 1);
+      assert.equal(db.search("architecture rout").length, 1);
+    });
+
+    it("matches the last token exactly when followed by trailing whitespace", () => {
+      db.upsert(makeRow({ name: "routing architecture discussion" }));
+      db.syncSearchIndexForInstance("inst-1");
+      assert.equal(db.search("rout ").length, 0);
+      assert.equal(db.search("routing ").length, 1);
+    });
+  });
+
+  describe("OR fallback", () => {
+    it("falls back to OR matching when no chat matches all terms", () => {
+      db.upsert(
+        makeRow({
+          session_id: "s1",
+          instance_id: "i1",
+          jsonl_path: "/a.jsonl",
+          name: "auth refactor",
+        }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "s2",
+          instance_id: "i2",
+          jsonl_path: "/b.jsonl",
+          name: "billing overhaul",
+        }),
+      );
+      db.syncSearchIndexForInstance("i1");
+      db.syncSearchIndexForInstance("i2");
+
+      const results = db.search("auth billing");
+      assert.equal(results.length, 2);
+      assert.ok(results.every((r) => r.partial === true));
+    });
+
+    it("does not flag results as partial when all terms match", () => {
+      db.upsert(makeRow({ name: "auth refactor discussion" }));
+      db.syncSearchIndexForInstance("inst-1");
+      const results = db.search("auth refactor");
+      assert.equal(results.length, 1);
+      assert.ok(!results[0].partial);
+    });
+
+    it("does not fall back for single-token queries", () => {
+      db.upsert(makeRow({ name: "auth refactor" }));
+      db.syncSearchIndexForInstance("inst-1");
+      assert.equal(db.search("billing").length, 0);
+    });
+  });
+
+  describe("project boost", () => {
+    it("ranks the boosted project's results first in global search", () => {
+      const now = Date.now();
+      db.upsert(
+        makeRow({
+          session_id: "s1",
+          instance_id: "i1",
+          jsonl_path: "/a.jsonl",
+          name: "auth refactor",
+          project_id: "proj-1",
+          last_activity_at: now,
+        }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "s2",
+          instance_id: "i2",
+          jsonl_path: "/b.jsonl",
+          name: "auth refactor",
+          project_id: "proj-2",
+          last_activity_at: now,
+        }),
+      );
+      db.syncSearchIndexForInstance("i1");
+      db.syncSearchIndexForInstance("i2");
+
+      const boosted = db.search("auth", { boostProjectId: "proj-2" });
+      assert.equal(boosted.length, 2);
+      assert.equal(boosted[0].instanceId, "i2");
+
+      const boostedOther = db.search("auth", { boostProjectId: "proj-1" });
+      assert.equal(boostedOther[0].instanceId, "i1");
+    });
+
+    it("does not boost projectless rows when no boost project is given", () => {
+      const now = Date.now();
+      db.upsert(
+        makeRow({
+          session_id: "s1",
+          instance_id: "i1",
+          jsonl_path: "/a.jsonl",
+          name: "auth refactor",
+          project_id: null,
+          last_activity_at: now - 1000,
+        }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "s2",
+          instance_id: "i2",
+          jsonl_path: "/b.jsonl",
+          name: "auth refactor",
+          project_id: "proj-1",
+          last_activity_at: now,
+        }),
+      );
+      db.syncSearchIndexForInstance("i1");
+      db.syncSearchIndexForInstance("i2");
+
+      const results = db.search("auth");
+      assert.equal(results.length, 2);
+      assert.equal(results[0].instanceId, "i2");
+    });
+  });
+
+  describe("field weighting", () => {
+    it("ranks title matches above transcript matches", () => {
+      const now = Date.now();
+      db.upsert(
+        makeRow({
+          session_id: "s-title",
+          instance_id: "i-title",
+          jsonl_path: "/t.jsonl",
+          name: "deployment pipeline setup",
+          last_activity_at: now,
+        }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "s-body",
+          instance_id: "i-body",
+          jsonl_path: "/b.jsonl",
+          name: "unrelated chat",
+          last_activity_at: now,
+        }),
+      );
+      db.updateSearchContent(
+        "i-body",
+        "We briefly touched on the deployment process during this conversation about other things",
+      );
+      db.syncSearchIndexForInstance("i-title");
+      db.syncSearchIndexForInstance("i-body");
+
+      const results = db.search("deployment");
+      assert.equal(results.length, 2);
+      assert.equal(results[0].instanceId, "i-title", "title match should rank first");
+    });
+  });
+
+  describe("recentChats", () => {
+    it("returns chats ordered by recency", () => {
+      const now = Date.now();
+      for (let i = 0; i < 3; i++) {
+        db.upsert(
+          makeRow({
+            session_id: `s${i}`,
+            instance_id: `i${i}`,
+            jsonl_path: `/p${i}.jsonl`,
+            name: `chat ${i}`,
+            last_activity_at: now - i * 60_000,
+          }),
+        );
+        db.syncSearchIndexForInstance(`i${i}`);
+      }
+      const results = db.recentChats();
+      assert.equal(results.length, 3);
+      assert.deepEqual(
+        results.map((r) => r.instanceId),
+        ["i0", "i1", "i2"],
+      );
+      assert.equal(results[0].snippet, null);
+      assert.equal(results[0].matchField, null);
+    });
+
+    it("filters by project and respects limit", () => {
+      const now = Date.now();
+      for (let i = 0; i < 4; i++) {
+        db.upsert(
+          makeRow({
+            session_id: `s${i}`,
+            instance_id: `i${i}`,
+            jsonl_path: `/p${i}.jsonl`,
+            name: `chat ${i}`,
+            project_id: i % 2 === 0 ? "proj-a" : "proj-b",
+            last_activity_at: now - i * 60_000,
+          }),
+        );
+        db.syncSearchIndexForInstance(`i${i}`);
+      }
+      const projectResults = db.recentChats({ projectId: "proj-a" });
+      assert.deepEqual(
+        projectResults.map((r) => r.instanceId),
+        ["i0", "i2"],
+      );
+      assert.equal(db.recentChats({ limit: 2 }).length, 2);
+    });
+
+    it("excludes archived chats", () => {
+      db.upsert(makeRow({ name: "some chat" }));
+      db.syncSearchIndexForInstance("inst-1");
+      assert.equal(db.recentChats().length, 1);
+      db.archive("sess-1");
+      assert.equal(db.recentChats().length, 0);
+    });
+
+    it("floats pinned chats to the top, and setPinned resyncs the index", () => {
+      const now = Date.now();
+      for (let i = 0; i < 3; i++) {
+        db.upsert(
+          makeRow({
+            session_id: `s${i}`,
+            instance_id: `i${i}`,
+            jsonl_path: `/p${i}.jsonl`,
+            name: `chat ${i}`,
+            last_activity_at: now - i * 60_000,
+          }),
+        );
+        db.syncSearchIndexForInstance(`i${i}`);
+      }
+      db.setPinned("i2", true);
+      assert.deepEqual(
+        db.recentChats().map((r) => r.instanceId),
+        ["i2", "i0", "i1"],
+      );
+      db.setPinned("i2", false);
+      assert.deepEqual(
+        db.recentChats().map((r) => r.instanceId),
+        ["i0", "i1", "i2"],
+      );
+    });
+
+    it("orders by max(last_message_at, last_activity_at), matching inbox recency", () => {
+      const now = Date.now();
+      // i1: tool-only activity bumped last_activity_at past its last message
+      db.upsert(
+        makeRow({
+          session_id: "s1",
+          instance_id: "i1",
+          jsonl_path: "/a.jsonl",
+          name: "bumped by activity only",
+          last_activity_at: now,
+          last_message_at: now - 120_000,
+        }),
+      );
+      db.upsert(
+        makeRow({
+          session_id: "s2",
+          instance_id: "i2",
+          jsonl_path: "/b.jsonl",
+          name: "recent message",
+          last_activity_at: now - 60_000,
+          last_message_at: now - 60_000,
+        }),
+      );
+      db.syncSearchIndexForInstance("i1");
+      db.syncSearchIndexForInstance("i2");
+      const results = db.recentChats();
+      assert.deepEqual(
+        results.map((r) => r.instanceId),
+        ["i1", "i2"],
+      );
+    });
+  });
+
   describe("project scoping", () => {
     it("returns only results for the specified project", () => {
       db.upsert(

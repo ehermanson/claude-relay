@@ -281,6 +281,7 @@ interface SearchResultRow {
   last_message_at: string;
   created_at: string;
   archived: string;
+  pinned: string;
   title: string;
   summary: string;
   first_prompt: string;
@@ -296,6 +297,8 @@ interface SearchResultRow {
   combined_rank: number;
 }
 
+// `weight` is the bm25 per-column weight: a title hit should outrank a hit
+// buried in a huge transcript, so title ≫ summary/branch > prompts/messages > transcript.
 const SEARCH_INDEX_COLUMNS = [
   { name: "instance_id", unindexed: true },
   { name: "source", unindexed: true },
@@ -305,12 +308,13 @@ const SEARCH_INDEX_COLUMNS = [
   { name: "last_message_at", unindexed: true },
   { name: "created_at", unindexed: true },
   { name: "archived", unindexed: true },
-  { name: "title" },
-  { name: "summary" },
-  { name: "first_prompt" },
-  { name: "last_message_text" },
-  { name: "git_branch" },
-  { name: "transcript_content" },
+  { name: "pinned", unindexed: true },
+  { name: "title", weight: 8.0 },
+  { name: "summary", weight: 4.0 },
+  { name: "first_prompt", weight: 3.0 },
+  { name: "last_message_text", weight: 3.0 },
+  { name: "git_branch", weight: 4.0 },
+  { name: "transcript_content", weight: 1.0 },
 ] as const;
 
 const SEARCH_SNIPPET_COLUMNS = [
@@ -350,17 +354,43 @@ function buildSnippetSelectSql(): string {
   ).join(",\n        ");
 }
 
-function buildSearchStatementSql(whereClause: string): string {
+// Chat recency = max(last_message_at, last_activity_at), matching the inbox's
+// getChatRecencyTimestamp — either can lead (tool-only activity bumps
+// last_activity_at without a message).
+const RECENCY_SQL =
+  "MAX(COALESCE(CAST(NULLIF(s.last_message_at, '') AS REAL), 0.0), CAST(s.last_activity_at AS REAL))";
+
+/** Weighted bm25 expression (one weight per column; unindexed columns get 0) */
+function buildBm25Sql(): string {
+  const weights = SEARCH_INDEX_COLUMNS.map((column) =>
+    "weight" in column ? column.weight.toFixed(1) : "0.0",
+  );
+  return `bm25(search_index, ${weights.join(", ")})`;
+}
+
+function buildSearchStatementSql(
+  whereClause: string,
+  options: { projectBoost?: boolean } = {},
+): string {
+  // Project boost: results in the boost project rank 2× better (bm25 is negative,
+  // so multiplying makes it more negative). The `!= ''` guard keeps an empty boost
+  // id from boosting projectless rows.
+  const boostSql = options.projectBoost
+    ? " * (CASE WHEN s.project_id = ? AND s.project_id != '' THEN 2.0 ELSE 1.0 END)"
+    : "";
   return `
       SELECT *,
         ${buildSnippetSelectSql()},
-        rank * (1.0 / (1.0 + (CAST(? AS REAL) - COALESCE(CAST(NULLIF(s.last_message_at, '') AS REAL), CAST(s.last_activity_at AS REAL))) / 1000.0 / 86400.0 / 30.0)) AS combined_rank
+        ${buildBm25Sql()} * (1.0 / (1.0 + (CAST(? AS REAL) - ${RECENCY_SQL}) / 1000.0 / 86400.0 / 30.0))${boostSql} AS combined_rank
       FROM search_index s
       WHERE ${whereClause}
       ORDER BY combined_rank
       LIMIT ?
     `;
 }
+
+// Pinned-first, then recency — matching compareChatListOrder in the UI
+const RECENT_CHATS_ORDER_SQL = `ORDER BY CAST(s.pinned AS INTEGER) DESC, ${RECENCY_SQL} DESC`;
 
 export interface SearchResult {
   instanceId: string;
@@ -376,6 +406,8 @@ export interface SearchResult {
   snippet: string | null;
   matchField: string | null;
   rank: number;
+  /** True when the result came from the OR fallback (not all terms matched) */
+  partial?: boolean;
 }
 
 /** Strip all HTML tags except <mark> and </mark> from FTS5 snippet output */
@@ -493,6 +525,8 @@ export class SessionDB {
   private stmtGetSpacesByProjectAll!: StatementSync;
   private stmtSearchProject!: StatementSync;
   private stmtSearchGlobal!: StatementSync;
+  private stmtRecentChatsProject!: StatementSync;
+  private stmtRecentChatsGlobal!: StatementSync;
   private stmtDeleteSearchDoc!: StatementSync;
   private stmtInsertSearchDoc!: StatementSync;
   private stmtUpsertSearchContent!: StatementSync;
@@ -1490,8 +1524,25 @@ ${buildSearchIndexSchemaSql()},
     );
 
     this.stmtSearchGlobal = this.db.prepare(
-      buildSearchStatementSql("search_index MATCH ?\n        AND s.archived = '0'"),
+      buildSearchStatementSql("search_index MATCH ?\n        AND s.archived = '0'", {
+        projectBoost: true,
+      }),
     );
+
+    // Recent chats (empty-query search): plain recency scan of the index, no MATCH
+    this.stmtRecentChatsProject = this.db.prepare(`
+      SELECT * FROM search_index s
+      WHERE s.project_id = ? AND s.archived = '0'
+      ${RECENT_CHATS_ORDER_SQL}
+      LIMIT ?
+    `);
+
+    this.stmtRecentChatsGlobal = this.db.prepare(`
+      SELECT * FROM search_index s
+      WHERE s.archived = '0'
+      ${RECENT_CHATS_ORDER_SQL}
+      LIMIT ?
+    `);
 
     this.stmtDeleteSearchDoc = this.db.prepare(
       "DELETE FROM search_index WHERE instance_id = ? AND source = ?",
@@ -1500,12 +1551,12 @@ ${buildSearchIndexSchemaSql()},
     this.stmtInsertSearchDoc = this.db.prepare(`
       INSERT INTO search_index (
         instance_id, source, project_id, space_id,
-        last_activity_at, last_message_at, created_at, archived,
+        last_activity_at, last_message_at, created_at, archived, pinned,
         title, summary, first_prompt, last_message_text, git_branch,
         transcript_content
       ) VALUES (
         @instance_id, @source, @project_id, @space_id,
-        @last_activity_at, @last_message_at, @created_at, @archived,
+        @last_activity_at, @last_message_at, @created_at, @archived, @pinned,
         @title, @summary, @first_prompt, @last_message_text, @git_branch,
         @transcript_content
       )
@@ -1659,7 +1710,10 @@ ${buildSearchIndexSchemaSql()},
     const value = pinned ? 1 : 0;
     const external = this.stmtSetPinned.run(value, instanceId);
     const managed = this.stmtSetManagedPinned.run(value, instanceId);
-    return Number(external.changes) > 0 || Number(managed.changes) > 0;
+    const changed = Number(external.changes) > 0 || Number(managed.changes) > 0;
+    // Keep the search index's pinned column fresh — recentChats() sorts pinned-first
+    if (changed) this.syncSearchIndexForInstance(instanceId);
+    return changed;
   }
 
   /**
@@ -2129,6 +2183,7 @@ ${buildSearchIndexSchemaSql()},
         last_message_at: row.last_message_at == null ? "" : String(row.last_message_at),
         created_at: String(row.created_at),
         archived: String(row.archived),
+        pinned: String(row.pinned ?? 0),
         title: row.name ?? "",
         summary: "summary" in row ? (row.summary ?? "") : "",
         first_prompt: "first_prompt" in row ? (row.first_prompt ?? "") : "",
@@ -2231,34 +2286,80 @@ ${buildSearchIndexSchemaSql()},
     });
   }
 
+  /** Map a search_index row to the shared SearchResult shape */
+  private toSearchResult(
+    r: SearchResultRow,
+    extras: { snippet: string | null; matchField: string | null; rank: number },
+  ): SearchResult {
+    return {
+      instanceId: r.instance_id,
+      source: r.source as "session" | "managed",
+      projectId: r.project_id || null,
+      spaceId: r.space_id || null,
+      lastActivityAt: Number(r.last_activity_at),
+      lastMessageAt:
+        r.last_message_at != null && r.last_message_at !== "" ? Number(r.last_message_at) : null,
+      createdAt: Number(r.created_at),
+      title: r.title,
+      summary: r.summary || null,
+      gitBranch: r.git_branch || null,
+      snippet: extras.snippet,
+      matchField: extras.matchField,
+      rank: extras.rank,
+    };
+  }
+
   /** Search chats using FTS5 */
-  search(query: string, options: { projectId?: string; limit?: number } = {}): SearchResult[] {
+  search(
+    query: string,
+    options: { projectId?: string; boostProjectId?: string; limit?: number } = {},
+  ): SearchResult[] {
     const limit = options.limit ?? 20;
 
     // Sanitize for FTS5: wrap each token in quotes to avoid syntax errors
-    const ftsQuery = query
+    const tokens = query
       .trim()
       .split(/\s+/)
       .filter(Boolean)
-      .map((token) => `"${token.replace(/"/g, '""')}"`)
-      .join(" ");
+      .map((token) => `"${token.replace(/"/g, '""')}"`);
 
-    if (!ftsQuery) return [];
+    if (tokens.length === 0) return [];
+
+    // Prefix-match the last token while the user is still typing it — trailing
+    // whitespace means the word is complete, so match it exactly.
+    if (!/\s$/.test(query)) {
+      tokens[tokens.length - 1] += "*";
+    }
 
     try {
       const now = Date.now();
-      const rows = options.projectId
-        ? asRows<SearchResultRow>(
-            this.stmtSearchProject.all(now, ftsQuery, options.projectId, limit) as Record<
-              string,
-              unknown
-            >[],
-          )
-        : asRows<SearchResultRow>(
-            this.stmtSearchGlobal.all(now, ftsQuery, limit) as Record<string, unknown>[],
-          );
+      const executeSearch = (ftsQuery: string): SearchResultRow[] =>
+        options.projectId
+          ? asRows<SearchResultRow>(
+              this.stmtSearchProject.all(now, ftsQuery, options.projectId, limit) as Record<
+                string,
+                unknown
+              >[],
+            )
+          : asRows<SearchResultRow>(
+              this.stmtSearchGlobal.all(
+                now,
+                options.boostProjectId ?? "",
+                ftsQuery,
+                limit,
+              ) as Record<string, unknown>[],
+            );
 
-      return rows.map((r) => {
+      // Tokens are ANDed, so one wrong word kills the whole query. When the
+      // strict query matches nothing, retry with OR and flag results as partial.
+      let partial = false;
+      let rows = executeSearch(tokens.join(" "));
+      if (rows.length === 0 && tokens.length > 1) {
+        rows = executeSearch(tokens.join(" OR "));
+        partial = rows.length > 0;
+      }
+
+      const results = rows.map((r) => {
         // FTS5 snippet() returns text even for non-matching columns (just no
         // highlights). Only treat a snippet as a real match if it contains a
         // <mark> tag — that means the search term actually hit that field.
@@ -2287,29 +2388,33 @@ ${buildSearchIndexSchemaSql()},
                   ? "title"
                   : null;
 
-        return {
-          instanceId: r.instance_id,
-          source: r.source as "session" | "managed",
-          projectId: r.project_id || null,
-          spaceId: r.space_id || null,
-          lastActivityAt: Number(r.last_activity_at),
-          lastMessageAt:
-            r.last_message_at != null && r.last_message_at !== ""
-              ? Number(r.last_message_at)
-              : null,
-          createdAt: Number(r.created_at),
-          title: r.title,
-          summary: r.summary || null,
-          gitBranch: r.git_branch || null,
+        return this.toSearchResult(r, {
           snippet: sanitizeSnippet(bestSnippet),
           matchField,
           rank: r.combined_rank,
-        };
+        });
       });
+
+      if (partial) {
+        for (const result of results) result.partial = true;
+      }
+      return results;
     } catch {
       // FTS5 query syntax errors should not crash the server
       return [];
     }
+  }
+
+  /** Most recently active chats, for the search dialog's empty-query state */
+  recentChats(options: { projectId?: string; limit?: number } = {}): SearchResult[] {
+    const limit = options.limit ?? 20;
+    const rows = options.projectId
+      ? asRows<SearchResultRow>(
+          this.stmtRecentChatsProject.all(options.projectId, limit) as Record<string, unknown>[],
+        )
+      : asRows<SearchResultRow>(this.stmtRecentChatsGlobal.all(limit) as Record<string, unknown>[]);
+
+    return rows.map((r) => this.toSearchResult(r, { snippet: null, matchField: null, rank: 0 }));
   }
 
   clear(): void {

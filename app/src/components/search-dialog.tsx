@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { FolderOpen, GitBranch, Globe, MessageSquare } from "lucide-react";
-import { searchChats, type SearchResultItem } from "@/lib/api";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { Check, ChevronDown, FolderOpen, GitBranch, Globe, MessageSquare } from "lucide-react";
+import { fetchAllSpaces, searchChats, type SearchResultItem } from "@/lib/api";
 import { useProjectsQuery } from "@/hooks/use-projects-query";
 import { formatTimeAgo } from "@/lib/utils";
 import {
@@ -14,6 +14,7 @@ import {
   CommandGroup,
 } from "@/components/ui/command";
 import { Dialog } from "@/components/ui/dialog";
+import { Menu } from "@/components/ui/menu";
 
 export function useSearchDialog() {
   const [open, setOpen] = useState(false);
@@ -41,19 +42,20 @@ interface SearchDialogProps {
 export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [scope, setScope] = useState<"project" | "global">("project");
-  const { projectId } = useParams({ strict: false }) as { projectId?: string };
+  // Search is global by default; the filter narrows to one project for this open only
+  const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
+  const { projectId: routeProjectId } = useParams({ strict: false }) as { projectId?: string };
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset state when dialog opens
+  // Reset state when dialog opens — always back to global scope
   useEffect(() => {
     if (open) {
       setQuery("");
       setDebouncedQuery("");
-      setScope(projectId ? "project" : "global");
+      setFilterProjectId(null);
     }
-  }, [open, projectId]);
+  }, [open]);
 
   const { data: projects = [] } = useProjectsQuery();
   const projectNameById = useMemo(() => {
@@ -62,9 +64,15 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
     return map;
   }, [projects]);
 
-  const effectiveProjectId = scope === "project" ? projectId : undefined;
+  // Current route's project first in the filter menu — it's the likeliest filter target
+  const orderedProjects = useMemo(() => {
+    if (!routeProjectId) return projects;
+    const current = projects.filter((p) => p.id === routeProjectId);
+    return [...current, ...projects.filter((p) => p.id !== routeProjectId)];
+  }, [projects, routeProjectId]);
 
-  // Debounce the search query to avoid flickering results on fast typing
+  // Debounce the search query to avoid flickering results on fast typing.
+  // Queries under 2 chars fall back to the empty query (recent chats).
   useEffect(() => {
     if (query.trim().length < 2) {
       setDebouncedQuery("");
@@ -74,19 +82,73 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
     return () => clearTimeout(id);
   }, [query]);
 
-  const { data: results = [], isFetching } = useQuery({
-    queryKey: ["search", debouncedQuery, effectiveProjectId],
-    queryFn: () => searchChats(debouncedQuery, { projectId: effectiveProjectId, limit: 20 }),
-    enabled: open && debouncedQuery.trim().length >= 2,
+  const { data: rawResults = [], isFetching } = useQuery({
+    queryKey: ["search", debouncedQuery, filterProjectId, routeProjectId ?? null],
+    // Empty query returns recent chats. When unfiltered, boost the current
+    // route's project so local results rank first without hiding the rest.
+    queryFn: () =>
+      searchChats(debouncedQuery, {
+        projectId: filterProjectId ?? undefined,
+        boostProjectId: filterProjectId ? undefined : routeProjectId,
+        limit: 20,
+      }),
+    enabled: open,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
+
+  // Chats without a registered project can't be navigated to — hide them
+  const results = useMemo(() => rawResults.filter((r) => r.projectId), [rawResults]);
+
+  const showingRecents = debouncedQuery.trim().length === 0;
+  const showingPartial = !showingRecents && results.some((r) => r.partial);
+
+  // Spaces per project — shares the sidebar's ["spaces", projectId] cache,
+  // fetched only while the dialog is open
+  const spaceQueries = useQueries({
+    queries: projects.map((p) => ({
+      queryKey: ["spaces", p.id],
+      queryFn: () => fetchAllSpaces(p.id),
+      enabled: open,
+      staleTime: 60_000,
+    })),
+  });
+
+  // Projects and spaces match client-side on the live query (no debounce needed)
+  const localQuery = query.trim().toLowerCase();
+  const projectMatches =
+    localQuery.length < 2
+      ? []
+      : projects
+          .filter((p) => !filterProjectId || p.id === filterProjectId)
+          .filter((p) => p.name.toLowerCase().includes(localQuery))
+          .slice(0, 3);
+  const spaceMatches =
+    localQuery.length < 2
+      ? []
+      : projects
+          .flatMap((p, i) =>
+            (filterProjectId && p.id !== filterProjectId ? [] : (spaceQueries[i]?.data ?? []))
+              .filter((s) => !s.isDefault && s.status === "active")
+              .filter(
+                (s) =>
+                  s.name.toLowerCase().includes(localQuery) ||
+                  s.gitBranch?.toLowerCase().includes(localQuery),
+              )
+              .map((s) => ({ space: s, project: p })),
+          )
+          .slice(0, 3);
+  const hasLocalMatches = projectMatches.length > 0 || spaceMatches.length > 0;
 
   const handleSelect = useCallback(
     (result: SearchResultItem) => {
       if (!result.projectId) return; // Cannot navigate without a project
       onOpenChange(false);
 
+      const search = {
+        q: query.trim() ? query : undefined,
+        match: result.snippet ?? undefined,
+      };
       if (result.spaceId) {
         navigate({
           to: "/projects/$projectId/spaces/$spaceId/$chatId",
@@ -95,10 +157,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
             spaceId: result.spaceId,
             chatId: result.instanceId,
           },
-          search: {
-            q: query,
-            match: result.snippet ?? undefined,
-          },
+          search,
         });
       } else {
         navigate({
@@ -107,18 +166,15 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
             projectId: result.projectId,
             chatId: result.instanceId,
           },
-          search: {
-            q: query,
-            match: result.snippet ?? undefined,
-          },
+          search,
         });
       }
     },
     [navigate, onOpenChange, query],
   );
 
-  const toggleScope = useCallback(() => {
-    setScope((s) => (s === "project" ? "global" : "project"));
+  const selectFilter = useCallback((projectId: string | null) => {
+    setFilterProjectId(projectId);
     inputRef.current?.focus();
   }, []);
 
@@ -126,6 +182,10 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
     (result: SearchResultItem) => result.lastMessageAt ?? result.lastActivityAt,
     [],
   );
+
+  const filterProjectName = filterProjectId
+    ? (projectNameById.get(filterProjectId) ?? "Unknown")
+    : null;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -135,48 +195,132 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
             <CommandInput
               ref={inputRef}
               placeholder={
-                scope === "project" && projectId ? "Search this project…" : "Search all projects…"
+                filterProjectName ? `Search in ${filterProjectName}…` : "Search all projects…"
               }
               value={query}
               onValueChange={setQuery}
               className="!h-10 flex-1"
             />
-            {projectId && (
-              <button
-                type="button"
-                onClick={toggleScope}
-                className="mr-3 ml-auto flex shrink-0 items-center gap-1 rounded-md border border-border/70 px-2 py-1 text-[0.6875rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                title={scope === "project" ? "Search all projects" : "Search this project only"}
-              >
-                {scope === "project" ? (
-                  <>
-                    <FolderOpen size={12} />
-                    Project
-                  </>
-                ) : (
-                  <>
-                    <Globe size={12} />
-                    Global
-                  </>
-                )}
-              </button>
+            {projects.length > 0 && (
+              <Menu.Root>
+                <Menu.Trigger
+                  className="mr-3 ml-auto flex shrink-0 items-center gap-1 rounded-md border border-border/70 px-2 py-1 text-[0.6875rem] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  title="Filter by project"
+                >
+                  {filterProjectName ? (
+                    <>
+                      <FolderOpen size={12} />
+                      <span className="max-w-28 truncate">{filterProjectName}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Globe size={12} />
+                      All projects
+                    </>
+                  )}
+                  <ChevronDown size={10} />
+                </Menu.Trigger>
+                <Menu.Content align="end">
+                  <Menu.Item onClick={() => selectFilter(null)}>
+                    <Globe size={13} className="text-muted" />
+                    <span className="flex-1">All projects</span>
+                    {filterProjectId === null && <Check size={13} className="text-accent" />}
+                  </Menu.Item>
+                  <Menu.Separator />
+                  {orderedProjects.map((p) => (
+                    <Menu.Item key={p.id} onClick={() => selectFilter(p.id)}>
+                      <FolderOpen size={13} className="text-muted" />
+                      <span className="max-w-48 flex-1 truncate">{p.name}</span>
+                      {p.id === routeProjectId && (
+                        <span className="text-[0.625rem] text-muted/70">current</span>
+                      )}
+                      {filterProjectId === p.id && <Check size={13} className="text-accent" />}
+                    </Menu.Item>
+                  ))}
+                </Menu.Content>
+              </Menu.Root>
             )}
           </div>
           <CommandList className="max-h-80 border-t border-border/70">
-            {query.trim().length < 2 ? (
-              <div className="py-8 text-center text-sm text-muted">
-                Type to search chats{scope === "project" && projectId ? " in this project" : ""}…
-              </div>
-            ) : results.length === 0 && !isFetching ? (
-              <CommandEmpty>No results found.</CommandEmpty>
+            {projectMatches.length > 0 && (
+              <CommandGroup heading="Projects">
+                {projectMatches.map((p) => (
+                  <CommandItem
+                    key={`project-${p.id}`}
+                    value={`project-${p.id}`}
+                    onSelect={() => {
+                      onOpenChange(false);
+                      navigate({ to: "/projects/$projectId", params: { projectId: p.id } });
+                    }}
+                    className="!py-2 !px-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FolderOpen size={13} className="shrink-0 text-muted" />
+                      <span className="truncate text-[0.8125rem] font-medium text-text-bright">
+                        {p.name}
+                      </span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {spaceMatches.length > 0 && (
+              <CommandGroup heading="Spaces">
+                {spaceMatches.map(({ space, project }) => (
+                  <CommandItem
+                    key={`space-${space.id}`}
+                    value={`space-${space.id}`}
+                    onSelect={() => {
+                      onOpenChange(false);
+                      navigate({
+                        to: "/projects/$projectId/spaces/$spaceId",
+                        params: { projectId: project.id, spaceId: space.id },
+                      });
+                    }}
+                    className="!py-2 !px-3"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <GitBranch size={13} className="shrink-0 text-muted" />
+                      <span className="truncate text-[0.8125rem] font-medium text-text-bright">
+                        {space.name}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-0.5 text-[0.625rem] text-muted/70">
+                        <FolderOpen size={10} />
+                        {project.name}
+                      </span>
+                      {space.gitBranch && (
+                        <span className="truncate text-[0.625rem] text-muted/70">
+                          {space.gitBranch}
+                        </span>
+                      )}
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {results.length === 0 && !isFetching ? (
+              !hasLocalMatches && (
+                <CommandEmpty>
+                  {showingRecents ? "No chats yet." : "No results found."}
+                </CommandEmpty>
+              )
             ) : (
-              <CommandGroup>
+              <CommandGroup
+                heading={
+                  showingRecents
+                    ? "Recent chats"
+                    : showingPartial
+                      ? "Partial matches"
+                      : hasLocalMatches
+                        ? "Chats"
+                        : undefined
+                }
+              >
                 {results.map((result) => (
                   <CommandItem
                     key={`${result.source}-${result.instanceId}`}
                     value={`${result.source}-${result.instanceId}`}
                     onSelect={() => handleSelect(result)}
-                    disabled={!result.projectId}
                     className="!py-2.5 !px-3"
                   >
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -203,7 +347,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                             {result.matchField}
                           </span>
                         )}
-                        {scope === "global" && result.projectId && (
+                        {result.projectId && (
                           <span className="flex items-center gap-0.5 text-[0.625rem] text-muted/70">
                             <FolderOpen size={10} />
                             {projectNameById.get(result.projectId) ?? "Unknown"}

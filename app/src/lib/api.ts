@@ -1011,14 +1011,17 @@ export interface SearchResultItem {
   snippet: string | null;
   matchField: string | null;
   rank: number;
+  /** True when the result came from the OR fallback (not all terms matched) */
+  partial?: boolean;
 }
 
 export async function searchChats(
   query: string,
-  opts?: { projectId?: string; limit?: number },
+  opts?: { projectId?: string; boostProjectId?: string; limit?: number },
 ): Promise<SearchResultItem[]> {
   const params = new URLSearchParams({ q: query });
   if (opts?.projectId) params.set("projectId", opts.projectId);
+  if (opts?.boostProjectId) params.set("boostProjectId", opts.boostProjectId);
   if (opts?.limit) params.set("limit", String(opts.limit));
   const res = await fetch("/api/search?" + params.toString());
   if (!res.ok) return [];

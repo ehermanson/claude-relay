@@ -164,6 +164,17 @@ The sidebar has two layouts, chosen by `GlobalSettings.sidebarLayout` (`"project
 
 `InstanceManager.setInstancesDone()` persists via `SessionDB.setDoneBulk()` (one transaction), updates live instances in memory (they override REST summaries in the UI's merge), and emits a single `instances:changed` → one `instance_list` broadcast. Never emit per-chat status for a bulk mutation — a sweep touches hundreds of rows.
 
+### Search
+
+- ⌘K search (`app/src/components/search-dialog.tsx` → `GET /api/search` → `SessionDB.search()`) is **global by default** — never scope it to the route's project implicitly. The dialog offers a per-open project filter dropdown (reset on every open, never persisted); when unfiltered, results from the current route's project get a 2× rank boost (`boostProjectId`) so local results lead without hiding cross-project hits.
+- FTS5 `search_index` ranking: weighted bm25 (title ≫ summary/branch > prompts/messages > transcript, weights on `SEARCH_INDEX_COLUMNS`) × 30-day recency decay. Recency is `max(last_message_at, last_activity_at)` (`RECENCY_SQL`), matching the inbox's `getChatRecencyTimestamp` — keep them in sync.
+- The **last token is prefix-matched** (`"tok"*`) unless the raw query ends in whitespace (word complete) — as-you-type search must not require whole words.
+- Tokens are ANDed; when the strict query matches nothing (and there are 2+ tokens), `search()` retries with **OR and flags results `partial: true`** — the UI renders them under a "Partial matches" heading instead of a dead "No results".
+- An **empty query returns recent chats** (`SessionDB.recentChats()`, same `SearchResult` shape with null snippet), so the dialog doubles as a chat switcher. Ordering is **pinned-first, then recency** (matching `compareChatListOrder`); the index carries a `pinned` column and `setPinned()` resyncs the doc, so pin toggles reflect immediately.
+- **Projects and active spaces are search results too**, matched client-side in the dialog (name/branch substring) from the cached `projects` + `["spaces", projectId]` queries — no server round-trip; they render as "Projects"/"Spaces" groups above chats and respect the project filter. Space queries are `enabled` only while the dialog is open.
+- Adding a column to `SEARCH_INDEX_COLUMNS` is self-migrating: `ensureSearchIndex()` drops any existing table missing a declared column and the index is rebuilt at startup.
+- Results whose chat has no registered project are hidden client-side — they can't be navigated to (routes need a `projectId`).
+
 ### Spaces
 
 Spaces group multiple concurrent agent chats within a shared git worktree/branch (`Project → Space[] → Chat[]`). Every project has an implicit "main" space (no worktree, default branch). Additional spaces create dedicated worktrees in `<RELAY_HOME>/worktrees/space-<id>/` (defaults to `~/.relay/worktrees/space-<id>/`).
