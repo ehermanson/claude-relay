@@ -351,7 +351,7 @@ interface ToolContentProps {
 function LabeledSection({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <span className="text-[10px] font-medium text-muted/60">{label}</span>
+      <span className="text-[0.625rem] font-medium text-muted/60">{label}</span>
       <div className="mt-0.5">{children}</div>
     </div>
   );
@@ -532,7 +532,7 @@ export function ToolContent({
           </LabeledSection>
         ) : (
           <LabeledSection label="Result">
-            <div className="text-[10px] text-muted/50 italic">No output</div>
+            <div className="text-[0.625rem] text-muted/50 italic">No output</div>
           </LabeledSection>
         )}
       </div>

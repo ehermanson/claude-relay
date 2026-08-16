@@ -38,7 +38,7 @@ export function ToolContainer({
     <>
       {label && (
         <div className="pt-2.5 pb-1.5">
-          <span className="inline-flex items-center text-[10px] uppercase tracking-[0.12em] text-muted/55">
+          <span className="inline-flex items-center text-[0.625rem] uppercase tracking-[0.12em] text-muted/55">
             {label}
           </span>
         </div>

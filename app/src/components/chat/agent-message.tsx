@@ -226,7 +226,9 @@ export function AgentMessage({ text, timestamp, anchorIndex, aborted }: AgentMes
         />
       )}
 
-      <div className="min-w-0 overflow-hidden px-1 py-0.5 text-sm leading-relaxed text-text/80">
+      {/* max-[768px]:text-[16px] — mobile message text matches the composer's
+          fixed 16px (anti-zoom) size, so a draft doesn't shrink when sent. */}
+      <div className="min-w-0 overflow-hidden px-1 py-0.5 text-sm leading-relaxed text-text/80 max-[768px]:text-[16px]">
         <div
           ref={contentRef}
           className="relative min-w-0 overflow-hidden transition-[max-height] duration-200"
@@ -259,13 +261,13 @@ export function AgentMessage({ text, timestamp, anchorIndex, aborted }: AgentMes
       {(timestamp || aborted) && (
         <div className="flex items-center gap-2 px-1">
           {aborted && (
-            <span className="inline-flex items-center gap-1 text-[10px] text-muted/60">
+            <span className="inline-flex items-center gap-1 text-[0.625rem] text-muted/60">
               <OctagonX size={10} />
               Cancelled
             </span>
           )}
           {timestamp && (
-            <span className="text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
+            <span className="text-[0.625rem] text-muted/45">{formatTimestamp(timestamp)}</span>
           )}
         </div>
       )}

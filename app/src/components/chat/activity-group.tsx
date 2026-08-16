@@ -130,7 +130,7 @@ export function ActivityGroup({
           >
             <button
               onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-1.5 border-none bg-transparent py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted/55 transition-colors duration-150 hover:text-muted/80"
+              className="flex items-center gap-1.5 border-none bg-transparent py-0.5 text-[0.625rem] uppercase tracking-[0.12em] text-muted/55 transition-colors duration-150 hover:text-muted/80"
             >
               <ChevronRight
                 size={8}

@@ -526,7 +526,7 @@ export function MessageList({
                 )}
                 {queuedRows.length > 0 && (
                   <div className="mt-2 flex flex-col gap-3 border-t border-dashed border-border/30 pt-3">
-                    <div className="px-1 text-[10px] uppercase tracking-wider text-muted/50">
+                    <div className="px-1 text-[0.625rem] uppercase tracking-wider text-muted/50">
                       Queued
                       {queuedRows.length > 1 ? ` · ${queuedRows.length}` : ""}
                     </div>

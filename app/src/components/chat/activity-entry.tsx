@@ -185,7 +185,7 @@ export function ActivityEntry({
   return (
     <div className={`flex flex-col ${collapsed ? "hidden" : ""}`}>
       <div
-        className={`group/entry flex items-start gap-2.5 rounded-md py-1 text-[11px] leading-relaxed text-muted ${
+        className={`group/entry flex items-start gap-2.5 rounded-md py-1 text-[0.6875rem] leading-relaxed text-muted ${
           isError ? "bg-error-dim" : ""
         } ${isExpandable ? "cursor-pointer" : ""}`}
         onClick={isExpandable ? () => setExpanded(!expanded) : undefined}
@@ -198,7 +198,7 @@ export function ActivityEntry({
           filePath={filePath}
         />
         <span
-          className={`min-w-0 truncate text-[11px] ${
+          className={`min-w-0 truncate text-[0.6875rem] ${
             isError
               ? "font-medium text-error"
               : isExpandable
@@ -216,7 +216,7 @@ export function ActivityEntry({
           </span>
         ) : null}
         {isExternalPending && (
-          <span className="shrink-0 whitespace-nowrap rounded-md bg-claude-dim px-1.5 py-0.5 text-[10px] font-medium text-claude">
+          <span className="shrink-0 whitespace-nowrap rounded-md bg-claude-dim px-1.5 py-0.5 text-[0.625rem] font-medium text-claude">
             Pending in terminal
           </span>
         )}

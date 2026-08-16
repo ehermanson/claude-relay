@@ -354,6 +354,18 @@ html {
   }
 }
 
+/* Metadata type floor on mobile: the two smallest steps in the scale render
+   at ~9.6px/10.6px even after the 17px root bump — below comfortable phone
+   legibility (iOS caption is 11–12px). Flooring them here beats editing 60+
+   call sites, and un-layered CSS wins over Tailwind's layered utilities
+   without !important. Desktop keeps its density. */
+@media (max-width: 768px) {
+  .text-\[0\.5625rem\],
+  .text-\[0\.625rem\] {
+    font-size: 0.6875rem;
+  }
+}
+
 /* ── Tabular numbers for data ─────────────────────────────────────── */
 .tabular-nums {
   font-variant-numeric: tabular-nums;

@@ -69,9 +69,9 @@ export function PatchDiffView({ diff, label }: { diff: string; label?: string })
   const lines = diff.split("\n");
 
   return (
-    <div className="mt-1.5 overflow-hidden rounded-md border border-border/70 text-[11px] leading-relaxed">
+    <div className="mt-1.5 overflow-hidden rounded-md border border-border/70 text-[0.6875rem] leading-relaxed">
       {label && (
-        <div className="border-b border-border/70 bg-panel-header px-2.5 py-1 font-mono text-[10px] text-muted/70">
+        <div className="border-b border-border/70 bg-panel-header px-2.5 py-1 font-mono text-[0.625rem] text-muted/70">
           {label}
         </div>
       )}
@@ -99,7 +99,10 @@ export function PatchDiffView({ diff, label }: { diff: string; label?: string })
           const content = prefix === "+" || prefix === "-" ? line.slice(1) : line;
 
           return (
-            <div key={i} className={`whitespace-pre px-2.5 py-px font-mono text-[11px] ${bgClass}`}>
+            <div
+              key={i}
+              className={`whitespace-pre px-2.5 py-px font-mono text-[0.6875rem] ${bgClass}`}
+            >
               {prefix !== "" && (
                 <span
                   className={`mr-2 inline-block w-3 select-none ${
@@ -133,19 +136,19 @@ export function ActivityCodeBlock({
 }) {
   const highlighted = highlightCode(content, lang);
   return (
-    <div className="mt-1.5 overflow-hidden rounded-md border border-border/70 text-[11px] leading-relaxed">
+    <div className="mt-1.5 overflow-hidden rounded-md border border-border/70 text-[0.6875rem] leading-relaxed">
       {label && (
-        <div className="border-b border-border/70 bg-panel-header px-2.5 py-1 font-mono text-[10px] text-muted/70">
+        <div className="border-b border-border/70 bg-panel-header px-2.5 py-1 font-mono text-[0.625rem] text-muted/70">
           {label}
         </div>
       )}
       {highlighted ? (
         <pre
-          className="hljs m-0 overflow-x-auto bg-bg/80 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed"
+          className="hljs m-0 overflow-x-auto bg-bg/80 px-2.5 py-1.5 font-mono text-[0.6875rem] leading-relaxed"
           dangerouslySetInnerHTML={{ __html: highlighted }}
         />
       ) : (
-        <pre className="m-0 overflow-x-auto bg-bg/80 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-text/80">
+        <pre className="m-0 overflow-x-auto bg-bg/80 px-2.5 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-text/80">
           {content}
         </pre>
       )}

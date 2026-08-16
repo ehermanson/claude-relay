@@ -379,7 +379,7 @@ export function ChatTimeline({ rows, onScrollToRow, isLive }: ChatTimelineProps)
 
       {/* Duration label + dismiss */}
       <div className="flex items-center justify-end gap-1.5">
-        <span className="hidden text-[9px] tabular-nums text-muted/40 sm:inline">
+        <span className="hidden text-[0.5625rem] tabular-nums text-muted/40 sm:inline">
           {formatElapsed(totalElapsed)}
         </span>
         <button

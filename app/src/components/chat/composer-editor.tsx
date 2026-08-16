@@ -101,7 +101,7 @@ class ComposerMentionNode extends TextNode {
   override createDOM(_config: EditorConfig): HTMLElement {
     const dom = document.createElement("span");
     dom.className =
-      "inline-flex select-none items-center gap-1 rounded-md border border-border/80 bg-accent/10 px-1.5 py-px align-middle text-[12px] font-medium leading-[1.1] text-text";
+      "inline-flex select-none items-center gap-1 rounded-md border border-border/80 bg-accent/10 px-1.5 py-px align-middle text-[0.75rem] font-medium leading-[1.1] text-text";
     dom.contentEditable = "false";
     renderMentionChip(dom, this.__path);
 
@@ -195,7 +195,7 @@ class ComposerSlashNode extends TextNode {
   override createDOM(_config: EditorConfig): HTMLElement {
     const dom = document.createElement("span");
     dom.className =
-      "inline-flex select-none items-center gap-1 rounded-md border border-border/60 bg-surface-hover/80 px-1.5 py-px align-middle text-[12px] font-medium leading-[1.1] text-text";
+      "inline-flex select-none items-center gap-1 rounded-md border border-border/60 bg-surface-hover/80 px-1.5 py-px align-middle text-[0.75rem] font-medium leading-[1.1] text-text";
     dom.contentEditable = "false";
     renderSlashChip(dom, this.__command);
     return dom;

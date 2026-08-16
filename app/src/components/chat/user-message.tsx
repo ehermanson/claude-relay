@@ -275,7 +275,7 @@ export function UserMessage({
         </div>
         <div className="flex items-center gap-1.5 px-1">
           {queued && (
-            <span className="flex items-center gap-1 text-[10px] text-muted/60">
+            <span className="flex items-center gap-1 text-[0.625rem] text-muted/60">
               <Clock size={10} />
               queued
             </span>
@@ -284,14 +284,14 @@ export function UserMessage({
             <button
               type="button"
               onClick={onInterruptAndSend}
-              className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-warning transition-colors hover:bg-warning/10"
+              className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium text-warning transition-colors hover:bg-warning/10"
             >
               <Zap size={10} />
               Send now
             </button>
           )}
           {timestamp && (
-            <span className="text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
+            <span className="text-[0.625rem] text-muted/45">{formatTimestamp(timestamp)}</span>
           )}
         </div>
       </div>
@@ -333,12 +333,12 @@ export function UserMessage({
               Spun off from {spinOffSource}
             </span>
           </div>
-          <div className="px-3 py-2.5 text-sm leading-relaxed text-text/80">
+          <div className="px-3 py-2.5 text-sm leading-relaxed text-text/80 max-[768px]:text-[16px]">
             <MarkdownContent text={spinOffContent} />
           </div>
         </div>
         {timestamp && (
-          <span className="px-1 text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
+          <span className="px-1 text-[0.625rem] text-muted/45">{formatTimestamp(timestamp)}</span>
         )}
       </div>
     );
@@ -364,7 +364,7 @@ export function UserMessage({
       )}
       {hasInlineReplies ? (
         <div
-          className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed ${
+          className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed max-[768px]:text-[16px] ${
             queued
               ? "border-border/30 border-dashed bg-user-bg/60 text-user-text/70"
               : "border-border/50 bg-user-bg text-user-text"
@@ -389,7 +389,7 @@ export function UserMessage({
         <SlashCommandChip command={slashParsed.command} />
       ) : hasText && slashParsed?.rest ? (
         <div
-          className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed ${
+          className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed max-[768px]:text-[16px] ${
             queued
               ? "border-border/30 border-dashed bg-user-bg/60 text-user-text/70"
               : "border-border/50 bg-user-bg text-user-text"
@@ -403,7 +403,7 @@ export function UserMessage({
         </div>
       ) : hasText ? (
         <div
-          className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed ${
+          className={`rounded-2xl rounded-br-sm border p-2 text-sm leading-relaxed max-[768px]:text-[16px] ${
             relaySource
               ? "border-accent/30 bg-accent/5 text-user-text"
               : queued
@@ -418,7 +418,7 @@ export function UserMessage({
       {hasImages && <ImageRow images={images} />}
       <div className="flex items-center gap-1.5 px-1">
         {queued && (
-          <span className="flex items-center gap-1 text-[10px] text-muted/60">
+          <span className="flex items-center gap-1 text-[0.625rem] text-muted/60">
             <Clock size={10} />
             queued
           </span>
@@ -427,14 +427,14 @@ export function UserMessage({
           <button
             type="button"
             onClick={onInterruptAndSend}
-            className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-warning transition-colors hover:bg-warning/10"
+            className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium text-warning transition-colors hover:bg-warning/10"
           >
             <Zap size={10} />
             Send now
           </button>
         )}
         {timestamp && (
-          <span className="text-[10px] text-muted/45">{formatTimestamp(timestamp)}</span>
+          <span className="text-[0.625rem] text-muted/45">{formatTimestamp(timestamp)}</span>
         )}
       </div>
     </div>

@@ -86,7 +86,7 @@ export class FileMentionNode extends TextNode {
   override createDOM(_config: EditorConfig): HTMLElement {
     const dom = document.createElement("span");
     dom.className =
-      "inline-flex select-none items-center gap-1 rounded-md border border-border/80 bg-accent/10 px-1.5 py-px text-[12px] font-medium leading-[1.1] text-text";
+      "inline-flex select-none items-center gap-1 rounded-md border border-border/80 bg-accent/10 px-1.5 py-px text-[0.75rem] font-medium leading-[1.1] text-text";
     dom.style.verticalAlign = "-0.15em";
     dom.contentEditable = "false";
     renderChip(dom, this.__path);
