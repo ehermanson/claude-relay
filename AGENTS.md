@@ -119,6 +119,15 @@ The iOS keyboard is handled by **accepting** WebKit's native page push (the head
 - Pre-shrinking `<body>` on `focusin` prevents the push, but iOS freezes web-content compositing during the keyboard presentation, so the shrink paints only after the transition settles (~1s perceived stall) — web-unfixable
 - Pre-shrinking at `pointerdown` paints in time but moves the tap target mid-gesture — iOS abandons the tap (no focus, no keyboard)
 
+### Mobile Type & Touch Targets
+
+Mobile (≤768px) sizing is centralized in `app/src/index.css` — don't fight it per-component:
+
+- A 17px root font plus a **mobile type ladder** that remaps the small rem utility classes (`text-[0.5625rem]`…`text-[0.8125rem]`, `text-xs`) up one step on phones. Use the rem scale for new text — never px sizes like `text-[11px]` (they silently opt out of the ladder). Deliberate px exceptions: the composer and chat message bodies are pinned to 16px (iOS anti-zoom parity), xterm and the diff drawer set their own mobile sizes.
+- A `@media (pointer: coarse)` block gives menu items / options / tabs native hit heights centrally; undersized icon buttons get `max-[768px]:h-10 max-[768px]:w-10`-style bumps at the call site. Keep interactive targets ≥ ~40px on mobile — grow hit areas (padding/min-height), not glyphs.
+- **Tooltips never open on touch.** Anything informational needs a tap path on mobile (e.g. context-panel help icons switch to a `Popover` on coarse pointers), and hover-gated affordances need a `pointer: coarse` override (see `sidebar.css`).
+- Dialogs top-anchor on mobile (`dialog.tsx`) — the keyboard covers vertically centered dialogs.
+
 ### Lazy Hydration
 
 Sidebar/dashboard rows render from persisted SQLite metadata first. Opening a chat triggers lazy hydration of transcript/task/file state and git info, but history reads stay passive: Relay does not boot/resume a stopped managed session until the user explicitly sends a message (or otherwise takes over/resumes it).

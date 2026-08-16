@@ -1,5 +1,7 @@
 import { memo, useMemo } from "react";
 import { Tooltip } from "../ui/tooltip";
+import { Popover } from "../ui/popover";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import type { ChatItem } from "@/hooks/use-instance-messages";
 
 import { useProviderRuntimeStore } from "@/stores/provider-runtime-store";
@@ -29,6 +31,27 @@ import { McpServerList } from "./mcp-server-list";
 // =============================================================================
 
 function StatHelpIcon({ tooltip }: { tooltip: string }) {
+  // Tooltips never open on touch — render a tap-to-open popover there instead,
+  // with a slightly larger glyph so it's actually hittable.
+  const isTouch = useMediaQuery("(pointer: coarse)");
+
+  if (isTouch) {
+    return (
+      <Popover.Root>
+        <Popover.Trigger className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border/70 text-[0.625rem] font-semibold leading-none text-muted/75">
+          ?
+        </Popover.Trigger>
+        <Popover.Content
+          side="bottom"
+          align="start"
+          className="max-w-xs !p-3 text-[0.75rem] leading-snug text-text"
+        >
+          {tooltip}
+        </Popover.Content>
+      </Popover.Root>
+    );
+  }
+
   return (
     <Tooltip content={tooltip} side="bottom">
       <span className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-border/70 text-[0.5625rem] font-semibold leading-none text-muted/75 transition-colors hover:border-border hover:text-text">

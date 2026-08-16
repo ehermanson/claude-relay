@@ -31,8 +31,11 @@ export function DialogContent({
   return (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop className="fixed inset-0 z-[9998] bg-black/60 backdrop-blur-sm animate-fade-in" />
+      {/* Top-anchored on mobile: the on-screen keyboard covers the lower half
+          of the viewport, so a vertically centered dialog ends up hidden or
+          jumping when an input inside it focuses. */}
       <BaseDialog.Popup
-        className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none`}
+        className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none max-[768px]:items-start max-[768px]:pt-[8dvh]`}
       >
         <div
           className={`pointer-events-auto mx-auto flex w-full ${maxWidth} flex-col gap-3 rounded-xl border border-border/70 bg-surface p-5 shadow-2xl animate-fade-in ${className}`}

@@ -377,7 +377,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
 
           {/* Footer */}
           <div className="flex items-center justify-between border-t border-border/70 px-3 py-1.5 text-[0.625rem] text-muted">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 max-[768px]:hidden">
               <span>
                 <kbd className="rounded border border-border/70 px-1 py-0.5 font-mono text-[0.5625rem]">
                   ↑↓
