@@ -2483,6 +2483,97 @@
       "blockedBy": [],
       "createdAt": "2026-07-27T00:00:00.000Z",
       "updatedAt": "2026-07-27T00:00:00.000Z"
+    },
+    {
+      "id": "b6c8d0e2",
+      "title": "Claude: expose crossSessionInbound and dialogExpiry settings in session config",
+      "description": "CLI 2.1.224 and Agent SDK 0.3.224 add two new settings:\n- `crossSessionInbound`: controls whether messages sent from another session are auto-delivered or held for approval. For full-access (bypassed-permissions) sessions — the default in Relay — the SDK now holds inbound cross-session messages for explicit approval rather than auto-delivering them.\n- `dialogExpiry`: controls how long an approval dialog is kept alive before being auto-dismissed.\n\nThis behavior change is live in the SDK version range Relay currently targets. Users expecting auto-delivery of cross-session messages in full-access sessions will see approval prompts instead.\n\nNeeded:\n1. Decide whether Relay should mirror the SDK's new default (hold for approval) or preserve prior auto-deliver behavior by explicitly setting `crossSessionInbound: 'auto'`.\n2. Expose `crossSessionInbound` and `dialogExpiry` in project or global settings so users can configure the behavior.\n3. Add to `ProviderCapabilities` if these are session-start args (confirm from SDK types).\n\nScope: small–medium (~2h). Touch points: `claude-sdk.ts` session start args, `ProviderCapabilities`, settings UI.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.224, @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.224",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-17T00:00:00.000Z",
+      "updatedAt": "2026-08-17T00:00:00.000Z"
+    },
+    {
+      "id": "c7d9e1f3",
+      "title": "Claude: strip gateway provider prefixes from model IDs in the model picker",
+      "description": "CLI 2.1.223 fixed a bug that hid Claude models registered with gateway-provider prefixes (e.g. `vertex_ai/claude-3-5-sonnet-20241022`, `bedrock/anthropic.claude-3-5-sonnet-20241022-v1:0`) from model discovery. After the fix, these IDs surface in the model picker.\n\nRelay's `formatClaudeModelLabel` in `server/core/providers/provider-catalog.ts` handles `claude-*` IDs. Without a prefix-strip pass, gateway users see raw gateway IDs like `vertex_ai/claude-3-5-sonnet-20241022` in the picker instead of readable labels like \"Claude 3.5 Sonnet\".\n\nNeeded:\n1. Strip the gateway provider prefix (`vertex_ai/`, `bedrock/anthropic.`, etc.) before passing the ID to `formatClaudeModelLabel`.\n2. Verify model discovery de-duplicates IDs so a model registered under both a canonical and a gateway ID doesn't appear twice.\n\nScope: small (~1h). Touch points: `provider-catalog.ts` or model discovery in `claude-sdk.ts`.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.223",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-17T00:00:00.000Z",
+      "updatedAt": "2026-08-17T00:00:00.000Z"
+    },
+    {
+      "id": "a8b2c4d6",
+      "title": "Claude: render advisor tool blocks in chat history",
+      "description": "Anthropic SDK 0.116.0 (TypeScript) adds the advisor tool — a new built-in tool type alongside bash, computer-use, text-editor, and web-search. When Claude uses the advisor tool, it appears in the live message stream and JSONL transcripts as a `tool_use` block with `type: 'advisor'` (or similar).\n\nRelay's JSONL parser and stream handler process `tool_use` blocks. Without an explicit handler, advisor tool blocks may be silently dropped or rendered with a generic fallback.\n\nNeeded:\n1. Verify the JSONL parser doesn't drop advisor tool blocks — add a case for the new type if needed.\n2. Add a render path in the chat message renderer with an appropriate icon and label (consistent with how bash/computer-use/web-search are rendered).\n3. Test against a real transcript containing an advisor tool use if available.\n\nScope: small (~1–2h). Touch points: JSONL parser (`server/core/providers/`), chat message renderer (`app/src/components/chat/`).\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/sdk CHANGELOG v0.116.0 (TypeScript)",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-17T00:00:00.000Z",
+      "updatedAt": "2026-08-17T00:00:00.000Z"
+    },
+    {
+      "id": "d9e3f5a7",
+      "title": "Design: shared ProviderCapabilities.pluginCatalog abstraction for Claude skills and Codex plugins",
+      "description": "Both providers now have a plugin/skill catalog model:\n- Claude has Skills (`.claude/skills/`, slash-command invocation, marketplace install)\n- Codex 0.147.0 added an Agent Plugins catalog (local, personal, workspace, remote install)\n\nRelay currently surfaces Claude skills in the UI (discovered from `.claude.json`, invokable via slash commands). There is no Codex plugin surface.\n\nThis is a design task: define a shared `ProviderCapabilities.pluginCatalog` abstraction and a unified Relay UI surface that works for both providers. The abstraction should cover:\n- Plugin/skill discovery (what does each provider expose?)\n- Install sources (local, marketplace, remote)\n- Invocation model (slash commands vs. inline activation)\n- Lifecycle (install, enable, disable, uninstall)\n\nScope: design + research pass (~3–4h). Implementation is a separate task. Would be bucket-2 (near-mechanical) once the abstraction exists.\n\nBucket 3 (new surface, on-strategy — multi-provider normalization).\n\nRef: Codex CHANGELOG v0.147.0, Claude Code CLI skill documentation",
+      "status": "open",
+      "priority": 3,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "codex", "bucket-3"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-17T00:00:00.000Z",
+      "updatedAt": "2026-08-17T00:00:00.000Z"
+    },
+    {
+      "id": "29a4c7e1",
+      "title": "Codex: research executor skill discovery via app-server RPC",
+      "description": "Codex 0.146.0 added the ability for the executor to publish a skill manifest, letting Codex sessions discover and invoke skills by slash command — analogous to Claude's skill system.\n\nRelay already surfaces Claude skills and slash-command invocation in the UI (composer autocomplete). Making Codex skill discovery work cross-provider via `ProviderCapabilities` would be on-strategy normalization.\n\nThis is a research task: inspect the Codex app-server RPC protocol and skill manifest format to determine what Relay would need to (a) request the skill list from a live Codex session, and (b) relay it to the UI via the existing slash-command surface.\n\nScope: research pass (~2h). Implementation follows from the `ProviderCapabilities.pluginCatalog` design task (`d9e3f5a7`).\n\nBucket 3 (passes chase test — multi-provider normalization of slash-command skills).\n\nRef: Codex CHANGELOG v0.146.0",
+      "status": "open",
+      "priority": 3,
+      "type": "task",
+      "tags": ["provider-watch", "codex", "bucket-3"],
+      "parent": null,
+      "blockedBy": ["d9e3f5a7"],
+      "createdAt": "2026-08-17T00:00:00.000Z",
+      "updatedAt": "2026-08-17T00:00:00.000Z"
+    },
+    {
+      "id": "e4a7c1f8",
+      "title": "Claude: re-enable todo/task tools for managed sessions or degrade the Tasks sidecar gracefully",
+      "description": "CLI 2.1.233 and Agent SDK 0.3.233 remove the todo/task-tracking tools (`todo_write`, `task_create`, and related) from the default tool surface on Opus 4.8, Sonnet 5, Fable 5, Mythos 5, and all newer models. They can be re-enabled via `allowedTools`, the `tools` session option, or the `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` environment variable.\n\nRelay's Tasks sidecar panel renders task-tracking activity from these tools (todo_write events, task creation/updates). On any session using a newer-model default, the Tasks sidecar will silently show nothing — the tools simply won't appear in the stream.\n\nDecision needed (two options):\n1. **Re-enable explicitly**: set `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in Claude's spawn environment (the same `env` object built for session starts in `claude-sdk.ts`) so the tools always appear regardless of model. Simple; preserves existing UX at the cost of differing from Claude's own CLI default for newer models.\n2. **Graceful degradation**: leave the tools off by default and update the Tasks sidecar to show a contextual note for newer-model sessions (\"Task tracking tools are off for this model; enable via settings or ask the model to manage tasks in chat\"). More honest about what the model is doing but requires more UI work.\n\nEither way, `ProviderCapabilities` should gain a `todoToolsAvailable` (or similar) flag driven by detected model version so the UI can render correctly without hardcoding model names.\n\nScope: small–medium (~2–3h). Touch points: `claude-sdk.ts` (spawn env or session args), `ProviderCapabilities`, Tasks sidecar component.\n\nBucket 0 — priority 1 (deprecation affecting Relay's Tasks panel for all newer-model sessions).\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.233, @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.233",
+      "status": "open",
+      "priority": 1,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-0"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-17T00:00:00.000Z",
+      "updatedAt": "2026-08-17T00:00:00.000Z"
+    },
+    {
+      "id": "f3b5d2e9",
+      "title": "Claude Agent SDK: consume SDKContextUsage structured payload from /context results",
+      "description": "Agent SDK 0.3.232 adds a structured `context_usage` payload (typed as `SDKContextUsage`) to `/context` command result messages, so renderers can display context stats without parsing the markdown output text.\n\nRelay's sidecar context panel currently shows token usage from accumulated session stats. If a user runs `/context` in the composer, the result arrives as an assistant message and Relay renders it as plain markdown. The new `context_usage` field enables a richer, more accurate context stat display tied to a specific point in the conversation.\n\nNeeded:\n1. In `claude-sdk.ts`, detect the `context_usage` field on `/context` result messages and forward it through the session event stream (e.g. as a new `context_snapshot` event type or appended to the existing stats broadcast).\n2. In the sidecar context panel or the message renderer, prefer the structured payload when present for the context ring and token breakdown display.\n3. This also provides a natural sync point to refresh the context ring after a `/context` call, replacing the current turn-end polling approach.\n\nScope: small (~1–2h). Touch points: `claude-sdk.ts` (result handler), `SessionHistoryEntry` or a new event type, sidecar context panel.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.232",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-17T00:00:00.000Z",
+      "updatedAt": "2026-08-17T00:00:00.000Z"
     }
   ]
 }
