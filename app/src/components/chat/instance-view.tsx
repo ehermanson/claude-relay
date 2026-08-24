@@ -25,6 +25,7 @@ import {
   getAttachedReviewInstances,
 } from "@/lib/review-session";
 import { buildProviderSwitchHandoffPrompt } from "@shared/session-handoff";
+import type { QueuedRestore, UserRow } from "@/lib/chat-types";
 import { toast } from "sonner";
 import type {
   FileChange,
@@ -37,6 +38,19 @@ import type {
   TerminalScope,
   UserInputAnswer,
 } from "@shared/types";
+
+/** Re-fetch an uploaded attachment so it can be re-added to the composer on queued-message edit. */
+async function fetchUploadedFile(path: string): Promise<File | null> {
+  try {
+    const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const name = path.split("/").pop() || "attachment";
+    return new File([blob], name, { type: blob.type });
+  } catch {
+    return null;
+  }
+}
 
 function filesFingerprint(files: FileChange[] | null | undefined): string {
   if (!files?.length) return "";
@@ -110,6 +124,17 @@ export function InstanceView({
   const attachedReviews = instance ? getAttachedReviewInstances(instance, instances) : [];
   const attachedReview = instance ? getAttachedReviewInstance(instance, instances) : null;
   const [selectedReviewInstanceId, setSelectedReviewInstanceId] = useState<string | null>(null);
+  const [queuedRestore, setQueuedRestore] = useState<QueuedRestore | null>(null);
+  /**
+   * Edits awaiting server removal confirmation, with their attachments already
+   * re-fetched — restore is synchronous once queued_removed arrives, so a
+   * chat switch (which clears this map and tears down the handler) can't leak
+   * a restore into another chat's composer.
+   */
+  const pendingQueuedEditsRef = useRef<Map<string, { row: UserRow; files: File[] }>>(new Map());
+  /** Latest chat id, for guarding async work started under a previous id. */
+  const currentIdRef = useRef(id);
+  currentIdRef.current = id;
   const activeReviewInstanceId = (() => {
     if (
       selectedReviewInstanceId &&
@@ -188,9 +213,29 @@ export function InstanceView({
     if (!id) return;
     const handler = (message: ServerMessage) => {
       handleMessage(id, message);
+      // A queued-message edit restores into the composer only once the server
+      // confirms the removal (see handleEditQueued). Attachments were fetched
+      // before the removal was requested, so this is synchronous.
+      if (message.type === "queued_removed" && message.instanceId === id) {
+        const edit = pendingQueuedEditsRef.current.get(message.queuedId);
+        if (edit) {
+          pendingQueuedEditsRef.current.delete(message.queuedId);
+          setQueuedRestore({
+            key: Date.now(),
+            text: edit.row.queuedSourceText ?? edit.row.text,
+            files: edit.files,
+          });
+        }
+      }
     };
     return addMessageHandler(handler);
   }, [id, handleMessage, addMessageHandler]);
+
+  // Drop any queued-edit bookkeeping when switching chats.
+  useEffect(() => {
+    pendingQueuedEditsRef.current.clear();
+    setQueuedRestore(null);
+  }, [id]);
 
   // Navigate away if instance doesn't exist (skip in compact/split mode — parent handles it)
   useEffect(() => {
@@ -276,6 +321,34 @@ export function InstanceView({
   const handleInterruptAndSend = () => {
     if (!id || !isActive) return;
     send({ type: "instance_interrupt_and_send", instanceId: id });
+  };
+
+  const handleRemoveQueued = (queuedId: string) => {
+    if (!id) return;
+    send({ type: "remove_queued_message", instanceId: id, queuedId });
+  };
+
+  // Edit = unqueue + restore into the composer. Attachments are re-fetched
+  // BEFORE the removal is requested — removal is irreversible, so if recovery
+  // fails the message must stay queued. The restore itself then waits for the
+  // server's queued_removed confirmation so a message that already dispatched
+  // (queue drained between click and request) is never duplicated in the draft.
+  const handleEditQueued = async (row: UserRow) => {
+    if (!id || !row.queuedId) return;
+    const paths = [...(row.queuedImages ?? []), ...(row.queuedAttachments ?? [])];
+    let files: File[] = [];
+    if (paths.length > 0) {
+      const fetched = await Promise.all(paths.map(fetchUploadedFile));
+      files = fetched.filter((f): f is File => f !== null);
+      if (files.length < paths.length) {
+        toast.error("Couldn't restore attachments — message left queued");
+        return;
+      }
+      // Chat switched while fetching — don't remove from a chat we've left.
+      if (currentIdRef.current !== id) return;
+    }
+    pendingQueuedEditsRef.current.set(row.queuedId, { row, files });
+    send({ type: "remove_queued_message", instanceId: id, queuedId: row.queuedId });
   };
 
   const handleSwitchProvider = async (
@@ -725,6 +798,7 @@ export function InstanceView({
       connectionBanner,
       containerRef,
       sidecarRef,
+      queuedRestore,
     },
     actions: {
       navigateToSplitPicker: () => navigate({ search: { split: "pick" } }),
@@ -741,6 +815,9 @@ export function InstanceView({
       handleTakeover,
       handleCancel,
       handleInterruptAndSend,
+      handleEditQueued,
+      handleRemoveQueued,
+      clearQueuedRestore: () => setQueuedRestore(null),
       handleSwitchProvider,
       setShowDebugPaste,
       setConfirmDelete,

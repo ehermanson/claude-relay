@@ -1,11 +1,12 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { useInstanceMessages } from "@/hooks/use-instance-messages";
+import { replayHistoryToItems, useInstanceMessages } from "@/hooks/use-instance-messages";
 import type {
   ActivityMessage,
   HistoryEntry,
   InstanceStatusMessage,
   OutputMessage,
+  QueuedRemovedMessage,
   UserMessage,
 } from "@shared/types";
 
@@ -205,6 +206,134 @@ describe("useInstanceMessages message queue", () => {
         queued: undefined,
       }),
     );
+  });
+
+  it("removes only the matching queued placeholder on queued_removed", () => {
+    const { result } = renderHook(() => useInstanceMessages());
+    act(() => result.current.setInstanceId("inst-1"));
+
+    act(() => {
+      result.current.handleMessage("inst-1", {
+        type: "user",
+        instanceId: "inst-1",
+        text: "first queued",
+        queued: true,
+        queuedId: "q1",
+      } as UserMessage);
+      result.current.handleMessage("inst-1", {
+        type: "user",
+        instanceId: "inst-1",
+        text: "second queued",
+        queued: true,
+        queuedId: "q2",
+      } as UserMessage);
+    });
+
+    expect(result.current.items).toHaveLength(2);
+
+    act(() => {
+      result.current.handleMessage("inst-1", {
+        type: "queued_removed",
+        instanceId: "inst-1",
+        queuedId: "q1",
+      } as QueuedRemovedMessage);
+    });
+
+    const userItems = result.current.items.filter((i) => i.kind === "user");
+    expect(userItems).toHaveLength(1);
+    expect(userItems[0]).toEqual(
+      expect.objectContaining({ queued: true, queuedId: "q2", text: "second queued" }),
+    );
+  });
+
+  it("carries queued metadata (id, source text, attachments) on queued items", () => {
+    const { result } = renderHook(() => useInstanceMessages());
+    act(() => result.current.setInstanceId("inst-1"));
+
+    act(() => {
+      result.current.handleMessage("inst-1", {
+        type: "user",
+        instanceId: "inst-1",
+        text: "look at this\n[Image: source: /tmp/shot.png]",
+        images: ["/tmp/shot.png"],
+        queued: true,
+        queuedId: "q1",
+        queuedSourceText: "look at this",
+      } as UserMessage);
+    });
+
+    expect(result.current.items[0]).toEqual(
+      expect.objectContaining({
+        kind: "user",
+        queued: true,
+        queuedId: "q1",
+        queuedSourceText: "look at this",
+        queuedImages: ["/tmp/shot.png"],
+      }),
+    );
+  });
+
+  it("mirrors queued metadata into rawHistory", () => {
+    const { result } = renderHook(() => useInstanceMessages());
+    act(() => {
+      result.current.setInstanceId("inst-raw");
+      // Full replay initializes the rawHistory buffer
+      result.current.handleMessage("inst-raw", {
+        type: "instance_history",
+        instanceId: "inst-raw",
+        history: [],
+        replayMode: "full",
+        latestSequence: 0,
+        replayEpoch: 1,
+      });
+      result.current.handleMessage("inst-raw", {
+        type: "user",
+        instanceId: "inst-raw",
+        text: "look at this\n[Image: source: /tmp/shot.png]",
+        images: ["/tmp/shot.png"],
+        queued: true,
+        queuedId: "q1",
+        queuedSourceText: "look at this",
+      } as UserMessage);
+    });
+
+    const entry = result.current.rawHistory?.at(-1);
+    expect(entry?.message).toEqual(
+      expect.objectContaining({
+        type: "user",
+        queued: true,
+        queuedId: "q1",
+        queuedSourceText: "look at this",
+        images: ["/tmp/shot.png"],
+      }),
+    );
+  });
+
+  it("restores queued metadata when rebuilding items from history entries", () => {
+    const items = replayHistoryToItems([
+      {
+        timestamp: 1,
+        message: {
+          type: "user",
+          instanceId: "inst-1",
+          text: "queued text\n[Image: source: /tmp/shot.png]",
+          images: ["/tmp/shot.png"],
+          queued: true,
+          queuedId: "q1",
+          queuedSourceText: "queued text",
+        } as UserMessage,
+      },
+    ]);
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        kind: "user",
+        queued: true,
+        queuedId: "q1",
+        queuedSourceText: "queued text",
+        queuedImages: ["/tmp/shot.png"],
+      }),
+    ]);
   });
 
   it("clears queued placeholders when instance_status reports queue empty", () => {

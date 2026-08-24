@@ -55,6 +55,10 @@ interface MessageListProps {
   planChildId?: string;
   planChildName?: string;
   onInterruptAndSend?: () => void;
+  /** Pull a queued message back into the composer for editing. */
+  onEditQueued?: (row: UserRow) => void;
+  /** Remove a queued message without sending it. */
+  onRemoveQueued?: (queuedId: string) => void;
 }
 
 export function MessageList({
@@ -76,6 +80,8 @@ export function MessageList({
   planChildId,
   planChildName,
   onInterruptAndSend,
+  onEditQueued,
+  onRemoveQueued,
 }: MessageListProps) {
   // When a new turn is sent we "frame" it: park the message near the top and
   // reserve space below (spacerHeight) so the answer can stream into the gap,
@@ -407,6 +413,14 @@ export function MessageList({
             renderMode={row.renderMode}
             queued={row.queued}
             onInterruptAndSend={row.queued ? onInterruptAndSend : undefined}
+            onEditQueued={
+              row.queued && row.queuedId && onEditQueued ? () => onEditQueued(row) : undefined
+            }
+            onRemoveQueued={
+              row.queued && row.queuedId && onRemoveQueued
+                ? () => onRemoveQueued(row.queuedId!)
+                : undefined
+            }
           />
         );
       case "assistant": {

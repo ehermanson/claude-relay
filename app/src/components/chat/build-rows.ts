@@ -153,6 +153,10 @@ export function buildRows(items: ChatItem[]): RenderRow[] {
             text: item.text,
             timestamp: item.timestamp,
             queued: item.queued,
+            queuedId: item.queuedId,
+            queuedSourceText: item.queuedSourceText,
+            queuedImages: item.queuedImages,
+            queuedAttachments: item.queuedAttachments,
             renderMode: item.renderMode,
           });
           break;

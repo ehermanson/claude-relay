@@ -680,6 +680,8 @@ export function InstanceViewContent() {
               planChildId={shared.planChild?.id}
               planChildName={shared.planChild?.name}
               onInterruptAndSend={actions.handleInterruptAndSend}
+              onEditQueued={actions.handleEditQueued}
+              onRemoveQueued={actions.handleRemoveQueued}
             />
           </MaybeRelayProvider>
         </ErrorBoundary>
@@ -793,6 +795,8 @@ export function InstanceViewContent() {
               onRemoveInlineReply={handleRemoveInlineReply}
               pendingDraft={pendingDraft}
               onPendingDraftApplied={clearPendingDraft}
+              queuedRestore={shared.queuedRestore}
+              onQueuedRestoreApplied={actions.clearQueuedRestore}
               onDraftChange={setComposerHasContent}
               mode={isReviewMode ? "review" : "default"}
               topSlot={

@@ -27,6 +27,14 @@ export interface MergedActivity extends ActivityMessage {
   mergedResultStatus?: ResultStatus;
 }
 
+/** Payload for restoring an edited queued message into the composer. */
+export interface QueuedRestore {
+  /** Monotonic key so consecutive restores are distinguishable. */
+  key: number;
+  text: string;
+  files: File[];
+}
+
 // ── ChatItem variants (source data from use-instance-messages) ──────
 
 export interface UserChatItem {
@@ -34,6 +42,13 @@ export interface UserChatItem {
   text: string;
   timestamp?: number;
   queued?: boolean;
+  /** Stable id for a queued message so it can be removed/edited before dispatch. */
+  queuedId?: string;
+  /** Raw text as typed (no attachment markers) — used to restore into the composer on edit. */
+  queuedSourceText?: string;
+  /** Uploaded attachment paths carried by a queued message (for edit restore). */
+  queuedImages?: string[];
+  queuedAttachments?: string[];
   renderMode?: LargeUserRenderMode;
 }
 
@@ -100,6 +115,10 @@ export interface UserRow {
   text: string;
   timestamp?: number;
   queued?: boolean;
+  queuedId?: string;
+  queuedSourceText?: string;
+  queuedImages?: string[];
+  queuedAttachments?: string[];
   renderMode?: LargeUserRenderMode;
 }
 

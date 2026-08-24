@@ -7,6 +7,8 @@ import {
   FileText,
   Forward,
   ArrowRightFromLine,
+  Pencil,
+  X,
   Zap,
   Slash,
   MessageSquareReply,
@@ -23,6 +25,56 @@ interface UserMessageProps {
   queued?: boolean;
   renderMode?: LargeUserRenderMode;
   onInterruptAndSend?: () => void;
+  /** Pull this queued message back into the composer for editing. */
+  onEditQueued?: () => void;
+  /** Remove this queued message without sending it. */
+  onRemoveQueued?: () => void;
+}
+
+/** Action chips shown under a queued (not yet dispatched) message bubble. */
+function QueuedActions({
+  onEditQueued,
+  onRemoveQueued,
+  onInterruptAndSend,
+}: Pick<UserMessageProps, "onEditQueued" | "onRemoveQueued" | "onInterruptAndSend">) {
+  return (
+    <>
+      <span className="flex items-center gap-1 text-[0.625rem] text-muted/60">
+        <Clock size={10} />
+        queued
+      </span>
+      {onEditQueued && (
+        <button
+          type="button"
+          onClick={onEditQueued}
+          className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium max-[768px]:min-h-10 max-[768px]:px-2.5 text-muted transition-colors hover:bg-hover-highlight hover:text-text"
+        >
+          <Pencil size={10} />
+          Edit
+        </button>
+      )}
+      {onRemoveQueued && (
+        <button
+          type="button"
+          onClick={onRemoveQueued}
+          className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium max-[768px]:min-h-10 max-[768px]:px-2.5 text-muted transition-colors hover:bg-error-dim hover:text-error"
+        >
+          <X size={10} />
+          Remove
+        </button>
+      )}
+      {onInterruptAndSend && (
+        <button
+          type="button"
+          onClick={onInterruptAndSend}
+          className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium max-[768px]:min-h-10 max-[768px]:px-2.5 text-warning transition-colors hover:bg-warning/10"
+        >
+          <Zap size={10} />
+          Send now
+        </button>
+      )}
+    </>
+  );
 }
 
 // ── Extractors ───────────────────────────────────────────────────────
@@ -251,6 +303,8 @@ export function UserMessage({
   queued,
   renderMode,
   onInterruptAndSend,
+  onEditQueued,
+  onRemoveQueued,
 }: UserMessageProps) {
   const effectiveRenderMode = useMemo(() => {
     if (renderMode && renderMode.kind !== "markdown") return renderMode;
@@ -275,20 +329,11 @@ export function UserMessage({
         </div>
         <div className="flex items-center gap-1.5 px-1">
           {queued && (
-            <span className="flex items-center gap-1 text-[0.625rem] text-muted/60">
-              <Clock size={10} />
-              queued
-            </span>
-          )}
-          {queued && onInterruptAndSend && (
-            <button
-              type="button"
-              onClick={onInterruptAndSend}
-              className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium text-warning transition-colors hover:bg-warning/10"
-            >
-              <Zap size={10} />
-              Send now
-            </button>
+            <QueuedActions
+              onEditQueued={onEditQueued}
+              onRemoveQueued={onRemoveQueued}
+              onInterruptAndSend={onInterruptAndSend}
+            />
           )}
           {timestamp && (
             <span className="text-[0.625rem] text-muted/45">{formatTimestamp(timestamp)}</span>
@@ -418,20 +463,11 @@ export function UserMessage({
       {hasImages && <ImageRow images={images} />}
       <div className="flex items-center gap-1.5 px-1">
         {queued && (
-          <span className="flex items-center gap-1 text-[0.625rem] text-muted/60">
-            <Clock size={10} />
-            queued
-          </span>
-        )}
-        {queued && onInterruptAndSend && (
-          <button
-            type="button"
-            onClick={onInterruptAndSend}
-            className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium text-warning transition-colors hover:bg-warning/10"
-          >
-            <Zap size={10} />
-            Send now
-          </button>
+          <QueuedActions
+            onEditQueued={onEditQueued}
+            onRemoveQueued={onRemoveQueued}
+            onInterruptAndSend={onInterruptAndSend}
+          />
         )}
         {timestamp && (
           <span className="text-[0.625rem] text-muted/45">{formatTimestamp(timestamp)}</span>

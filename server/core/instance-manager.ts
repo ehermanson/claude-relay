@@ -298,6 +298,8 @@ interface Instance {
   pendingRetry?: string;
   /** Messages queued by the user while the agent is mid-turn */
   pendingMessages?: Array<{
+    /** Stable id so a queued message can be removed/edited before dispatch */
+    id: string;
     text: string;
     images?: string[];
     attachments?: string[];
@@ -345,6 +347,10 @@ export interface InstanceManagerEvents {
   "instance:removed": [instanceId: string];
   "instance:error": [instanceId: string, message: string];
   "instance:user": [instanceId: string, message: UserMessage];
+  "instance:queued_removed": [
+    instanceId: string,
+    message: import("#core/types.js").QueuedRemovedMessage,
+  ];
   "instance:transcript": [instanceId: string, message: TranscriptMessage];
   /** A bulk mutation touched many chats at once — re-send the whole list. */
   "instances:changed": [];
@@ -3292,7 +3298,8 @@ export class InstanceManager extends EventEmitter {
       // If the agent is mid-turn, queue the message for delivery when the turn ends
       if (instance.process?.isProcessing && !instance.info.external) {
         if (!instance.pendingMessages) instance.pendingMessages = [];
-        instance.pendingMessages.push({ text, images, attachments, internal });
+        const queuedId = randomUUID();
+        instance.pendingMessages.push({ id: queuedId, text, images, attachments, internal });
 
         // Emit to the UI so the queued message appears in the chat immediately,
         // but do NOT push to history — dispatchUserMessageLocked will create
@@ -3311,9 +3318,13 @@ export class InstanceManager extends EventEmitter {
         const userMessage: import("#core/types.js").UserMessage = {
           type: "user",
           text: displayText,
+          images,
+          attachments,
           instanceId: id,
           internal,
           queued: true,
+          queuedId,
+          queuedSourceText: text,
         };
         this.emit("instance:user", id, userMessage);
         instance.info.queuedMessageCount = instance.pendingMessages.length;
@@ -3706,10 +3717,35 @@ export class InstanceManager extends EventEmitter {
       return {
         type: "user" as const,
         text: displayText,
+        images: m.images,
+        attachments: m.attachments,
         instanceId: id,
         internal: m.internal,
         queued: true,
+        queuedId: m.id,
+        queuedSourceText: m.text,
       };
+    });
+  }
+
+  /**
+   * Remove a single queued (not yet dispatched) message. Throws if the queue
+   * has already drained — the caller should surface "already sent" to the user.
+   */
+  async removeQueuedMessage(id: string, queuedId: string): Promise<void> {
+    await this.enqueueInstanceMutation(id, (instance) => {
+      const queue = instance.pendingMessages;
+      const index = queue?.findIndex((m) => m.id === queuedId) ?? -1;
+      if (!queue || index === -1) throw new Error("Message is no longer queued");
+      queue.splice(index, 1);
+      if (queue.length === 0) instance.pendingMessages = undefined;
+      instance.info.queuedMessageCount = instance.pendingMessages?.length || undefined;
+      this.emit("instance:queued_removed", id, {
+        type: "queued_removed",
+        instanceId: id,
+        queuedId,
+      });
+      this.emitInstanceStatus(instance);
     });
   }
 

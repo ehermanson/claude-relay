@@ -13,6 +13,7 @@ import type {
   UserInputQuestion,
 } from "@shared/types";
 import { getProviderDisplayName } from "@shared/provider-catalog";
+import type { QueuedRestore } from "@/lib/chat-types";
 import { AskUserQuestionPanel } from "@/components/chat/input-area/ask-user-question-panel";
 import { ComposerPanel } from "@/components/chat/input-area/composer-panel";
 import { AttachmentStrip } from "@/components/chat/input-area/attachment-strip";
@@ -77,6 +78,14 @@ interface InputAreaProps {
   pendingDraft?: string | null;
   /** Called after pendingDraft has been applied so the parent can clear it. */
   onPendingDraftApplied?: () => void;
+  /**
+   * An unqueued (edited) message to restore into the composer. Merges above any
+   * existing draft — the queue coalesces messages with blank lines at dispatch,
+   * so prepending preserves exactly what would have been sent.
+   */
+  queuedRestore?: QueuedRestore | null;
+  /** Called after queuedRestore has been applied so the parent can clear it. */
+  onQueuedRestoreApplied?: () => void;
   /** Notifies the parent when the composer transitions between empty and non-empty. */
   onDraftChange?: (hasContent: boolean) => void;
   /** Render a narrower review-focused composer with fewer general-purpose controls. */
@@ -199,6 +208,8 @@ export function InputArea({
   topSlot,
   pendingDraft,
   onPendingDraftApplied,
+  queuedRestore,
+  onQueuedRestoreApplied,
   onDraftChange,
   mode = "default",
 }: InputAreaProps) {
@@ -325,6 +336,23 @@ export function InputArea({
       onPendingDraftApplied?.();
     }
   }, [pendingDraft, setComposerValue, onPendingDraftApplied]);
+
+  // Restore an edited queued message: prepend its text above any current draft
+  // (blank-line separated — the same join the queue's coalescing would have
+  // produced) and re-add its attachments. Guarded per restore object so the
+  // draftText dep can't re-apply the same restore.
+  const appliedQueuedRestoreRef = useRef<QueuedRestore | null>(null);
+  useEffect(() => {
+    if (!queuedRestore || appliedQueuedRestoreRef.current === queuedRestore) return;
+    appliedQueuedRestoreRef.current = queuedRestore;
+    const currentDraft = draftText;
+    setComposerValue(
+      currentDraft.trim() ? `${queuedRestore.text}\n\n${currentDraft}` : queuedRestore.text,
+    );
+    if (queuedRestore.files.length > 0) addFiles(queuedRestore.files);
+    onQueuedRestoreApplied?.();
+    composerRef.current?.focus();
+  }, [queuedRestore, draftText, setComposerValue, addFiles, onQueuedRestoreApplied]);
 
   // Notify parent when the composer transitions between empty / non-empty.
   // Used to dim suggestion cards while a draft is being composed.

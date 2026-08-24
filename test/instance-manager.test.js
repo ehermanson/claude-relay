@@ -1487,6 +1487,96 @@ describe("InstanceManager", () => {
     });
   });
 
+  describe("queued message removal", () => {
+    function attachProcessingProc(instance) {
+      const fakeProc = new FakeProviderSession("codex");
+      fakeProc.isProcessing = true;
+      instance.process = fakeProc;
+      return fakeProc;
+    }
+
+    it("removes a single queued message by id, preserving order and count", async () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      attachProcessingProc(instance);
+
+      await manager.sendMessage(info.id, "first");
+      await manager.sendMessage(info.id, "second");
+      await manager.sendMessage(info.id, "third");
+
+      const queued = manager.getPendingQueuedMessages(info.id);
+      assert.equal(queued.length, 3);
+      assert.ok(queued.every((m) => m.queued && m.queuedId));
+
+      const removedEvents = [];
+      manager.on("instance:queued_removed", (id, message) => removedEvents.push({ id, message }));
+
+      await manager.removeQueuedMessage(info.id, queued[1].queuedId);
+
+      const remaining = manager.getPendingQueuedMessages(info.id);
+      assert.deepEqual(
+        remaining.map((m) => m.text),
+        ["first", "third"],
+      );
+      assert.equal(instance.info.queuedMessageCount, 2);
+      assert.equal(removedEvents.length, 1);
+      assert.equal(removedEvents[0].id, info.id);
+      assert.deepEqual(removedEvents[0].message, {
+        type: "queued_removed",
+        instanceId: info.id,
+        queuedId: queued[1].queuedId,
+      });
+    });
+
+    it("clears queuedMessageCount when the last queued message is removed", async () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      attachProcessingProc(instance);
+
+      await manager.sendMessage(info.id, "only one");
+      const [queued] = manager.getPendingQueuedMessages(info.id);
+      assert.equal(instance.info.queuedMessageCount, 1);
+
+      await manager.removeQueuedMessage(info.id, queued.queuedId);
+
+      assert.equal(manager.getPendingQueuedMessages(info.id).length, 0);
+      assert.equal(instance.info.queuedMessageCount, undefined);
+      assert.equal(instance.pendingMessages, undefined);
+    });
+
+    it("rejects removal of a message that is no longer queued", async () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      attachProcessingProc(instance);
+
+      await assert.rejects(
+        () => manager.removeQueuedMessage(info.id, "missing-id"),
+        /no longer queued/,
+      );
+
+      await manager.sendMessage(info.id, "queued");
+      const [queued] = manager.getPendingQueuedMessages(info.id);
+      await manager.removeQueuedMessage(info.id, queued.queuedId);
+      await assert.rejects(
+        () => manager.removeQueuedMessage(info.id, queued.queuedId),
+        /no longer queued/,
+      );
+    });
+
+    it("exposes source text and attachment paths on queued messages for edit restore", async () => {
+      const info = manager.createInstance();
+      const instance = manager.instances.get(info.id);
+      attachProcessingProc(instance);
+
+      await manager.sendMessage(info.id, "look at this", ["/tmp/shot.png"]);
+
+      const [queued] = manager.getPendingQueuedMessages(info.id);
+      assert.equal(queued.queuedSourceText, "look at this");
+      assert.deepEqual(queued.images, ["/tmp/shot.png"]);
+      assert.match(queued.text, /\[Image: source: \/tmp\/shot\.png\]/);
+    });
+  });
+
   describe("sendMessage guards", () => {
     it("throws for unknown instance", async () => {
       await assert.rejects(() => manager.sendMessage("nope", "hi"), /not found/);

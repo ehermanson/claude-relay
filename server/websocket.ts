@@ -28,6 +28,7 @@ import type {
   SystemEventMessage,
   TranscriptMessage,
   UserMessage,
+  QueuedRemovedMessage,
   ProviderGlobalState,
   ProviderKind,
 } from "#core/types.js";
@@ -76,7 +77,8 @@ export function createWebSocketServer(
     | SystemEventMessage
     | ExitMessage
     | TranscriptMessage
-    | UserMessage;
+    | UserMessage
+    | QueuedRemovedMessage;
   type ReplayEntry = { sequence: number; message: ReplayableServerMessage };
   type ReplayBuffer = { nextSequence: number; events: ReplayEntry[] };
   const replayBuffers = new Map<string, ReplayBuffer>();
@@ -323,6 +325,13 @@ export function createWebSocketServer(
   instanceManager.on("instance:user", (instanceId: string, message) => {
     sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
   });
+
+  instanceManager.on(
+    "instance:queued_removed",
+    (instanceId: string, message: QueuedRemovedMessage) => {
+      sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
+    },
+  );
 
   instanceManager.on("instance:transcript", (instanceId: string, message: TranscriptMessage) => {
     sendToSubscribers(instanceId, appendReplayEvent(instanceId, message));
@@ -742,6 +751,19 @@ export function createWebSocketServer(
               sendMessage(ws, {
                 type: "error",
                 message: err instanceof Error ? err.message : "Failed to interrupt and send",
+                instanceId: message.instanceId,
+              });
+            }
+            break;
+          }
+
+          case "remove_queued_message": {
+            try {
+              await instanceManager.removeQueuedMessage(message.instanceId, message.queuedId);
+            } catch (err) {
+              sendMessage(ws, {
+                type: "error",
+                message: err instanceof Error ? err.message : "Failed to remove queued message",
                 instanceId: message.instanceId,
               });
             }

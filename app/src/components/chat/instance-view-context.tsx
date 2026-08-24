@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import type { MouseEvent, ReactNode, RefObject } from "react";
 import type { ChatItem, LiveActivity } from "@/hooks/use-instance-messages";
+import type { QueuedRestore, UserRow } from "@/lib/chat-types";
 import type { SidecarTab } from "@/stores/sidecar-store";
 import type {
   FileChange,
@@ -86,6 +87,8 @@ export type InstanceViewContextValue = {
     connectionBanner: ConnectionBannerState;
     containerRef: RefObject<HTMLDivElement | null>;
     sidecarRef: RefObject<HTMLDivElement | null>;
+    /** Set when an edited queued message should be restored into the composer. */
+    queuedRestore: QueuedRestore | null;
   };
   actions: {
     navigateToSplitPicker: () => void;
@@ -102,6 +105,10 @@ export type InstanceViewContextValue = {
     handleTakeover: () => void;
     handleCancel: () => void;
     handleInterruptAndSend: () => void;
+    handleEditQueued: (row: UserRow) => void;
+    handleRemoveQueued: (queuedId: string) => void;
+    /** Called by the composer after it has applied a queuedRestore. */
+    clearQueuedRestore: () => void;
     handleSwitchProvider: (
       targetProvider: ProviderKind,
       carryContext: boolean,

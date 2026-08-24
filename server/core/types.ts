@@ -709,6 +709,12 @@ export interface InstanceInterruptAndSendPayload {
   instanceId: string;
 }
 
+export interface RemoveQueuedMessagePayload {
+  type: "remove_queued_message";
+  instanceId: string;
+  queuedId: string;
+}
+
 export interface InstanceTakeoverPayload {
   type: "instance_takeover";
   instanceId: string;
@@ -858,6 +864,7 @@ export type ClientMessage =
   | InstanceMessagePayload
   | InstanceCancelPayload
   | InstanceInterruptAndSendPayload
+  | RemoveQueuedMessagePayload
   | InstanceTakeoverPayload
   | RespondToRequestPayload
   | RenameInstancePayload
@@ -914,6 +921,18 @@ export interface UserMessage {
   internal?: boolean;
   /** True when this message was queued while the agent was processing and hasn't been delivered yet. */
   queued?: boolean;
+  /** Stable id for a queued message so it can be removed/edited before dispatch. */
+  queuedId?: string;
+  /** Raw text as typed (no attachment markers) — used to restore into the composer on edit. */
+  queuedSourceText?: string;
+}
+
+/** A queued (not yet dispatched) user message was removed before delivery. */
+export interface QueuedRemovedMessage {
+  type: "queued_removed";
+  instanceId: string;
+  queuedId: string;
+  eventSequence?: number;
 }
 
 export interface ExitMessage {
@@ -1231,6 +1250,7 @@ export type ServerMessage =
   | ConnectedMessage
   | OutputMessage
   | UserMessage
+  | QueuedRemovedMessage
   | ExitMessage
   | ErrorMessage
   | NotificationMessage

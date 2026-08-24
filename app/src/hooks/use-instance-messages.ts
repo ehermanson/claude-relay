@@ -141,12 +141,19 @@ function buildUserChatItem(
   text: string,
   timestamp?: number,
   queued?: boolean,
+  queuedMeta?: {
+    queuedId?: string;
+    queuedSourceText?: string;
+    queuedImages?: string[];
+    queuedAttachments?: string[];
+  },
 ): Extract<ChatItem, { kind: "user" }> {
   return {
     kind: "user",
     text,
     timestamp,
     queued,
+    ...queuedMeta,
     renderMode: classifyLargeUserText(text),
   };
 }
@@ -209,7 +216,9 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
         const lastItem = items[items.length - 1];
         if (
           isImageOnly(msg.text) &&
+          !msg.queued &&
           lastItem?.kind === "user" &&
+          !lastItem.queued &&
           lastItem.timestamp &&
           entry.timestamp &&
           Math.abs(entry.timestamp - lastItem.timestamp) < 60_000
@@ -219,7 +228,14 @@ export function replayHistoryToItems(history: HistoryEntry[]): ChatItem[] {
             text: lastItem.text + "\n" + msg.text,
           };
         } else {
-          items.push(buildUserChatItem(msg.text, entry.timestamp, msg.queued));
+          items.push(
+            buildUserChatItem(msg.text, entry.timestamp, msg.queued, {
+              queuedId: msg.queuedId,
+              queuedSourceText: msg.queuedSourceText,
+              queuedImages: msg.queued ? msg.images : undefined,
+              queuedAttachments: msg.queued ? msg.attachments : undefined,
+            }),
+          );
         }
         break;
       }
@@ -358,8 +374,19 @@ type Action =
       eventSequence?: number;
     }
   | { type: "activity"; message: ActivityMessage }
-  | { type: "user"; text: string; internal?: boolean; queued?: boolean; eventSequence?: number }
+  | {
+      type: "user";
+      text: string;
+      internal?: boolean;
+      queued?: boolean;
+      queuedId?: string;
+      queuedSourceText?: string;
+      queuedImages?: string[];
+      queuedAttachments?: string[];
+      eventSequence?: number;
+    }
   | { type: "clear_queued" }
+  | { type: "remove_queued"; queuedId: string; eventSequence?: number }
   | { type: "transcript"; title: string; result: string; eventSequence?: number }
   | { type: "exit"; code: number; signal?: string; stderr?: string; eventSequence?: number }
   | { type: "error"; message: string }
@@ -748,9 +775,13 @@ function coreReducer(state: State, action: Action): State {
       }
 
       const lastItem = items[items.length - 1];
+      // Never merge queued placeholders — they must stay distinct bubbles so
+      // their edit/remove/send-now actions can target them.
       if (
         isImageOnly(action.text) &&
+        !action.queued &&
         lastItem?.kind === "user" &&
+        !lastItem.queued &&
         lastItem.timestamp &&
         now - lastItem.timestamp < 60_000
       ) {
@@ -764,7 +795,14 @@ function coreReducer(state: State, action: Action): State {
           showThinkingIndicator: false,
         };
       }
-      items.push(buildUserChatItem(action.text, now, action.queued));
+      items.push(
+        buildUserChatItem(action.text, now, action.queued, {
+          queuedId: action.queuedId,
+          queuedSourceText: action.queuedSourceText,
+          queuedImages: action.queuedImages,
+          queuedAttachments: action.queuedAttachments,
+        }),
+      );
       return {
         ...state,
         items,
@@ -779,6 +817,19 @@ function coreReducer(state: State, action: Action): State {
       return {
         ...state,
         items: state.items.filter((i) => !(i.kind === "user" && i.queued)),
+      };
+    }
+
+    case "remove_queued": {
+      const hadMatch = state.items.some(
+        (i) => i.kind === "user" && i.queued && i.queuedId === action.queuedId,
+      );
+      if (!hadMatch) return state;
+      return {
+        ...state,
+        items: state.items.filter(
+          (i) => !(i.kind === "user" && i.queued && i.queuedId === action.queuedId),
+        ),
       };
     }
 
@@ -891,6 +942,7 @@ function getActionSequence(action: Action): number | undefined {
   switch (action.type) {
     case "output":
     case "user":
+    case "remove_queued":
     case "transcript":
     case "exit":
       return action.eventSequence;
@@ -934,6 +986,10 @@ function actionToHistoryEntry(action: Action): HistoryEntry | null {
           text: action.text,
           internal: action.internal,
           queued: action.queued,
+          queuedId: action.queuedId,
+          queuedSourceText: action.queuedSourceText,
+          images: action.queuedImages,
+          attachments: action.queuedAttachments,
         } as ServerMessage,
       };
     case "exit":
@@ -1053,6 +1109,19 @@ export function useInstanceMessages() {
               text: message.text,
               internal: message.internal,
               queued: message.queued,
+              queuedId: message.queuedId,
+              queuedSourceText: message.queuedSourceText,
+              queuedImages: message.queued ? message.images : undefined,
+              queuedAttachments: message.queued ? message.attachments : undefined,
+              eventSequence: message.eventSequence,
+            });
+          }
+          break;
+        case "queued_removed":
+          if (message.instanceId === instanceId) {
+            dispatchAndRecord(instanceId, {
+              type: "remove_queued",
+              queuedId: message.queuedId,
               eventSequence: message.eventSequence,
             });
           }
