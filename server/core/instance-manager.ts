@@ -7977,6 +7977,13 @@ export class InstanceManager extends EventEmitter {
                 payload.diff && typeof payload.diff === "object"
                   ? { ...(payload.diff as Record<string, unknown>) }
                   : live.info.providerStatus?.diff,
+              // string sets, explicit null clears, absent keeps the prior value
+              fastModeDisabledReason:
+                typeof payload.fastModeDisabledReason === "string"
+                  ? payload.fastModeDisabledReason
+                  : payload.fastModeDisabledReason === null
+                    ? undefined
+                    : live.info.providerStatus?.fastModeDisabledReason,
             };
             if (
               typeof payload.turnStatus === "string" &&

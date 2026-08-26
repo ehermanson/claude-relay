@@ -315,18 +315,29 @@ interface FastModeToggleProps {
   fastMode?: boolean;
   modes: { off: ControlOption; on: ControlOption };
   onToggle: (enabled: boolean) => void;
+  disabledReason?: string;
 }
 
-export function FastModeToggle({ isProcessing, fastMode, modes, onToggle }: FastModeToggleProps) {
+export function FastModeToggle({
+  isProcessing,
+  fastMode,
+  modes,
+  onToggle,
+  disabledReason,
+}: FastModeToggleProps) {
+  const isDisabled = isProcessing || !!disabledReason;
   const label = fastMode ? modes.on.label : modes.off.label;
+  const tooltipContent = disabledReason
+    ? `Fast mode unavailable: ${disabledReason.replace(/_/g, " ")}`
+    : "Set response speed";
 
   return (
     <Menu.Root>
-      <Tooltip content="Set response speed">
+      <Tooltip content={tooltipContent}>
         <Menu.Trigger
-          disabled={isProcessing}
+          disabled={isDisabled}
           className={`flex shrink-0 items-center gap-1 px-1 text-xs transition-colors ${
-            isProcessing ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
+            isDisabled ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text"
           } ${fastMode ? "text-accent" : "text-muted"}`}
         >
           <ZapIcon size={11} strokeWidth={2} />

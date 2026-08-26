@@ -320,6 +320,8 @@ export interface ProviderStatusSummary {
   diff?: ProviderDiffStatus;
   apps?: string[];
   notices?: ProviderNotice[];
+  /** SDK-reported reason fast mode is unavailable (SDK >= 0.3.219). */
+  fastModeDisabledReason?: string;
 }
 
 export interface ProviderRequest {
