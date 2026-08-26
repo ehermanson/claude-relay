@@ -148,6 +148,7 @@ export function buildToolResultActivity(
   isError: boolean | undefined,
   toolName: string | undefined,
   content: string,
+  toolResultMeta?: { nonExecutionKind?: string; userFeedback?: string },
 ): ActivityMessage {
   const denied = isError && isPermissionDenial(content);
   const deniedTool = denied ? toolName || "Unknown" : undefined;
@@ -167,6 +168,7 @@ export function buildToolResultActivity(
     detail: resolution ? undefined : content ? capDetail(content) : undefined,
     permissionDenied: deniedTool,
     resolution: resolution ?? undefined,
+    ...(toolResultMeta ? { toolResultMeta } : {}),
   };
 }
 
