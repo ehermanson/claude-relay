@@ -2423,40 +2423,40 @@
       "id": "d4e6a173",
       "title": "Claude Agent SDK: use canonicalModel+provider from per-turn modelUsage for model tracking",
       "description": "SDK 0.3.218 adds `canonicalModel` and `provider` fields to each `modelUsage` entry in the turn result message. Previously `modelUsage` carried only token counts per model; now each entry identifies the exact model ID and provider used for that turn.\n\nRelay currently tracks `lastTurnModel` from SDK info (`resolvedModel` / `inferClaudeModelIdFromSdkInfo`) to detect mid-session model switches. These new fields provide the same information more authoritatively, directly from the billing-level result.\n\nNeeded:\n1. In `claude-sdk.ts`, read `canonicalModel` + `provider` from `modelUsage` entries in the turn result and use them to update `lastTurnModel` (replacing or supplementing the current SDK-info inference).\n2. Verify that cost attribution in the cost-estimation path can use `canonicalModel` to look up the correct rate table — this resolves potential mispricing when alias model IDs differ from canonical IDs.\n3. No new ProviderCapabilities flag needed — this is a data-quality improvement to existing tracking.\n\nScope: small (~1–2h). Touch points: `claude-sdk.ts` result handler, cost estimation logic.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.218",
-      "status": "in_progress",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-07-27T00:00:00.000Z",
-      "updatedAt": "2026-07-27T00:00:00.000Z"
+      "updatedAt": "2026-08-26T00:00:00.000Z"
     },
     {
       "id": "e5f7b284",
       "title": "Claude Agent SDK: expose cancel_queued capability in session interrupt flow",
       "description": "SDK 0.3.219 adds opt-in `cancel_queued` to the interrupt control request, gated by capability flag `interrupt_cancel_queued_v1`. When set, interrupting a session also cancels any messages that were queued and waiting to dispatch — not just the currently-running turn.\n\nRelay's session stop/cancel path (initiated by the UI stop button) calls `interrupt()` on the SDK session. Without `cancel_queued`, queued messages in a multi-turn pipeline continue executing after the interrupt, which is surprising when users press stop expecting everything to halt.\n\nNeeded:\n1. Check whether the active session advertises `interrupt_cancel_queued_v1` from the capability handshake.\n2. If present, set `cancel_queued: true` on the `interrupt()` call in `claude-sdk.ts`.\n3. Add `interruptCancelQueued?: boolean` to `ProviderCapabilities` so the UI can surface a choice between \"stop current turn\" and \"stop and clear queue\" if desired.\n\nScope: small (~1–2h). Touch points: `claude-sdk.ts` (interrupt call), `ProviderCapabilities` type.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.219",
-      "status": "in_progress",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-07-27T00:00:00.000Z",
-      "updatedAt": "2026-08-05T00:00:00.000Z"
+      "updatedAt": "2026-08-26T00:00:00.000Z"
     },
     {
       "id": "f6a8c395",
       "title": "Claude Agent SDK: surface fast_mode_disabled_reason in fast-mode UI",
       "description": "SDK 0.3.219 adds `fast_mode_disabled_reason` to turn result and session init messages. This string field explains why fast mode is unavailable (e.g., organization policy, plan tier, model incompatibility). Previously the UI could only show that fast mode was off, with no explanation.\n\nNeeded:\n1. Parse `fast_mode_disabled_reason` from result and init messages in `claude-sdk.ts` and forward it through the provider state broadcast.\n2. Surface the reason as a tooltip or subtitle on the disabled fast-mode toggle so users know whether they can address it or not.\n\nScope: small (~1h). Touch points: `claude-sdk.ts`, `ProviderGlobalState` or instance info type, fast-mode UI component.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.219",
-      "status": "in_progress",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-07-27T00:00:00.000Z",
-      "updatedAt": "2026-07-27T00:00:00.000Z"
+      "updatedAt": "2026-08-26T00:00:00.000Z"
     },
     {
       "id": "07b9d406",
@@ -2475,14 +2475,14 @@
       "id": "18ca0517",
       "title": "Claude: surface mcp_server_errors from headless init event in MCP status UI",
       "description": "CLI 2.1.219 adds `mcp_server_errors` to the headless stream-json init event — an array of `--mcp-config` entries that failed config validation and were skipped at startup.\n\nRelay launches Claude sessions in headless mode and processes the stream-json init event in `claude-sdk.ts`. The MCP management UI shows configured and connected servers, but currently has no way to surface servers that failed to start.\n\nNeeded:\n1. Parse `mcp_server_errors` from the headless init event in `claude-sdk.ts` and include it in the MCP state broadcast.\n2. Surface failed servers with their error reason in the MCP panel — either inline on the server row (a red error badge) or as a dedicated \"failed to start\" section.\n3. Coordinate with `ProviderMcpServerStatus` (`failed` state): ensure `mcp_server_errors` entries map correctly to `failed` status.\n\nScope: small–medium (~2h). Touch points: `claude-sdk.ts` (init handler), MCP state broadcast, MCP panel UI.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.219",
-      "status": "in_progress",
+      "status": "done",
       "priority": 2,
       "type": "task",
       "tags": ["provider-watch", "claude", "bucket-2"],
       "parent": null,
       "blockedBy": [],
       "createdAt": "2026-07-27T00:00:00.000Z",
-      "updatedAt": "2026-07-27T00:00:00.000Z"
+      "updatedAt": "2026-08-26T00:00:00.000Z"
     },
     {
       "id": "b6c8d0e2",
