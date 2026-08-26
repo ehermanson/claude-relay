@@ -183,6 +183,7 @@ interface SDKOptions {
   allowedTools?: string[];
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   settings?: Record<string, unknown>;
+  sandbox?: { network?: { strictAllowlist?: boolean } };
   systemPrompt?:
     | string
     | {
@@ -300,6 +301,8 @@ export interface ClaudeSdkSessionOptions {
   reasoningEffort?: string;
   /** Enable fast mode */
   fastMode?: boolean;
+  /** When true, sandboxed commands are denied access to hosts not in the network allowlist. */
+  networkStrictAllowlist?: boolean;
   /** Initial runtime mode (defaults to "approval-required") */
   runtimeMode?: ProviderRuntimeMode;
   /** Session ID to resume */
@@ -751,6 +754,9 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     if (options.fastMode) {
       sdkOptions.settings = { fastMode: true };
     }
+    if (options.networkStrictAllowlist) {
+      sdkOptions.sandbox = { network: { strictAllowlist: true } };
+    }
     const appendedBootstrap = [
       options.bootstrapContext?.baseInstructions,
       options.bootstrapContext?.developerInstructions,
@@ -937,6 +943,11 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     }
     if ("fastMode" in modelOptions) {
       flagUpdates.fastMode = modelOptions.fastMode ?? false;
+    }
+    if ("networkStrictAllowlist" in modelOptions) {
+      flagUpdates.sandbox = {
+        network: { strictAllowlist: modelOptions.networkStrictAllowlist ?? false },
+      };
     }
     if (Object.keys(flagUpdates).length > 0) {
       this.query.applyFlagSettings(flagUpdates).catch((err) => {

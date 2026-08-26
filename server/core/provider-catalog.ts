@@ -209,6 +209,7 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsUserInputRequests: true,
     supportsReasoningEffort: true,
     supportsFastMode: false,
+    supportsNetworkAllowlist: true,
     supportsModelSelection: true,
     supportsTitleUpdates: false,
     mcp: {
@@ -221,6 +222,13 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
       },
     },
     reasoningEffortLevels: EXTENDED_EFFORTS,
+    networkAllowlistModes: {
+      off: { label: "Open Network", description: "Sandboxed commands can reach any host" },
+      on: {
+        label: "Strict Allowlist",
+        description: "Sandboxed commands are denied access to hosts not in the network allowlist",
+      },
+    },
     composerHints: { helpText: "Use @ for files and / for commands and skills" },
     runtimeModes: {
       "approval-required": {

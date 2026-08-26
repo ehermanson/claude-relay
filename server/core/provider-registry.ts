@@ -487,6 +487,7 @@ function createClaudeSession(
         model: options?.model,
         reasoningEffort: options?.modelOptions?.reasoningEffort,
         fastMode: options?.modelOptions?.fastMode,
+        networkStrictAllowlist: options?.modelOptions?.networkStrictAllowlist,
         runtimeMode: options?.runtimeMode ?? config.defaultRuntimeMode,
         resumeSessionId: options?.resumeSessionId,
         logger: config.logger,

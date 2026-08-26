@@ -39,6 +39,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { MessageSquareReply, X } from "lucide-react";
 import {
   FastModeToggle,
+  NetworkAllowlistToggle,
   ProviderModelPicker,
   ReasoningEffortPicker,
   RuntimeModePicker,
@@ -431,6 +432,7 @@ export function InputArea({
   const supportsModelSelection = effectiveCapabilities.supportsModelSelection;
   const supportsReasoningEffort = effectiveCapabilities.supportsReasoningEffort;
   const supportsFastMode = effectiveCapabilities.supportsFastMode;
+  const supportsNetworkAllowlist = effectiveCapabilities.supportsNetworkAllowlist;
   const runtimeModes = effectiveCapabilities.runtimeModes;
   const effectiveRuntimeMode: ProviderRuntimeMode = runtimeMode ?? "approval-required";
   const visibleProviders =
@@ -479,6 +481,14 @@ export function InputArea({
 
   const setFastMode = (enabled: boolean) => {
     send({ type: "set_model_options", instanceId, modelOptions: { fastMode: enabled || null } });
+  };
+
+  const setNetworkAllowlist = (enabled: boolean) => {
+    send({
+      type: "set_model_options",
+      instanceId,
+      modelOptions: { networkStrictAllowlist: enabled || null },
+    });
   };
 
   const handleSend = async () => {
@@ -803,6 +813,15 @@ export function InputArea({
         onToggle={setFastMode}
       />
     ) : null,
+    supportsNetworkAllowlist && effectiveCapabilities.networkAllowlistModes ? (
+      <NetworkAllowlistToggle
+        key="network-allowlist-toggle"
+        isProcessing={isProcessing}
+        networkStrictAllowlist={modelOptions?.networkStrictAllowlist}
+        modes={effectiveCapabilities.networkAllowlistModes}
+        onToggle={setNetworkAllowlist}
+      />
+    ) : null,
     runtimeModes ? (
       <RuntimeModePicker
         key="runtime-mode-picker"
@@ -830,6 +849,15 @@ export function InputArea({
         fastMode={modelOptions?.fastMode}
         modes={effectiveCapabilities.fastModes}
         onToggle={setFastMode}
+      />
+    ) : null,
+    supportsNetworkAllowlist && effectiveCapabilities.networkAllowlistModes ? (
+      <NetworkAllowlistToggle
+        key="network-allowlist-toggle"
+        isProcessing={isProcessing}
+        networkStrictAllowlist={modelOptions?.networkStrictAllowlist}
+        modes={effectiveCapabilities.networkAllowlistModes}
+        onToggle={setNetworkAllowlist}
       />
     ) : null,
   ].filter(Boolean);
@@ -868,6 +896,25 @@ export function InputArea({
                 label: effectiveCapabilities.fastModes.on.label,
                 selected: !!modelOptions?.fastMode,
                 onSelect: () => setFastMode(true),
+              },
+            ],
+          },
+        ]
+      : []),
+    ...(supportsNetworkAllowlist && effectiveCapabilities.networkAllowlistModes
+      ? [
+          {
+            label: "Network",
+            options: [
+              {
+                label: effectiveCapabilities.networkAllowlistModes.off.label,
+                selected: !modelOptions?.networkStrictAllowlist,
+                onSelect: () => setNetworkAllowlist(false),
+              },
+              {
+                label: effectiveCapabilities.networkAllowlistModes.on.label,
+                selected: !!modelOptions?.networkStrictAllowlist,
+                onSelect: () => setNetworkAllowlist(true),
               },
             ],
           },
@@ -927,6 +974,25 @@ export function InputArea({
                 label: effectiveCapabilities.fastModes.on.label,
                 selected: !!modelOptions?.fastMode,
                 onSelect: () => setFastMode(true),
+              },
+            ],
+          },
+        ]
+      : []),
+    ...(supportsNetworkAllowlist && effectiveCapabilities.networkAllowlistModes
+      ? [
+          {
+            label: "Network",
+            options: [
+              {
+                label: effectiveCapabilities.networkAllowlistModes.off.label,
+                selected: !modelOptions?.networkStrictAllowlist,
+                onSelect: () => setNetworkAllowlist(false),
+              },
+              {
+                label: effectiveCapabilities.networkAllowlistModes.on.label,
+                selected: !!modelOptions?.networkStrictAllowlist,
+                onSelect: () => setNetworkAllowlist(true),
               },
             ],
           },
