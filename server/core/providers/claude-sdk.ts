@@ -126,7 +126,9 @@ interface SdkModelInfo {
 }
 
 interface QueryHandle extends AsyncIterable<SDKMessageBase> {
-  interrupt(): Promise<void>;
+  /** Interrupt the running turn. Pass `cancel_queued: true` when the CLI
+   *  advertises `interrupt_cancel_queued_v1` to also cancel queued messages. */
+  interrupt(opts?: { cancel_queued?: boolean }): Promise<void>;
   setPermissionMode(
     mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk" | "auto",
   ): Promise<void>;
@@ -691,6 +693,8 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
   private _emittedThinkingCount = 0;
   /** True until the first user message is sent — suppresses replay emissions. */
   private _isResumeReplay = false;
+  /** Set from the init event when the CLI advertises interrupt_cancel_queued_v1. */
+  private _cancelQueuedSupported = false;
   private _sessionId: string | undefined;
   private _stopped = false;
   private _stats: SessionStats = {
@@ -886,10 +890,12 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
 
   interrupt(): void {
     if (this._stopped) return;
-    this.logger.info("[SdkSession] Interrupting...");
-    this.query.interrupt().catch((err) => {
-      this.logger.debug(`[SdkSession] Interrupt error (expected): ${err}`);
-    });
+    this.logger.info(`[SdkSession] Interrupting... (cancel_queued=${this._cancelQueuedSupported})`);
+    this.query
+      .interrupt(this._cancelQueuedSupported ? { cancel_queued: true } : undefined)
+      .catch((err) => {
+        this.logger.debug(`[SdkSession] Interrupt error (expected): ${err}`);
+      });
   }
 
   close(): void {
@@ -1285,12 +1291,15 @@ class ClaudeSdkSessionImpl extends EventEmitter implements ClaudeSdkSession {
     const subtype = msg.subtype as string;
 
     switch (subtype) {
-      case "init":
+      case "init": {
+        const capabilities = Array.isArray(msg.capabilities) ? (msg.capabilities as string[]) : [];
+        this._cancelQueuedSupported = capabilities.includes("interrupt_cancel_queued_v1");
         this.logger.debug(
-          `[SdkSession] Init: model=${msg.model}, cwd=${msg.cwd}, tools=${(msg.tools as string[])?.length}`,
+          `[SdkSession] Init: model=${msg.model}, cwd=${msg.cwd}, tools=${(msg.tools as string[])?.length}, capabilities=${capabilities.join(",")}`,
         );
         this.emit("systemEvent", buildSessionInitEvent(msg));
         break;
+      }
       case "hook_started":
       case "hook_progress":
       case "hook_response":

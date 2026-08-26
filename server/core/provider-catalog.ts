@@ -211,6 +211,7 @@ export const DEFAULT_PROVIDER_CAPABILITIES: Record<ProviderKind, ProviderCapabil
     supportsFastMode: false,
     supportsModelSelection: true,
     supportsTitleUpdates: false,
+    interruptCancelQueued: true,
     mcp: {
       discovery: "chat",
       toolEnumeration: false,
