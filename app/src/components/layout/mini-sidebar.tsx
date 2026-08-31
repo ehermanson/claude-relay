@@ -278,6 +278,7 @@ function MiniInboxRail({
   currentId?: string;
   onNewChat: (dir: string) => void;
 }) {
+  const actions = useSidebarActions();
   // Mirror the expanded list's cap behavior: the open chat is appended when it
   // falls past the cap — or lives in Done, which the rail doesn't list at all.
   const visible = useMemo(() => {
@@ -294,14 +295,15 @@ function MiniInboxRail({
 
   return (
     <div className="mini-rail-scroll flex flex-1 flex-col items-center gap-1 overflow-y-auto">
-      {/* The rail has no project headers to hang chat creation off, so it
-          carries its own "New chat" the way the flyout does in projects mode.
-          Class matches the chat buttons below so the column is one width. */}
+      {/* The rail has no project headers to hang creation off, so it carries
+          its own "New" menu (chat + space) the way the flyout does in projects
+          mode. Class matches the chat buttons below so the column is one width. */}
       {projectOptions.length > 0 && (
         <NewChatMenu
           projectOptions={projectOptions}
           soleTarget={projectOptions.length === 1 ? projectOptions[0].dir : null}
           onCreate={onNewChat}
+          onCreateSpace={actions.createSpace}
           icon={<Plus size={15} strokeWidth={2.5} />}
           tooltipSide="right"
           align="start"

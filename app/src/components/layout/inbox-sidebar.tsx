@@ -132,14 +132,17 @@ function SweepStaleRow({ count, onClick }: { count: number; onClick: () => void 
 }
 
 /**
- * Top-level "New chat", occupying the header slot that Projects mode gives to
- * Add project. In a flat list there are no project headers to hang chat
- * creation off, so it becomes the layout's primary action — and Add project
- * moves into the project filter menu, since two plus glyphs side by side were
+ * Top-level "New" menu, occupying the header slot that Projects mode gives to
+ * Add project. In a flat list there are no project headers to hang creation
+ * off, so it becomes the layout's primary action — and Add project moves into
+ * the project filter menu, since two plus glyphs side by side were
  * indistinguishable.
  *
- * With a project filter applied (or only one project registered) the target is
- * unambiguous, so the button creates the chat directly instead of asking.
+ * It offers both New chat and New space: spaces have no other discoverable home
+ * in the flat inbox layout (the per-project "New Space" lives in the collapsed
+ * "Projects" section behind a hover-only affordance). With a project filter
+ * applied (or one project registered) the target is unambiguous, so the menu
+ * acts on it directly; otherwise each action opens a project picker.
  */
 function NewChatHeaderButton({
   projectOptions,
@@ -160,7 +163,8 @@ function NewChatHeaderButton({
       projectOptions={projectOptions}
       soleTarget={soleTarget}
       onCreate={actions.quickCreate}
-      icon={<MessageSquarePlus size={15} strokeWidth={2} />}
+      onCreateSpace={actions.createSpace}
+      icon={<Plus size={15} strokeWidth={2.5} />}
       tooltipSide="bottom"
       align="end"
       triggerClassName="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-text"

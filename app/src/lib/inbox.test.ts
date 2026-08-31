@@ -4,8 +4,10 @@ import {
   buildInboxProjectOptions,
   filterInboxEntries,
   partitionInboxEntries,
+  resolveNewMenuShape,
   selectStaleInboxEntries,
   STALE_CHAT_DONE_DAYS,
+  type InboxProjectOption,
   type InboxSourceGroup,
 } from "./inbox";
 import type { InstanceInfo, SpaceInfo } from "@shared/types";
@@ -253,5 +255,71 @@ describe("buildInboxProjectOptions", () => {
 
     expect(options.map((o) => o.dbId)).toEqual(["uuid-a", "uuid-b", undefined]);
     expect(options.map((o) => o.name)).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  it("marks only registered-project groups space-capable", () => {
+    const options = buildInboxProjectOptions([
+      group({ dir: "/a", project: { id: "uuid-a" } }),
+      // A session-only group (an instance carries a route id, but no registered
+      // project) still can't back a space.
+      group({ dir: "/b", groupInstances: [chat({ id: "b1", projectId: "uuid-b" })] }),
+    ]);
+
+    expect(options.map((o) => o.spaceCapable)).toEqual([true, false]);
+  });
+});
+
+describe("resolveNewMenuShape", () => {
+  function option(overrides: Partial<InboxProjectOption> & { dir: string }): InboxProjectOption {
+    return {
+      name: overrides.dir,
+      projectId: overrides.dir,
+      spaceCapable: true,
+      ...overrides,
+    };
+  }
+
+  const alpha = option({ dir: "/a" });
+  const beta = option({ dir: "/b" });
+  const sessionOnly = option({ dir: "/s", spaceCapable: false });
+
+  it("direct-creates a chat for a lone target when space is disabled", () => {
+    expect(resolveNewMenuShape([alpha], "/a", false)).toEqual({ kind: "chat-direct", dir: "/a" });
+  });
+
+  it("offers a chat picker for multiple targets when space is disabled", () => {
+    expect(resolveNewMenuShape([alpha, beta], null, false)).toEqual({
+      kind: "chat-picker",
+      chatProjects: [alpha, beta],
+    });
+  });
+
+  it("combines chat and space for a lone space-capable target", () => {
+    expect(resolveNewMenuShape([alpha], "/a", true)).toEqual({
+      kind: "combined-direct",
+      dir: "/a",
+    });
+  });
+
+  it("falls back to chat-direct for a lone target that cannot back a space", () => {
+    expect(resolveNewMenuShape([sessionOnly], "/s", true)).toEqual({
+      kind: "chat-direct",
+      dir: "/s",
+    });
+  });
+
+  it("scopes the space picker to space-capable targets", () => {
+    expect(resolveNewMenuShape([alpha, sessionOnly], null, true)).toEqual({
+      kind: "combined-picker",
+      chatProjects: [alpha, sessionOnly],
+      spaceProjects: [alpha],
+    });
+  });
+
+  it("falls back to a chat picker when no target can back a space", () => {
+    expect(resolveNewMenuShape([sessionOnly], null, true)).toEqual({
+      kind: "chat-picker",
+      chatProjects: [sessionOnly],
+    });
   });
 });

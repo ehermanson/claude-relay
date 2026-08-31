@@ -33,6 +33,15 @@ export interface InboxProjectOption {
   /** Registered project UUID, when the directory is a registered project. */
   dbId?: string;
   iconPath?: string;
+  /**
+   * Whether this directory can back a Space. Chat creation tolerates
+   * unregistered dirs (creating one registers the project), but Space creation
+   * needs a registered project to resolve a `projectId` — a session-only group
+   * (e.g. an external chat in an unregistered directory) would dead-end the
+   * create-space dialog on "Project not found". Set from the registered-project
+   * signal `group.project`.
+   */
+  spaceCapable: boolean;
 }
 
 /** The subset of a sidebar navigation entry the inbox actually reads. */
@@ -132,5 +141,49 @@ export function buildInboxProjectOptions(
     dbId:
       group.project?.id ?? group.groupInstances.find((instance) => instance.projectId)?.projectId,
     iconPath: group.iconPath,
+    // Only a registered project (`group.project` present) can resolve a
+    // projectId for the create-space dialog; a session-only group can't.
+    spaceCapable: !!group.project,
   }));
+}
+
+/**
+ * What a shared "New" trigger should render, resolved from the target set. The
+ * component stays a thin renderer over this so the branching — direct-create vs
+ * picker, chat-only vs combined, and the space-capability filter — is unit
+ * testable without mounting a menu.
+ *
+ * Space creation is offered only for `spaceCapable` targets. When none apply
+ * (space disabled, or the sole/only targets can't back a space) the shape falls
+ * back to the original chat-only behavior, including direct-create for a lone
+ * target.
+ */
+export type NewMenuShape =
+  | { kind: "chat-direct"; dir: string }
+  | { kind: "chat-picker"; chatProjects: InboxProjectOption[] }
+  | { kind: "combined-direct"; dir: string }
+  | {
+      kind: "combined-picker";
+      chatProjects: InboxProjectOption[];
+      spaceProjects: InboxProjectOption[];
+    };
+
+export function resolveNewMenuShape(
+  projectOptions: readonly InboxProjectOption[],
+  soleTarget: string | null,
+  spaceEnabled: boolean,
+): NewMenuShape {
+  const spaceProjects = spaceEnabled ? projectOptions.filter((option) => option.spaceCapable) : [];
+
+  if (soleTarget) {
+    const canSpace = spaceProjects.some((option) => option.dir === soleTarget);
+    return canSpace
+      ? { kind: "combined-direct", dir: soleTarget }
+      : { kind: "chat-direct", dir: soleTarget };
+  }
+
+  if (spaceProjects.length > 0) {
+    return { kind: "combined-picker", chatProjects: [...projectOptions], spaceProjects };
+  }
+  return { kind: "chat-picker", chatProjects: [...projectOptions] };
 }
