@@ -2613,6 +2613,84 @@
       "blockedBy": [],
       "createdAt": "2026-08-24T00:00:00.000Z",
       "updatedAt": "2026-08-24T00:00:00.000Z"
+    },
+    {
+      "id": "3a7f1c2d",
+      "title": "Anthropic SDK: Files/Skills beta APIs go GA — audit for dated beta headers",
+      "description": "Anthropic SDK 0.122.0 (2026-08-27) promotes the Files and Skills API namespaces from beta to GA and drops support for dated beta header pins (e.g. `anthropic-beta: files-api-2025-04-14`). Any code still sending a dated beta header for these namespaces will receive a rejection after a pin upgrade.\n\nRelay pins `@anthropic-ai/sdk` and `@anthropic-ai/claude-agent-sdk` — so this is a heads-up for the next upgrade, not a currently-broken state. But because the Claude Agent SDK itself transitively depends on the raw SDK, and because Relay's bootstrap-context injection and skill discovery paths touch SDK internals, we should audit before upgrading.\n\nNeeded:\n1. Search `server/core/providers/claude-sdk.ts` and any HTTP client wrappers for hardcoded `anthropic-beta` header values referencing Files or Skills.\n2. Confirm the Claude Agent SDK's installed version no longer sends dated headers for these namespaces (check `node_modules/@anthropic-ai/claude-agent-sdk` request headers).\n3. Verify the GA response shapes for Files/Skills match any types Relay depends on (if any).\n\nAlso note: SDK 0.122.0 documents TypeScript 5.0 as the minimum supported version — verify Relay's TypeScript constraint covers this before upgrading.\n\nScope: small (~30 min audit). Touch point: `claude-sdk.ts`, HTTP client setup.\n\nBucket 0 — priority 1.\n\nRef: @anthropic-ai/sdk CHANGELOG v0.122.0 (TypeScript), v0.121.0",
+      "status": "open",
+      "priority": 1,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-0"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-31T00:00:00.000Z",
+      "updatedAt": "2026-08-31T00:00:00.000Z"
+    },
+    {
+      "id": "9b4e8a10",
+      "title": "Claude: expose --restricted mode as a new ProviderCapabilities runtime mode",
+      "description": "Claude Code CLI 2.1.248 adds a `--restricted` flag that launches sessions with command-execution and code-running tools removed and file access confined to the working directory. This is a tighter sandbox than `approval-required` (which still prompts for every tool call) and is aimed at read/analysis workloads where execution capability is undesirable.\n\nRelay's `ProviderRuntimeMode` currently covers `approval-required | full-access | plan`. `restricted` is a new peer mode that should be added as a first-class option.\n\nNeeded:\n1. Confirm the Claude Agent SDK surfaces this as a new `permissionMode` value (likely `'restricted'`) or a combination of session args — check the SDK types after confirming the CLI flag maps to the SDK contract.\n2. Add `'restricted'` (or equivalent Relay-canonical name) to `ProviderRuntimeMode` in `server/core/types.ts`.\n3. Map it to the correct SDK session args in `claude-sdk.ts`.\n4. Add a `restricted` entry to `ProviderCapabilities.runtimeModes` for Claude (label, description, icon metadata) so the runtime-mode picker renders it automatically.\n5. Verify no DB migration is needed (if `runtime_mode` is stored as a string, the new value is additive).\n\nScope: small–medium (~2h). Touch points: `server/core/types.ts`, `claude-sdk.ts`, `server/core/providers/claude-sdk.ts` capability declaration.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.248",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-31T00:00:00.000Z",
+      "updatedAt": "2026-08-31T00:00:00.000Z"
+    },
+    {
+      "id": "5c2d9f48",
+      "title": "Claude Agent SDK: filter ambient/housekeeping task events from sidecar activity",
+      "description": "Agent SDK 0.3.247 adds an optional `ambient` boolean to `task_started`, `task_notification`, and `background_tasks_changed` events. When `ambient: true`, the task is routine housekeeping (e.g. internal bookkeeping, background maintenance) that hosts should silently suppress from user-facing activity indicators. When `ambient` is absent or false, the event is meaningful and should surface normally.\n\nRelay's sidecar and activity panels forward all task events indiscriminately today. Adding ambient awareness filters out noise without hiding work the user cares about.\n\nNeeded:\n1. In `claude-sdk.ts`, read the `ambient` field from task events and suppress ambient events from the `AgentActivity` / sidecar broadcast (or mark them as `ambient: true` and let the UI decide).\n2. Update the `AgentActivity` type if it needs an `ambient` field for opt-in UI suppression.\n3. No new `ProviderCapabilities` flag needed — this is filtering existing event data.\n\nScope: small (~1h). Touch points: `claude-sdk.ts` (task event handler), `AgentActivity` type, sidecar activity filter.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.247",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-31T00:00:00.000Z",
+      "updatedAt": "2026-08-31T00:00:00.000Z"
+    },
+    {
+      "id": "1f7b3e65",
+      "title": "Claude Agent SDK: expose perTaskStopAffordance for background-preserving interrupt",
+      "description": "Agent SDK 0.3.246 adds a `perTaskStopAffordance` session option. When enabled, the stop/interrupt action aborts only the currently-running foreground task while leaving background agents running — a finer-grained interrupt than today's all-or-nothing cancel.\n\nRelay's chat toolbar currently has a single stop button that calls `interrupt()` on the SDK session, which halts everything. With `perTaskStopAffordance`, Relay could offer two interrupt behaviors:\n- **Stop current task** (new): cancel only the foreground turn, keep background agents alive.\n- **Stop all** (existing): cancel everything, as today.\n\nThis is a capability-shaped addition: Relay should declare `perTaskStopAffordance` in `ProviderCapabilities` for Claude and render a secondary stop option in the toolbar when the capability is present.\n\nNote: the related `cancel_queued` capability (task `e5f7b284`, done) cancels queued messages; `perTaskStopAffordance` operates on the running foreground task only — they are complementary.\n\nNeeded:\n1. Add `perTaskStopAffordance?: boolean` to `ProviderCapabilities` for the Claude driver.\n2. Pass the option at session start in `claude-sdk.ts`.\n3. Add a secondary interrupt control in the chat toolbar, rendered only when `capabilities.perTaskStopAffordance` is true.\n\nScope: small–medium (~2–3h). Touch points: `ProviderCapabilities`, `claude-sdk.ts`, chat toolbar UI.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.246",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-31T00:00:00.000Z",
+      "updatedAt": "2026-08-31T00:00:00.000Z"
+    },
+    {
+      "id": "a8c0d492",
+      "title": "Claude Agent SDK: surface modelUsage.costBasis for per-turn cost attribution",
+      "description": "Agent SDK 0.3.246 adds a `costBasis` field to each entry in `modelUsage[]` in the turn result. The field indicates which pricing table was used to compute that model's cost (e.g. `standard`, `batch`, `prompt_cache_write`, `prompt_cache_read`). Previously, cost was a scalar with no indication of how it was calculated.\n\nRelay tracks per-turn costs via `estimateCost` in the session stats path. With `costBasis`, Relay can:\n1. Show a breakdown label alongside the cost figure (e.g. \"$0.003 via cached pricing\").\n2. Verify that estimated costs match SDK-reported costs when basis is `standard`.\n3. Potentially replace estimation with SDK-reported actuals when present.\n\nNeeded:\n1. Parse `costBasis` from `modelUsage` entries in the turn result handler in `claude-sdk.ts`.\n2. Forward it through `SessionStats` / `ChatMessage` cost fields (a new optional `costBasis?: string` on the per-model usage entry).\n3. Surface it as a tooltip or label on the cost display in the sidecar context panel.\n\nScope: small (~1–2h). Touch points: `claude-sdk.ts` result handler, `SessionStats` type, sidecar context panel.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-agent-sdk CHANGELOG v0.3.246",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-31T00:00:00.000Z",
+      "updatedAt": "2026-08-31T00:00:00.000Z"
+    },
+    {
+      "id": "7e4f2b9c",
+      "title": "Claude: surface rate_limits.spend_limit in provider status UI",
+      "description": "Claude Code CLI 2.1.251 adds a `rate_limits.spend_limit` field to the headless status stream and a spend limit bar to `/usage`. This means the SDK now exposes spending-limit data (dollar cap + current spend) alongside the existing time-window rate limits.\n\nRelay's `ProviderRateLimitStatus` currently models rate limit windows (five_hour, seven_day, model_scoped). Spending limits are a distinct concept — a dollar cap per billing period — that needs a separate field.\n\nNeeded:\n1. Confirm whether `spend_limit` appears in the `rate_limit_event` SDK stream or only in the headless status line (check `claude-sdk.ts` rate limit parsing).\n2. If available, parse `spend_limit` (current spend + cap + period) from the rate limit stream and add it to `ProviderRateLimitStatus`.\n3. Surface it in the provider status UI (sidecar + settings page) alongside the existing rate limit bars — a spend bar with current/cap dollar amounts and period label.\n\nScope: small–medium (~2h). Touch points: `claude-sdk.ts` rate limit parsing, `ProviderRateLimitStatus` type, rate limit UI component.\n\nBucket 2 — priority 2.\n\nRef: @anthropic-ai/claude-code CHANGELOG v2.1.251",
+      "status": "open",
+      "priority": 2,
+      "type": "task",
+      "tags": ["provider-watch", "claude", "bucket-2"],
+      "parent": null,
+      "blockedBy": [],
+      "createdAt": "2026-08-31T00:00:00.000Z",
+      "updatedAt": "2026-08-31T00:00:00.000Z"
     }
   ]
 }
