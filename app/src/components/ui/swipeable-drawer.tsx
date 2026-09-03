@@ -55,6 +55,7 @@ export function SwipeableDrawer({
 }: SwipeableDrawerProps) {
   const [mounted, setMounted] = useState(open);
   const [width, setWidth] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef(0);
   const gestureActiveRef = useRef(false);
@@ -219,10 +220,63 @@ export function SwipeableDrawer({
     }
   };
 
+  // ── Scroll lock ─────────────────────────────────────────────────────
+  // While the drawer is up, a vertical touch drag anywhere that can't be
+  // consumed by an inner scroller (backdrop, container padding, panel chrome,
+  // an over-scrolled edge) would otherwise scroll the page behind it. Block
+  // those; let the inner scrollers keep their native scroll, and leave
+  // horizontal drags alone so motion's swipe-to-dismiss still fires.
+  useEffect(() => {
+    if (!mounted) return;
+    const container = containerRef.current;
+    if (!container) return;
+    let startX = 0;
+    let startY = 0;
+
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      startX = t.clientX;
+      startY = t.clientY;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      if (Math.abs(dx) > Math.abs(dy)) return; // horizontal — motion owns it
+
+      let el = e.target as HTMLElement | null;
+      while (el && el !== container) {
+        if (el.scrollHeight > el.clientHeight) {
+          const overflowY = getComputedStyle(el).overflowY;
+          if (overflowY === "auto" || overflowY === "scroll") {
+            const atTop = el.scrollTop <= 0;
+            const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+            // dy > 0 = finger down = scroll toward top; only blocked at the top.
+            if ((dy > 0 && !atTop) || (dy < 0 && !atBottom)) return;
+            break; // scroller is at its edge — fall through and block
+          }
+        }
+        el = el.parentElement;
+      }
+      e.preventDefault(); // nothing here can scroll — don't leak to the page
+    };
+
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [mounted]);
+
   if (!mounted) return null;
 
   return (
     <div
+      ref={containerRef}
       className={`fixed inset-0 z-50 flex ${side === "right" ? "justify-end" : ""} ${containerClassName}`}
     >
       <motion.div
