@@ -812,3 +812,10 @@ html.light .app-shell::before {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Scrollers inside a mobile drawer must not chain a rubber-band at their
+   edge into the page behind the overlay (that chaining happens natively
+   between touchmove events and during momentum, where JS can't intercept). */
+[data-swipeable-drawer] * {
+  overscroll-behavior: contain;
+}

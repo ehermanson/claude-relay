@@ -221,31 +221,31 @@ export function SwipeableDrawer({
   };
 
   // ── Scroll lock ─────────────────────────────────────────────────────
-  // While the drawer is up, a vertical touch drag anywhere that can't be
-  // consumed by an inner scroller (backdrop, container padding, panel chrome,
-  // an over-scrolled edge) would otherwise scroll the page behind it. Block
-  // those; let the inner scrollers keep their native scroll, and leave
-  // horizontal drags alone so motion's swipe-to-dismiss still fires.
+  // While the drawer is up, a touch drag anywhere that can't be consumed by
+  // an inner scroller (backdrop, container padding, panel chrome, a scroller
+  // already at its edge) would otherwise scroll the page behind it.
+  //
+  // iOS commits to native scrolling on the FIRST touchmove of a gesture and
+  // ignores later preventDefault calls, so every decision here must be made
+  // on that first event: never let one through "to see where it goes".
+  // Decide purely on vertical intent — cancelling touchmove during a
+  // horizontal swipe is harmless (motion drives dismiss via pointer events and
+  // touch-action: pan-y already forbids native horizontal panning). Capture
+  // phase so no descendant's stopPropagation can hide the event from us.
   useEffect(() => {
     if (!mounted) return;
     const container = containerRef.current;
     if (!container) return;
-    let startX = 0;
     let startY = 0;
 
     const onTouchStart = (e: TouchEvent) => {
       const t = e.touches[0];
-      if (!t) return;
-      startX = t.clientX;
-      startY = t.clientY;
+      if (t) startY = t.clientY;
     };
 
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      const t = e.touches[0];
-      const dx = t.clientX - startX;
-      const dy = t.clientY - startY;
-      if (Math.abs(dx) > Math.abs(dy)) return; // horizontal — motion owns it
+      const dy = e.touches[0].clientY - startY;
 
       let el = e.target as HTMLElement | null;
       while (el && el !== container) {
@@ -254,9 +254,11 @@ export function SwipeableDrawer({
           if (overflowY === "auto" || overflowY === "scroll") {
             const atTop = el.scrollTop <= 0;
             const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
-            // dy > 0 = finger down = scroll toward top; only blocked at the top.
-            if ((dy > 0 && !atTop) || (dy < 0 && !atBottom)) return;
-            break; // scroller is at its edge — fall through and block
+            // dy > 0 = finger down = scroll toward top. Block only when the
+            // scroller can't move that way; dy === 0 (no direction yet) is
+            // allowed so the scroller's own native scroll can start.
+            if ((dy > 0 && atTop) || (dy < 0 && atBottom)) break;
+            return;
           }
         }
         el = el.parentElement;
@@ -264,11 +266,11 @@ export function SwipeableDrawer({
       e.preventDefault(); // nothing here can scroll — don't leak to the page
     };
 
-    container.addEventListener("touchstart", onTouchStart, { passive: true });
-    container.addEventListener("touchmove", onTouchMove, { passive: false });
+    container.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
     return () => {
-      container.removeEventListener("touchstart", onTouchStart);
-      container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchstart", onTouchStart, { capture: true });
+      container.removeEventListener("touchmove", onTouchMove, { capture: true });
     };
   }, [mounted]);
 
@@ -277,6 +279,7 @@ export function SwipeableDrawer({
   return (
     <div
       ref={containerRef}
+      data-swipeable-drawer=""
       className={`fixed inset-0 z-50 flex ${side === "right" ? "justify-end" : ""} ${containerClassName}`}
     >
       <motion.div
