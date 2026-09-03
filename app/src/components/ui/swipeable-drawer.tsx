@@ -38,7 +38,13 @@ interface SwipeableDrawerProps {
   edgeSwipeOpen?: boolean;
   /** Classes for the fixed full-screen container (padding etc.). */
   containerClassName?: string;
-  /** Classes for the draggable panel wrapper (sizing). */
+  /**
+   * Classes for the draggable panel wrapper (width). The panel is a flex
+   * column that stretches to the container's height — don't give it a
+   * percentage height: WebKit won't reliably resolve one through a row-flex
+   * item, and a collapsed panel means the content never overflows, so touches
+   * scroll the page instead of the drawer. Fill it with `flex-1 min-h-0`.
+   */
   panelClassName?: string;
   children: ReactNode;
 }
@@ -222,13 +228,14 @@ export function SwipeableDrawer({
 
   // ── Scroll lock ─────────────────────────────────────────────────────
   // While the drawer is up, a touch drag anywhere that can't be consumed by
-  // an inner scroller (backdrop, container padding, panel chrome, a scroller
-  // already at its edge) would otherwise scroll the page behind it.
+  // an inner scroller (backdrop, container padding, panel chrome) would
+  // otherwise scroll the page behind it.
   //
   // iOS commits to native scrolling on the FIRST touchmove of a gesture and
   // ignores later preventDefault calls, so every decision here must be made
   // on that first event: never let one through "to see where it goes".
-  // Decide purely on vertical intent — cancelling touchmove during a
+  // The only decision is "is this touch inside an overflowing scroller?" —
+  // if so we never touch the event; if not we cancel it. Cancelling during a
   // horizontal swipe is harmless (motion drives dismiss via pointer events and
   // touch-action: pan-y already forbids native horizontal panning). Capture
   // phase so no descendant's stopPropagation can hide the event from us.
@@ -236,28 +243,19 @@ export function SwipeableDrawer({
     if (!mounted) return;
     const container = containerRef.current;
     if (!container) return;
-    let startY = 0;
-
-    const onTouchStart = (e: TouchEvent) => {
-      const t = e.touches[0];
-      if (t) startY = t.clientY;
-    };
-
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      const dy = e.touches[0].clientY - startY;
 
       let el = e.target as HTMLElement | null;
       while (el && el !== container) {
         if (el.scrollHeight > el.clientHeight) {
           const overflowY = getComputedStyle(el).overflowY;
           if (overflowY === "auto" || overflowY === "scroll") {
-            const atTop = el.scrollTop <= 0;
-            const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
-            // dy > 0 = finger down = scroll toward top. Block only when the
-            // scroller can't move that way; dy === 0 (no direction yet) is
-            // allowed so the scroller's own native scroll can start.
-            if ((dy > 0 && atTop) || (dy < 0 && atBottom)) break;
+            // A real, overflowing scroller: hands off entirely. Never cancel
+            // here, even at its edges — cancelling the first touchmove kills
+            // the whole gesture on iOS, and a 1px jitter at scrollTop 0 would
+            // do exactly that. Edge bounce is contained natively by the
+            // [data-swipeable-drawer] overscroll-behavior rule instead.
             return;
           }
         }
@@ -266,10 +264,8 @@ export function SwipeableDrawer({
       e.preventDefault(); // nothing here can scroll — don't leak to the page
     };
 
-    container.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
     container.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
     return () => {
-      container.removeEventListener("touchstart", onTouchStart, { capture: true });
       container.removeEventListener("touchmove", onTouchMove, { capture: true });
     };
   }, [mounted]);
@@ -289,9 +285,10 @@ export function SwipeableDrawer({
       />
       <motion.div
         ref={panelRef}
-        className={`relative z-10 ${panelClassName}`}
+        className={`relative z-10 flex flex-col ${panelClassName}`}
         style={{ x, touchAction: "pan-y" }}
         drag={open ? "x" : false}
+        dragDirectionLock
         dragConstraints={side === "left" ? { left: -width, right: 0 } : { left: 0, right: width }}
         dragElastic={0.03}
         dragMomentum={false}

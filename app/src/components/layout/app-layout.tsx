@@ -120,9 +120,9 @@ export function AppLayout() {
           onOpenChange={setMobileSidebarOpen}
           edgeSwipeOpen
           containerClassName="p-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)]"
-          panelClassName="my-auto h-[calc(100%-16px)] w-[85vw] max-w-sm"
+          panelClassName="min-h-0 w-[85vw] max-w-sm"
         >
-          <div className="app-shell-sidebar h-full">
+          <div className="app-shell-sidebar flex min-h-0 flex-1 flex-col">
             <SidebarComponent showLogo onSearchOpen={() => search.setOpen(true)} />
           </div>
         </SwipeableDrawer>
